@@ -5,15 +5,15 @@ import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import yaml from 'js-yaml';
-import {assertDisposableDatabase, parseEnv, serializeEnv, writeProductionEnvironment} from '../../../scripts/db/postgres.mjs';
+import {assertDisposableDatabase, parseEnv, serializeEnv, writeLocalEnvironment} from '../../../scripts/db/postgres.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 
 describe('PostgreSQL tooling', () => {
-  it('exposes setup and acceptance commands, and none that migrates or resets the database', () => {
+  it('exposes setup, pull, push and acceptance commands, and none that migrates or resets production', () => {
     const pkg = JSON.parse(read('package.json'));
-    for (const script of ['db:setup', 'test:postgres']) assert.ok(pkg.scripts[script], `${script} is present`);
+    for (const script of ['db:setup', 'db:pull', 'db:push', 'test:postgres']) assert.ok(pkg.scripts[script], `${script} is present`);
     for (const script of ['db:sync', 'db:postgres:migrate', 'db:postgres:setup', 'start:postgres:api']) {
       assert.equal(pkg.scripts[script], undefined, `${script} is gone`);
     }
@@ -32,29 +32,22 @@ describe('PostgreSQL tooling', () => {
     assert.throws(() => serializeEnv({KEY: "it's"}), /single quote/);
   });
 
-  it("writes production's runtime connection into .env and drops any owner URL", () => {
+  it('removes every database connection from .env and keeps the rest', () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-env-'));
     const envFile = path.join(directory, '.env');
     fs.writeFileSync(envFile, [
       'DATABASE_MIGRATION_URL=postgresql://owner:secret@ep-dev.neon.tech/neondb',
       'DATABASE_URL=postgresql://mochi_runtime:old@ep-dev-pooler.neon.tech/neondb',
+      'PG_SSL=require',
+      'PG_SSL_REJECT_UNAUTHORIZED=true',
       'GITHUB_CLIENT_ID=local-app',
       '',
     ].join('\n'));
     try {
-      const written = writeProductionEnvironment({
-        DATABASE_URL: 'postgresql://mochi_runtime:new@ep-prod-pooler.neon.tech/neondb',
-        PG_SSL: 'require',
-        DATABASE_MIGRATION_URL: 'postgresql://owner:secret@ep-prod.neon.tech/neondb',
-      }, {envFile});
+      const written = writeLocalEnvironment({envFile, values: {OPENROUTER_MANAGEMENT_KEY: 'mgmt'}});
+      assert.deepEqual(written, {GITHUB_CLIENT_ID: 'local-app', OPENROUTER_MANAGEMENT_KEY: 'mgmt'});
       assert.deepEqual(parseEnv(fs.readFileSync(envFile, 'utf8')), written);
-      assert.equal(written.DATABASE_URL, 'postgresql://mochi_runtime:new@ep-prod-pooler.neon.tech/neondb');
-      assert.equal(written.PG_SSL, 'require');
-      assert.equal(written.DATABASE_MIGRATION_URL, undefined);
-      assert.equal(written.GITHUB_CLIENT_ID, 'local-app');
       assert.equal(fs.statSync(envFile).mode & 0o777, 0o600);
-      assert.throws(() => writeProductionEnvironment(
-        {DATABASE_URL: 'postgresql://owner:secret@ep-prod.neon.tech/neondb'}, {envFile}), /mochi_runtime/);
     } finally {
       fs.rmSync(directory, {recursive: true, force: true});
     }

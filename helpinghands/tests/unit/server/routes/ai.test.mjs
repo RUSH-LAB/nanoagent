@@ -40,7 +40,7 @@ const GUARDS = [
   {name: 'a non-string agent id', body: {prompt: 'p', agentId: 7}, error: 'agentId must be a non-empty string of 100 characters or fewer'},
   {name: 'an empty agent id', body: {prompt: 'p', agentId: ''}, error: 'agentId must be a non-empty string of 100 characters or fewer'},
   {name: 'a non-string profile id', body: {prompt: 'p', profileId: 7}, error: 'profileId must be a non-empty string of 100 characters or fewer'},
-  {name: 'an unknown profile id', body: {prompt: 'p', profileId: 'unknown'}, error: 'The selected model is no longer offered. Choose another with /model or in Settings → AI.'},
+  {name: 'an unknown profile id', body: {prompt: 'p', profileId: 'unknown'}, error: 'The selected model is no longer offered. Choose another with /model or in Settings → Usage.'},
   {name: 'a malformed model', body: {prompt: 'p', model: {provider: 'x'}}, error: 'model must be {"provider": "<id>", "model": "<id>"}'},
   {name: 'a malformed app id', body: {prompt: 'p', appId: '../runs'}, error: 'appId must be a NanoAgent plugin id'},
   {name: 'an app id with a profile', body: {prompt: 'p', appId: 'echo', profileId: PROFILE}, error: 'appId cannot be combined with type, agentId, profileId or model'},

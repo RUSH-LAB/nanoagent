@@ -11,9 +11,9 @@ page is on the member's own computer, through Mochi Lab
 
 ## Required services
 
-- The one PostgreSQL database, with a direct schema-owner URL (Railway's
-  alone) and a pooled restricted `mochi_runtime` URL, which local `npm start`
-  uses too.
+- Production's PostgreSQL database, with a direct schema-owner URL and a
+  pooled restricted `mochi_runtime` URL. Local `npm start` runs on a copy of
+  it of its own.
 - A GitHub OAuth App whose callback is `<SITE_URL>/api/auth/callback/github`,
   for `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`; GitHub is the only
   sign-in. `ROOT_GITHUB_LOGIN` names the GitHub account that administers the

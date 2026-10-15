@@ -1,10 +1,11 @@
 # Release policy
 
 Code reaches production only through git: uncommitted files and branches
-other than `production` never deploy. Data has no boundary to cross: local
-`npm start` and production share the one database
-([neon-postgres-setup.md](neon-postgres-setup.md)), and only Railway's deploy
-changes its schema.
+other than `production` never deploy. Data crosses only when asked: local
+`npm start` runs on its own copy of production's database, which `db:pull`
+refreshes and `db:push` sends one workspace of back
+([neon-postgres-setup.md](neon-postgres-setup.md)). Production's schema changes
+only by Railway's deploy.
 
 ## Branch rules
 
@@ -13,8 +14,8 @@ changes its schema.
 - `production` is what Railway runs and must always be deployable. Change it
   only by merging a pull request after CI passes; never push to it directly.
 - `devmode` collects what is ready to release next. Develop on another branch
-  and open a pull request into `devmode`; CI runs on pull requests into either
-  branch.
+  and open a pull request into `devmode`. CI runs only on pull requests into
+  either branch: a push runs nothing, so run `npm test` before pushing.
 - Release by opening one pull request from `devmode` into `production`. No
   other branch goes into `production`.
 - Railway watches only `production`. The Mochi service builds from

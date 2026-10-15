@@ -9,8 +9,9 @@
  *                                      Authorization: Bearer LAB_UPLOAD_TOKEN
  *   GET /api/lab/install               signed in: {command}, the line the member pastes in a terminal
  *   GET /api/lab/install.sh?token=     the install script that line runs (src/runner/install.sh)
- *   POST /api/lab/session?token=       a session for the member, as text: the script keeps it for
- *                                      the relay, so this computer connects with no sign-in page
+ *   POST /api/lab/session?token=       {session, member: {id, login}}: the script keeps the session
+ *                                      as the member's connection on this computer, for its relay,
+ *                                      so it connects with no sign-in page
  *   GET /api/lab/bundles/{target}      the target's newest bundle, by ?token= or a session,
  *                                      with X-Lab-Stamp and X-Lab-Sha256
  *
@@ -95,7 +96,7 @@ module.exports = async function lab(req, res, url, pathname, ctx) {
     if (req.method !== 'GET') return json(res, 405, {error: 'Method not allowed'});
     const token = url.searchParams.get('token');
     if (!verifyDownloadToken(secret, token)) {
-      return refuseScript(res, 'this install link is invalid or has expired. Copy the command again from Settings, AI, on Mochi.');
+      return refuseScript(res, 'this install link is invalid or has expired. Copy the command again from Settings, Connection, on RUSH Lab.');
     }
     const body = (await fs.readFile(installScript, 'utf8'))
       .replaceAll('__MOCHI_SITE__', siteUrl).replaceAll('__MOCHI_TOKEN__', token);
@@ -109,10 +110,10 @@ module.exports = async function lab(req, res, url, pathname, ctx) {
     if (!userId) return json(res, 401, {error: 'This install link is invalid or has expired'});
     // The same session the device grant gives once a member approves a computer: the install
     // command was theirs, shown to them signed in, so it stands for that approval.
-    const token = await createSession(userId);
-    if (!token) return json(res, 401, {error: 'This install link\'s member is gone'});
-    res.writeHead(200, {'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store'});
-    return res.end(token);
+    const created = await createSession(userId);
+    if (!created) return json(res, 401, {error: 'This install link\'s member is gone'});
+    res.writeHead(200, {'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store'});
+    return res.end(JSON.stringify({session: created.token, member: {id: userId, login: created.login}}));
   }
 
   if (req.method === 'PUT') {

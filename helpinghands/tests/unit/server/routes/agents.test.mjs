@@ -113,7 +113,7 @@ describe('workspace agents', () => {
     const ctx = makeCtx();
     const created = await invoke(routes, {method: 'POST', path: '/api/agents', body: {name: 'Plain', instructions: ''}, ctx, requestContext: context});
     assert.equal(created.payload.agent.instructions, '');
-    const refusal = {error: 'An agent chooses no model: each member chooses theirs in Settings → AI'};
+    const refusal = {error: 'An agent chooses no model: each member chooses theirs in Settings → Usage'};
     for (const choice of [{profileId: 'native-test'}, {provider: 'codex'}, {model: 'm'}]) {
       const refused = await invoke(routes, {method: 'POST', path: '/api/agents', body: {name: 'Bad', ...choice}, ctx, requestContext: context});
       assert.deepEqual([refused.status, refused.payload], [400, refusal]);

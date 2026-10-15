@@ -31,27 +31,6 @@ function checksum(sql) {
   return crypto.createHash('sha256').update(sql).digest('hex');
 }
 
-/**
- * Refuse a database whose applied migrations are not exactly this checkout's:
- * the local server shares production's database and never migrates it.
- */
-async function assertSchemaCurrent(pool, {directory = MIGRATIONS_DIR} = {}) {
-  const applied = new Map((await pool.query('select name, checksum from schema_migration')).rows
-    .map(row => [row.name, row.checksum]));
-  const files = migrationFiles(directory);
-  const changed = files.filter(name => applied.has(name)
-    && applied.get(name) !== checksum(fs.readFileSync(path.join(directory, name), 'utf8')));
-  if (changed.length) throw new Error(`Applied migration changed: ${changed.join(', ')}`);
-  const pending = files.filter(name => !applied.has(name));
-  if (pending.length) {
-    throw new Error(`The database has not applied ${pending.join(', ')}: release them first`);
-  }
-  const unknown = [...applied.keys()].filter(name => !files.includes(name));
-  if (unknown.length) {
-    throw new Error(`The database has applied ${unknown.join(', ')}, which this checkout lacks: pull first`);
-  }
-}
-
 async function migrate(pool, {directory = MIGRATIONS_DIR} = {}) {
   const client = await pool.connect();
   try {
@@ -171,6 +150,6 @@ async function assertRuntimeRoleIsNotOwner(runtimePool) {
 }
 
 module.exports = {
-  MIGRATIONS_DIR, createPool, migrate, assertSchemaCurrent, withRequestContext, queryInContext, checksum, migrationFiles,
+  MIGRATIONS_DIR, createPool, migrate, withRequestContext, queryInContext, checksum, migrationFiles,
   quoteIdentifier, grantRuntimeAccess, assertRuntimeRoleIsNotOwner,
 };

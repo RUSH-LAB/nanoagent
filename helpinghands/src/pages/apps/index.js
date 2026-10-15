@@ -13,7 +13,7 @@ import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 import styles from './styles.module.css';
 
 /**
- * The plugins the workspace added from the marketplace: `nanoagent.plugin/v1`
+ * The plugins the member installed from the marketplace: `nanoagent.plugin/v1`
  * packages, which NanoAgent runs in its sandbox.
  *
  * Choosing an app shows its own front end, the page in its ui/ folder, in a
@@ -39,7 +39,7 @@ function MaintenanceNotice({app}) {
   );
 }
 
-/** A plugin the workspace added that the marketplace no longer has. */
+/** A plugin the member installed that the marketplace no longer has. */
 function UnavailableNotice({app}) {
   return (
     <article className={styles.detail}>
@@ -92,8 +92,7 @@ function AppsColumns() {
   else if (apps && !apps.length) {
     content = (
       <p className={styles.muted}>
-        This workspace has no plugins yet. <Link to={`/w/${encodeURIComponent(slug)}/marketplace`}>Browse the marketplace</Link>
-        {workspace?.role === 'owner' ? ' to add some.' : '; an owner can add them.'}
+        You have no plugins yet. <Link to={`/w/${encodeURIComponent(slug)}/marketplace`}>Browse the marketplace</Link> to install some.
       </p>
     );
   } else if (apps && navigation.unknownTag) {

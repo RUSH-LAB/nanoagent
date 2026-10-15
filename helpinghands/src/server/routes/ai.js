@@ -133,7 +133,7 @@ function composeRequest(body, sanitizeText, agent = null, catalog = null, run = 
     : profileId ? {profile: profileId}
       : {profile: run.profile, model: run.model};
   if (choice.profile && !(catalog?.profiles ?? []).some(profile => profile.id === choice.profile)) {
-    return {error: 'The selected model is no longer offered. Choose another with /model or in Settings → AI.'};
+    return {error: 'The selected model is no longer offered. Choose another with /model or in Settings → Usage.'};
   }
   if (context) history.push({role: 'user', content: `Context:\n${sanitizeText(context)}`});
 
@@ -363,7 +363,7 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
         if (error.name === 'SessionError') return json(res, error.status, {error: error.message});
         throw error;
       }
-      // The app runs as the workspace added it: NanoAgent's install of its package.
+      // The app runs as the member installed it: NanoAgent's install of its package.
       const opened = await ctx.workspaceApps.open(req.context, composed.request.app, ai);
       if (opened.error) return json(res, opened.status, {error: opened.error});
       composed.request.install = opened.value.sha256;
@@ -424,7 +424,7 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     return json(res, 200, await (await ctx.aiFor(req.auth?.userId)).profiles());
   }
 
-  // ── The member's AI settings (Settings → AI, ai-settings.js) ──
+  // ── The member's AI settings (Settings → Usage, ai-settings.js) ──
   if (req.method === 'GET' && pathname === '/api/ai/settings') {
     return json(res, 200, {settings: await ctx.aiSettings(req.auth?.userId), model: aiSettings.MODEL});
   }

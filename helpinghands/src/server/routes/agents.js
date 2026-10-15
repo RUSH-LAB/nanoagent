@@ -1,7 +1,7 @@
 'use strict';
 
 // A workspace agent is a name and instructions; the model each member's chat with it
-// runs on is theirs to choose (Settings → AI, ai-settings.js).
+// runs on is theirs to choose (Settings → Usage, ai-settings.js).
 const AGENT_RE = /^\/api\/agents\/([^/]+)$/;
 const COLORS = new Set(['violet', 'blue', 'emerald', 'amber', 'rose', 'slate']);
 const DEFAULT_AGENT_ID = 'rush';
@@ -69,7 +69,7 @@ function cleanAgent(body, sanitizeText, current = {}) {
   if (typeof source.description === 'string' && source.description.length > 180) return {error: 'Description must be 180 characters or fewer'};
   if (typeof source.instructions === 'string' && source.instructions.length > 10000) return {error: 'Instructions must be 10000 characters or fewer'};
   if (MODEL_FIELDS.some(field => source[field] !== undefined)) {
-    return {error: 'An agent chooses no model: each member chooses theirs in Settings → AI'};
+    return {error: 'An agent chooses no model: each member chooses theirs in Settings → Usage'};
   }
   const name = typeof source.name === 'string' ? sanitizeText(source.name).trim() : current.name;
   const description = typeof source.description === 'string'

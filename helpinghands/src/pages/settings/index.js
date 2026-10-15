@@ -10,6 +10,7 @@ import {useAccount} from '@site/src/utils/account';
 import {PaneHeading} from './_parts';
 import TwoColumnLayout from '@site/src/components/TwoColumnLayout';
 import Ai from './_Ai';
+import Connection from './_Connection';
 import Leave from './_Leave';
 import People from './_People';
 import Plugins from './_Plugins';
@@ -45,7 +46,8 @@ function SettingsApp() {
   const groups = [
     {id: 'user', label: 'User', panes: [
       {id: 'account', label: 'Account'},
-      {id: 'ai', label: 'AI'},
+      {id: 'connection', label: 'Connection'},
+      {id: 'ai', label: 'Usage'},
       ...(activeWorkspace ? [{id: 'membership', label: 'Membership'}] : []),
     ]},
     ...(activeWorkspace ? [{id: 'workspace', label: 'Workspace', panes: [
@@ -101,6 +103,10 @@ function SettingsApp() {
                 </div>
               </section>
             ) : null}
+          </section>
+
+          <section id="connection" className={styles.pane}>
+            <Connection />
           </section>
 
           <section id="ai" className={styles.pane}>

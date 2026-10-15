@@ -53,10 +53,15 @@ const store = postgresServices?.store ?? require('./store');
 // everything else here: a test substitutes them.
 const documents = postgresServices?.documents ?? require('./documents');
 const preferences = postgresServices?.preferences ?? require('./preferences');
-// The OpenRouter key Mochi gives each member's computer, on its own account.
-const openrouterKeys = process.env.OPENROUTER_MANAGEMENT_KEY?.trim()
-  ? createOpenRouterKeys({managementKey: process.env.OPENROUTER_MANAGEMENT_KEY.trim()})
-  : null;
+// The OpenRouter key Mochi gives each member's computer, on its own account: production's in its
+// own OpenRouter workspace, any other site's (npm start's) in another.
+if (!process.env.OPENROUTER_MANAGEMENT_KEY?.trim()) {
+  throw new Error('Mochi requires OPENROUTER_MANAGEMENT_KEY: it gives each member\'s computer its OpenRouter key.');
+}
+const openrouterKeys = createOpenRouterKeys({
+  managementKey: process.env.OPENROUTER_MANAGEMENT_KEY.trim(),
+  production: process.env.NODE_ENV === 'production',
+});
 // Members' own computers, which run every NanoAgent call of theirs.
 const runners = createRunners({resolveIdentity, openrouterKeys});
 const aiSettings = require('./ai-settings');
@@ -99,11 +104,6 @@ const rootProvisioning = postgresDatabase.enabled
   ? require('./postgres-root-user')
   : require('./root-user');
 const {ensureRootUser} = rootProvisioning;
-// The server that owns the database, production's, runs the work every server
-// would otherwise repeat on the shared rows: provisioning root, sweeping rate
-// limits, deleting objects, publishing on schedule. The local server, on the
-// runtime role (postgres/database.js), runs none of it.
-const ownsDatabase = !postgresDatabase.enabled || Boolean(postgresDatabase.migrationPool);
 const PORT = process.env.EDITOR_PORT || process.env.PORT || 3001;
 const {name: platformName} = platformConfig();
 
@@ -381,7 +381,7 @@ const cacheCleanupTimer = setInterval(() => {
 }, 60000);
 cacheCleanupTimer.unref?.();
 
-const rateLimitSweepTimer = tenancy && ownsDatabase ? setInterval(() => {
+const rateLimitSweepTimer = tenancy ? setInterval(() => {
   tenancy.sweepRateLimits().catch(error => console.error('[rate-limit] Sweep failed:', error.message));
 }, 10 * 60_000) : null;
 rateLimitSweepTimer?.unref?.();
@@ -396,13 +396,13 @@ async function cleanPendingObjects() {
     objectCleanupRunning = false;
   }
 }
-const objectCleanupTimer = ownsDatabase ? setInterval(() => {
+const objectCleanupTimer = setInterval(() => {
   cleanPendingObjects().catch(error => console.error('[objects] Cleanup failed:', error.message));
-}, 60000) : null;
-objectCleanupTimer?.unref?.();
+}, 60000);
+objectCleanupTimer.unref?.();
 
 // Publish due documents once per minute.
-const scheduledPublishingTimer = ownsDatabase ? setInterval(async () => {
+const scheduledPublishingTimer = setInterval(async () => {
   const now = new Date();
   for (const {id: workspaceId, ownerId = null} of await org.allOrganizations()) {
     const scope = {workspaceId, userId: ownerId, membershipId: null, role: 'owner', kind: 'system'};
@@ -465,8 +465,8 @@ const scheduledPublishingTimer = ownsDatabase ? setInterval(async () => {
       invalidateCache(cacheKey(workspaceId, ''));
     }
   }
-}, 60000) : null;
-scheduledPublishingTimer?.unref?.();
+}, 60000);
+scheduledPublishingTimer.unref?.();
 
 // ── Performance metrics: in-memory response time tracking (last 100 per endpoint) ──
 const perfMetrics = {}; // { '/api/foo': [ms, ms, ...] }
@@ -566,19 +566,21 @@ const ctx = {
     installScript: path.join(__dirname, '../runner/install.sh'),
     // A Better Auth session for the member, as the device grant makes one (its token); null when
     // there is no such member any more.
+    // A session for the member, and their GitHub login, which names their files' folder there.
     createSession: async userId => {
       const {internalAdapter} = await auth.$context;
-      if (!await internalAdapter.findUserById(userId)) return null;
-      return (await internalAdapter.createSession(userId)).token;
+      const user = await internalAdapter.findUserById(userId);
+      if (!user) return null;
+      return {token: (await internalAdapter.createSession(userId)).token, login: user.githubLogin};
     },
   },
   // What members submit to their workspace; PostgreSQL only.
   submissions: postgresServices?.submissions ?? null,
   // Plugin sessions and what their runs cost; PostgreSQL only.
   sessions: postgresServices?.sessions ?? null,
-  // The plugins each workspace added from the marketplace, run from NanoAgent's installs; PostgreSQL only.
+  // The plugins each member installed from the marketplace, run from NanoAgent's installs; PostgreSQL only.
   workspaceApps: postgresServices
-    ? createWorkspaceApps({ai, market: postgresServices.market, plugins: postgresServices.workspacePlugins})
+    ? createWorkspaceApps({ai, market: postgresServices.market, plugins: postgresServices.userPlugins})
     : null,
   // Where the marketplace fetches a plugin's source.
   github: createGithub(),
@@ -900,7 +902,7 @@ if (_authRefusal) {
 // The root account exists before the first request, so root's first GitHub
 // sign-in finds it. A server that cannot provision its administrator does not
 // start.
-postgresDatabase.ready.then(() => ownsDatabase ? ensureRootUser(auth) : null).then(root => server.listen(PORT, async () => {
+postgresDatabase.ready.then(() => ensureRootUser(auth)).then(root => server.listen(PORT, async () => {
   const startupNs = process.hrtime.bigint() - _startupTime;
   const startupMs = Number(startupNs / 1_000_000n);
   const memMB = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
@@ -922,19 +924,13 @@ postgresDatabase.ready.then(() => ownsDatabase ? ensureRootUser(auth) : null).th
 
   const catalog = ai.describe();
   console.log(catalog.available ? '  Plugin catalog: NanoAgent' : `  Plugin catalog: unavailable. ${catalog.reason}`);
-  console.log(openrouterKeys
-    ? `  OpenRouter keys: each member's computer is given one, $${TOTAL} for every member together`
-    : '  OpenRouter keys: none given (needs OPENROUTER_MANAGEMENT_KEY)');
+  console.log(`  OpenRouter keys: each member's computer is given one, $${TOTAL} for every member together (${openrouterKeys.workspace})`);
 
-  if (root) {
-    cleanPendingObjects().catch(error => console.error('[objects] Cleanup failed:', error.message));
-    console.log(`  Root: GitHub ${root.login} (owner)${root.created ? ', account created' : ''}`);
-    const {workspace} = root;
-    if (workspace?.error) console.log(`  Workspace: none (${workspace.error})`);
-    else if (workspace?.created) console.log(`  Workspace: "${workspace.name}" ready, with #${workspace.channel}`);
-  } else {
-    console.log("  Database: production's, as the runtime role; production's server runs the shared jobs");
-  }
+  cleanPendingObjects().catch(error => console.error('[objects] Cleanup failed:', error.message));
+  console.log(`  Root: GitHub ${root.login} (owner)${root.created ? ', account created' : ''}`);
+  const {workspace} = root;
+  if (workspace?.error) console.log(`  Workspace: none (${workspace.error})`);
+  else if (workspace?.created) console.log(`  Workspace: "${workspace.name}" ready, with #${workspace.channel}`);
   console.log('');
 })).catch(error => {
   console.error(`\n  Startup failed: ${error.message}\n`);

@@ -58,6 +58,8 @@ const SITE_URL = (process.env.SITE_URL || 'http://localhost:3000').replace(/\/$/
 // The clients allowed to ask for a device code: the sync client (cli/rush.mjs)
 // and Mochi Lab's relay (runner/relay.mjs).
 const DEVICE_CLIENT_IDS = new Set(['mochi-cli', 'mochi-desktop']);
+// The marketplace plugins every new account starts with installed.
+const PREINSTALLED_PLUGINS = require('js-yaml').load(fs.readFileSync(path.join(__dirname, 'preinstalled-plugins.yaml'), 'utf8')).plugins;
 
 // Sign-up policy, workspace limits, suspension, and the rate-limit
 // store shared by every server process (postgres/tenancy.js).
@@ -281,6 +283,13 @@ const auth = betterAuth({
             if (!decision.allowed) throw new APIError('FORBIDDEN', {message: decision.message, code: 'signup-closed'});
           }
           await claimGithubLogin(user);
+        },
+        // A new account starts with the plugins preinstalled-plugins.yaml names installed.
+        async after(user) {
+          if (!postgres.enabled) return;
+          const installed = await require('./postgres/services').userPlugins.preinstall(user.id, PREINSTALLED_PLUGINS);
+          const missing = PREINSTALLED_PLUGINS.filter(id => !installed.includes(id));
+          if (missing.length) console.error(`[plugins] Not in the marketplace, so not installed for ${user.id}: ${missing.join(', ')}`);
         },
       },
       update: {

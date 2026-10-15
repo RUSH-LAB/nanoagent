@@ -7,19 +7,19 @@ import {PaneHeading, Skeleton} from './_parts';
 import styles from './styles.module.css';
 
 /**
- * The plugins the workspace added from the marketplace, which its members use
- * on the Plugins page; an owner removes them here and adds them there.
+ * The plugins the member installed from the marketplace, which they use on the
+ * Plugins page of every workspace they are in; they uninstall them here and
+ * install them there.
  */
 export default function Plugins({workspace}) {
   const {apps, error} = useWorkspaceApps(workspace);
   const [shown, setShown] = useState(null);
   const [state, setState] = useState({busy: null, error: null});
   useEffect(() => setShown(apps), [apps]);
-  const owner = workspace.role === 'owner';
   const marketplace = `/w/${encodeURIComponent(workspace.slug)}/marketplace`;
 
   async function remove(app) {
-    if (!clientPlatform.dialogs.confirm(`Remove ${app.name} from ${workspace.name}? Its members can no longer use it.`)) return;
+    if (!clientPlatform.dialogs.confirm(`Uninstall ${app.name}? Your files from it stay in your folder.`)) return;
     setState({busy: app.id, error: null});
     try {
       await apiRequest(`/api/workspaces/${encodeURIComponent(workspace.id)}/apps/${encodeURIComponent(app.id)}`, {method: 'DELETE'});
@@ -44,22 +44,20 @@ export default function Plugins({workspace}) {
                 <strong>{app.name}</strong>
                 <span>{app.status === 'unavailable' ? 'No longer in the marketplace' : app.product?.tagline}</span>
               </div>
-              {owner && (
-                <div className={styles.rowControl}>
-                  <button
-                    type="button"
-                    className={styles.secondaryButton}
-                    disabled={state.busy === app.id}
-                    onClick={() => remove(app)}
-                  >
-                    Remove
-                  </button>
-                </div>
-              )}
+              <div className={styles.rowControl}>
+                <button
+                  type="button"
+                  className={styles.secondaryButton}
+                  disabled={state.busy === app.id}
+                  onClick={() => remove(app)}
+                >
+                  Uninstall
+                </button>
+              </div>
             </div>
           )) : (
             <p className={styles.empty}>
-              No plugins yet. {owner ? 'Add them from the marketplace.' : 'An owner can add them from the marketplace.'}
+              No plugins yet. Install them from the marketplace.
             </p>
           )}
           {state.error && <p className={`${styles.empty} ${styles.error}`} role="alert">{state.error}</p>}

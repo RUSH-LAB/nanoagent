@@ -11,7 +11,7 @@ export {pluginNavigation} from './navigation';
 /**
  * The Plugins sidebar, shaped like a blog's: the tag switcher (All, or one
  * tag), the only place a tag is chosen, then the plugins in view. The tags are
- * the ones the workspace gave its plugins; where the reader is lives in the URL
+ * the ones the member gave their plugins; where the reader is lives in the URL
  * (?tag=, ?app=), so every entry is a plain link.
  */
 

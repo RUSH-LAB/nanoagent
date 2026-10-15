@@ -13,14 +13,14 @@ import styles from './styles.module.css';
 
 /**
  * The plugin marketplace (server/routes/market.js), as a gallery: NanoAgent's
- * own plugins and the ones people publish from GitHub. A workspace's owner adds
- * a plugin to the workspace (server/routes/apps.js), and then every member uses
- * it on the Plugins page, where NanoAgent runs it in a sandbox: it reaches only
- * the hosts it declares and writes only to the member's folder for it. A tile
- * opens the plugin's product page in place of the gallery; `?plugin=` names
- * it, so it can be linked. A plugin names no tags: a workspace tags the ones it
- * added (Settings → Plugins). A published plugin is checked against the plugin
- * rules but not reviewed, so the page says so.
+ * own plugins and the ones people publish from GitHub. A member installs a
+ * plugin for themselves (server/routes/apps.js) and uses it on the Plugins page
+ * of any workspace they are in, where NanoAgent runs it in a sandbox: it
+ * reaches only the hosts it declares and writes only to the member's folder for
+ * it. A tile opens the plugin's product page in place of the gallery;
+ * `?plugin=` names it, so it can be linked. A plugin names no tags: a member
+ * tags the ones they installed. A published plugin is checked against the
+ * plugin rules but not reviewed, so the page says so.
  */
 
 const kilobytes = size => `${Math.max(1, Math.round(size / 1024))} KB`;
@@ -110,18 +110,14 @@ function Publish({onPublished}) {
   );
 }
 
-/**
- * The page's one button: open the plugin in the workspace, or add it there (an
- * owner's to do); anyone else is told to ask an owner.
- */
+/** The page's one button: open the plugin, or install it for yourself. */
 function WorkspaceAction({plugin, added, workspace, slug, busy, onAdd}) {
   if (!workspace) return null;
   if (added) {
     const appsHref = `/w/${encodeURIComponent(slug)}/apps?app=${encodeURIComponent(plugin.id)}`;
-    return <Link className="button button--primary" to={appsHref}>Open in {workspace.name}</Link>;
+    return <Link className="button button--primary" to={appsHref}>Open</Link>;
   }
-  if (workspace.role !== 'owner') return <span className={styles.hint}>Ask an owner of {workspace.name} to add it.</span>;
-  return <button type="button" className="button button--primary" disabled={busy} onClick={onAdd}>Add to {workspace.name}</button>;
+  return <button type="button" className="button button--primary" disabled={busy} onClick={onAdd}>Install</button>;
 }
 
 /** The rest of what the reader may do, behind one ⋯ button: `items` of {label, onSelect, danger}. */
@@ -178,19 +174,19 @@ function Detail({plugin, added, workspace, slug, onBack, onChanged, onAdded}) {
     return after(result.data);
   };
   const add = () => act(() => send(`/api/apps/${plugin.id}`, {method: 'PUT'}), () => onAdded(true));
-  const removeFromWorkspace = () => {
-    if (!window.confirm(`Remove ${plugin.name} from ${workspace.name}? Its members can no longer use it.`)) return;
+  const uninstall = () => {
+    if (!window.confirm(`Uninstall ${plugin.name}? Your files from it stay in your folder.`)) return;
     act(() => send(`/api/apps/${plugin.id}`, {method: 'DELETE'}), () => onAdded(false));
   };
   const update = () => act(() => publish(publishUrl(plugin.repository)), data => onChanged(data.plugin.id));
   const remove = () => {
-    if (!window.confirm(`Remove ${plugin.name} from the Marketplace? People can no longer download it.`)) return;
+    if (!window.confirm(`Remove ${plugin.name} from the Marketplace? People can no longer download it, and it is uninstalled for everyone.`)) return;
     act(() => send(`/api/market/${plugin.id}`, {method: 'DELETE'}), () => onChanged(null));
   };
 
   const more = [
     ...(plugin.mine && plugin.repository ? [{label: 'Update from GitHub', onSelect: update}] : []),
-    ...(added && workspace?.role === 'owner' ? [{label: `Remove from ${workspace.name}`, onSelect: removeFromWorkspace, danger: true}] : []),
+    ...(added ? [{label: 'Uninstall', onSelect: uninstall, danger: true}] : []),
     ...(plugin.mine ? [{label: 'Remove from Marketplace', onSelect: remove, danger: true}] : []),
   ];
   const actions = (
@@ -208,7 +204,7 @@ function Detail({plugin, added, workspace, slug, onBack, onChanged, onAdded}) {
       )}
       {' · '}
       <a href={`${API_BASE}/api/market/${plugin.id}/package`} download>Download ({kilobytes(plugin.size)})</a>
-      {!author.official && ' · Not reviewed: read its source before you add it.'}
+      {!author.official && ' · Not reviewed: read its source before you install it.'}
     </>
   );
 
@@ -231,7 +227,7 @@ function Marketplace() {
   const history = useHistory();
   const {slug, workspace, site} = useWorkspaceSite();
   const workspaceId = workspace?.id ?? null;
-  // The ids of the plugins the workspace added, or null outside one.
+  // The ids of the plugins the member installed, or null outside a workspace.
   const [added, setAdded] = React.useState(null);
   const params = new URLSearchParams(location.search);
   const openId = params.get('plugin');

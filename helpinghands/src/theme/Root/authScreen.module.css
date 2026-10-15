@@ -216,6 +216,55 @@
   font-size: 0.85rem;
 }
 
+/* The line that installs RUSH Lab (LabScreen.js), whole, with its copy button in its corner. */
+.commandBox {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0.9rem;
+}
+
+.copy {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  display: flex;
+  padding: 0.3rem;
+  border: 1px solid #e5e9f0;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.copy svg { width: 14px; height: 14px; fill: currentColor; }
+.copy:hover:not(:disabled) { color: #0f172a; }
+.copy:disabled { opacity: 0.5; cursor: default; }
+
+.command {
+  padding: 0.6rem 2.4rem 0.6rem 0.7rem;
+  border: 1px solid #e5e9f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+/* The code a command-line client shows in its terminal (pages/device), to compare. */
+.userCode {
+  align-self: center;
+  margin-bottom: 1.25rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid #e5e9f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+}
+
 .submit {
   padding: 0.65rem;
   border: none;
@@ -278,6 +327,9 @@
 :global([data-theme='dark']) .divider::after { background: #1e293b; }
 :global([data-theme='dark']) .field { color: #cbd5e1; }
 :global([data-theme='dark']) .field input { border-color: #334155; background: #0f172a; color: #f1f5f9; }
+:global([data-theme='dark']) .userCode { border-color: #334155; background: #0f172a; color: #f1f5f9; }
+:global([data-theme='dark']) .copy { border-color: #334155; background: #1e293b; color: #94a3b8; }
+:global([data-theme='dark']) .command { border-color: #334155; background: #0f172a; color: #f1f5f9; }
 :global([data-theme='dark']) .error { background: rgba(239, 68, 68, 0.12); color: #fca5a5; }
 :global([data-theme='dark']) .switch { color: #93b4f5; }
 

@@ -4,38 +4,30 @@ import path from 'node:path';
 import process from 'node:process';
 import {spawn} from 'node:child_process';
 import net from 'node:net';
-import readline from 'node:readline';
 import {fileURLToPath} from 'node:url';
 import {parseEnv} from '../db/postgres.mjs';
+import {LOCAL_OWNER_URL, LOCAL_RUNTIME_URL, startLocal as startLocalDatabase} from '../db/local.mjs';
+import {pulledAt} from '../db/sync.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const localEnvFile = path.join(root, '.env');
 const docusaurusCli = path.join(root, 'node_modules', '@docusaurus', 'core', 'bin', 'docusaurus.mjs');
 const nanoagentPort = 8787;
 const nanoagentStartupTimeoutMs = 30_000;
-const apiStartupTimeoutMs = 60_000;
-// The API keys Mochi Lab holds, as desktop/src-tauri/src/supervisor.rs PROVIDER_KEYS lists them.
-const PROVIDER_KEYS = [
-  ['OPENROUTER_API_KEY', 'OpenRouter'], ['ANTHROPIC_API_KEY', 'Anthropic'], ['OPENAI_API_KEY', 'OpenAI'],
-  ['GEMINI_API_KEY', 'Google Gemini'], ['DEEPSEEK_API_KEY', 'DeepSeek'], ['XAI_API_KEY', 'xAI'],
-  ['GROQ_API_KEY', 'Groq'], ['MISTRAL_API_KEY', 'Mistral'], ['CEREBRAS_API_KEY', 'Cerebras'],
-  ['TOGETHER_API_KEY', 'Together AI'], ['FIREWORKS_API_KEY', 'Fireworks'], ['MOONSHOT_API_KEY', 'Moonshot'],
-  ['ZAI_API_KEY', 'Z.ai'], ['HF_TOKEN', 'Hugging Face'],
-];
 
 /**
- * The local server runs on production's database, the only one, as the
- * runtime role: it holds no schema owner's URL, so it can never migrate it.
+ * The local server runs on the local database (scripts/db/local.mjs), which it
+ * migrates as its owner and serves as the runtime role, as Railway does
+ * production's. A database URL anywhere else would be another database, so
+ * .env and the shell may hold none.
  */
 export function environmentFor({base = process.env, envFile = localEnvFile} = {}) {
   if (!fs.existsSync(envFile)) throw new Error('Run npm run db:setup before npm start');
   const file = parseEnv(fs.readFileSync(envFile, 'utf8'));
   const env = {...file, ...base, EDITOR_PORT: base.EDITOR_PORT || '3001'};
-  if (!env.DATABASE_URL) throw new Error('Run npm run db:setup before npm start');
-  if (env.DATABASE_MIGRATION_URL) {
-    throw new Error('DATABASE_MIGRATION_URL is set: only Railway migrates the database. Run npm run db:setup');
-  }
-  return env;
+  const named = ['DATABASE_URL', 'DATABASE_MIGRATION_URL'].filter(key => env[key]);
+  if (named.length) throw new Error(`${named.join(' and ')} must not be set: npm start runs on the local database. Run npm run db:setup`);
+  return {...env, DATABASE_URL: LOCAL_RUNTIME_URL, DATABASE_MIGRATION_URL: LOCAL_OWNER_URL, PG_SSL: 'disable'};
 }
 
 export function portIsAvailable(port, host = 'localhost') {
@@ -89,8 +81,6 @@ export function nanoagentWebArgs(env = process.env) {
     'api_token=null',
     // Plugins run as you, like any program you start; the server runs them in bwrap.
     'sandbox=none',
-    // It is its developer's Mochi Lab too (lendNanoAgent): runs choose any model its keys reach.
-    'run_models=true',
     // The plugins in NANOAGENT_PLUGINS_DIR, in the marketplace (/marketplace) for workspaces to add.
     `packages=${JSON.stringify(nanoagentPluginsFrom(env))}`,
     `workspaces=${JSON.stringify(path.join(root, 'var', 'agent-workspaces'))}`,
@@ -141,99 +131,6 @@ export async function waitForNanoAgent(env, child = null, {
     await new Promise(resolve => setTimeout(resolve, intervalMs));
   }
   throw new Error(`NanoAgent failed its startup check at ${url}: ${lastError}`);
-}
-
-/** How Settings → AI shows a key: its first six characters and last four (supervisor.rs key_hint). */
-export function keyHint(value) {
-  const chars = [...value];
-  return chars.length < 16 ? '…' : `${chars.slice(0, 6).join('')}…${chars.slice(-4).join('')}`;
-}
-
-/** Which provider keys `values` holds, as the relay tells Mochi: never a value, only its hint. */
-export function keyList(values) {
-  return PROVIDER_KEYS.map(([env, label]) => ({
-    env, label, set: values.has(env), hint: values.has(env) ? keyHint(values.get(env)) : null,
-  }));
-}
-
-async function waitForApi(apiPort, child) {
-  const deadline = Date.now() + apiStartupTimeoutMs;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`API exited during startup with status ${child.exitCode}`);
-    try {
-      if ((await fetch(`http://localhost:${apiPort}/api/health`)).ok) return;
-    } catch {
-      // Not listening yet.
-    }
-    await new Promise(resolve => setTimeout(resolve, 250));
-  }
-  throw new Error(`API did not answer on port ${apiPort}`);
-}
-
-/**
- * This checkout as its developer's Mochi Lab, as the desktop app's supervisor is
- * (desktop/src-tauri/src/supervisor.rs): the relay (src/runner/relay.mjs) signs in to the
- * local API as whoever approves its code and lends them the local NanoAgent, so their runs
- * and Settings → AI's API key work. Keys start as .env has them; one saved from Settings → AI
- * goes to the running NanoAgent and lasts until npm start stops.
- */
-function lendNanoAgent(env, apiPort) {
-  const nanoagent = nanoagentUrl(env).replace(/\/$/, '');
-  const values = new Map(PROVIDER_KEYS
-    .filter(([name]) => env[name]?.trim())
-    .map(([name]) => [name, env[name].trim()]));
-  const child = spawn(process.execPath, ['src/runner/relay.mjs'], {
-    cwd: root,
-    env: {
-      ...env,
-      MOCHI_SITE_URL: `http://localhost:${apiPort}`,
-      NANOAGENT_URL: nanoagent,
-      RUNNER_CREDENTIALS: path.join(root, 'var', 'runner-credentials.json'),
-      RUNNER_KEYS: JSON.stringify(keyList(values)),
-      // Not Mochi Lab's ~/rushlab: this checkout's Mochi is another site, with other files.
-      RUNNER_FILES: path.join(root, 'var', 'rushlab'),
-    },
-    stdio: ['pipe', 'pipe', 'inherit'],
-  });
-  const tell = message => child.stdin.write(`${JSON.stringify(message)}\n`);
-  const saveKeys = async changes => {
-    const response = await fetch(`${nanoagent}/v1/keys`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(env.NANOAGENT_API_TOKEN ? {Authorization: `Bearer ${env.NANOAGENT_API_TOKEN}`} : {}),
-      },
-      body: JSON.stringify({changes}),
-    });
-    if (!response.ok) throw new Error(`NanoAgent refused the keys (${response.status}): ${await response.text()}`);
-    for (const [name, value] of Object.entries(changes)) {
-      if (value === null) values.delete(name);
-      else values.set(name, value);
-    }
-  };
-  readline.createInterface({input: child.stdout}).on('line', line => {
-    const event = JSON.parse(line);
-    if (event.event === 'sign-in') {
-      // Once per checkout: the token lands in var/runner-credentials.json.
-      const url = `${event.url}&client=desktop`;
-      console.log(`Mochi Lab: to run your AI on this checkout, approve ${event.code} at ${url}`);
-      spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [url], {stdio: 'ignore'})
-        .once('error', error => console.error(`Mochi Lab: could not open a browser (${error.message})`));
-    } else if (event.event === 'connected') {
-      console.log('Mochi Lab: connected; your runs and API keys are on this checkout');
-    } else if (event.event === 'disconnected') {
-      console.log(`Mochi Lab: disconnected (${event.reason})`);
-    } else if (event.event === 'keys') {
-      saveKeys(event.changes).then(
-        () => {
-          tell({id: event.id, error: null});
-          tell({keys: keyList(values)});
-        },
-        error => tell({id: event.id, error: error.message}),
-      );
-    }
-  });
-  return child;
 }
 
 function run(command, args, options) {
@@ -362,6 +259,9 @@ export async function startLocal(argv = process.argv.slice(2)) {
   }
   // After the port check, so a running npm start never has its packages replaced under it.
   await syncDependencies(env, nanoagentRoot);
+  startLocalDatabase();
+  // The site's banner says how old the local copy is (src/theme/Root.js).
+  env.MOCHI_PULLED_AT = (await pulledAt())?.toISOString() ?? '';
   if (usesLocalNanoAgent(env)) await preparePiRunner(env, nanoagentRoot);
   // Keep every child in the terminal's process group. Ctrl+C then reaches the
   // agent, API, site, and this supervisor together, so npm cannot leave a
@@ -416,8 +316,6 @@ export async function startLocal(argv = process.argv.slice(2)) {
     });
     child.once('exit', (code, signal) => {
       const interrupted = signal === 'SIGINT' || signal === 'SIGTERM';
-      // The relay stops cleanly when another Mochi Lab signs in as its member; the site stays up.
-      if (name === 'Mochi Lab relay' && code === 0) return console.log('Mochi Lab: another computer now runs your AI');
       if (!stopping) stop(interrupted || code === 0 ? 0 : 1);
     });
   }
@@ -425,16 +323,6 @@ export async function startLocal(argv = process.argv.slice(2)) {
   processes.forEach(watch);
   process.once('SIGINT', () => stop(0, 'SIGINT'));
   process.once('SIGTERM', () => stop(0, 'SIGTERM'));
-  if (usesLocalNanoAgent(env)) {
-    await waitForApi(apiPort, api).catch(error => {
-      console.error(`Local startup failed: ${error.message}`);
-      stop(1);
-    });
-    if (stopping) return;
-    const relay = {name: 'Mochi Lab relay', child: lendNanoAgent(env, apiPort)};
-    processes.push(relay);
-    watch(relay);
-  }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

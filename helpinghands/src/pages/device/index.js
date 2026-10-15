@@ -1,21 +1,23 @@
 import React, {useEffect, useState} from 'react';
-import Layout from '@theme/Layout';
+import Head from '@docusaurus/Head';
 import BrowserOnly from '@docusaurus/BrowserOnly';
-import pageStyles from '@site/src/css/page.module.css';
-import dir from '@site/src/css/directory.module.css';
-import joinStyles from '../join/styles.module.css';
+import {useAccount} from '@site/src/utils/account';
+import styles from '@site/src/theme/Root/authScreen.module.css';
 
 /**
- * Where `rush login` sends you, and where Mochi Lab shows you in its window
- * (`client=desktop`, desktop/src-tauri/src/supervisor.rs): approve or deny the
- * client's device code, as the account this browser is signed in to with GitHub.
+ * Where `rush login` sends you, and where RUSH Lab sends you to connect a
+ * computer (`client=desktop`: the app's window, desktop/src-tauri/src/supervisor.rs,
+ * or lab.log for the one-line install): approve or deny the client's device
+ * code, as the account this browser is signed in to with GitHub.
  *
  * Behind the sign-in gate like every other page, so whoever sees the buttons
  * has a session. Reading the code claims it for that session, and Better Auth
- * then lets only that session approve it.
+ * then lets only that session approve it. Drawn as the same card as signing in
+ * (theme/Root/AuthScreen.js), as it is a step of signing a client in.
  */
 function Device() {
   const {authClient} = require('@site/src/utils/authClient');
+  const {account} = useAccount();
   const query = new URLSearchParams(window.location.search);
   const userCode = query.get('user_code');
   const desktop = query.get('client') === 'desktop';
@@ -26,7 +28,7 @@ function Device() {
   useEffect(() => {
     if (!userCode) {
       setStatus('gone');
-      setMessage('That link is missing its code. Run rush login again.');
+      setMessage(desktop ? 'That link is missing its code. Start RUSH Lab again.' : 'That link is missing its code. Run rush login again.');
       return;
     }
     authClient.device({query: {user_code: userCode}}).then(({data, error}) => {
@@ -53,39 +55,47 @@ function Device() {
     setStatus(approve ? 'approved' : 'denied');
   };
 
-  if (status === 'loading') return <div className={pageStyles.pageContainer}><p>Loading…</p></div>;
+  const who = account?.githubLogin ? `@${account.githubLogin}` : account?.email;
+  const outcome = {
+    approved: desktop ? 'Approved. RUSH Lab on this computer is connecting; you can close this page.' : 'Approved. Return to your terminal.',
+    denied: desktop ? 'Denied. This computer was not connected.' : 'Denied. The command-line client was not signed in.',
+    gone: message,
+  }[status];
 
   return (
-    <div className={pageStyles.pageContainer}>
-      <h1 className={dir.title}>{desktop ? 'Connect this computer to RUSH Lab' : 'Command-line sign-in'}</h1>
-      {status === 'pending' && (
-        <>
-          <p className={dir.note}>
-            {desktop
-              ? <>RUSH Lab on this computer is asking to run your AI here, as you, with your own OpenRouter key. Approve to connect it.</>
-              : <>A <code>mochi</code> command-line client is asking to sign in as you with the code{' '}
-                <strong>{userCode}</strong>. Approve only if that code is the one in your terminal.</>}
-          </p>
-          {message && <p className={dir.error} role="alert">{message}</p>}
-          <div className={joinStyles.next}>
-            <button type="button" className={dir.cta} onClick={() => decide(true)} disabled={busy}>Approve</button>
-            <button type="button" className={dir.action} onClick={() => decide(false)} disabled={busy}>Deny</button>
-          </div>
-        </>
-      )}
-      {status === 'approved' && <p className={dir.note}>{desktop ? 'Approved. Opening RUSH Lab…' : 'Approved. Return to your terminal.'}</p>}
-      {status === 'denied' && <p className={dir.note}>{desktop ? 'Denied. This computer was not connected.' : 'Denied. The command-line client was not signed in.'}</p>}
-      {status === 'gone' && <p className={dir.note}>{message}</p>}
+    <div className={styles.page}>
+      <div className={styles.card}>
+        <img src="/img/rush-lab.png" alt="" className={styles.logo} />
+        <h1 className={styles.title}>{desktop ? 'Connect this computer' : 'Sign in to rush'}</h1>
+        {status === 'loading' && <p className={styles.tagline}>Loading…</p>}
+        {status === 'pending' && (
+          <>
+            <p className={styles.tagline}>
+              {desktop
+                ? 'RUSH Lab on this computer asks to run your AI here, as you, with your own API keys.'
+                : 'The rush command-line client asks to sign in as you. Approve only if this is the code in your terminal.'}
+            </p>
+            {!desktop && <code className={styles.userCode}>{userCode}</code>}
+            {message && <p className={styles.error} role="alert">{message}</p>}
+            <button type="button" className={styles.submit} onClick={() => decide(true)} disabled={busy}>
+              {`Approve as ${who}`}
+            </button>
+            <button type="button" className={styles.switch} onClick={() => decide(false)} disabled={busy}>
+              Deny
+            </button>
+          </>
+        )}
+        {outcome && <p className={styles.tagline} role="status">{outcome}</p>}
+      </div>
     </div>
   );
 }
 
 export default function DevicePage() {
   return (
-    <Layout title="Command-line sign-in" noFooter>
-      <BrowserOnly fallback={<div className={pageStyles.pageContainer}><p>Loading…</p></div>}>
-        {() => <Device />}
-      </BrowserOnly>
-    </Layout>
+    <>
+      <Head><title>Connect to RUSH Lab</title></Head>
+      <BrowserOnly fallback={null}>{() => <Device />}</BrowserOnly>
+    </>
   );
 }

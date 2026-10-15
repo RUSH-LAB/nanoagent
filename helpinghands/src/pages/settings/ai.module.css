@@ -1,4 +1,4 @@
-/* Settings → AI (_Ai.js, _ApiKeys.js), and the model picker _ModelPicker.js. */
+/* Settings → AI (_Ai.js, _ApiKeys.js) and Connection (_Connection.js), and the model picker _ModelPicker.js. */
 
 /* ── The OpenRouter key on the member's computer (_ApiKeys.js) ──── */
 
@@ -67,7 +67,41 @@
   background: var(--ifm-color-primary-dark);
 }
 
-/* ── Installing Mochi Lab while it is not connected (_Ai.js) ────── */
+/* ── Whether RUSH Lab is connected (_Connection.js) ────────────── */
+
+.online,
+.offline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+}
+
+.online::before,
+.offline::before {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+}
+
+.online::before {
+  background: var(--ifm-color-success);
+}
+
+.offline::before {
+  background: var(--ifm-color-danger);
+}
+
+.connectionNote {
+  margin: 0;
+  padding: 0.6rem 1.1rem 0.75rem;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.8rem;
+}
+
+/* ── Installing RUSH Lab while it is not connected (_Connection.js) ── */
 
 /* The row wraps, to take the command under it. */
 .installRow {

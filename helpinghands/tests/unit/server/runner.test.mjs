@@ -96,6 +96,7 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
 
   it('sends a member\'s run to their computer, with its NanoAgent\'s token, and streams it back', async () => {
     await dialIn();
+    assert.ok(Date.parse(runners.status('u1').since));
     const ai = await runners.aiFor('u1');
     assert.equal(ai.local, true);
     const deltas = [];
@@ -134,7 +135,7 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     const result = await (await runners.aiFor('u1')).stream({input: 'hi'});
     assert.deepEqual(result, {error: RUNNER_OFFLINE, status: 503});
     assert.deepEqual(await (await runners.aiFor(null)).stream({input: 'hi'}), {error: RUNNER_OFFLINE, status: 503});
-    assert.deepEqual(runners.status('u1'), {connected: false, device: null, keys: []});
+    assert.deepEqual(runners.status('u1'), {connected: false, device: null, since: null, keys: []});
   });
 
   it('sets the computer\'s API keys by the names it listed, and hears which are set now', async () => {

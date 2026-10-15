@@ -3,13 +3,15 @@
 # and the member's download token filled in (routes/lab.js). It downloads this computer's bundle
 # (desktop/scripts/bundle-lab.mjs), checks it against the sha256 Mochi sends, unpacks it into the
 # data folder's app/<stamp>/, and has the service manager run lab.mjs from it at every login,
-# starting it again when it fails (lab.mjs): launchd on macOS, systemd on Linux and in Windows's
-# WSL2. Any failure stops it, with the reason.
+# starting it again when it fails: launchd on macOS, systemd on Linux and in Windows's WSL2. One
+# install serves every connection on this computer's account, and this adds the member's: their
+# sign-in, kept in connections/<id>/ (lab.mjs's addConnection), which the running install starts
+# without stopping the others. The install is replaced, and every connection restarted, only for a
+# new bundle. Any failure stops it, with the reason.
 set -eu
 
 SITE='__MOCHI_SITE__'
 TOKEN='__MOCHI_TOKEN__'
-LABEL=lab.mochi.lab
 
 fail() {
   echo "RUSH Lab was not installed on this computer: $*" >&2
@@ -24,8 +26,6 @@ case "$(uname -s)-$(uname -m)" in
   *) fail "it runs on macOS and Linux (on Windows, in WSL2), where plugins run in a sandbox; this is $(uname -s)." ;;
 esac
 if [ "$TARGET" = x86_64-unknown-linux-gnu ]; then
-  DATA="$HOME/.local/share/$LABEL"
-  UNIT="$HOME/.config/systemd/user/$LABEL.service"
   # Plugins run in bubblewrap, in a user namespace of their own (nanoagent.plugin.sandbox).
   command -v bwrap >/dev/null 2>&1 \
     || fail "plugins run in bubblewrap, which is not installed. Install it (on Ubuntu: sudo apt install bubblewrap) and run this again."
@@ -35,12 +35,8 @@ if [ "$TARGET" = x86_64-unknown-linux-gnu ]; then
     || fail "it runs as a systemd user service, and systemd is not running for you. In WSL, add [boot] systemd=true to /etc/wsl.conf, run wsl --shutdown in Windows, and open Ubuntu again."
   sha256() { sha256sum "$1" | cut -d' ' -f1; }
 else
-  DATA="$HOME/Library/Application Support/$LABEL"
-  PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-  SERVICE="gui/$(id -u)/$LABEL"
   sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
 fi
-APPS="$DATA/app"
 
 WORK=$(mktemp -d) || fail "could not make a temporary folder."
 trap 'rm -rf "$WORK"' EXIT
@@ -60,72 +56,115 @@ ACTUAL=$(sha256 "$WORK/bundle.tar.gz")
 [ "$ACTUAL" = "$SHA256" ] || fail "the download's sha256 is $ACTUAL, not the $SHA256 $SITE sent."
 echo "Verified RUSH Lab $STAMP (sha256 $SHA256)."
 
-mkdir -p "$APPS" "$DATA/logs" || fail "could not make $DATA."
-PARTIAL="$APPS/.$STAMP.partial"
-rm -rf "$PARTIAL"
-mkdir "$PARTIAL"
-tar -xzf "$WORK/bundle.tar.gz" -C "$PARTIAL" || fail "could not unpack the bundle."
-[ "$(cat "$PARTIAL/mochi-lab/stamp" 2>/dev/null)" = "$STAMP" ] || fail "the bundle is not RUSH Lab $STAMP."
-
-# Stop the one running now, if one is, before its files go.
+UNPACKED="$WORK/unpacked"
+mkdir "$UNPACKED"
+tar -xzf "$WORK/bundle.tar.gz" -C "$UNPACKED" || fail "could not unpack the bundle."
+[ "$(cat "$UNPACKED/mochi-lab/stamp" 2>/dev/null)" = "$STAMP" ] || fail "the bundle is not RUSH Lab $STAMP."
+LABEL=$("$UNPACKED/mochi-lab/bin/node" "$UNPACKED/mochi-lab/runner/lab.mjs" label) \
+  || fail "the bundle could not say what to install as."
+printf '%s' "$LABEL" | grep -Eq '^[A-Za-z0-9.-]+$' || fail "the bundle named no valid label."
 if [ "$TARGET" = x86_64-unknown-linux-gnu ]; then
-  systemctl --user stop "$LABEL.service" 2>/dev/null || true
-elif launchctl print "$SERVICE" >/dev/null 2>&1; then
-  echo "Stopping the RUSH Lab running on this computer now..."
-  launchctl bootout "$SERVICE" || fail "launchctl could not stop $SERVICE."
-  waited=0
-  while launchctl print "$SERVICE" >/dev/null 2>&1; do
-    [ "$waited" -lt 30 ] || fail "$SERVICE did not stop within 30s."
-    sleep 1
-    waited=$((waited + 1))
-  done
+  DATA="$HOME/.local/share/$LABEL"
+  UNIT="$HOME/.config/systemd/user/$LABEL.service"
+else
+  DATA="$HOME/Library/Application Support/$LABEL"
+  PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+  SERVICE="gui/$(id -u)/$LABEL"
+fi
+APPS="$DATA/app"
+LOG="$DATA/logs/lab.log"
+mkdir -p "$APPS" "$DATA/logs" || fail "could not make $DATA."
+
+running() {
+  if [ "$TARGET" = x86_64-unknown-linux-gnu ]; then
+    systemctl --user is-active --quiet "$1.service"
+  else
+    launchctl print "gui/$(id -u)/$1" >/dev/null 2>&1
+  fi
+}
+stop() {
+  if [ "$TARGET" = x86_64-unknown-linux-gnu ]; then
+    systemctl --user stop "$1.service" 2>/dev/null || true
+  elif running "$1"; then
+    launchctl bootout "gui/$(id -u)/$1" || fail "launchctl could not stop $1."
+    waited=0
+    while running "$1"; do
+      [ "$waited" -lt 30 ] || fail "$1 did not stop within 30s."
+      sleep 1
+      waited=$((waited + 1))
+    done
+  fi
+}
+
+# Before one install served every connection, a development site's RUSH Lab was installed beside
+# rush-lab.org's, as $LABEL.dev. Its connection was the development site's, so it is not kept.
+if [ -d "$DATA.dev" ]; then
+  echo "Removing the RUSH Lab installed for a development site beside this one..."
+  stop "$LABEL.dev"
+  if [ "$TARGET" = x86_64-unknown-linux-gnu ]; then
+    systemctl --user disable "$LABEL.dev.service" 2>/dev/null || true
+    rm -f "$HOME/.config/systemd/user/$LABEL.dev.service"
+  else
+    rm -f "$HOME/Library/LaunchAgents/$LABEL.dev.plist"
+  fi
+  rm -rf "$DATA.dev" || fail "could not remove $DATA.dev."
 fi
 
-rm -rf "${APPS:?}/$STAMP"
-mv "$PARTIAL" "$APPS/$STAMP"
-ln -sfn "$STAMP" "$APPS/current"
-for old in "$APPS"/* "$APPS"/.*.partial; do
-  [ -e "$old" ] || [ -L "$old" ] || continue
-  case "$(basename "$old")" in
-    "$STAMP" | current) ;;
-    *) rm -rf "$old" || fail "could not remove $old." ;;
-  esac
-done
-echo "Installed into $APPS/$STAMP."
-
-# This computer's session, for the relay (relay.mjs reads it): the link was the member's, signed in,
-# so it connects with no sign-in page. A session that later lapses asks for one (lab.mjs).
-SESSION=$(curl -fsS -X POST "$SITE/api/lab/session?token=$TOKEN") || fail "$SITE gave no session for this computer."
-printf '%s' "$SESSION" | grep -Eq '^[A-Za-z0-9._-]+$' || fail "$SITE gave no valid session for this computer."
-(umask 077 && printf '{"site":"%s","token":"%s"}\n' "$SITE" "$SESSION" > "$DATA/runner-credentials.json") \
-  || fail "could not keep this computer's session in $DATA."
-
-
+# A new bundle, or an install from before connections, replaces the install, stopping every
+# connection until it starts again; the same one is left running, and only this member's
+# connection starts or restarts.
+CURRENT=$(cat "$APPS/current/mochi-lab/stamp" 2>/dev/null || true)
+if [ "$CURRENT" != "$STAMP" ] || [ -f "$DATA/runner-credentials.json" ]; then
+  if running "$LABEL"; then
+    echo "Stopping the RUSH Lab running on this computer now, to update it..."
+    stop "$LABEL"
+  fi
+  rm -rf "${APPS:?}/$STAMP"
+  mv "$UNPACKED" "$APPS/$STAMP" || fail "could not move the bundle into $APPS."
+  ln -sfn "$STAMP" "$APPS/current"
+  for old in "$APPS"/* "$APPS"/.*.partial; do
+    [ -e "$old" ] || [ -L "$old" ] || continue
+    case "$(basename "$old")" in
+      "$STAMP" | current) ;;
+      *) rm -rf "$old" || fail "could not remove $old." ;;
+    esac
+  done
+  echo "Installed RUSH Lab $STAMP into $APPS/$STAMP."
+else
+  echo "RUSH Lab $STAMP is installed already."
+fi
 BUNDLE="$APPS/current/mochi-lab"
-# Where lab.mjs logs; it says there which page signs this computer in.
-LOG="$DATA/logs/lab.log"
-: > "$LOG"
+
+# The member's session, kept as their connection on this computer (lab.mjs addConnection): the link
+# was theirs, signed in, so it connects with no sign-in page. A session that later lapses asks for one.
+SESSION=$(curl -fsS -X POST "$SITE/api/lab/session?token=$TOKEN") || fail "$SITE gave no session for this computer."
+# What the log held before, so the wait below reads only what this connection says from now.
+SEEN=$(wc -l < "$LOG" 2>/dev/null || echo 0)
+ID=$(LAB_SESSION="$SESSION" "$BUNDLE/bin/node" "$BUNDLE/runner/lab.mjs" connect "$DATA" "$SITE") \
+  || fail "could not keep this member's connection in $DATA."
+
 if [ "$TARGET" = x86_64-unknown-linux-gnu ]; then
   mkdir -p "$(dirname "$UNIT")" || fail "could not make $(dirname "$UNIT")."
-  # Started again when it fails; a clean exit (another computer took the member's runs) is final.
-  cat > "$UNIT" <<EOF || fail "could not write $UNIT."
+  # Started again when it fails.
+  cat > "$UNIT" <<UNITFILE || fail "could not write $UNIT."
 [Unit]
-Description=RUSH Lab: this computer's NanoAgent, lent to $SITE
+Description=RUSH Lab: this computer's NanoAgent, lent to its members' runs
 
 [Service]
 ExecStart="$BUNDLE/bin/node" "$BUNDLE/runner/lab.mjs"
 Restart=on-failure
 RestartSec=30
-# lab.mjs takes up to 10s to stop each of its two services.
-TimeoutStopSec=30
+# lab.mjs takes up to 10s to stop each service of each connection.
+TimeoutStopSec=60
 StandardOutput=append:$LOG
 StandardError=append:$LOG
 
 [Install]
 WantedBy=default.target
-EOF
+UNITFILE
   systemctl --user daemon-reload || fail "systemd could not read $UNIT."
-  systemctl --user enable --now "$LABEL.service" || fail "systemd could not start $LABEL.service."
+  systemctl --user enable "$LABEL.service" >/dev/null 2>&1 || fail "systemd could not enable $LABEL.service."
+  running "$LABEL" || systemctl --user start "$LABEL.service" || fail "systemd could not start $LABEL.service."
   UNINSTALL="systemctl --user disable --now $LABEL.service
   rm -rf \"$UNIT\" \"$DATA\""
 else
@@ -133,7 +172,7 @@ else
   xml() {
     printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
   }
-  cat > "$PLIST" <<EOF || fail "could not write $PLIST."
+  cat > "$PLIST" <<PLISTFILE || fail "could not write $PLIST."
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -147,7 +186,7 @@ else
   </array>
   <key>RunAtLoad</key>
   <true/>
-  <!-- Started again when it fails; a clean exit (another computer took the member's runs) is final. -->
+  <!-- Started again when it fails. -->
   <key>KeepAlive</key>
   <dict>
     <key>SuccessfulExit</key>
@@ -155,30 +194,33 @@ else
   </dict>
   <key>ThrottleInterval</key>
   <integer>30</integer>
-  <!-- lab.mjs takes up to 10s to stop each of its two services. -->
+  <!-- lab.mjs takes up to 10s to stop each service of each connection. -->
   <key>ExitTimeOut</key>
-  <integer>30</integer>
+  <integer>60</integer>
   <key>StandardOutPath</key>
-  <string>$(xml "$DATA/logs/lab.log")</string>
+  <string>$(xml "$LOG")</string>
   <key>StandardErrorPath</key>
-  <string>$(xml "$DATA/logs/lab.log")</string>
+  <string>$(xml "$LOG")</string>
 </dict>
 </plist>
-EOF
+PLISTFILE
   plutil -lint "$PLIST" >/dev/null || fail "$PLIST is not a valid plist."
-  launchctl bootstrap "gui/$(id -u)" "$PLIST" || fail "launchctl could not start $PLIST."
+  running "$LABEL" || launchctl bootstrap "gui/$(id -u)" "$PLIST" || fail "launchctl could not start $PLIST."
   UNINSTALL="launchctl bootout $SERVICE
   rm -rf \"$PLIST\" \"$DATA\""
 fi
 
-# Until lab.mjs is connected, or asks for a sign-in page after all, which opens in the browser where
-# it can and is printed here too. The first start downloads Python.
+# Until this connection is connected, or asks for a sign-in page after all, which opens in the
+# browser where it can and is printed here too. The first start downloads Python.
+said() {
+  tail -n +"$((SEEN + 1))" "$LOG" 2>/dev/null | grep -F "[$ID] $1" | head -n 1
+}
 waited=0
 PAGE=
 CONNECTED=
 while [ "$waited" -lt 180 ]; do
-  grep -q 'Connected to' "$LOG" 2>/dev/null && CONNECTED=1 && break
-  PAGE=$(grep -o 'approve this computer.*' "$LOG" 2>/dev/null | head -n 1 | sed 's/.*: //') || true
+  [ -n "$(said 'Connected to')" ] && CONNECTED=1 && break
+  PAGE=$(said 'Sign in to Mochi' | sed 's/.*: //') || true
   [ -n "$PAGE" ] && break
   sleep 2
   waited=$((waited + 2))
@@ -190,10 +232,12 @@ if [ -n "$CONNECTED" ]; then
 elif [ -n "$PAGE" ]; then
   echo "To finish, approve this computer: $PAGE"
 else
-  echo "It is still starting; $LOG says when it is connected."
+  echo "It is still starting; $LOG says when [$ID] is connected."
 fi
-cat <<EOF
-Logs: $DATA/logs/ (lab.log, then uv-sync.log, nanoagent.log and relay.log)
-To uninstall it:
+cat <<DONE
+Logs: $LOG, and $DATA/connections/$ID/logs/ (nanoagent.log and relay.log)
+To remove only this account's connection from this computer:
+  rm -rf "$DATA/connections/$ID"
+To uninstall RUSH Lab, every connection with it:
   $UNINSTALL
-EOF
+DONE

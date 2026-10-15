@@ -131,7 +131,7 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
 
   function attach(userId, socket) {
     // `runs`: the held requests the computer said it has, once it has said hello.
-    const entry = {socket, page: crypto.randomUUID(), device: null, keys: [], pending: new Map(), closed: false, runs: null};
+    const entry = {socket, page: crypto.randomUUID(), device: null, since: new Date().toISOString(), keys: [], pending: new Map(), closed: false, runs: null};
     entry.gateway = createNanoAgentGateway({endpoint: {url: 'http://runner'}, fetchImpl: socketFetch(entry), local: true});
     connected.get(userId)?.socket.close(REPLACED, 'Another RUSH Lab signed in as this account');
     connected.set(userId, entry);
@@ -264,7 +264,7 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
     /** Whether the member's computer is connected, what it calls itself, and which keys it holds. */
     status(userId) {
       const entry = connected.get(userId);
-      return entry ? {connected: true, device: entry.device, keys: entry.keys} : {connected: false, device: null, keys: []};
+      return entry ? {connected: true, device: entry.device, since: entry.since, keys: entry.keys} : {connected: false, device: null, since: null, keys: []};
     },
 
     /**

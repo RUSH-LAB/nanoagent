@@ -157,39 +157,60 @@ mochi-lab/
 └── nanoagent/      NanoAgent compiled, its uv.lock, the PI runner's bundle, its config
 ```
 
-`src/runner/install.sh` checks the download against `X-Lab-Sha256`, unpacks it into the data
-folder's `app/<stamp>/`, points `app/current` at it, and removes older versions. The data folder is
-`~/Library/Application Support/lab.mochi.lab/` on macOS and `~/.local/share/lab.mochi.lab/` on
-Linux. It then has the service manager run `app/current/mochi-lab/bin/node
-app/current/mochi-lab/runner/lab.mjs` at every login: on macOS, `~/Library/LaunchAgents/lab.mochi.lab.plist`,
-loaded with `launchctl bootstrap gui/<uid>`; on Linux, the systemd user unit
-`~/.config/systemd/user/lab.mochi.lab.service`, enabled and started. On Linux it first checks that
-bubblewrap is installed and can make a sandbox (Ubuntu 23.10 and later restrict the user namespaces
-it needs, through AppArmor; WSL2 does not), and that the member's systemd runs (WSL2 has it with
-`[boot] systemd=true` in `/etc/wsl.conf`, the default for Ubuntu). Before starting it, it exchanges the
-token for this computer's session (`POST /api/lab/session`) and writes `runner-credentials.json`
-(mode 0600), so the relay connects without the device page. It waits until lab.mjs says it is
-connected; only a session that lapses later has the relay ask for the device page, which install.sh
-or lab.log prints (under WSL2 it may not open by itself). Running the command again installs the
-newest bundle and signs the computer in again.
+`src/runner/install.sh` checks the download against `X-Lab-Sha256` and unpacks it. RUSH Lab is
+installed once per account on a computer, as `lab.mochi.lab` (`label` in `config.yaml`, which the
+bundle's `lab.mjs label` prints), and serves a connection for each member of each site installed
+there. The data folder is `~/Library/Application Support/lab.mochi.lab/` on macOS and
+`~/.local/share/lab.mochi.lab/` on Linux. What every connection shares is at its top: `app/<stamp>/`
+and `app/current`, `python/`, the uv cache, and `logs/lab.log`. Each connection is
+`connections/<host>-<member id>/`: its `site`, its member (`member.json`, their id and GitHub login),
+their sign-in (`runner-credentials.json`, mode 0600), their keys (`settings.env`), NanoAgent's
+folders and `logs/` for them, and `installed`, rewritten by each install of it. The member's files
+are `~/rushlab/<login>/` for rush-lab.org and `~/rushlab-dev/<login>/` for any other site, such as a
+checkout's `npm start`.
 
-`src/runner/lab.mjs` does what the app's supervisor does, without the window. It runs on macOS and
-Linux (`PLATFORMS`), and starts with `uv sync`, then NanoAgent with the platform's sandbox (seatbelt,
-or bwrap), a fresh
-token and the keys, then the relay. Each service gets the same environment as under the app, and its
-data folder is `lab.mochi.lab`: `settings.env`, `runner-credentials.json`, `logs/` and NanoAgent's
-folders. Its own log is `logs/lab.log`. When the relay needs signing in, it opens the device page in
-the browser and logs its address. Once connected after that, it opens the site, at Settings → AI
-while there is no key. Keys come only from Settings → AI, through the relay; there is no keys page.
-When either service exits, it stops the other, the relay first, and exits 1, and the service manager
-starts it again after 30 s. A relay replaced by another computer signing in as the same member exits
-cleanly, and so does lab.mjs: launchd and systemd restart only a failure (`KeepAlive.SuccessfulExit`,
-`Restart=on-failure`), so two computers do not take the runs back and forth. SIGTERM stops both and
-exits 0.
+The script replaces the install only for a new bundle (or one from before connections), stopping it
+first: it moves the bundle into `app/<stamp>/`, points `app/current` at it, and removes older
+versions. Otherwise the running install is left alone. Then it exchanges the token for the member's
+session (`POST /api/lab/session`, which says whose it is) and has `lab.mjs connect` keep it as their
+connection, so the relay connects without the device page; installing for a member again rewrites
+only that member's connection. An install from before connections, with one member's sign-in at the
+top of the data folder, becomes that member's connection, as the site says whose the sign-in is; and
+`lab.mochi.lab.dev`, installed beside it for a development site before, is removed. On Linux it
+first checks that bubblewrap is installed and can make a sandbox (Ubuntu 23.10 and later restrict
+the user namespaces it needs, through AppArmor; WSL2 does not), and that the member's systemd runs
+(WSL2 has it with `[boot] systemd=true` in `/etc/wsl.conf`, the default for Ubuntu). It has the
+service manager run `app/current/mochi-lab/bin/node app/current/mochi-lab/runner/lab.mjs` at every
+login: on macOS, `~/Library/LaunchAgents/lab.mochi.lab.plist`, loaded with `launchctl bootstrap
+gui/<uid>`; on Linux, the systemd user unit `~/.config/systemd/user/lab.mochi.lab.service`, enabled
+and started. It waits until lab.mjs says that connection is connected; only a session that lapses
+later has the relay ask for the device page, which install.sh or lab.log prints (under WSL2 it may
+not open by itself).
 
-The install prints how to uninstall: on macOS `launchctl bootout gui/$(id -u)/lab.mochi.lab`, on
-Linux `systemctl --user disable --now lab.mochi.lab.service`, then removing the plist or unit and the
-data folder.
+`src/runner/lab.mjs` does what the app's supervisor does, without the window, for every connection.
+It runs on macOS and Linux (`PLATFORMS`), and starts with `uv sync`, once. Then, for each
+connection, it starts NanoAgent on a free port with the platform's sandbox (seatbelt, or bwrap), a
+fresh token and that member's keys, then a relay for it. Each service gets the same environment as
+under the app. It looks at `connections/` every 2 s: a new connection starts, a removed one stops,
+and one installed again restarts, while the others keep running. Its log is `logs/lab.log`, each
+connection's lines marked `[<id>]`. When a relay needs signing in, it opens the device page in the
+browser and logs its address. Once connected after that, it opens the site, at Settings → AI while
+there is no key. Keys come only from Mochi, through the relay; there is no keys page. When either
+service of a connection exits, it stops the other, the relay first, and starts the connection again
+after 30 s. A relay replaced by another computer signing in as the same member exits cleanly, and
+its connection stays stopped until it is installed again, so two computers do not take the runs
+back and forth. SIGTERM stops every connection and exits 0; lab.mjs exits 1 only when `uv sync`
+fails, and the service manager starts it again (`KeepAlive.SuccessfulExit`, `Restart=on-failure`).
+
+The install prints how to remove only that member's connection (`rm -rf` its folder, which lab.mjs
+then stops) and how to uninstall: on macOS `launchctl bootout gui/$(id -u)/lab.mochi.lab`, on Linux
+`systemctl --user disable --now lab.mochi.lab.service`, then removing the plist or unit and the data
+folder.
+
+Locally, `npm start` runs no RUSH Lab of its own: its site's install command installs one as a
+member's does. `npm run lab:bundle` builds this computer's bundle from the checkout
+(`scripts/dev/lab-bundle.mjs`) into the local database, which `npm run db:pull` leaves without
+production's; run it again to try a change to the runner or NanoAgent.
 
 ## Known gaps
 

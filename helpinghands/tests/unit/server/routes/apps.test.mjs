@@ -96,7 +96,7 @@ describe('NanoAgent apps', () => {
     assert.equal((await invoke(routes, {method: 'GET', path: '/api/apps/Not%20an%20id', ctx, requestContext: context})).status, 404);
   });
 
-  it('lets only an owner add and remove a plugin', async () => {
+  it('lets a member of any role install and uninstall a plugin', async () => {
     const ctx = ctxWith({});
     const added = await invoke(routes, {method: 'PUT', path: '/api/apps/echo', ctx, requestContext: context});
     assert.equal(added.status, 200);
@@ -104,15 +104,10 @@ describe('NanoAgent apps', () => {
     const removed = await invoke(routes, {method: 'DELETE', path: '/api/apps/echo', ctx, requestContext: context});
     assert.deepEqual(removed.payload, {removed: 'echo'});
     assert.equal((await invoke(routes, {method: 'DELETE', path: '/api/apps/other', ctx, requestContext: context})).status, 404);
-    for (const role of ['editor', 'viewer']) {
-      for (const method of ['PUT', 'DELETE']) {
-        await assert.rejects(
-          invoke(routes, {method, path: '/api/apps/echo', ctx, requestContext: {...context, role}}),
-          error => error?.status === 403,
-        );
-      }
+    for (const method of ['PUT', 'DELETE']) {
+      assert.equal((await invoke(routes, {method, path: '/api/apps/echo', ctx, requestContext: {...context, role: 'viewer'}})).status, 200);
     }
-    assert.deepEqual(ctx.workspaceApps.calls, [['add', 'echo'], ['remove', 'echo'], ['remove', 'other']]);
+    assert.deepEqual(ctx.workspaceApps.calls, [['add', 'echo'], ['remove', 'echo'], ['remove', 'other'], ['add', 'echo'], ['remove', 'echo']]);
   });
 
   it('prepares the workspace\'s apps on the member\'s computer, answering at once', async () => {
@@ -136,7 +131,7 @@ describe('NanoAgent apps', () => {
     assert.deepEqual(ctx.workspaceApps.calls, []);
   });
 
-  it('lets only an owner tag a plugin, with a short list of short names', async () => {
+  it('lets a member tag their plugin, with a short list of short names', async () => {
     const ctx = ctxWith({});
     const tag = (body, role = 'owner', id = 'echo') => invoke(routes, {method: 'PATCH', path: `/api/apps/${id}`, body, ctx, requestContext: {...context, role}});
     const tagged = await tag({tags: [' Writing ', 'Daily', 'Writing']});
@@ -147,8 +142,8 @@ describe('NanoAgent apps', () => {
       assert.equal((await tag(body)).status, 400);
     }
     assert.equal((await tag({tags: ['x']}, 'owner', 'other')).status, 404);
-    await assert.rejects(tag({tags: ['x']}, 'editor'), error => error?.status === 403);
-    assert.deepEqual(ctx.workspaceApps.calls, [['tag', 'echo', ['Writing', 'Daily']], ['tag', 'echo', []], ['tag', 'other', ['x']]]);
+    assert.equal((await tag({tags: ['x']}, 'viewer')).status, 200);
+    assert.deepEqual(ctx.workspaceApps.calls, [['tag', 'echo', ['Writing', 'Daily']], ['tag', 'echo', []], ['tag', 'other', ['x']], ['tag', 'echo', ['x']]]);
   });
 
   it('relays a plugin the marketplace does not have', async () => {

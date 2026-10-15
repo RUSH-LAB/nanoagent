@@ -1,17 +1,9 @@
 name: Helping Hands PostgreSQL acceptance
 
+# Only a pull request runs these: production changes only by merging one, and its checks
+# decide; pushes to devmode are tested with npm test before they are pushed.
 on:
   pull_request:
-    branches: [production, devmode]
-    paths:
-      - '.github/workflows/helpinghands-postgres.yml'
-      - 'helpinghands/package-lock.json'
-      - 'helpinghands/package.json'
-      - 'helpinghands/scripts/db/**'
-      - 'helpinghands/src/server/**'
-      - 'helpinghands/tests/unit/server/postgres-*.test.mjs'
-      - 'helpinghands/tests/integration/postgres/**'
-  push:
     branches: [production, devmode]
     paths:
       - '.github/workflows/helpinghands-postgres.yml'
@@ -47,7 +39,6 @@ jobs:
     env:
       DATABASE_URL: postgres://mochi_runtime:mochi_runtime_ci@127.0.0.1:5432/mochi
       DATABASE_MIGRATION_URL: postgres://mochi_owner:mochi_owner_ci@127.0.0.1:5432/mochi
-      PG_DRIVER: pg
       PG_SSL: disable
     steps:
       - uses: actions/checkout@v4

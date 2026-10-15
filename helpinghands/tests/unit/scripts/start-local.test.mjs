@@ -15,20 +15,24 @@ import {
 } from '../../../scripts/dev/start-local.mjs';
 
 describe('local process supervisor configuration', () => {
-  it('loads the runtime database URL while keeping explicit shell overrides', () => {
+  it('runs on the local database, as its runtime role, migrating it as its owner', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-start-'));
     const envFile = path.join(dir, '.env');
-    fs.writeFileSync(envFile, 'DATABASE_URL=postgres://runtime\nEDITOR_PORT=9999\n');
+    fs.writeFileSync(envFile, 'EDITOR_PORT=9999\n');
     const env = environmentFor({base: {EDITOR_PORT: '4101'}, envFile});
-    assert.equal(env.DATABASE_URL, 'postgres://runtime');
+    assert.equal(env.DATABASE_URL, 'postgres://mochi_runtime@127.0.0.1:55432/mochi');
+    assert.equal(env.DATABASE_MIGRATION_URL, 'postgres://neondb_owner@127.0.0.1:55432/mochi');
+    assert.equal(env.PG_SSL, 'disable');
     assert.equal(env.EDITOR_PORT, '4101');
   });
 
-  it('refuses a schema owner URL, as only Railway migrates the database', () => {
+  it('refuses any other database URL, in .env or the shell', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-start-'));
     const envFile = path.join(dir, '.env');
-    fs.writeFileSync(envFile, 'DATABASE_URL=postgres://runtime\nDATABASE_MIGRATION_URL=postgres://owner\n');
-    assert.throws(() => environmentFor({base: {}, envFile}), /only Railway migrates the database/);
+    fs.writeFileSync(envFile, 'DATABASE_URL=postgres://runtime\n');
+    assert.throws(() => environmentFor({base: {}, envFile}), /DATABASE_URL must not be set: .*db:setup/);
+    fs.writeFileSync(envFile, '');
+    assert.throws(() => environmentFor({base: {DATABASE_MIGRATION_URL: 'postgres://owner'}, envFile}), /DATABASE_MIGRATION_URL must not be set/);
   });
 
   it('reports how to prepare a missing PostgreSQL environment file', () => {

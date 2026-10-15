@@ -555,7 +555,7 @@ li > input[type="checkbox"]:checked {
   }
 }
 
-/* Root.js DevelopmentBanner: the local site, on production's database. */
+/* Root.js DevelopmentBanner: the local site, on its copy of production's database. */
 .development-banner {
   position: sticky;
   top: 0;

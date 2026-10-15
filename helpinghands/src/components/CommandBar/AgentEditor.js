@@ -11,7 +11,7 @@ const emptyAgent = () => ({
 
 const COLORS = ['violet', 'blue', 'emerald', 'amber', 'rose', 'slate'];
 
-/** A workspace agent: a name and instructions. Each member's chats with it run on their own model (Settings → AI). */
+/** A workspace agent: a name and instructions. Each member's chats with it run on their own model (Settings → Usage). */
 export default function AgentEditor({agent, onSave, onDelete, onClose}) {
   const [draft, setDraft] = useState(emptyAgent);
   const [busy, setBusy] = useState(false);
@@ -118,7 +118,7 @@ export default function AgentEditor({agent, onSave, onDelete, onClose}) {
               rows={8}
             />
             <span className={styles.help}>
-              Optional. Leave blank to use Mochi's default assistant instructions. Which model answers is each member's own choice, in Settings → AI.
+              Optional. Leave blank to use Mochi's default assistant instructions. Which model answers is each member's own choice, in Settings → Usage.
             </span>
           </label>
 

@@ -1,12 +1,9 @@
 name: NanoAgent CI
 
+# Only a pull request runs these: production changes only by merging one, and its checks
+# decide; pushes to devmode are tested with npm test before they are pushed.
 on:
   pull_request:
-    branches: [production, devmode]
-    paths:
-      - '.github/workflows/nanoagent-ci.yml'
-      - 'nanoagent/**'
-  push:
     branches: [production, devmode]
     paths:
       - '.github/workflows/nanoagent-ci.yml'
@@ -23,7 +20,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13"]
+        # The Python NanoAgent ships on: Railway, the Lab bundle and the app.
+        python-version: ["3.12"]
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
