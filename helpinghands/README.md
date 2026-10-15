@@ -33,12 +33,8 @@ sanitized local environment file:
 ./install.sh
 ```
 
-Then replace the placeholder in `.env` with your OpenRouter
-key:
-
-```dotenv
-OPENROUTER_API_KEY=...
-```
+Then fill in the GitHub values in `.env` ([scripts/README.md](scripts/README.md));
+`npm run db:setup` sets `OPENROUTER_MANAGEMENT_KEY` in it from Railway.
 
 Start the complete stack—NanoAgent, the Mochi API, and the site—with one
 command:

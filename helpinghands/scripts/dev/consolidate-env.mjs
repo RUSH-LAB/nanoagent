@@ -23,8 +23,9 @@ for (const file of legacyFiles) {
 if (fs.existsSync(destination)) Object.assign(values, parseEnv(fs.readFileSync(destination, 'utf8')));
 delete values.PG_DRIVER;
 
+// A first .env starts as .env.example, its values to fill in.
 if (Object.keys(values).length === 0 && process.argv.includes('--initialize')) {
-  values.OPENROUTER_API_KEY = 'replace-me';
+  Object.assign(values, parseEnv(fs.readFileSync(path.join(root, '.env.example'), 'utf8')));
 }
 if (Object.keys(values).length === 0) {
   console.log('No environment values found; nothing to consolidate.');
