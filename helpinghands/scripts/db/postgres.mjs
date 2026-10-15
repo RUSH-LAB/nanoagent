@@ -2,7 +2,10 @@
 import fs from 'node:fs';
 import {spawnSync} from 'node:child_process';
 import path from 'node:path';
+import readline from 'node:readline';
 import {fileURLToPath} from 'node:url';
+import {createLocal} from './local.mjs';
+import {pull, push} from './sync.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const LOCAL_ENV_FILE = path.join(root, '.env');
@@ -35,19 +38,14 @@ export function serializeEnv(values) {
   }).join('\n')}\n`;
 }
 
-// The one database is production's. The local server reaches it as the runtime
-// role, read from Railway, and never holds the schema owner's URL.
-const RUNTIME_KEYS = ['DATABASE_URL', 'PG_SSL', 'PG_SSL_REJECT_UNAUTHORIZED'];
+// The database keys .env held when local npm start ran on production's database.
+// The local database's connection comes from local.mjs, never from .env.
+const DATABASE_KEYS = ['DATABASE_URL', 'DATABASE_MIGRATION_URL', 'PG_SSL', 'PG_SSL_REJECT_UNAUTHORIZED', 'PG_DRIVER'];
 
-/** Write production's runtime connection into .env, keeping the file's other values. */
-export function writeProductionEnvironment(railway, {envFile = LOCAL_ENV_FILE} = {}) {
-  if (!railway.DATABASE_URL) throw new Error("Railway's mochi-lab service has no DATABASE_URL");
-  if (new URL(railway.DATABASE_URL).username !== 'mochi_runtime') {
-    throw new Error("Railway's DATABASE_URL is not the mochi_runtime role");
-  }
+/** Remove every database key from .env, keeping the file's other values. */
+export function writeLocalEnvironment({envFile = LOCAL_ENV_FILE} = {}) {
   const output = {...readEnvFile(envFile)};
-  for (const key of [...RUNTIME_KEYS, 'DATABASE_MIGRATION_URL', 'PG_DRIVER']) delete output[key];
-  for (const key of RUNTIME_KEYS) if (railway[key]) output[key] = railway[key];
+  for (const key of DATABASE_KEYS) delete output[key];
   const temporaryFile = `${envFile}.${process.pid}.tmp`;
   try {
     fs.writeFileSync(temporaryFile, serializeEnv(output), {mode: 0o600});
@@ -57,6 +55,13 @@ export function writeProductionEnvironment(railway, {envFile = LOCAL_ENV_FILE} =
     if (fs.existsSync(temporaryFile)) fs.unlinkSync(temporaryFile);
   }
   return output;
+}
+
+/** Production's schema owner URL, read from Railway for one pull or push and never written down. */
+function productionOwnerUrl() {
+  const url = railwayVariables().DATABASE_MIGRATION_URL;
+  if (!url) throw new Error("Railway's mochi-lab service has no DATABASE_MIGRATION_URL");
+  return url;
 }
 
 function railwayVariables() {
@@ -94,10 +99,32 @@ function run(command, args, env = process.env) {
   }
 }
 
+/** Ask on the terminal for the workspace's slug, typed back, before a push replaces it on production. */
+async function confirmPush(slug, {name, rows}) {
+  if (!process.stdin.isTTY) throw new Error('db:push asks for confirmation, so it runs only in a terminal');
+  console.log(`This replaces ${name} (${slug}) on rush-lab.org with your local copy:\n`);
+  console.log(`  ${'table'.padEnd(30)} ${'local'.padStart(8)} ${'production'.padStart(11)}`);
+  for (const row of rows) console.log(`  ${row.table.padEnd(30)} ${String(row.local).padStart(8)} ${String(row.production).padStart(11)}`);
+  const terminal = readline.createInterface({input: process.stdin, output: process.stdout});
+  const answer = await new Promise(resolve => terminal.question(`\nType ${slug} to push it: `, resolve));
+  terminal.close();
+  return answer.trim() === slug;
+}
+
 const commands = Object.freeze({
   setup() {
-    writeProductionEnvironment(railwayVariables());
-    console.log("Wrote production's runtime database connection into .env.");
+    writeLocalEnvironment();
+    console.log(createLocal() ? 'Made the local database in var/postgres.' : 'The local database in var/postgres is already there.');
+    console.log('Removed any database connection from .env. Run npm run db:pull to copy production into it.');
+  },
+  async pull() {
+    const {workspaces} = await pull({ownerUrl: productionOwnerUrl()});
+    console.log(`Pulled production into the local database: ${workspaces} workspaces. Run npm start to apply this checkout's migrations to it.`);
+  },
+  async push(slug) {
+    if (!slug) throw new Error('Name the workspace to push: npm run db:push -- <slug>');
+    const pushed = await push({ownerUrl: productionOwnerUrl(), slug, confirm: changes => confirmPush(slug, changes)});
+    console.log(pushed ? `Pushed ${pushed.name} to rush-lab.org.` : 'Nothing was pushed.');
   },
   test() {
     const env = {...process.env};
@@ -111,18 +138,18 @@ const commands = Object.freeze({
   },
 });
 
-export function main(command = process.argv[2]) {
+export async function main(command = process.argv[2], ...args) {
   if (!commands[command]) {
     console.error(`Usage: node scripts/db/postgres.mjs <${Object.keys(commands).join('|')}>`);
     process.exitCode = 2;
     return;
   }
   try {
-    commands[command]();
+    await commands[command](...args);
   } catch (error) {
     console.error(`PostgreSQL command failed: ${error.message}`);
     process.exitCode = 1;
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main(...process.argv.slice(2));

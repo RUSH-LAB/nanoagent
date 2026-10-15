@@ -1,10 +1,11 @@
 # Release policy
 
 Code reaches production only through git: uncommitted files and branches
-other than `production` never deploy. Data has no boundary to cross: local
-`npm start` and production share the one database
-([neon-postgres-setup.md](neon-postgres-setup.md)), and only Railway's deploy
-changes its schema.
+other than `production` never deploy. Data crosses only when asked: local
+`npm start` runs on its own copy of production's database, which `db:pull`
+refreshes and `db:push` sends one workspace of back
+([neon-postgres-setup.md](neon-postgres-setup.md)). Production's schema changes
+only by Railway's deploy.
 
 ## Branch rules
 

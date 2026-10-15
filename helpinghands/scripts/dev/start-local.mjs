@@ -7,6 +7,8 @@ import net from 'node:net';
 import readline from 'node:readline';
 import {fileURLToPath} from 'node:url';
 import {parseEnv} from '../db/postgres.mjs';
+import {LOCAL_OWNER_URL, LOCAL_RUNTIME_URL, startLocal as startLocalDatabase} from '../db/local.mjs';
+import {pulledAt} from '../db/sync.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const localEnvFile = path.join(root, '.env');
@@ -24,18 +26,18 @@ const PROVIDER_KEYS = [
 ];
 
 /**
- * The local server runs on production's database, the only one, as the
- * runtime role: it holds no schema owner's URL, so it can never migrate it.
+ * The local server runs on the local database (scripts/db/local.mjs), which it
+ * migrates as its owner and serves as the runtime role, as Railway does
+ * production's. A database URL anywhere else would be another database, so
+ * .env and the shell may hold none.
  */
 export function environmentFor({base = process.env, envFile = localEnvFile} = {}) {
   if (!fs.existsSync(envFile)) throw new Error('Run npm run db:setup before npm start');
   const file = parseEnv(fs.readFileSync(envFile, 'utf8'));
   const env = {...file, ...base, EDITOR_PORT: base.EDITOR_PORT || '3001'};
-  if (!env.DATABASE_URL) throw new Error('Run npm run db:setup before npm start');
-  if (env.DATABASE_MIGRATION_URL) {
-    throw new Error('DATABASE_MIGRATION_URL is set: only Railway migrates the database. Run npm run db:setup');
-  }
-  return env;
+  const named = ['DATABASE_URL', 'DATABASE_MIGRATION_URL'].filter(key => env[key]);
+  if (named.length) throw new Error(`${named.join(' and ')} must not be set: npm start runs on the local database. Run npm run db:setup`);
+  return {...env, DATABASE_URL: LOCAL_RUNTIME_URL, DATABASE_MIGRATION_URL: LOCAL_OWNER_URL, PG_SSL: 'disable'};
 }
 
 export function portIsAvailable(port, host = 'localhost') {
@@ -362,6 +364,9 @@ export async function startLocal(argv = process.argv.slice(2)) {
   }
   // After the port check, so a running npm start never has its packages replaced under it.
   await syncDependencies(env, nanoagentRoot);
+  startLocalDatabase();
+  // The site's banner says how old the local copy is (src/theme/Root.js).
+  env.MOCHI_PULLED_AT = (await pulledAt())?.toISOString() ?? '';
   if (usesLocalNanoAgent(env)) await preparePiRunner(env, nanoagentRoot);
   // Keep every child in the terminal's process group. Ctrl+C then reaches the
   // agent, API, site, and this supervisor together, so npm cannot leave a

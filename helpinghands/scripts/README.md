@@ -6,29 +6,28 @@ details grouped by responsibility.
 
 ## Local setup
 
-Prerequisites are Node.js 22.19+, npm, Python 3.12, `uv`, and access to the
-Railway project. There is one database, production's, and the local server
-uses it as the restricted runtime role
+Prerequisites are Node.js 22.19+, npm, Python 3.12, `uv`, Homebrew's
+`postgresql@18`, and access to the Railway project. The local server runs on
+its own database, a copy of production's
 ([docs/infra/neon-postgres-setup.md](../docs/infra/neon-postgres-setup.md)).
-Local PostgreSQL and Docker are not required. Clone NanoAgent beside this repository,
-or set `NANOAGENT_PROJECT_DIR` to its checkout path.
+Docker is not required. Clone NanoAgent beside this repository, or set
+`NANOAGENT_PROJECT_DIR` to its checkout path.
 
-Install the JavaScript dependencies and write production's runtime database
-connection into the git-ignored `.env`:
+Install the JavaScript dependencies, make the local database and copy
+production's data into it:
 
 ```bash
+brew install postgresql@18
 npm ci
 railway login
 npm run db:setup
+npm run db:pull
 ```
 
-`.env` must contain the following values; never commit real secrets:
+`.env` must contain the following values, and no database URL; never commit real secrets:
 
 ```dotenv
-DATABASE_URL=postgresql://mochi_runtime:...@...-pooler.../neondb?sslmode=verify-full
 BETTER_AUTH_SECRET=...
-PG_SSL=require
-PG_SSL_REJECT_UNAUTHORIZED=true
 PLATFORM_NAME=RUSH Lab
 PLATFORM_TAGLINE=Collaborative knowledge workspaces
 GITHUB_CLIENT_ID=...
@@ -82,7 +81,7 @@ OPENROUTER_API_KEY=...
 Start the complete local stack with one command:
 
 ```bash
-npm start                 # adjacent NanoAgent checkout + API + site, on production's database
+npm start                 # adjacent NanoAgent checkout + API + site, on the local database
 ```
 
 PostgreSQL is the normal development path and source of truth.
@@ -105,8 +104,9 @@ Database setup and schema operations:
 - `bootstrap-runtime-role.mjs` creates or repairs the restricted application
   login used separately from the migration owner.
 
-Railway runs both before each deploy. Locally, `npm run db:setup` writes the
-runtime connection into `.env`; nothing local migrates.
+Railway runs both before each deploy. Locally, `npm start` migrates the local
+database itself (`local.mjs`); `sync.mjs` pulls production's data into it and
+pushes one workspace back.
 
 ## `maintenance/`
 

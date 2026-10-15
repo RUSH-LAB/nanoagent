@@ -33,10 +33,10 @@ command:
 npm start
 ```
 
-This runs on production's database, the only one, as the restricted runtime
-role, so what you change locally is real. Run `npm run db:setup` once before
-using it; `npm start` refuses to run until production has applied exactly the
-migrations in your checkout.
+This runs on a local copy of production's database, which `npm start` migrates
+itself. Run `npm run db:setup` once, then `npm run db:pull` whenever you want a
+fresh copy; `npm run db:push -- <slug>` sends one workspace back to
+rush-lab.org (docs/infra/neon-postgres-setup.md).
 Open [http://localhost:3000](http://localhost:3000). By default, the supervisor
 uses the adjacent `../nanoagent` checkout. Set `NANOAGENT_PROJECT_DIR` to use a
 checkout elsewhere, or `NANOAGENT_URL` to use an already-running agent service.

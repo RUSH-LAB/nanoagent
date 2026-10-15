@@ -50,6 +50,8 @@ const config = {
 
   customFields: {
     platformName,
+    // When npm start's local database was last pulled from production (scripts/db/sync.mjs).
+    pulledAt: process.env.MOCHI_PULLED_AT || null,
   },
 
   future: {

@@ -18,7 +18,7 @@ const FUTURE = '2999-01-01T00:00:00.000Z';
 
 function liftPublisher() {
   const lines = SOURCE.split('\n');
-  const start = lines.findIndex(line => line.includes('const scheduledPublishingTimer = ownsDatabase ? setInterval(async () => {'));
+  const start = lines.findIndex(line => line.includes('const scheduledPublishingTimer = setInterval(async () => {'));
   assert.ok(start !== -1);
   let depth = 0;
   let opened = false;
@@ -31,8 +31,8 @@ function liftPublisher() {
     if (opened && depth === 0) { end = index; break; }
   }
   const body = lines.slice(start, end + 1).join('\n')
-    .replace(/^const scheduledPublishingTimer = ownsDatabase \? setInterval\(/, 'return (')
-    .replace(/,\s*60000\) : null;\s*$/, ');');
+    .replace(/^(?:const scheduledPublishingTimer = )?setInterval\(/, 'return (')
+    .replace(/,\s*60000\);\s*$/, ');');
   return new Function('org', 'store', 'isValidFilePath', 'invalidateCache', 'cacheKey', 'documents', 'console', body);
 }
 

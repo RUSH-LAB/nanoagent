@@ -1,5 +1,6 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
+import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import { useLocation } from '@docusaurus/router';
 import PageTracker from '@site/src/components/Analytics/PageTracker';
 import {clientPlatform} from '@site/src/platform/client';
@@ -185,13 +186,16 @@ function AuthGate({ children }) {
   );
 }
 
-// The local site (npm start) runs on production's database, the only one
-// (docs/infra/neon-postgres-setup.md): what it changes is rush-lab.org's.
+// The local site (npm start) runs on its own database, a copy of production's
+// pulled when asked (docs/infra/neon-postgres-setup.md): nothing it changes
+// reaches rush-lab.org unless a workspace is pushed.
 function DevelopmentBanner() {
+  const {pulledAt} = useDocusaurusContext().siteConfig.customFields;
   if (process.env.NODE_ENV !== 'development') return null;
+  const copy = pulledAt ? `a copy of rush-lab.org pulled ${new Date(pulledAt).toLocaleString()}` : 'a database never pulled from rush-lab.org';
   return (
     <div role="status" className="development-banner">
-      Local site on rush-lab.org's data: what you change here is real.
+      Local site on {copy}. Nothing here reaches rush-lab.org unless you push a workspace (npm run db:push).
     </div>
   );
 }
