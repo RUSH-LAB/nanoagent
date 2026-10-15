@@ -7,8 +7,10 @@ on:
       - '.github/workflows/helpinghands-quality.yml'
       - 'helpinghands/**'
       - 'nanoagent/**'
+  # Not on a push to production: production changes only by merging a pull request,
+  # whose checks ran on the same code.
   push:
-    branches: [production, devmode]
+    branches: [devmode]
     paths:
       - '.github/workflows/helpinghands-quality.yml'
       - 'helpinghands/**'
