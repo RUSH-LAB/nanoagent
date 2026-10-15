@@ -61,8 +61,9 @@ INSTALL_HOSTS = (
 # Followed by `--python <the Python plugins run on>`.
 SYNC = ("uv", "sync", "--frozen", "--no-dev")
 SYNC_TIMEOUT = 600.0
-# Written into an install's folder once it finishes, holding its Python's marker; a kept install
-# whose marker differs is redone.
+# Written into an install's folder once it finishes, holding its Python's marker and the folder: a
+# plugin's .venv holds absolute paths, so a kept install built on another Python, or in another
+# folder (moved since), is redone.
 INSTALLED = "installed"
 
 
@@ -87,10 +88,15 @@ class Installed:
     entry: dict[str, Any]
 
 
+def install_marker(folder: Path, python: PluginPython) -> str:
+    """What an install that finished in ``folder``, on ``python``, holds in its INSTALLED file."""
+    return f"{python.marker}{folder}\n"
+
+
 def _finished(folder: Path, python: PluginPython) -> bool:
-    """Whether ``folder`` holds an install that finished, on ``python``."""
+    """Whether ``folder`` holds an install that finished there, on ``python``."""
     marker = folder / INSTALLED
-    return marker.is_file() and marker.read_text(encoding="utf-8") == python.marker
+    return marker.is_file() and marker.read_text(encoding="utf-8") == install_marker(folder, python)
 
 
 def built_here(lock: Path, tags: frozenset[Tag]) -> list[str]:
@@ -162,7 +168,7 @@ class Installs:
                     if os.path.lexists(plugin / ".venv"):
                         raise PackageError(["the package carries a .venv; an install builds its own"])
                     self._sync(plugin)
-                    (folder / INSTALLED).write_text(self.python.marker, encoding="utf-8")
+                    (folder / INSTALLED).write_text(install_marker(folder, self.python), encoding="utf-8")
             except BaseException:
                 shutil.rmtree(folder, ignore_errors=True)
                 raise

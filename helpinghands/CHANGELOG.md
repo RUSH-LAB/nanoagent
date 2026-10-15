@@ -4,6 +4,7 @@ What each Mochi release changes, one sentence each.
 
 ## Unreleased
 
+- A plugin install that RUSH Lab moved into a member's connection is built again where it is now, instead of failing with "Connection closed".
 - New accounts start with arxiv-source and weather-alert installed (src/server/preinstalled-plugins.yaml).
 - RUSH Lab installs once per computer account and connects each member separately, so several accounts can be connected from one laptop at once.
 - The site opens only once RUSH Lab on your computer is connected, Settings → Connection shows whether it is, and `npm start`'s site installs RUSH Lab built from the checkout, beside rush-lab.org's, with keys from its own $10 OpenRouter workspace.

@@ -141,7 +141,19 @@ def test_keeps_a_finished_install_for_the_next_process(
 def test_starting_removes_the_installs_no_caller_gets_back(tmp_path: Path) -> None:
     root = tmp_path / "installs"
     python = plugin_python(sys.executable)
-    for name, marker in [("used", python.marker), ("unused", python.marker), ("unfinished", None), ("other-python", "another python\n")]:
+
+    def here(name: str) -> str:
+        return install.install_marker((root / name).resolve(), python)
+
+    markers = [
+        ("used", here("used")),
+        ("unused", here("unused")),
+        ("unfinished", None),
+        ("other-python", "another python\n"),
+        # Moved from another folder: its .venv still names that one.
+        ("moved", here("used")),
+    ]
+    for name, marker in markers:
         (root / name).mkdir(parents=True)
         if marker is not None:
             (root / name / install.INSTALLED).write_text(marker, encoding="utf-8")
