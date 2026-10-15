@@ -428,7 +428,7 @@ const CATEGORIES = [
         response: '<!doctype html>...',
       },
       {
-        method: 'POST', path: '/api/app-installs', description: 'Install every ready app the workspace added on your computer, so opening one does not wait; 503 while Mochi Lab is not connected. Answers at once; the installs continue in the background. Mochi calls it when you enter a workspace and after you add a plugin.',
+        method: 'POST', path: '/api/app-installs', description: 'Install every ready app you installed on your computer, so opening one does not wait; 503 while Mochi Lab is not connected. Answers at once; the installs continue in the background. Mochi calls it when you enter a workspace and after you install a plugin.',
         response: '{ "preparing": true }',
       },
       {

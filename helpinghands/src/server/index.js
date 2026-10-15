@@ -576,9 +576,9 @@ const ctx = {
   submissions: postgresServices?.submissions ?? null,
   // Plugin sessions and what their runs cost; PostgreSQL only.
   sessions: postgresServices?.sessions ?? null,
-  // The plugins each workspace added from the marketplace, run from NanoAgent's installs; PostgreSQL only.
+  // The plugins each member installed from the marketplace, run from NanoAgent's installs; PostgreSQL only.
   workspaceApps: postgresServices
-    ? createWorkspaceApps({ai, market: postgresServices.market, plugins: postgresServices.workspacePlugins})
+    ? createWorkspaceApps({ai, market: postgresServices.market, plugins: postgresServices.userPlugins})
     : null,
   // Where the marketplace fetches a plugin's source.
   github: createGithub(),

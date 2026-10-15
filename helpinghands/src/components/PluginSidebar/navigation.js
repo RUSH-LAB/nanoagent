@@ -1,7 +1,7 @@
 /**
  * Where the Plugins page's URL puts the reader (?tag=, ?app=), and the links
- * its sidebar offers from there. The tags are the workspace's own, which an
- * owner gives the plugins it added; a plugin may have several, or none. The
+ * its sidebar offers from there. The tags are the member's own, which they
+ * give the plugins they installed; a plugin may have several, or none. The
  * tag is chosen only in the sidebar's switcher, and without ?tag= every plugin
  * is shown. Beneath it the sidebar lists the plugins in view, one of which is
  * always open; each link keeps the chosen tag, so opening a plugin never changes it.

@@ -4,8 +4,8 @@ const {agentFolder} = require('../fs/agent-sync');
 const {FsError} = require('../fs/store');
 const {RUNNER_OFFLINE} = require('../ai');
 
-// Apps: the marketplace plugins a workspace added (workspace-apps.js), which an
-// owner adds, tags and removes at /api/apps/{id}, and the caller's own folder
+// Apps: the marketplace plugins a member installed (workspace-apps.js), which
+// they install, tag and uninstall at /api/apps/{id}, and the caller's own folder
 // for each app, `home/<user>/agent/<app>/` in the workspace file system, where
 // that app leaves its files (/api/agent-files?plugin=<app>).
 // Opening an app (GET /api/apps/{id}) has the NanoAgent on the member's own
@@ -160,10 +160,11 @@ function tagsOf(body) {
 }
 
 /**
- * One of the workspace's apps: GET opens it, installed and ready to run on the
+ * One of the caller's apps: GET opens it, installed and ready to run on the
  * member's own computer, with the `computer` page id its page is served by; PUT
- * adds the marketplace plugin of that id, PATCH replaces the tags the
- * workspace files it under, and DELETE removes it, each an owner's to do.
+ * installs the marketplace plugin of that id, PATCH replaces the tags the
+ * caller files it under, and DELETE uninstalls it. Each is the member's own to
+ * do, in any role: an install is theirs, not the workspace's.
  */
 async function appRoute(req, res, ctx, id) {
   const {json, readBody, requireWorkspacePermission, workspaceApps} = ctx;
@@ -178,12 +179,12 @@ async function appRoute(req, res, ctx, id) {
     return opened.error ? json(res, opened.status, {error: opened.error}) : json(res, 200, {app: {...opened.value, computer: page}});
   }
   if (req.method === 'PUT') {
-    requireWorkspacePermission(req.context, 'workspace:manage');
+    requireWorkspacePermission(req.context, 'apps:use');
     const added = await workspaceApps.add(req.context, id);
     return added.error ? json(res, added.status, {error: added.error}) : json(res, 200, {app: added.value});
   }
   if (req.method === 'PATCH') {
-    requireWorkspacePermission(req.context, 'workspace:manage');
+    requireWorkspacePermission(req.context, 'apps:use');
     let body;
     try {
       body = await readBody(req);
@@ -194,12 +195,12 @@ async function appRoute(req, res, ctx, id) {
     if (!tags) {
       return json(res, 400, {error: `Request body must be {"tags": [...]}: at most ${MAX_TAGS} names, each 1 to ${MAX_TAG_LENGTH} characters`});
     }
-    if (!await workspaceApps.tag(req.context, id, tags)) return json(res, 404, {error: `This workspace has no plugin named ${id}`});
+    if (!await workspaceApps.tag(req.context, id, tags)) return json(res, 404, {error: `You have not installed a plugin named ${id}`});
     return json(res, 200, {tags});
   }
   if (req.method === 'DELETE') {
-    requireWorkspacePermission(req.context, 'workspace:manage');
-    if (!await workspaceApps.remove(req.context, id)) return json(res, 404, {error: `This workspace has no plugin named ${id}`});
+    requireWorkspacePermission(req.context, 'apps:use');
+    if (!await workspaceApps.remove(req.context, id)) return json(res, 404, {error: `You have not installed a plugin named ${id}`});
     return json(res, 200, {removed: id});
   }
   return json(res, 405, {error: 'Method not allowed'});
@@ -223,8 +224,8 @@ module.exports = async function app_routes(req, res, url, pathname, ctx) {
     return json(res, 200, {apps: result.value});
   }
 
-  // Entering a workspace installs its apps ahead of the first open, on the
-  // member's computer, where their pages and runs are. Answered at once; an
+  // Entering a workspace installs the member's apps ahead of the first open, on
+  // their computer, where their pages and runs are. Answered at once; an
   // install that fails is logged, and opening that app reports it.
   if (req.method === 'POST' && pathname === '/api/app-installs') {
     requireWorkspacePermission(req.context, 'content:read');
@@ -234,10 +235,10 @@ module.exports = async function app_routes(req, res, url, pathname, ctx) {
     ctx.workspaceApps.prepare(req.context, computer).then(
       result => {
         for (const failed of result.error ? [result] : result.value.filter(app => app.error)) {
-          console.error(`[apps] preparing ${failed.id ?? 'the workspace\'s apps'} failed: ${failed.error}`);
+          console.error(`[apps] preparing ${failed.id ?? 'the member\'s apps'} failed: ${failed.error}`);
         }
       },
-      error => console.error('[apps] preparing the workspace\'s apps failed:', error),
+      error => console.error('[apps] preparing the member\'s apps failed:', error),
     );
     return json(res, 202, {preparing: true});
   }

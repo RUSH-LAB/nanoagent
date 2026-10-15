@@ -363,7 +363,7 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
         if (error.name === 'SessionError') return json(res, error.status, {error: error.message});
         throw error;
       }
-      // The app runs as the workspace added it: NanoAgent's install of its package.
+      // The app runs as the member installed it: NanoAgent's install of its package.
       const opened = await ctx.workspaceApps.open(req.context, composed.request.app, ai);
       if (opened.error) return json(res, opened.status, {error: opened.error});
       composed.request.install = opened.value.sha256;
