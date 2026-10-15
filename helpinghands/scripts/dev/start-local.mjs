@@ -23,12 +23,17 @@ const PROVIDER_KEYS = [
   ['ZAI_API_KEY', 'Z.ai'], ['HF_TOKEN', 'Hugging Face'],
 ];
 
+/**
+ * The local server runs on production's database, the only one, as the
+ * runtime role: it holds no schema owner's URL, so it can never migrate it.
+ */
 export function environmentFor({base = process.env, envFile = localEnvFile} = {}) {
-  if (!fs.existsSync(envFile)) throw new Error('Run npm run db:postgres:setup before npm start');
+  if (!fs.existsSync(envFile)) throw new Error('Run npm run db:setup before npm start');
   const file = parseEnv(fs.readFileSync(envFile, 'utf8'));
   const env = {...file, ...base, EDITOR_PORT: base.EDITOR_PORT || '3001'};
-  if (!env.DATABASE_URL || !env.DATABASE_MIGRATION_URL) {
-    throw new Error('Run npm run db:postgres:setup before npm start');
+  if (!env.DATABASE_URL) throw new Error('Run npm run db:setup before npm start');
+  if (env.DATABASE_MIGRATION_URL) {
+    throw new Error('DATABASE_MIGRATION_URL is set: only Railway migrates the database. Run npm run db:setup');
   }
   return env;
 }

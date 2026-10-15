@@ -7,7 +7,7 @@ import {createRequire} from 'node:module';
 
 const require = createRequire(import.meta.url);
 const {
-  createPool, migrate, withRequestContext, queryInContext, checksum, quoteIdentifier,
+  createPool, migrate, assertSchemaCurrent, withRequestContext, queryInContext, checksum, quoteIdentifier,
   grantRuntimeAccess, assertRuntimeRoleIsNotOwner,
 } = require('../../../src/server/postgres/client.js');
 
@@ -106,6 +106,44 @@ describe('PostgreSQL runtime boundary', () => {
       assert.deepEqual(record.params, ['0001.sql', checksum(sql)]);
       assert.equal(fake.calls.some(call => call.sql === sql), true);
       assert.equal(fake.released, 1);
+    } finally {
+      fs.rmSync(directory, {recursive: true, force: true});
+    }
+  });
+
+  it('applies the pending migrations in one transaction and rolls them all back when one fails', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-pg-migrations-'));
+    try {
+      fs.writeFileSync(path.join(directory, '0001.sql'), 'select 1;');
+      fs.writeFileSync(path.join(directory, '0002.sql'), 'select 2;');
+      const fake = fakePool(async statement => {
+        if (statement === 'select 2;') throw new Error('boom');
+        return {rows: []};
+      });
+      await assert.rejects(() => migrate(fake.pool, {directory}), /0002\.sql: boom/);
+      const sequence = fake.calls.map(call => call.sql)
+        .filter(sql => ['begin', 'commit', 'rollback', 'select 1;', 'select 2;'].includes(sql));
+      assert.deepEqual(sequence, ['begin', 'select 1;', 'select 2;', 'rollback']);
+    } finally {
+      fs.rmSync(directory, {recursive: true, force: true});
+    }
+  });
+
+  it('accepts a database that applied exactly these migrations, and refuses any other', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-pg-migrations-'));
+    try {
+      fs.writeFileSync(path.join(directory, '0001.sql'), 'select 1;');
+      fs.writeFileSync(path.join(directory, '0002.sql'), 'select 2;');
+      const database = rows => ({query: async () => ({rows})});
+      const one = {name: '0001.sql', checksum: checksum('select 1;')};
+      const two = {name: '0002.sql', checksum: checksum('select 2;')};
+      await assertSchemaCurrent(database([one, two]), {directory});
+      await assert.rejects(() => assertSchemaCurrent(database([one]), {directory}),
+        /has not applied 0002\.sql: release them first/);
+      await assert.rejects(() => assertSchemaCurrent(database([one, two, {name: '0003.sql', checksum: 'x'}]), {directory}),
+        /has applied 0003\.sql, which this checkout lacks: pull first/);
+      await assert.rejects(() => assertSchemaCurrent(database([one, {...two, checksum: 'x'}]), {directory}),
+        /Applied migration changed: 0002\.sql/);
     } finally {
       fs.rmSync(directory, {recursive: true, force: true});
     }

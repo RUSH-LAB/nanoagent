@@ -15,20 +15,26 @@ import {
 } from '../../../scripts/dev/start-local.mjs';
 
 describe('local process supervisor configuration', () => {
-  it('loads PostgreSQL credentials while keeping explicit shell overrides', () => {
+  it('loads the runtime database URL while keeping explicit shell overrides', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-start-'));
     const envFile = path.join(dir, '.env');
-    fs.writeFileSync(envFile, 'DATABASE_URL=postgres://runtime\nDATABASE_MIGRATION_URL=postgres://owner\nEDITOR_PORT=9999\n');
+    fs.writeFileSync(envFile, 'DATABASE_URL=postgres://runtime\nEDITOR_PORT=9999\n');
     const env = environmentFor({base: {EDITOR_PORT: '4101'}, envFile});
     assert.equal(env.DATABASE_URL, 'postgres://runtime');
-    assert.equal(env.DATABASE_MIGRATION_URL, 'postgres://owner');
     assert.equal(env.EDITOR_PORT, '4101');
+  });
+
+  it('refuses a schema owner URL, as only Railway migrates the database', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-start-'));
+    const envFile = path.join(dir, '.env');
+    fs.writeFileSync(envFile, 'DATABASE_URL=postgres://runtime\nDATABASE_MIGRATION_URL=postgres://owner\n');
+    assert.throws(() => environmentFor({base: {}, envFile}), /only Railway migrates the database/);
   });
 
   it('reports how to prepare a missing PostgreSQL environment file', () => {
     assert.throws(
       () => environmentFor({base: {}, envFile: '/path/that/does/not/exist'}),
-      /db:postgres:setup/,
+      /db:setup/,
     );
   });
 

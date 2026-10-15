@@ -1,7 +1,10 @@
 # Release policy
 
-Git is the only synchronization boundary between local development and
-production. Uncommitted files and development branches never deploy.
+Code reaches production only through git: uncommitted files and branches
+other than `production` never deploy. Data has no boundary to cross: local
+`npm start` and production share the one database
+([neon-postgres-setup.md](neon-postgres-setup.md)), and only Railway's deploy
+changes its schema.
 
 ## Branch rules
 
@@ -39,6 +42,16 @@ production. Uncommitted files and development branches never deploy.
   request whose Mochi needs a NanoAgent change that is not in production yet
   fails the first, which is the signal to release NanoAgent alone first.
 - NanoAgent's CI must validate its production configuration and container.
+
+## Migrations
+
+- Railway applies Mochi's pending migrations before the new container starts,
+  all in one transaction: if one fails, none is applied, and the running
+  deployment keeps the schema it was built for.
+- A pull request into `production` runs the pending migrations against
+  production's data, on a Neon branch made from it and deleted after
+  (`production-data` in the PostgreSQL workflow, with the `NEON_API_KEY`
+  secret), so a migration that fails on real rows fails before merging.
 
 ## Coordinated release
 

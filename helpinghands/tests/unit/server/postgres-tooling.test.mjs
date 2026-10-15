@@ -5,18 +5,18 @@ import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import yaml from 'js-yaml';
-import {parseEnv, prepareNeonEnvironment, serializeEnv} from '../../../scripts/db/postgres.mjs';
+import {assertDisposableDatabase, parseEnv, serializeEnv, writeProductionEnvironment} from '../../../scripts/db/postgres.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 
-describe('Neon PostgreSQL tooling', () => {
-  it('exposes setup, verification, server, and acceptance commands', () => {
+describe('PostgreSQL tooling', () => {
+  it('exposes setup and acceptance commands, and none that migrates or resets the database', () => {
     const pkg = JSON.parse(read('package.json'));
-    for (const script of [
-      'db:postgres:bootstrap', 'db:postgres:prepare', 'db:postgres:setup', 'db:postgres:migrate',
-      'db:postgres:verify', 'start:postgres:api', 'test:postgres',
-    ]) assert.ok(pkg.scripts[script], `${script} is present`);
+    for (const script of ['db:setup', 'test:postgres']) assert.ok(pkg.scripts[script], `${script} is present`);
+    for (const script of ['db:sync', 'db:postgres:migrate', 'db:postgres:setup', 'start:postgres:api']) {
+      assert.equal(pkg.scripts[script], undefined, `${script} is gone`);
+    }
 
     const acceptance = read('tests/integration/postgres/runtime-acceptance.mjs');
     assert.match(acceptance, /ROOT_GITHUB_LOGIN/);
@@ -32,84 +32,42 @@ describe('Neon PostgreSQL tooling', () => {
     assert.throws(() => serializeEnv({KEY: "it's"}), /single quote/);
   });
 
-  it('derives direct owner and pooled restricted Neon URLs from one connection string', () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-neon-'));
+  it("writes production's runtime connection into .env and drops any owner URL", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-env-'));
     const envFile = path.join(directory, '.env');
     fs.writeFileSync(envFile, [
-      'DATABASE_MIGRATION_URL=postgresql://owner:secret@ep-demo-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require',
-      'DATABASE_URL=',
+      'DATABASE_MIGRATION_URL=postgresql://owner:secret@ep-dev.neon.tech/neondb',
+      'DATABASE_URL=postgresql://mochi_runtime:old@ep-dev-pooler.neon.tech/neondb',
+      'GITHUB_CLIENT_ID=local-app',
       '',
     ].join('\n'));
     try {
-      const prepared = prepareNeonEnvironment({
-        envFile,
-        pulledEnvFile: path.join(directory, '.env'),
-        randomBytes: size => Buffer.alloc(size, 7),
-      });
-      const owner = new URL(prepared.DATABASE_MIGRATION_URL);
-      const runtime = new URL(prepared.DATABASE_URL);
-      assert.equal(owner.hostname, 'ep-demo.us-east-2.aws.neon.tech');
-      assert.equal(owner.username, 'owner');
-      assert.equal(runtime.hostname, 'ep-demo-pooler.us-east-2.aws.neon.tech');
-      assert.equal(runtime.username, 'mochi_runtime');
-      assert.notEqual(runtime.password, owner.password);
-      assert.equal(prepared.PG_DRIVER, undefined);
+      const written = writeProductionEnvironment({
+        DATABASE_URL: 'postgresql://mochi_runtime:new@ep-prod-pooler.neon.tech/neondb',
+        PG_SSL: 'require',
+        DATABASE_MIGRATION_URL: 'postgresql://owner:secret@ep-prod.neon.tech/neondb',
+      }, {envFile});
+      assert.deepEqual(parseEnv(fs.readFileSync(envFile, 'utf8')), written);
+      assert.equal(written.DATABASE_URL, 'postgresql://mochi_runtime:new@ep-prod-pooler.neon.tech/neondb');
+      assert.equal(written.PG_SSL, 'require');
+      assert.equal(written.DATABASE_MIGRATION_URL, undefined);
+      assert.equal(written.GITHUB_CLIENT_ID, 'local-app');
       assert.equal(fs.statSync(envFile).mode & 0o777, 0o600);
+      assert.throws(() => writeProductionEnvironment(
+        {DATABASE_URL: 'postgresql://owner:secret@ep-prod.neon.tech/neondb'}, {envFile}), /mochi_runtime/);
     } finally {
       fs.rmSync(directory, {recursive: true, force: true});
     }
   });
 
-  it('can bootstrap its private environment from Neon env pull output', () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-neon-pull-'));
-    const envFile = path.join(directory, '.env');
-    const pulledEnvFile = path.join(directory, '.env');
-    fs.writeFileSync(pulledEnvFile, [
-      'NEON_BRANCH=br-example',
-      'DATABASE_URL=postgresql://owner:secret@ep-demo-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require',
-      'DATABASE_URL_UNPOOLED=postgresql://owner:secret@ep-demo.us-east-2.aws.neon.tech/neondb?sslmode=require',
-      '',
-    ].join('\n'));
-    try {
-      const prepared = prepareNeonEnvironment({
-        envFile,
-        pulledEnvFile,
-        randomBytes: size => Buffer.alloc(size, 9),
-      });
-      assert.equal(new URL(prepared.DATABASE_MIGRATION_URL).hostname,
-        'ep-demo.us-east-2.aws.neon.tech');
-      assert.equal(new URL(prepared.DATABASE_URL).hostname,
-        'ep-demo-pooler.us-east-2.aws.neon.tech');
-      assert.equal(new URL(prepared.DATABASE_URL).username, 'mochi_runtime');
-      assert.equal(fs.statSync(envFile).mode & 0o777, 0o600);
-    } finally {
-      fs.rmSync(directory, {recursive: true, force: true});
-    }
-  });
-
-  it('follows a newly checked-out Neon branch without reusing the old host', () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-neon-switch-'));
-    const envFile = path.join(directory, '.env');
-    fs.writeFileSync(envFile, [
-      'DATABASE_URL=postgresql://owner:new-secret@ep-new-pooler.us-east-2.aws.neon.tech/neondb',
-      'DATABASE_URL_UNPOOLED=postgresql://owner:new-secret@ep-new.us-east-2.aws.neon.tech/neondb',
-      '',
-    ].join('\n'));
-    try {
-      const prepared = prepareNeonEnvironment({
-        envFile,
-        pulledEnvFile: envFile,
-        randomBytes: size => Buffer.alloc(size, 11),
-      });
-      const owner = new URL(prepared.DATABASE_MIGRATION_URL);
-      const runtime = new URL(prepared.DATABASE_URL);
-      assert.equal(owner.hostname, 'ep-new.us-east-2.aws.neon.tech');
-      assert.equal(runtime.hostname, 'ep-new-pooler.us-east-2.aws.neon.tech');
-      assert.equal(runtime.username, 'mochi_runtime');
-      assert.notEqual(runtime.password, owner.password);
-    } finally {
-      fs.rmSync(directory, {recursive: true, force: true});
-    }
+  it('runs the acceptance tests only on a loopback database', () => {
+    assertDisposableDatabase({
+      DATABASE_URL: 'postgres://mochi_runtime:x@127.0.0.1:5432/mochi',
+      DATABASE_MIGRATION_URL: 'postgres://mochi_owner:x@localhost:5432/mochi',
+    });
+    assert.throws(() => assertDisposableDatabase({
+      DATABASE_URL: 'postgresql://mochi_runtime:x@ep-prod-pooler.neon.tech/neondb',
+    }), /loopback database, and DATABASE_URL is on ep-prod-pooler\.neon\.tech/);
   });
 
   it('runs the acceptance command against an official PostgreSQL CI service', () => {

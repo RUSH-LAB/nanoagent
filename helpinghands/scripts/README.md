@@ -6,28 +6,26 @@ details grouped by responsibility.
 
 ## Local setup
 
-Prerequisites are Node.js 22.19+, npm, Python 3.12, and `uv`. PostgreSQL mode also
-requires access to the Mochi Lab Neon project; local development uses its
-`development` branch ([docs/infra/neon-postgres-setup.md](../docs/infra/neon-postgres-setup.md)).
+Prerequisites are Node.js 22.19+, npm, Python 3.12, `uv`, and access to the
+Railway project. There is one database, production's, and the local server
+uses it as the restricted runtime role
+([docs/infra/neon-postgres-setup.md](../docs/infra/neon-postgres-setup.md)).
 Local PostgreSQL and Docker are not required. Clone NanoAgent beside this repository,
 or set `NANOAGENT_PROJECT_DIR` to its checkout path.
 
-Install the JavaScript dependencies and prepare the Neon branch:
+Install the JavaScript dependencies and write production's runtime database
+connection into the git-ignored `.env`:
 
 ```bash
 npm ci
-npx neon login
-npx neon env pull
-npm run neon:deploy
-npm run db:postgres:setup
+railway login
+npm run db:setup
 ```
 
-`npm run db:postgres:setup` updates the git-ignored `.env` file.
-It must contain the following values; never commit real secrets:
+`.env` must contain the following values; never commit real secrets:
 
 ```dotenv
 DATABASE_URL=postgresql://mochi_runtime:...@...-pooler.../neondb?sslmode=verify-full
-DATABASE_MIGRATION_URL=postgresql://neondb_owner:...@.../neondb?sslmode=verify-full
 BETTER_AUTH_SECRET=...
 PG_SSL=require
 PG_SSL_REJECT_UNAUTHORIZED=true
@@ -47,7 +45,7 @@ callback URL, so a deployment uses its own app, with the callback
 `<SITE_URL>/api/auth/callback/github`.
 
 `ROOT_GITHUB_LOGIN` names the GitHub account that administers the platform.
-Every start resolves it to GitHub's numeric account id, creates that account's
+Every start of production's server resolves it to GitHub's numeric account id, creates that account's
 user if the database has none, and makes it a platform administrator and an
 owner of the `mochi` workspace, so its first GitHub sign-in lands there. A
 start that cannot reach GitHub's API fails.
@@ -84,7 +82,7 @@ OPENROUTER_API_KEY=...
 Start the complete local stack with one command:
 
 ```bash
-npm start                 # adjacent NanoAgent checkout + API + site, prepared Neon branch
+npm start                 # adjacent NanoAgent checkout + API + site, on production's database
 ```
 
 PostgreSQL is the normal development path and source of truth.
@@ -107,8 +105,8 @@ Database setup and schema operations:
 - `bootstrap-runtime-role.mjs` creates or repairs the restricted application
   login used separately from the migration owner.
 
-Common entry points are `npm run db:postgres:setup` and
-`npm run db:postgres:migrate`.
+Railway runs both before each deploy. Locally, `npm run db:setup` writes the
+runtime connection into `.env`; nothing local migrates.
 
 ## `maintenance/`
 

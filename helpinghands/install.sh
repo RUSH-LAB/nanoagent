@@ -40,5 +40,5 @@ echo "uv:     $(uv --version)"
 echo
 echo "Next steps:"
 echo "  Add OPENROUTER_API_KEY to .env"
-echo "  npm run db:postgres:setup"
+echo "  npm run db:setup"
 echo "  npm start"

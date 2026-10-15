@@ -64,3 +64,35 @@ jobs:
           -c "create role mochi_runtime login password 'mochi_runtime_ci' nosuperuser nocreatedb nocreaterole noinherit nobypassrls"
       - name: Run real PostgreSQL acceptance tests
         run: npm run test:postgres
+
+  # A release's pending migrations run against production's data, on a Neon
+  # branch made from it for this job and deleted after, so a migration that
+  # fails on real rows fails here and not in Railway's deploy.
+  production-data:
+    if: github.event_name == 'pull_request' && github.base_ref == 'production'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: curly-rice-08210507
+      BRANCH: ci-migrations-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: helpinghands/package-lock.json
+      - run: npm ci
+      - name: Branch production's data
+        run: >-
+          npx neon branches create --project-id "$NEON_PROJECT_ID" --name "$BRANCH"
+          --parent production --expires-at "$(date -u -d '+2 hours' +%Y-%m-%dT%H:%M:%SZ)"
+      - name: Apply the pending migrations
+        run: |
+          DATABASE_MIGRATION_URL="$(npx neon connection-string "$BRANCH" --project-id "$NEON_PROJECT_ID" --role-name neondb_owner --database-name neondb)"
+          echo "::add-mask::$DATABASE_MIGRATION_URL"
+          DATABASE_MIGRATION_URL="$DATABASE_MIGRATION_URL" node scripts/db/apply-schema.mjs
+      - name: Delete the branch
+        if: always()
+        run: npx neon branches delete "$BRANCH" --project-id "$NEON_PROJECT_ID"

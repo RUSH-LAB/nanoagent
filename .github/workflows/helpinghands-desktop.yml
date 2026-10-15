@@ -1,18 +1,31 @@
 name: Helping Hands desktop app
 
 # Builds the Tauri app (helpinghands/desktop) for macOS on Apple silicon, the one platform it
-# ships for now (Windows and Linux: helpinghands/FUTURE.md). Every push to production is a release
-# and builds it, as can a run by hand; the bundle is uploaded as a workflow artifact. NanoAgent is
+# ships for now (Windows and Linux: helpinghands/FUTURE.md), only in a run by hand: members install
+# Mochi Lab with one line, not the app, and macOS minutes cost ten Linux ones. The bundle is
+# uploaded as a workflow artifact. NanoAgent is
 # compiled here by Nuitka (scripts/stage.mjs), which cannot cross-compile: each target builds on its
 # own runner.
 #
 # The macOS app is ad-hoc signed (signingIdentity "-" in tauri.conf.json), not notarized: on
 # another Mac it opens after right-click -> Open, or Open Anyway in System Settings -> Privacy.
 
+# A push to production rebuilds the Lab bundles only when something they are built from changed:
+# desktop/ (its scripts and config.yaml), the runner, and the NanoAgent that stage.mjs compiles.
 on:
   workflow_dispatch:
   push:
     branches: [production]
+    paths:
+      - '.github/workflows/helpinghands-desktop.yml'
+      - 'helpinghands/desktop/**'
+      - 'helpinghands/src/runner/**'
+      - 'nanoagent/pyproject.toml'
+      - 'nanoagent/README.md'
+      - 'nanoagent/LICENSE'
+      - 'nanoagent/src/**'
+      - 'nanoagent/js/pi-runner/**'
+      - 'nanoagent/deploy/railway/**'
 
 defaults:
   run:
@@ -20,6 +33,7 @@ defaults:
 
 jobs:
   bundle:
+    if: github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:

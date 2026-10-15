@@ -185,9 +185,21 @@ function AuthGate({ children }) {
   );
 }
 
+// The local site (npm start) runs on production's database, the only one
+// (docs/infra/neon-postgres-setup.md): what it changes is rush-lab.org's.
+function DevelopmentBanner() {
+  if (process.env.NODE_ENV !== 'development') return null;
+  return (
+    <div role="status" className="development-banner">
+      Local site on rush-lab.org's data: what you change here is real.
+    </div>
+  );
+}
+
 export default function Root({ children }) {
   return (
     <>
+      <DevelopmentBanner />
       <BrowserOnly
         // During the static build there is no session to check, so no page is
         // rendered into the HTML: what it would show depends on the session.

@@ -99,6 +99,11 @@ const rootProvisioning = postgresDatabase.enabled
   ? require('./postgres-root-user')
   : require('./root-user');
 const {ensureRootUser} = rootProvisioning;
+// The server that owns the database, production's, runs the work every server
+// would otherwise repeat on the shared rows: provisioning root, sweeping rate
+// limits, deleting objects, publishing on schedule. The local server, on the
+// runtime role (postgres/database.js), runs none of it.
+const ownsDatabase = !postgresDatabase.enabled || Boolean(postgresDatabase.migrationPool);
 const PORT = process.env.EDITOR_PORT || process.env.PORT || 3001;
 const {name: platformName} = platformConfig();
 
@@ -376,7 +381,7 @@ const cacheCleanupTimer = setInterval(() => {
 }, 60000);
 cacheCleanupTimer.unref?.();
 
-const rateLimitSweepTimer = tenancy ? setInterval(() => {
+const rateLimitSweepTimer = tenancy && ownsDatabase ? setInterval(() => {
   tenancy.sweepRateLimits().catch(error => console.error('[rate-limit] Sweep failed:', error.message));
 }, 10 * 60_000) : null;
 rateLimitSweepTimer?.unref?.();
@@ -391,13 +396,13 @@ async function cleanPendingObjects() {
     objectCleanupRunning = false;
   }
 }
-const objectCleanupTimer = setInterval(() => {
+const objectCleanupTimer = ownsDatabase ? setInterval(() => {
   cleanPendingObjects().catch(error => console.error('[objects] Cleanup failed:', error.message));
-}, 60000);
-objectCleanupTimer.unref?.();
+}, 60000) : null;
+objectCleanupTimer?.unref?.();
 
 // Publish due documents once per minute.
-const scheduledPublishingTimer = setInterval(async () => {
+const scheduledPublishingTimer = ownsDatabase ? setInterval(async () => {
   const now = new Date();
   for (const {id: workspaceId, ownerId = null} of await org.allOrganizations()) {
     const scope = {workspaceId, userId: ownerId, membershipId: null, role: 'owner', kind: 'system'};
@@ -460,8 +465,8 @@ const scheduledPublishingTimer = setInterval(async () => {
       invalidateCache(cacheKey(workspaceId, ''));
     }
   }
-}, 60000);
-scheduledPublishingTimer.unref?.();
+}, 60000) : null;
+scheduledPublishingTimer?.unref?.();
 
 // ── Performance metrics: in-memory response time tracking (last 100 per endpoint) ──
 const perfMetrics = {}; // { '/api/foo': [ms, ms, ...] }
@@ -895,7 +900,7 @@ if (_authRefusal) {
 // The root account exists before the first request, so root's first GitHub
 // sign-in finds it. A server that cannot provision its administrator does not
 // start.
-postgresDatabase.ready.then(() => ensureRootUser(auth)).then(root => server.listen(PORT, async () => {
+postgresDatabase.ready.then(() => ownsDatabase ? ensureRootUser(auth) : null).then(root => server.listen(PORT, async () => {
   const startupNs = process.hrtime.bigint() - _startupTime;
   const startupMs = Number(startupNs / 1_000_000n);
   const memMB = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
@@ -921,11 +926,15 @@ postgresDatabase.ready.then(() => ensureRootUser(auth)).then(root => server.list
     ? `  OpenRouter keys: each member's computer is given one, $${TOTAL} for every member together`
     : '  OpenRouter keys: none given (needs OPENROUTER_MANAGEMENT_KEY)');
 
-  cleanPendingObjects().catch(error => console.error('[objects] Cleanup failed:', error.message));
-  console.log(`  Root: GitHub ${root.login} (owner)${root.created ? ', account created' : ''}`);
-  const {workspace} = root;
-  if (workspace?.error) console.log(`  Workspace: none (${workspace.error})`);
-  else if (workspace?.created) console.log(`  Workspace: "${workspace.name}" ready, with #${workspace.channel}`);
+  if (root) {
+    cleanPendingObjects().catch(error => console.error('[objects] Cleanup failed:', error.message));
+    console.log(`  Root: GitHub ${root.login} (owner)${root.created ? ', account created' : ''}`);
+    const {workspace} = root;
+    if (workspace?.error) console.log(`  Workspace: none (${workspace.error})`);
+    else if (workspace?.created) console.log(`  Workspace: "${workspace.name}" ready, with #${workspace.channel}`);
+  } else {
+    console.log("  Database: production's, as the runtime role; production's server runs the shared jobs");
+  }
   console.log('');
 })).catch(error => {
   console.error(`\n  Startup failed: ${error.message}\n`);
