@@ -1,0 +1,6 @@
+# The marketplace plugins every new account starts with installed (auth.js, postgres/user-plugins.js),
+# by id. A member uninstalls any of them as they would one they installed. One its author removes
+# from the marketplace is no longer installed for anyone new.
+plugins:
+  - arxiv-source
+  - weather-alert

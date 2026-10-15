@@ -56,6 +56,15 @@ function createPostgresUserPlugins({pool}) {
         'delete from user_plugin where plugin_id = $1', [id],
       )).rowCount > 0);
     },
+    /** Install for `userId` the marketplace uploads among `ids`: the ids installed, of those the marketplace has. */
+    async preinstall(userId, ids) {
+      return run({userId, workspaceId: null}, async client => (await client.query(
+        `insert into user_plugin (user_id, plugin_id, source)
+         select $1, m.id, 'upload' from market_plugin m where m.id = any($2)
+         on conflict (user_id, plugin_id) do nothing returning plugin_id`,
+        [userId, ids],
+      )).rows.map(row => row.plugin_id));
+    },
   });
 }
 

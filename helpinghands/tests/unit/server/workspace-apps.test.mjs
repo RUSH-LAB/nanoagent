@@ -36,9 +36,11 @@ describe('a member\'s apps', () => {
     },
   };
 
+  let pool;
   before(async () => {
     const database = await migratedDatabase();
     db = database.db;
+    pool = () => database.pool;
     market = createPostgresMarket({pool: database.pool});
     apps = createWorkspaceApps({ai, market, plugins: createPostgresUserPlugins({pool: database.pool})});
     await market.publish('alice', UPLOAD, Buffer.from('upload package'), REPOSITORY);
@@ -64,6 +66,14 @@ describe('a member\'s apps', () => {
 
   it('installs only what the marketplace has', async () => {
     assert.deepEqual(await apps.add(as('alice'), 'missing'), {error: 'No plugin named missing in the marketplace', status: 404});
+  });
+
+  it('preinstalls for a new account the uploads it names that the marketplace has', async () => {
+    const plugins = createPostgresUserPlugins({pool: pool()});
+    assert.deepEqual(await plugins.preinstall('carol', ['notes', 'gone']), ['notes']);
+    assert.deepEqual((await apps.list(as('carol', 'other'))).value.map(app => app.id), ['notes']);
+    assert.deepEqual(await plugins.preinstall('carol', ['notes']), []);
+    assert.equal(await apps.remove(as('carol', 'other'), 'notes'), true);
   });
 
   it('opens an app installed, sending its package to NanoAgent once', async () => {
