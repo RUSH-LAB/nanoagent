@@ -11,6 +11,21 @@ runs every plugin. Mochi's servers keep no model key and run no model or plugin:
 they only list the marketplace and hold its plugin packages. While a member's
 Mochi Lab is not connected, their AI and plugins are refused, never run elsewhere.
 
+## OpenRouter keys
+
+- AI runs on the member's own laptop, using the OpenRouter key saved in their
+  RUSH Lab (`settings.env` in its connection folder).
+- If they haven't saved one, Mochi creates one for them: a key of their own,
+  named `Mochi <user id>`, in the OpenRouter workspace `mochi` (`mochi-dev` for
+  every site but production), which holds $10 for every member together
+  (`src/server/openrouter-keys.js`). If they type their own under Settings →
+  Usage, that one is used instead.
+- The only OpenRouter secret Mochi's server needs is `OPENROUTER_MANAGEMENT_KEY`
+  on Railway's `mochi-lab` service, which creates those keys. Mochi keeps none
+  of the keys it creates.
+
+## Running locally
+
 Install the required runtimes, dependencies, adjacent NanoAgent checkout, and
 sanitized local environment file:
 
