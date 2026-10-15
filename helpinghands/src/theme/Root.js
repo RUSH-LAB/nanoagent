@@ -185,13 +185,13 @@ function AuthGate({ children }) {
   );
 }
 
-// The local site (npm start) runs on the development database, a copy of
-// production's data that is never copied back (docs/infra/neon-postgres-setup.md).
+// The local site (npm start) runs on production's database, the only one
+// (docs/infra/neon-postgres-setup.md): what it changes is rush-lab.org's.
 function DevelopmentBanner() {
   if (process.env.NODE_ENV !== 'development') return null;
   return (
     <div role="status" className="development-banner">
-      Development: not rush-lab.org. Nothing made here is published.
+      Local site on rush-lab.org's data: what you change here is real.
     </div>
   );
 }

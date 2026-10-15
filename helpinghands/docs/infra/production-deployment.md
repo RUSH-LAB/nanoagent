@@ -11,8 +11,9 @@ page is on the member's own computer, through Mochi Lab
 
 ## Required services
 
-- A PostgreSQL database separate from development, with a direct schema-owner
-  URL and a pooled restricted `mochi_runtime` URL.
+- The one PostgreSQL database, with a direct schema-owner URL (Railway's
+  alone) and a pooled restricted `mochi_runtime` URL, which local `npm start`
+  uses too.
 - A GitHub OAuth App whose callback is `<SITE_URL>/api/auth/callback/github`,
   for `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`; GitHub is the only
   sign-in. `ROOT_GITHUB_LOGIN` names the GitHub account that administers the
@@ -61,13 +62,12 @@ messages to their actual recipients.
 ## Release sequence
 
 1. Back up the legacy database, content tree, and uploaded objects.
-2. Run `npm run db:postgres:migrate` as a release job.
+2. Railway's pre-deploy step applies the migrations (`scripts/db/apply-schema.mjs`).
 3. Run the legacy database and content importers without their apply flags and
    review counts, hashes, owners, and conflicts.
 4. Freeze legacy writes and repeat the approved imports with `--apply`.
-5. Run `npm run db:postgres:verify` against staging, never production.
-6. Build with `docker build -t mochi-lab .` and deploy the resulting image.
-7. Verify `/api/health`, GitHub sign-in, workspace creation, invitation delivery,
+5. Build with `docker build -t mochi-lab .` and deploy the resulting image.
+6. Verify `/api/health`, GitHub sign-in, workspace creation, invitation delivery,
    asset upload, and cross-workspace 404 behavior before switching traffic.
 
 ## Railway

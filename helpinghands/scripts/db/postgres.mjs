@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import {spawnSync} from 'node:child_process';
-import crypto from 'node:crypto';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -28,41 +27,6 @@ function readEnvFile(file) {
   return fs.existsSync(file) ? parseEnv(fs.readFileSync(file, 'utf8')) : {};
 }
 
-function loadPostgresEnvironment() {
-  const file = readEnvFile(LOCAL_ENV_FILE);
-  const env = {...file, ...process.env};
-  if (!env.DATABASE_URL || !env.DATABASE_MIGRATION_URL) {
-    throw new Error('Run npm run db:postgres:setup before using PostgreSQL commands');
-  }
-  return env;
-}
-
-function directEndpoint(hostname) {
-  const labels = hostname.split('.');
-  labels[0] = labels[0].replace(/-pooler$/, '');
-  return labels.join('.');
-}
-
-function pooledEndpoint(hostname) {
-  const labels = hostname.split('.');
-  if (!labels[0].endsWith('-pooler')) labels[0] += '-pooler';
-  return labels.join('.');
-}
-
-function parsePostgresUrl(value, label) {
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error(`${label} is not a valid PostgreSQL connection URL`);
-  }
-  if (!['postgres:', 'postgresql:'].includes(url.protocol)
-      || !url.username || !url.password || !url.pathname.slice(1)) {
-    throw new Error(`${label} must include a PostgreSQL username, password, host, and database`);
-  }
-  return url;
-}
-
 /** Single-quote every value, so a shell can `source` the file: URLs hold `&` and `?`. */
 export function serializeEnv(values) {
   return `${Object.entries(values).map(([key, value]) => {
@@ -71,43 +35,19 @@ export function serializeEnv(values) {
   }).join('\n')}\n`;
 }
 
-/** Derive Mochi's restricted pooled runtime URL from one Neon owner URL. */
-export function prepareNeonEnvironment({
-  envFile = LOCAL_ENV_FILE,
-  pulledEnvFile = LOCAL_ENV_FILE,
-  randomBytes = crypto.randomBytes,
-} = {}) {
-  const values = readEnvFile(envFile);
-  const pulled = readEnvFile(pulledEnvFile);
-  const source = pulled.DATABASE_URL_UNPOOLED
-    || values.DATABASE_MIGRATION_URL
-    || pulled.DATABASE_URL;
-  if (!source) {
-    throw new Error('Run neon link or neon env pull before PostgreSQL setup');
+// The one database is production's. The local server reaches it as the runtime
+// role, read from Railway, and never holds the schema owner's URL.
+const RUNTIME_KEYS = ['DATABASE_URL', 'PG_SSL', 'PG_SSL_REJECT_UNAUTHORIZED'];
+
+/** Write production's runtime connection into .env, keeping the file's other values. */
+export function writeProductionEnvironment(railway, {envFile = LOCAL_ENV_FILE} = {}) {
+  if (!railway.DATABASE_URL) throw new Error("Railway's mochi-lab service has no DATABASE_URL");
+  if (new URL(railway.DATABASE_URL).username !== 'mochi_runtime') {
+    throw new Error("Railway's DATABASE_URL is not the mochi_runtime role");
   }
-
-  const ownerUrl = parsePostgresUrl(source, 'The Neon owner URL');
-  ownerUrl.hostname = directEndpoint(ownerUrl.hostname);
-  const candidateRuntimeUrl = values.DATABASE_URL
-    ? parsePostgresUrl(values.DATABASE_URL, 'The existing DATABASE_URL')
-    : null;
-  const existingRuntimeUrl = candidateRuntimeUrl?.username === 'mochi_runtime'
-    ? candidateRuntimeUrl
-    : null;
-  const runtimeUrl = new URL(ownerUrl);
-  runtimeUrl.username = existingRuntimeUrl?.username || 'mochi_runtime';
-  runtimeUrl.password = existingRuntimeUrl?.password || randomBytes(24).toString('hex');
-  runtimeUrl.hostname = pooledEndpoint(ownerUrl.hostname);
-
-  const output = {
-    ...values,
-    DATABASE_MIGRATION_URL: ownerUrl.toString(),
-    DATABASE_URL: runtimeUrl.toString(),
-    PG_SSL: values.PG_SSL || 'require',
-    PG_SSL_REJECT_UNAUTHORIZED: values.PG_SSL_REJECT_UNAUTHORIZED || 'true',
-    BETTER_AUTH_SECRET: values.BETTER_AUTH_SECRET || randomBytes(32).toString('hex'),
-  };
-  delete output.PG_DRIVER;
+  const output = {...readEnvFile(envFile)};
+  for (const key of [...RUNTIME_KEYS, 'DATABASE_MIGRATION_URL', 'PG_DRIVER']) delete output[key];
+  for (const key of RUNTIME_KEYS) if (railway[key]) output[key] = railway[key];
   const temporaryFile = `${envFile}.${process.pid}.tmp`;
   try {
     fs.writeFileSync(temporaryFile, serializeEnv(output), {mode: 0o600});
@@ -116,8 +56,31 @@ export function prepareNeonEnvironment({
   } finally {
     if (fs.existsSync(temporaryFile)) fs.unlinkSync(temporaryFile);
   }
-  console.log(`Prepared ${path.basename(envFile)} with a direct migration URL and pooled runtime URL.`);
   return output;
+}
+
+function railwayVariables() {
+  const result = spawnSync('railway', ['variables', '--service', 'mochi-lab', '--environment', 'production', '--kv'],
+    {cwd: root, encoding: 'utf8'});
+  if (result.error?.code === 'ENOENT') throw new Error('railway is not installed or is not on PATH');
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`railway variables failed: ${result.stderr.trim()}`);
+  const values = {};
+  for (const line of result.stdout.split(/\r?\n/)) {
+    const at = line.indexOf('=');
+    if (at > 0 && /^[A-Z_][A-Z0-9_]*$/.test(line.slice(0, at))) values[line.slice(0, at)] = line.slice(at + 1);
+  }
+  return values;
+}
+
+/** The acceptance tests create and delete rows, so they run only on a loopback database, as CI's. */
+export function assertDisposableDatabase(env) {
+  for (const key of ['DATABASE_URL', 'DATABASE_MIGRATION_URL']) {
+    const host = env[key] && new URL(env[key]).hostname;
+    if (host && !['127.0.0.1', 'localhost', '::1'].includes(host)) {
+      throw new Error(`The acceptance tests run only on a loopback database, and ${key} is on ${host}`);
+    }
+  }
 }
 
 function run(command, args, env = process.env) {
@@ -132,32 +95,19 @@ function run(command, args, env = process.env) {
 }
 
 const commands = Object.freeze({
-  bootstrap() {
-    run(process.execPath, ['scripts/db/bootstrap-runtime-role.mjs'], loadPostgresEnvironment());
-  },
-  prepare() {
-    prepareNeonEnvironment();
-  },
   setup() {
-    prepareNeonEnvironment();
-    const env = loadPostgresEnvironment();
-    run(process.execPath, ['scripts/db/bootstrap-runtime-role.mjs'], env);
-    run(process.execPath, ['scripts/db/apply-schema.mjs'], env);
-  },
-  migrate() {
-    run(process.execPath, ['scripts/db/apply-schema.mjs'], loadPostgresEnvironment());
-  },
-  verify() {
-    run(process.execPath, ['tests/integration/postgres/rls-acceptance.mjs'], loadPostgresEnvironment());
+    writeProductionEnvironment(railwayVariables());
+    console.log("Wrote production's runtime database connection into .env.");
   },
   test() {
-    const env = loadPostgresEnvironment();
+    const env = {...process.env};
+    if (!env.DATABASE_URL || !env.DATABASE_MIGRATION_URL) {
+      throw new Error('The acceptance tests need DATABASE_URL and DATABASE_MIGRATION_URL for a loopback database');
+    }
+    assertDisposableDatabase(env);
     run(process.execPath, ['tests/integration/postgres/rls-acceptance.mjs'], env);
     run(process.execPath, ['tests/integration/postgres/runtime-acceptance.mjs'], env);
     run(process.execPath, ['tests/integration/postgres/tenancy-acceptance.mjs'], env);
-  },
-  serve() {
-    run(process.execPath, ['src/server/index.js'], loadPostgresEnvironment());
   },
 });
 

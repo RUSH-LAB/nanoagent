@@ -33,9 +33,10 @@ command:
 npm start
 ```
 
-This uses the prepared Neon PostgreSQL branch and credentials from
-`.env`, keeping local development on the same authoritative data
-path as production. Run `npm run db:postgres:setup` once before using it.
+This runs on production's database, the only one, as the restricted runtime
+role, so what you change locally is real. Run `npm run db:setup` once before
+using it; `npm start` refuses to run until production has applied exactly the
+migrations in your checkout.
 Open [http://localhost:3000](http://localhost:3000). By default, the supervisor
 uses the adjacent `../nanoagent` checkout. Set `NANOAGENT_PROJECT_DIR` to use a
 checkout elsewhere, or `NANOAGENT_URL` to use an already-running agent service.
