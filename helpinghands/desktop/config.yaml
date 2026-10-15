@@ -11,14 +11,13 @@ nanoagent_port: 47311
 # sync both ways with their home there by the relay (src/runner/files.mjs).
 files_folder: rushlab
 
-# RUSH Lab without its window (src/runner/install.sh, lab.mjs) is installed under `label`: its
-# service, and its data folder in ~/Library/Application Support/ or ~/.local/share/. Installed from
-# any other site than site_url (a development checkout's npm start), it runs beside that one, under
-# its own label, NanoAgent port and files folder.
+# RUSH Lab without its window (src/runner/install.sh, lab.mjs) is installed once per account on a
+# computer, under `label`: its service, and its data folder in ~/Library/Application Support/ or
+# ~/.local/share/. It serves a connection for each member of each site installed there, each with
+# its own NanoAgent on a free port, and each member's files in <home>/<files folder>/<login>/:
+# files_folder for site_url, other_site's for any other (a development checkout's npm start).
 label: lab.mochi.lab
 other_site:
-  label: lab.mochi.lab.dev
-  nanoagent_port: 47312
   files_folder: rushlab-dev
 
 # Bundled runtimes. Node runs the relay and NanoAgent's PI runner; uv installs NanoAgent's

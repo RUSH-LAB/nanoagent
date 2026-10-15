@@ -3,7 +3,7 @@
  * Builds RUSH Lab for this computer from this checkout (desktop/scripts/bundle-lab.mjs) and keeps
  * it as the local database's bundle for this computer's target, as the release job uploads
  * production's (routes/lab.js). The local site's install command then installs it, as
- * rush-lab.org's does, beside rush-lab.org's own (src/runner/lab.mjs installFor).
+ * rush-lab.org's does, as a connection of the same install (src/runner/lab.mjs).
  *
  *   npm run lab:bundle
  */

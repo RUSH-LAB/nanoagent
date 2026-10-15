@@ -3,8 +3,10 @@
  * Installs a built bundle the way a member does, and checks it starts: serves
  * dist/mochi-lab-<target>.tar.gz and src/runner/install.sh from a local server
  * as Mochi does (routes/lab.js), pipes the script to sh, waits until lab.mjs
- * says NanoAgent is ready, its plugin sandbox proven, then uninstalls. The
- * relay may not sign in (this server is no Mochi); that is not checked.
+ * says the connection's NanoAgent is ready, its plugin sandbox proven, then
+ * uninstalls. The relay may not sign in (this server is no Mochi); that is not
+ * checked. It refuses to run where RUSH Lab is installed already, which the
+ * uninstall would remove.
  * The release job runs it on Linux, before uploading (helpinghands-desktop.yml).
  *
  *   TAURI_ENV_TARGET_TRIPLE=<target> node scripts/check-lab-install.mjs
@@ -22,8 +24,7 @@ const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const target = process.env.TAURI_ENV_TARGET_TRIPLE;
 const bundle = path.join(desktop, 'dist', `mochi-lab-${target}.tar.gz`);
 const linux = process.platform === 'linux';
-// Served from here, not from its own site, the bundle installs as another site's (lab.mjs's installFor).
-const {label} = JSON.parse(execFileSync('tar', ['-xOzf', bundle, 'mochi-lab/config.json'], {encoding: 'utf8'})).other_site;
+const {label} = JSON.parse(execFileSync('tar', ['-xOzf', bundle, 'mochi-lab/config.json'], {encoding: 'utf8'}));
 const data = linux
   ? path.join(os.homedir(), '.local', 'share', label)
   : path.join(os.homedir(), 'Library', 'Application Support', label);
@@ -42,6 +43,7 @@ function uninstall() {
 }
 
 async function main() {
+  if (fs.existsSync(data)) throw new Error(`RUSH Lab is installed in ${data} already, and this check would uninstall it`);
   const archive = fs.readFileSync(bundle);
   const sha256 = crypto.createHash('sha256').update(archive).digest('hex');
   const stamp = execFileSync('tar', ['-xOzf', bundle, 'mochi-lab/stamp'], {encoding: 'utf8'}).trim();
@@ -51,7 +53,9 @@ async function main() {
       return res.end(archive);
     }
     // A session no Mochi knows: the relay then asks to sign in, which is not checked.
-    if (req.method === 'POST' && req.url === '/api/lab/session?token=check') return res.writeHead(200).end('check-session');
+    if (req.method === 'POST' && req.url === '/api/lab/session?token=check') {
+      return res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify({session: 'check-session', member: {id: 'check', login: 'check'}}));
+    }
     res.writeHead(404).end();
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -77,9 +81,12 @@ async function main() {
     // What NanoAgent's Python is, through its links: what a sandbox has to let it reach.
     const python = path.join(data, 'app', 'current', 'mochi-lab', 'nanoagent', '.venv', 'bin', 'python');
     spawnSync('sh', ['-c', `ls -l "${python}"; readlink -f "${python}"; "${python}" -c 'import sys; print(sys.prefix, sys.base_prefix, sys._base_executable)'`], {stdio: 'inherit'});
-    for (const name of ['lab.log', 'uv-sync.log', 'nanoagent.log', 'relay.log']) {
-      const file = path.join(data, 'logs', name);
-      if (fs.existsSync(file)) console.error(`--- ${name}\n${fs.readFileSync(file, 'utf8').slice(-6000)}`);
+    const connections = path.join(data, 'connections');
+    const files = [path.join(data, 'logs', 'lab.log'), path.join(data, 'logs', 'uv-sync.log'),
+      ...(fs.existsSync(connections) ? fs.readdirSync(connections) : []).flatMap(id => ['nanoagent.log', 'relay.log']
+        .map(name => path.join(connections, id, 'logs', name)))];
+    for (const file of files) {
+      if (fs.existsSync(file)) console.error(`--- ${path.relative(data, file)}\n${fs.readFileSync(file, 'utf8').slice(-6000)}`);
     }
     throw error;
   } finally {

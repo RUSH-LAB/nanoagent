@@ -55,7 +55,7 @@ describe('Mochi Lab\'s one-line install', () => {
     fs.writeFileSync(script, '#!/bin/sh\nSITE="__MOCHI_SITE__"\nTOKEN="__MOCHI_TOKEN__"\necho "$SITE $TOKEN __MOCHI_SITE__"\n');
     ctx = makeCtx({lab: {
       bundles: createPostgresLab({pool: database.pool}), secret: SECRET, siteUrl: SITE, uploadToken: UPLOAD, installScript: script,
-      createSession: async userId => (userId === 'gone' ? null : `session-for-${userId}`),
+      createSession: async userId => (userId === 'gone' ? null : {token: `session-for-${userId}`, login: `${userId}-gh`}),
     }});
   });
   after(() => db?.close());
@@ -89,11 +89,11 @@ describe('Mochi Lab\'s one-line install', () => {
     assert.equal(verifyDownloadToken(SECRET, token), 'alice');
   });
 
-  it('gives the install link\'s member a session for the relay, and no one else', async () => {
+  it('gives the install link\'s member a session for the relay, saying whose, and no one else', async () => {
     const {written} = await call({method: 'POST', path: '/api/lab/session', query: {token: signDownloadToken(SECRET, 'alice')}});
     assert.equal(written.status, 200);
-    assert.equal(written.headers['Content-Type'], 'text/plain; charset=utf-8');
-    assert.equal(written.body, 'session-for-alice');
+    assert.equal(written.headers['Content-Type'], 'application/json; charset=utf-8');
+    assert.deepEqual(JSON.parse(written.body), {session: 'session-for-alice', member: {id: 'alice', login: 'alice-gh'}});
     const expired = signDownloadToken(SECRET, 'alice', Date.now() - TOKEN_MS - 1000);
     for (const query of [{}, {token: 'forged'}, {token: expired}, {token: signDownloadToken(SECRET, 'gone')}]) {
       assert.equal((await call({method: 'POST', path: '/api/lab/session', query})).status, 401);

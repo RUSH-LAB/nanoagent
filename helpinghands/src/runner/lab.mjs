@@ -1,28 +1,35 @@
 /**
  * Mochi Lab without its window: what desktop/src-tauri/src/supervisor.rs does behind the app's
- * window, for a member who uses Mochi in the browser. install.sh unpacks its bundle
- * (desktop/scripts/bundle-lab.mjs) and has launchd run it at login, restarting it when it exits
- * with an error:
+ * window, for members who use Mochi in the browser. install.sh unpacks its bundle
+ * (desktop/scripts/bundle-lab.mjs) and has launchd (systemd on Linux) run it at login, restarting
+ * it when it exits with an error:
  *
  *   mochi-lab/stamp          names this bundle
- *   mochi-lab/config.json    desktop/config.yaml: its own site and what it installs as there or beside it, Python's version
+ *   mochi-lab/config.json    desktop/config.yaml: its own site, the install's label, the files folders, Python's version
  *   mochi-lab/bin/{node,uv}  the runtimes, first on every service's PATH
  *   mochi-lab/runner/        this file, the relay (relay.mjs) and what it loads
  *   mochi-lab/nanoagent/     NanoAgent compiled by Nuitka (site/), its uv.lock, the PI runner's bundle, its config
  *
- * It runs `uv sync` for NanoAgent's dependencies, starts NanoAgent with the member's API keys
- * (none yet, at first) and the plugins Mochi installs in macOS's sandbox, waits for its default
- * profile, and starts the relay. When the relay needs signing in, the device page opens in the
- * browser; once it is connected after that, the site does, at Settings → AI while there is no key.
- * Keys come only from Settings → AI, through the relay: kept in settings.env, handed to the
- * running NanoAgent (PUT /v1/keys), and the relay is told which are set. When either service
- * exits, the other is stopped and this exits with an error, for launchd to start it again; a relay
- * that another computer replaced exits cleanly, and so does this. SIGTERM stops both, cleanly.
+ * One install serves every connection on this computer's account: one member of one site each,
+ * however many members and sites. The install's data folder, ~/Library/Application Support/<label>/
+ * on macOS and ~/.local/share/<label>/ on Linux, holds what they share (app/, python/, the uv
+ * cache, logs/lab.log) and connections/<id>/, one folder per connection (addConnection): its
+ * site, its member, their sign-in (runner-credentials.json), their keys (settings.env), and
+ * NanoAgent's folders and logs for them. The member's files are ~/<files folder>/<login>/.
+ *
+ * It runs `uv sync` for NanoAgent's dependencies once, then, for each connection, starts a
+ * NanoAgent of its own on a free port, with that member's keys and the plugins Mochi installs in
+ * the platform's sandbox, waits for its default profile, and starts a relay for it. It looks at
+ * connections/ every few seconds: a new connection starts, a removed one stops, and one install.sh
+ * wrote again restarts, while the others keep running. A connection whose service fails starts
+ * again after a while; one another computer took the member's runs from stays stopped until it is
+ * installed again. When a relay needs signing in, the device page opens in the browser; once it is
+ * connected after that, the site does, at Settings → AI while there is no key. Keys come only from
+ * Mochi, through the relay: kept in the connection's settings.env, handed to its NanoAgent
+ * (PUT /v1/keys), and the relay is told which are set. SIGTERM stops every connection, cleanly.
  *
  * It runs on macOS, where plugins run in seatbelt, and on Linux, Windows's WSL2 included, where
- * they run in bwrap (PLATFORMS). Its data folder (site, settings.env, runner-credentials.json, logs/,
- * and NanoAgent's folders) is ~/Library/Application Support/<label>/ on macOS and
- * ~/.local/share/<label>/ on Linux, as install.sh makes it, the label being the site's (installFor). Node's own modules are all it loads.
+ * they run in bwrap (PLATFORMS). Node's own modules are all it loads.
  */
 import {spawn} from 'node:child_process';
 import crypto from 'node:crypto';
@@ -36,6 +43,9 @@ import {fileURLToPath} from 'node:url';
 const NANOAGENT_TIMEOUT_MS = 60_000;
 const STOP_TIMEOUT_MS = 10_000;
 const POLL_MS = 250;
+// How often connections/ is looked at, and how long a failed connection waits to start again.
+const WATCH_MS = 2_000;
+const RESTART_MS = 30_000;
 const LOG_TAIL_LINES = 30;
 // The API keys Mochi Lab holds, by the name NanoAgent's PI runner (pi-ai) reads each from, and
 // whose models they reach. NanoAgent gets these and nothing else of the settings.
@@ -73,16 +83,86 @@ export const PLATFORMS = {
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * What RUSH Lab is installed as for `site` (config.yaml): its label, NanoAgent's port and the files
- * folder. The bundle's own site keeps config's; any other runs beside it, under other_site's.
+ * The folder in the home folder a connection to `site` keeps its member's files under, one folder
+ * per login (config.yaml): the bundle's own site's, or another site's, so a development checkout's
+ * files never mix with rush-lab.org's.
  */
-export function installFor(config, site) {
-  const own = site === config.site_url;
-  const values = own ? config : config.other_site;
-  return {label: values.label, port: values.nanoagent_port, filesFolder: values.files_folder};
+export function filesFolderFor(config, site) {
+  return site === config.site_url ? config.files_folder : config.other_site.files_folder;
 }
 
-const log = message => console.log(`${new Date().toISOString()} ${message}`);
+/** A connection's folder name: its site's host and port, and its member's id. */
+export function connectionId(site, memberId) {
+  if (!/^[A-Za-z0-9_-]+$/.test(String(memberId ?? ''))) throw new Error(`${memberId} is not a member id`);
+  return `${new URL(site).host.replace(':', '-')}-${memberId}`;
+}
+
+/** The member Mochi at `site` knows `token` as, {id, login}; false when it knows it no more; null when it cannot be reached. */
+export async function memberOf(site, token) {
+  try {
+    const response = await fetch(`${site}/api/auth/get-session`, {headers: {Authorization: `Bearer ${token}`}, signal: AbortSignal.timeout(15_000)});
+    if (!response.ok) return null;
+    const user = (await response.json())?.user;
+    return user?.id ? {id: user.id, login: user.githubLogin} : false;
+  } catch {
+    return null;
+  }
+}
+
+const LEGACY = ['settings.env', 'agent-workspaces', 'nanoagent-installs'];
+
+/**
+ * An install from before connections kept one member's sign-in, keys and NanoAgent folders at the
+ * top of its data folder. They become that member's connection, as Mochi says whose the sign-in
+ * is; a sign-in Mochi knows no more is dropped with them. One whose site cannot be reached stops
+ * the install: nothing is moved while it cannot be told whose they are.
+ */
+export async function adoptLegacy(data, {member = memberOf} = {}) {
+  const credentials = path.join(data, 'runner-credentials.json');
+  if (!fs.existsSync(credentials)) return null;
+  const {site, token} = JSON.parse(fs.readFileSync(credentials, 'utf8'));
+  const known = await member(site, token);
+  if (known === null) throw new Error(`could not reach ${site} to tell whose RUSH Lab connection this computer has. Run this again once it can be reached.`);
+  let adopted = null;
+  if (known) {
+    adopted = connectionId(site, known.id);
+    const folder = path.join(data, 'connections', adopted);
+    fs.mkdirSync(folder, {recursive: true, mode: 0o700});
+    for (const name of LEGACY) {
+      if (fs.existsSync(path.join(data, name))) fs.renameSync(path.join(data, name), path.join(folder, name));
+    }
+    writeConnection(folder, {site, member: known, token});
+  }
+  for (const name of [...LEGACY, 'runner-credentials.json', 'site', 'services.pid']) fs.rmSync(path.join(data, name), {recursive: true, force: true});
+  return adopted;
+}
+
+function writeConnection(folder, {site, member, token}) {
+  fs.writeFileSync(path.join(folder, 'site'), `${site}\n`);
+  fs.writeFileSync(path.join(folder, 'member.json'), `${JSON.stringify({id: member.id, login: member.login})}\n`);
+  fs.writeFileSync(path.join(folder, 'runner-credentials.json'), `${JSON.stringify({site, token})}\n`, {mode: 0o600});
+  // Written last: a change here is what restarts a running connection.
+  fs.writeFileSync(path.join(folder, 'installed'), `${new Date().toISOString()}\n`);
+}
+
+/**
+ * Keep `session` ({session, member: {id, login}}, from POST /api/lab/session) as the connection
+ * of its member at `site`, after adopting an install from before connections: its id. Another
+ * member's connection, or another site's, is left as it is.
+ */
+export async function addConnection(data, site, session, options) {
+  const {session: token, member} = session;
+  if (!/^[A-Za-z0-9._-]+$/.test(String(token ?? ''))) throw new Error(`${site} gave no valid session`);
+  if (!member?.login || !/^[A-Za-z0-9-]+$/.test(member.login)) throw new Error(`${site} named no GitHub login for this member`);
+  await adoptLegacy(data, options);
+  const id = connectionId(site, member.id);
+  const folder = path.join(data, 'connections', id);
+  fs.mkdirSync(folder, {recursive: true, mode: 0o700});
+  writeConnection(folder, {site, member, token});
+  return id;
+}
+
+const log = (message, connection) => console.log(`${new Date().toISOString()} ${connection ? `[${connection}] ` : ''}${message}`);
 
 /** KEY=VALUE lines, as scripts/db/postgres.mjs's parseEnv reads Mochi's .env. */
 export function parseEnv(text) {
@@ -165,8 +245,11 @@ export function systemEnv(env, bin, data) {
   return {...system, PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin`, UV_PYTHON_INSTALL_DIR: path.join(data, 'python')};
 }
 
-/** How NanoAgent starts, in the bundle's `nanoagent` folder, with this data folder, `keys` and its bearer `token`. */
-export function nanoagentCommand({nanoagent, data, port, sandbox, system, keys, token}) {
+/**
+ * How NanoAgent starts for a connection, in the bundle's `nanoagent` folder: its own folders in the
+ * connection's, the uv cache the install's, with the member's `keys` and its bearer `token`.
+ */
+export function nanoagentCommand({nanoagent, data, connection, port, sandbox, system, keys, token}) {
   const python = path.join(nanoagent, '.venv', 'bin', 'python');
   return {
     program: python,
@@ -180,8 +263,8 @@ export function nanoagentCommand({nanoagent, data, port, sandbox, system, keys, 
       `sandbox=${sandbox}`,
       // The member's runs choose any model their keys reach, and settings of their own.
       'run_models=true',
-      `workspaces=${JSON.stringify(path.join(data, 'agent-workspaces'))}`,
-      `installs=${JSON.stringify(path.join(data, 'nanoagent-installs'))}`,
+      `workspaces=${JSON.stringify(path.join(connection, 'agent-workspaces'))}`,
+      `installs=${JSON.stringify(path.join(connection, 'nanoagent-installs'))}`,
       `uv_cache=${JSON.stringify(path.join(data, 'nanoagent-uv-cache'))}`,
       // Plugins run on the Python NanoAgent runs on; its environment holds no PATH to find `python` on.
       `plugin_python=${JSON.stringify(python)}`,
@@ -191,14 +274,14 @@ export function nanoagentCommand({nanoagent, data, port, sandbox, system, keys, 
   };
 }
 
-/** The relay's environment (relay.mjs). */
-export function relayEnv({system, site, port, token, data, keys, files}) {
+/** A connection's relay's environment (relay.mjs). */
+export function relayEnv({system, site, port, token, connection, keys, files}) {
   return {
     ...system,
     MOCHI_SITE_URL: site,
     NANOAGENT_URL: `http://127.0.0.1:${port}`,
     NANOAGENT_API_TOKEN: token,
-    RUNNER_CREDENTIALS: path.join(data, 'runner-credentials.json'),
+    RUNNER_CREDENTIALS: path.join(connection, 'runner-credentials.json'),
     RUNNER_KEYS: JSON.stringify(keys),
     RUNNER_FILES: files,
   };
@@ -216,13 +299,15 @@ function openLog(file) {
   return fs.openSync(file, 'a');
 }
 
-/** True when anything accepts a connection on localhost:`port`. */
-function listening(port) {
-  return new Promise(resolve => {
-    const socket = net.connect({host: 'localhost', port, timeout: 1000});
-    socket.once('connect', () => { socket.destroy(); resolve(true); });
-    socket.once('timeout', () => { socket.destroy(); resolve(false); });
-    socket.once('error', () => resolve(false));
+/** A loopback port nothing listens on now, for a connection's NanoAgent. */
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const {port} = server.address();
+      server.close(() => resolve(port));
+    });
   });
 }
 
@@ -271,50 +356,21 @@ async function main() {
   const config = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8'));
   const bin = path.join(root, 'bin');
   const nanoagent = path.join(root, 'nanoagent');
-  // install.sh unpacks the bundle into <data>/app/<stamp>/, and writes the site it came from in <data>/site.
+  // install.sh unpacks the bundle into <data>/app/<stamp>/.
   const data = path.resolve(root, '..', '..', '..');
-  const site = fs.readFileSync(path.join(data, 'site'), 'utf8').trim();
-  const {label, port, filesFolder} = installFor(config, site);
-  if (path.basename(data) !== label) throw new Error(`RUSH Lab for ${site} is installed as ${label}, not in ${data}`);
+  if (path.basename(data) !== config.label) throw new Error(`RUSH Lab is installed as ${config.label}, not in ${data}`);
+  const connectionsFolder = path.join(data, 'connections');
   /** Open `page` in the member's browser; when that cannot be done, the log has the page. */
   const openPage = page => {
     const [program, ...args] = platform.open();
     spawn(program, [...args, page], {stdio: 'ignore'}).on('error', error => log(`could not open ${page}: ${error.message}`));
   };
-  const files = path.join(os.homedir(), filesFolder);
-  const settingsFile = path.join(data, 'settings.env');
-  // The services this has running: one `pid<TAB>program` line each.
+  // Every service this has running, of every connection: one `pid<TAB>program` line each.
   const pidFile = path.join(data, 'services.pid');
-  const logs = path.join(data, 'logs');
-  const services = [];
+  const system = systemEnv(process.env, bin, data);
+  // The connections, by id: {id, folder, site, installed, services, state, restartAt, relayStdin, token, port}.
+  const connections = new Map();
   let stopping = false;
-  let relayStdin = null;
-  let nanoagentToken = null;
-
-  /** The relay first, then NanoAgent: SIGTERM so each shuts down cleanly, SIGKILL after STOP_TIMEOUT_MS. */
-  async function stopServices() {
-    nanoagentToken = null;
-    relayStdin = null;
-    while (services.length) {
-      const service = services.pop();
-      if (service.exited) continue;
-      service.child.kill('SIGTERM');
-      const deadline = Date.now() + STOP_TIMEOUT_MS;
-      while (!service.exited && Date.now() < deadline) await sleep(100);
-      if (!service.exited) service.child.kill('SIGKILL');
-      await service.done;
-    }
-    fs.rmSync(pidFile, {force: true});
-  }
-
-  /** Stop everything and exit with `code`, once. */
-  async function shutdown(code, message) {
-    if (stopping) return;
-    stopping = true;
-    if (message) console.error(`${new Date().toISOString()} ${message}`);
-    await stopServices();
-    process.exit(code);
-  }
 
   /** Stop the services a previous run left behind: each recorded process still running the program it was started with. */
   async function stopLeftovers() {
@@ -340,11 +396,10 @@ async function main() {
   }
 
   /**
-   * Start `name`, its output in `logFile`; `piped`, its standard input and output are this
-   * process's to write and read instead, and its errors go to the log. Its exit, once it is
-   * running, stops the other service and this process.
+   * Start `name` into `services`, its output in `logFile`; `piped`, its standard input and output
+   * are this process's to write and read instead, and its errors go to the log.
    */
-  function startService(name, program, args, {cwd, env, logFile, piped = false}) {
+  function startService(services, name, program, args, {cwd, env, logFile, piped = false}) {
     const fd = openLog(logFile);
     const child = spawn(program, args, {cwd, env, stdio: [piped ? 'pipe' : 'ignore', piped ? 'pipe' : fd, fd]});
     const service = {name, child, logFile, fd, exited: null};
@@ -364,6 +419,19 @@ async function main() {
     return service;
   }
 
+  /** The last first: SIGTERM so each shuts down cleanly, SIGKILL after STOP_TIMEOUT_MS. */
+  async function stopServices(services) {
+    while (services.length) {
+      const service = services.pop();
+      if (service.exited) continue;
+      service.child.kill('SIGTERM');
+      const deadline = Date.now() + STOP_TIMEOUT_MS;
+      while (!service.exited && Date.now() < deadline) await sleep(100);
+      if (!service.exited) service.child.kill('SIGKILL');
+      await service.done;
+    }
+  }
+
   /** How `service` ended, with its log. */
   function exitMessage(service) {
     const {error} = service.exited;
@@ -371,8 +439,8 @@ async function main() {
     return `${service.name} exited (${describeExit(service.exited)}).\n\n${tail(service.logFile)}`;
   }
 
-  /** Wait for `ready`, failing when a service exits or `timeoutMs` passes. */
-  async function waitUntil(name, timeoutMs, ready) {
+  /** Wait for `ready`, failing when one of `services` exits or `timeoutMs` passes. */
+  async function waitUntil(services, name, timeoutMs, ready) {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       const gone = services.find(service => service.exited);
@@ -383,29 +451,182 @@ async function main() {
     }
   }
 
-  /** One JSON line on the relay's standard input. */
-  const tellRelay = message => relayStdin?.write(`${JSON.stringify(message)}\n`);
+  /** Stop everything and exit with `code`, once. */
+  async function shutdown(code, message) {
+    if (stopping) return;
+    stopping = true;
+    if (message) console.error(`${new Date().toISOString()} ${message}`);
+    await Promise.all([...connections.values()].map(connection => stopConnection(connection)));
+    fs.rmSync(pidFile, {force: true});
+    process.exit(code);
+  }
 
-  /** Keep `changes`, hand them to the running NanoAgent, and tell the relay which keys are set now. */
-  async function applyKeys(changes) {
+  process.on('SIGTERM', () => shutdown(0, 'Stopping (SIGTERM).'));
+  process.on('SIGINT', () => shutdown(0, 'Stopping (SIGINT).'));
+  try {
+    await prepare();
+  } catch (error) {
+    await shutdown(1, error.message);
+    return;
+  }
+  for (;;) {
+    if (stopping) return;
+    // One connection's trouble is logged, and the others carry on.
+    await watch().catch(error => log(`could not look at ${connectionsFolder}: ${error.message}`));
+    await sleep(WATCH_MS);
+  }
+
+  /** Stop what a previous run left, and make NanoAgent's environment, which every connection shares. */
+  async function prepare() {
+    log(`Mochi Lab ${fs.readFileSync(path.join(root, 'stamp'), 'utf8').trim()}`);
+    fs.mkdirSync(connectionsFolder, {recursive: true, mode: 0o700});
+    fs.mkdirSync(path.join(data, 'logs'), {recursive: true});
+    await stopLeftovers();
+    log('Preparing NanoAgent\'s Python environment (the first start downloads Python)…');
+    // Only NanoAgent's dependencies, as the bundled uv.lock pins them: NanoAgent itself is the
+    // compiled module in site/, with no source to check the lock against.
+    const services = [];
+    const uv = startService(services, 'uv sync', path.join(bin, 'uv'), [
+      'sync', '--frozen', '--no-dev', '--no-install-project', '--extra', 'web', '--managed-python', '--python', config.python_version,
+    ], {cwd: nanoagent, env: system, logFile: path.join(data, 'logs', 'uv-sync.log')});
+    await uv.done;
+    if (uv.exited.error || uv.exited.code !== 0) {
+      throw new Error(uv.exited.error ? exitMessage(uv) : `uv sync failed (${describeExit(uv.exited)}).\n\n${tail(uv.logFile)}`);
+    }
+    const sitePackages = path.join(nanoagent, '.venv', 'lib', `python${config.python_version}`, 'site-packages');
+    try {
+      fs.writeFileSync(path.join(sitePackages, 'nanoagent.pth'), `${path.join(nanoagent, 'site')}\n`);
+    } catch (error) {
+      throw new Error(`could not add NanoAgent to its environment: ${error.message}`);
+    }
+  }
+
+  /** Start the connections that are new, written again, or due to start again after failing; stop the removed ones. */
+  async function watch() {
+    const present = new Map();
+    for (const id of fs.readdirSync(connectionsFolder)) {
+      const folder = path.join(connectionsFolder, id);
+      const installed = path.join(folder, 'installed');
+      if (fs.existsSync(installed)) present.set(id, fs.readFileSync(installed, 'utf8'));
+    }
+    for (const [id, connection] of connections) {
+      if (present.has(id)) continue;
+      connections.delete(id);
+      log(`Removed from this computer; stopping.`, id);
+      await stopConnection(connection);
+    }
+    for (const [id, installed] of present) {
+      let connection = connections.get(id);
+      if (connection && connection.installed !== installed) {
+        log('Installed again; restarting.', id);
+        await stopConnection(connection);
+        connection = null;
+      }
+      if (!connection) {
+        connection = {id, folder: path.join(connectionsFolder, id), installed, services: [], state: 'starting'};
+        connections.set(id, connection);
+        startConnection(connection).catch(error => log(`could not start: ${error.message}`, id));
+      } else if (connection.state === 'failed' && Date.now() >= connection.restartAt) {
+        connection.state = 'starting';
+        startConnection(connection).catch(error => log(`could not start: ${error.message}`, id));
+      }
+    }
+  }
+
+  async function stopConnection(connection) {
+    connection.state = 'stopped';
+    connection.relayStdin = null;
+    connection.token = null;
+    await stopServices(connection.services);
+  }
+
+  /**
+   * A connection ends: failed, it starts again after RESTART_MS; replaced, it waits to be installed
+   * again. `message` says why; one stopped on purpose ends with nothing to say.
+   */
+  async function endConnection(connection, replaced, message) {
+    if (connection.state !== 'running' && connection.state !== 'starting') return;
+    connection.state = replaced ? 'replaced' : 'failed';
+    connection.restartAt = Date.now() + RESTART_MS;
+    log(replaced ? 'Another computer took this member\'s runs; stopping until installed again.' : `${message}\nStarting again in ${RESTART_MS / 1000}s.`, connection.id);
+    connection.relayStdin = null;
+    connection.token = null;
+    await stopServices(connection.services);
+  }
+
+  async function startConnection(connection) {
+    const {id, folder, services} = connection;
+    try {
+      const site = fs.readFileSync(path.join(folder, 'site'), 'utf8').trim();
+      const member = JSON.parse(fs.readFileSync(path.join(folder, 'member.json'), 'utf8'));
+      const logs = path.join(folder, 'logs');
+      fs.mkdirSync(logs, {recursive: true});
+      const settingsFile = path.join(folder, 'settings.env');
+      const settings = readSettings(settingsFile);
+      Object.assign(connection, {site, settingsFile, port: await freePort()});
+      log(`Starting NanoAgent for @${member.login} on ${site}…`, id);
+      // Only this connection's relay and this process hold it, so nothing else on this computer can run its NanoAgent.
+      const token = crypto.randomBytes(32).toString('hex');
+      const command = nanoagentCommand({
+        nanoagent, data, connection: folder, port: connection.port, sandbox: platform.sandbox, system, keys: providerKeys(settings), token,
+      });
+      startService(services, 'NanoAgent', command.program, command.args, {cwd: nanoagent, env: command.env, logFile: path.join(logs, 'nanoagent.log')});
+      await waitUntil(services, 'NanoAgent', NANOAGENT_TIMEOUT_MS, () => nanoagentReady(connection.port, token));
+      if (connection.state !== 'starting') return;
+      connection.token = token;
+      log(`NanoAgent is ready on 127.0.0.1:${connection.port}`, id);
+
+      log(`Connecting to ${site}…`, id);
+      const files = path.join(os.homedir(), filesFolderFor(config, site), member.login);
+      const relay = startService(services, 'The relay', path.join(bin, 'node'), ['relay.mjs'], {
+        cwd: path.join(root, 'runner'),
+        env: relayEnv({system, site, port: connection.port, token, connection: folder, keys: keyStatus(readSettings(settingsFile)), files}),
+        logFile: path.join(logs, 'relay.log'),
+        piped: true,
+      });
+      connection.relayStdin = relay.child.stdin;
+      // Writing to a relay that has just exited fails; its exit is what ends the connection.
+      connection.relayStdin.on('error', () => {});
+      followRelay(connection, relay);
+      connection.state = 'running';
+      // From here, either service exiting stops the other; a relay that ends cleanly was replaced by another computer.
+      for (const service of services) {
+        service.done.then(() => {
+          if (connection.state !== 'running') return undefined;
+          return endConnection(connection, service === relay && service.exited.code === 0, exitMessage(service));
+        }).catch(error => log(`could not stop after ${service.name} exited: ${error.message}`, id));
+      }
+    } catch (error) {
+      await endConnection(connection, false, error.message);
+    }
+  }
+
+  /** One JSON line on the connection's relay's standard input. */
+  function tellRelay(connection, message) {
+    connection.relayStdin?.write(`${JSON.stringify(message)}\n`);
+  }
+
+  /** Keep `changes` for the connection, hand them to its NanoAgent, and tell its relay which keys are set now. */
+  async function applyKeys(connection, changes) {
     if (typeof changes !== 'object' || changes === null || Array.isArray(changes)
       || !Object.values(changes).every(value => value === null || typeof value === 'string')) {
       throw new Error('changes must be {NAME: key or null}');
     }
-    writeKeys(settingsFile, changes);
-    if (!nanoagentToken) throw new Error('NanoAgent is not running');
-    const answer = await nanoagentRequest(port, 'PUT', '/v1/keys', nanoagentToken, JSON.stringify({changes}));
+    writeKeys(connection.settingsFile, changes);
+    if (!connection.token) throw new Error('NanoAgent is not running');
+    const answer = await nanoagentRequest(connection.port, 'PUT', '/v1/keys', connection.token, JSON.stringify({changes}));
     if (!answer) throw new Error('NanoAgent did not answer');
     if (answer.status !== 200) throw new Error(`NanoAgent refused the keys (${answer.status}): ${answer.body}`);
-    tellRelay({keys: keyStatus(readSettings(settingsFile))});
+    tellRelay(connection, {keys: keyStatus(readSettings(connection.settingsFile))});
   }
 
   /**
-   * Read the relay's events (relay.mjs) into its log: open its sign-in page, and the site once it
-   * is connected after that, and apply the keys Settings → AI sends, answering on its stdin. A keys
-   * event is never logged: it carries their values.
+   * Read a relay's events (relay.mjs) into its log: open its sign-in page, and the site once it is
+   * connected after that, and apply the keys Mochi sends, answering on its stdin. A keys event is
+   * never logged: it carries their values.
    */
-  function followRelay(relay) {
+  function followRelay(connection, relay) {
+    const {id, site} = connection;
     let signingIn = false;
     readline.createInterface({input: relay.child.stdout}).on('line', line => {
       let event = {};
@@ -417,105 +638,39 @@ async function main() {
         signingIn = true;
         // The device page says it is Mochi Lab asking (src/pages/device).
         const page = `${event.url}&client=desktop`;
-        log(`Sign in to Mochi, then approve this computer (code ${event.code}): ${page}`);
+        log(`Sign in to Mochi, then approve this computer (code ${event.code}): ${page}`, id);
         openPage(page);
       } else if (event.event === 'connected') {
-        log(`Connected to ${site}`);
+        log(`Connected to ${site}`, id);
         if (!signingIn) return;
         signingIn = false;
         // The device page says Mochi opens next; with no key yet, straight to where one is added.
-        const keyless = !keyStatus(readSettings(settingsFile)).some(key => key.set);
-        const page = keyless ? `${site.replace(/\/$/, '')}/settings#ai` : site;
-        openPage(page);
+        const keyless = !keyStatus(readSettings(connection.settingsFile)).some(key => key.set);
+        openPage(keyless ? `${site.replace(/\/$/, '')}/settings#ai` : site);
       } else if (event.event === 'disconnected') {
-        log(`Disconnected from ${site}: ${event.reason}`);
+        log(`Disconnected from ${site}: ${event.reason}`, id);
       } else if (event.event === 'keys') {
-        applyKeys(event.changes).then(
-          () => tellRelay({id: event.id, error: null}),
-          error => tellRelay({id: event.id, error: error.message}),
+        applyKeys(connection, event.changes).then(
+          () => tellRelay(connection, {id: event.id, error: null}),
+          error => tellRelay(connection, {id: event.id, error: error.message}),
         );
       }
     });
   }
-
-  process.on('SIGTERM', () => shutdown(0, 'Stopping (SIGTERM).'));
-  process.on('SIGINT', () => shutdown(0, 'Stopping (SIGINT).'));
-  try {
-    await start();
-  } catch (error) {
-    await shutdown(1, error.message);
-  }
-
-  async function start() {
-    log(`Mochi Lab ${fs.readFileSync(path.join(root, 'stamp'), 'utf8').trim()}, serving ${site}`);
-    fs.mkdirSync(logs, {recursive: true});
-    const settings = readSettings(settingsFile);
-    await stopLeftovers();
-    if (await listening(port)) throw new Error(`Port ${port} already in use. Quit whatever is using it (the Mochi Lab app?); launchd tries again.`);
-    const system = systemEnv(process.env, bin, data);
-
-    log('Preparing NanoAgent\'s Python environment (the first start downloads Python)…');
-    // Only NanoAgent's dependencies, as the bundled uv.lock pins them: NanoAgent itself is the
-    // compiled module in site/, with no source to check the lock against.
-    const uv = startService('uv sync', path.join(bin, 'uv'), [
-      'sync', '--frozen', '--no-dev', '--no-install-project', '--extra', 'web', '--managed-python', '--python', config.python_version,
-    ], {cwd: nanoagent, env: system, logFile: path.join(logs, 'uv-sync.log')});
-    await uv.done;
-    if (stopping) return;
-    services.splice(services.indexOf(uv), 1);
-    if (uv.exited.error || uv.exited.code !== 0) {
-      throw new Error(uv.exited.error ? exitMessage(uv) : `uv sync failed (${describeExit(uv.exited)}).\n\n${tail(uv.logFile)}`);
-    }
-    const sitePackages = path.join(nanoagent, '.venv', 'lib', `python${config.python_version}`, 'site-packages');
-    try {
-      fs.writeFileSync(path.join(sitePackages, 'nanoagent.pth'), `${path.join(nanoagent, 'site')}\n`);
-    } catch (error) {
-      throw new Error(`could not add NanoAgent to its environment: ${error.message}`);
-    }
-
-    log('Starting NanoAgent…');
-    // Only the relay and this process hold it, so nothing else on this computer can run NanoAgent.
-    const token = crypto.randomBytes(32).toString('hex');
-    const command = nanoagentCommand({nanoagent, data, port, sandbox: platform.sandbox, system, keys: providerKeys(settings), token});
-    startService('NanoAgent', command.program, command.args, {cwd: nanoagent, env: command.env, logFile: path.join(logs, 'nanoagent.log')});
-    await waitUntil('NanoAgent', NANOAGENT_TIMEOUT_MS, () => nanoagentReady(port, token));
-    nanoagentToken = token;
-    log(`NanoAgent is ready on 127.0.0.1:${port}`);
-
-    log(`Connecting to ${site}…`);
-    const relay = startService('The relay', path.join(bin, 'node'), ['relay.mjs'], {
-      cwd: path.join(root, 'runner'),
-      env: relayEnv({system, site, port, token, data, keys: keyStatus(readSettings(settingsFile)), files}),
-      logFile: path.join(logs, 'relay.log'),
-      piped: true,
-    });
-    relayStdin = relay.child.stdin;
-    // Writing to a relay that has just exited fails; its exit is what stops this.
-    relayStdin.on('error', () => {});
-    followRelay(relay);
-
-    // From here, either service exiting stops the other, and this, for launchd to start again;
-    // a relay that ends cleanly was replaced by another computer, and is not started again.
-    for (const service of services) {
-      service.done.then(() => {
-        const replaced = service === relay && service.exited.code === 0;
-        shutdown(replaced ? 0 : 1, replaced ? 'Another computer took this member\'s runs; stopping.' : exitMessage(service));
-      });
-    }
-  }
 }
 
 // As a URL the path is escaped ("Application Support" is Application%20Support), so compare paths;
-// launchd names this through the `current` link, and Node resolves it. `lab.mjs label <site>` prints
-// the label install.sh installs it under for that site.
+// launchd names this through the `current` link, and Node resolves it. install.sh asks it:
+//   lab.mjs label                      the label the install is under
+//   lab.mjs connect <data> <site>      keep LAB_SESSION as its member's connection, and print its id
 if (process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(process.argv[1])) {
-  if (process.argv[2] === 'label') {
-    const config = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'config.json'), 'utf8'));
-    console.log(installFor(config, process.argv[3]).label);
-  } else {
-    main().catch(error => {
-      console.error(`${new Date().toISOString()} ${error.message}`);
-      process.exitCode = 1;
-    });
-  }
+  const config = () => JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'config.json'), 'utf8'));
+  const [command, data, site] = process.argv.slice(2);
+  const run = command === 'label' ? async () => console.log(config().label)
+    : command === 'connect' ? async () => console.log(await addConnection(data, site, JSON.parse(process.env.LAB_SESSION ?? '{}')))
+      : main;
+  run().catch(error => {
+    console.error(`${new Date().toISOString()} ${error.message}`);
+    process.exitCode = 1;
+  });
 }

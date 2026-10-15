@@ -566,10 +566,12 @@ const ctx = {
     installScript: path.join(__dirname, '../runner/install.sh'),
     // A Better Auth session for the member, as the device grant makes one (its token); null when
     // there is no such member any more.
+    // A session for the member, and their GitHub login, which names their files' folder there.
     createSession: async userId => {
       const {internalAdapter} = await auth.$context;
-      if (!await internalAdapter.findUserById(userId)) return null;
-      return (await internalAdapter.createSession(userId)).token;
+      const user = await internalAdapter.findUserById(userId);
+      if (!user) return null;
+      return {token: (await internalAdapter.createSession(userId)).token, login: user.githubLogin};
     },
   },
   // What members submit to their workspace; PostgreSQL only.
