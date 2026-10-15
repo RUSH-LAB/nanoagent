@@ -71,8 +71,7 @@ To decide:
 Members do not need the desktop app (`desktop/src-tauri`): Settings → AI gives them a one-line
 install that runs the same relay and compiled NanoAgent in the background, without a window
 (`src/runner/lab.mjs`, `desktop/PLAN.md`). The app is kept for later, unreleased.
-`.github/workflows/helpinghands-desktop.yml` still builds it on every push to production, or by
-hand, and keeps the dmg only as a workflow artifact of the private repository, which members
+`.github/workflows/helpinghands-desktop.yml` builds it only in a run by hand, and keeps the dmg only as a workflow artifact of the private repository, which members
 cannot download.
 
 To decide, if it is released:
