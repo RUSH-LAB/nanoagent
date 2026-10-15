@@ -111,6 +111,24 @@ describe('PostgreSQL runtime boundary', () => {
     }
   });
 
+  it('applies the pending migrations in one transaction and rolls them all back when one fails', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-pg-migrations-'));
+    try {
+      fs.writeFileSync(path.join(directory, '0001.sql'), 'select 1;');
+      fs.writeFileSync(path.join(directory, '0002.sql'), 'select 2;');
+      const fake = fakePool(async statement => {
+        if (statement === 'select 2;') throw new Error('boom');
+        return {rows: []};
+      });
+      await assert.rejects(() => migrate(fake.pool, {directory}), /0002\.sql: boom/);
+      const sequence = fake.calls.map(call => call.sql)
+        .filter(sql => ['begin', 'commit', 'rollback', 'select 1;', 'select 2;'].includes(sql));
+      assert.deepEqual(sequence, ['begin', 'select 1;', 'select 2;', 'rollback']);
+    } finally {
+      fs.rmSync(directory, {recursive: true, force: true});
+    }
+  });
+
   it('rejects an edited migration that was already recorded', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-pg-migrations-'));
     try {

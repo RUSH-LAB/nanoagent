@@ -42,7 +42,9 @@ from this folder act on `development`. Nothing local connects to `production`.
 whatever changed in `development`; stop the local server first. Schema changes
 need no syncing: migrations apply to `development` when the local server
 starts, and to `production` when Railway deploys. Nothing is copied from
-`development` to `production`.
+`development` to `production`: `development` is scratch, and the local site
+says so in a banner across the top. Make real workspaces and content on
+rush-lab.org.
 
 ## Set up a new machine
 

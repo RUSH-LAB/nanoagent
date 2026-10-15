@@ -554,3 +554,16 @@ li > input[type="checkbox"]:checked {
     animation: none;
   }
 }
+
+/* Root.js DevelopmentBanner: the local site, on the development database. */
+.development-banner {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  padding: 0.25rem 1rem;
+  background: #b45309;
+  color: #fff;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-align: center;
+}

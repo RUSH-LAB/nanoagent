@@ -42,7 +42,7 @@ async function migrate(pool, {directory = MIGRATIONS_DIR} = {}) {
     )`);
     const applied = new Map((await client.query('select name, checksum from schema_migration')).rows
       .map(row => [row.name, row.checksum]));
-    const completed = [];
+    const pending = [];
     for (const name of migrationFiles(directory)) {
       const sql = fs.readFileSync(path.join(directory, name), 'utf8');
       const digest = checksum(sql);
@@ -50,18 +50,28 @@ async function migrate(pool, {directory = MIGRATIONS_DIR} = {}) {
         if (applied.get(name) !== digest) throw new Error(`Applied migration changed: ${name}`);
         continue;
       }
-      await client.query('begin');
-      try {
-        await client.query(sql);
-        await client.query('insert into schema_migration(name, checksum) values ($1, $2)', [name, digest]);
-        await client.query('commit');
-        completed.push(name);
-      } catch (error) {
-        await client.query('rollback');
-        throw error;
-      }
+      pending.push({name, sql, digest});
     }
-    return completed;
+    if (!pending.length) return [];
+    // The pending migrations apply together or not at all, so a deploy that
+    // fails leaves the schema the running deployment was built for.
+    await client.query('begin');
+    try {
+      for (const {name, sql, digest} of pending) {
+        try {
+          await client.query(sql);
+        } catch (error) {
+          error.message = `${name}: ${error.message}`;
+          throw error;
+        }
+        await client.query('insert into schema_migration(name, checksum) values ($1, $2)', [name, digest]);
+      }
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    }
+    return pending.map(({name}) => name);
   } finally {
     try { await client.query('select pg_advisory_unlock($1)', [MIGRATION_LOCK]); } finally { client.release(); }
   }
