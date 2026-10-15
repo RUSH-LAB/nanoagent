@@ -14,8 +14,8 @@ only by Railway's deploy.
 - `production` is what Railway runs and must always be deployable. Change it
   only by merging a pull request after CI passes; never push to it directly.
 - `devmode` collects what is ready to release next. Develop on another branch
-  and open a pull request into `devmode`; CI runs on pull requests into either
-  branch.
+  and open a pull request into `devmode`. CI runs only on pull requests into
+  either branch: a push runs nothing, so run `npm test` before pushing.
 - Release by opening one pull request from `devmode` into `production`. No
   other branch goes into `production`.
 - Railway watches only `production`. The Mochi service builds from
