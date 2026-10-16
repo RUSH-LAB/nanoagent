@@ -240,9 +240,6 @@ export async function startLocal(argv = process.argv.slice(2)) {
   if (usesLocalNanoAgent(env) && !fs.existsSync(path.join(nanoagentRoot, 'pyproject.toml'))) {
     throw new Error(`NanoAgent checkout not found at ${nanoagentRoot}. Clone it beside Mochi or set NANOAGENT_PROJECT_DIR.`);
   }
-  if (usesLocalNanoAgent(env) && !env.OPENROUTER_API_KEY?.trim()) {
-    throw new Error('Local NanoAgent requires OPENROUTER_API_KEY. Add it to .env, then run npm start again.');
-  }
   const apiPort = validatedPort(env.EDITOR_PORT, 'EDITOR_PORT');
   const sitePort = validatedPort(env.SITE_PORT || 3000, 'SITE_PORT');
   if (apiPort === sitePort) {

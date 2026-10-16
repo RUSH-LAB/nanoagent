@@ -39,7 +39,7 @@ echo "Python: $(python3.12 --version)"
 echo "uv:     $(uv --version)"
 echo
 echo "Next steps:"
-echo "  Add OPENROUTER_API_KEY to .env"
+echo "  Fill in the GitHub values in .env (scripts/README.md)"
 echo "  brew install postgresql@18"
 echo "  npm run db:setup"
 echo "  npm run db:pull"
