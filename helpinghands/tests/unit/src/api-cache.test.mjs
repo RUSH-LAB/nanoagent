@@ -54,3 +54,21 @@ describe('read-only API response cache', () => {
     assert.equal(calls, 2);
   });
 });
+
+describe('account-wide API paths on a workspace page', () => {
+  it('asks for runner status unscoped on a workspace the member is not in', async () => {
+    const {installClientPlatform, resetClientPlatform} = await import('../../../src/platform/client.js');
+    installClientPlatform({runtimeConfig: () => ({}), location: {pathname: () => '/w/not-mine/docs'}});
+    const asked = [];
+    globalThis.fetch = async input => {
+      asked.push(typeof input === 'string' ? input : input.url);
+      return new Response(JSON.stringify({connected: true}), {status: 200});
+    };
+    try {
+      assert.deepEqual(await api.apiRequest('/api/runner/status'), {connected: true});
+      assert.deepEqual(asked, ['/api/runner/status']);
+    } finally {
+      resetClientPlatform();
+    }
+  });
+});
