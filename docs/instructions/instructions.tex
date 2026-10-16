@@ -1,0 +1,83 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\usepackage[margin=0.8in]{geometry}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+\setlist{itemsep=2pt,topsep=4pt}
+\lstset{basicstyle=\small\ttfamily,breaklines=true,columns=fullflexible,
+  keepspaces=true,showstringspaces=false,aboveskip=4pt,belowskip=4pt}
+
+\title{Project Milestone 1: Verifiable Tasks}
+\author{Fall 2026: COMP 480/580}
+\date{Due: November 2, 2026}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+
+AI agents can use tools to perform tasks such as retrieving information, processing data, and creating files. However, an agent's statement that it has completed a task does not establish that its result is correct. To reliably evaluate an agent, we need a precise task specification, a reproducible environment, and an executable verifier that checks the actual result. In this milestone, you will create \textbf{5} original tasks, each as its own plugin with an execution environment and a verifier that checks its outcome. Build and test each plugin locally, then publish it on \href{https://rush-lab.org}{RUSH Lab}, our open-source platform where agents can run tasks and be evaluated. 
+
+The GitHub repository is at \url{https://github.com/RUSH-LAB/nanoagent}. Ask your AI to tell you more about it! 
+
+\textbf{Optional:} If anything you think in the repository is buggy, missing, unclear, or could be better, open an issue on GitHub or contact the course staff. The repository is under active development, and it would be fun if we could improve it together over the semester.
+
+\section{Tasks}
+
+Here is a list of components what a task should include:
+
+\begin{itemize}
+    \item \textbf{Task:} Define the task's inputs, tools, outputs, and success conditions.
+    \item \textbf{Environment:} Include data, dependencies, and reproducible setup instructions.
+    \item \textbf{Verifier:} Check actual results. Test correct, incorrect, missing, malformed, and boundary cases. \textbf{The verifier must not call an LLM as judge.} You may use an LLM to help write it, but the verifier itself must be a program that runs without one.
+    \item \textbf{Validation and publication:} Test, run, and publish the task. Provide reproducible evidence.
+\end{itemize}
+
+\section{Instructions}
+
+\subsection{Set up your plugin}
+
+Install \href{https://git-scm.com/downloads}{Git} and \href{https://docs.astral.sh/uv/getting-started/installation/}{uv}. Create each of your 5 plugins as its own repository in your GitHub account. For a worked example, see the
+\href{https://github.com/sahiljoshi515/mochi-weather-alert}
+{Weather Alert} plugin by the TAs. Use it as a reference, not a template: each of your tasks must be original. The \href{https://github.com/RUSH-LAB/NanoAgent}{nanoagent} repository documents what a plugin needs, and you may use AI tools to help you work out the requirements.
+Our agent harness follows one principle: \textbf{structured input and structured output}. Every task and every tool declares a typed input and a typed output in \texttt{contract.py}, so each value the agent receives or produces has a fixed shape that code can check.
+From each plugin folder, run the tests and fix every error before you publish. Try to make the most of your coding agents to help you write the code!
+
+\subsection{Publish and validate on RUSH Lab}
+
+Follow these steps to publish your plugin and validate it on RUSH Lab:
+
+\begin{enumerate}
+    \item \textbf{Register.} Add your GitHub username to the \href{https://docs.google.com/spreadsheets/d/1Ma6fnMdo97y_qwLINhce3VevuifKi9qF6H5VCbSyEEg/edit?gid=0#gid=0}{Google Sheet}. The TAs use it to invite you to RUSH Lab.
+
+    \item \textbf{Install RUSH Lab.} Sign in at \url{https://rush-lab.org} with the GitHub account you registered. A pop-up asks you to install RUSH Lab on your computer: copy the command it shows and run it in a terminal (on Windows, use WSL). \textcolor{red}{Contact the TAs as soon as possible if you have trouble installing.}
+
+    \item \textbf{AI model.} The agent uses \texttt{DeepSeek V4 Flash 0731}, which cannot currently be changed. By default it runs on an OpenRouter API key will be provided by the TAs, capped at \$10 per month. To use your own key instead, add it under \textbf{Settings $\rightarrow$ AI}.
+
+    \item \textbf{Publish.} Submit each tested plugin to the \href{https://rush-lab.org/marketplace}{RUSH Lab marketplace}. If the checks report errors, fix them and resubmit.
+\end{enumerate}
+
+\textbf{Note:} the marketplace checks only that your plugin is packaged correctly. Passing them does not mean your task or verifier is correct; that is what you are graded on.
+
+\section{What to Submit}
+
+\begin{enumerate}
+    \item \textbf{Plugins.} The GitHub URL of each of your 5 plugins.
+    \item \textbf{Report.} One PDF that answers, for each plugin:
+    \begin{enumerate}[label=(\alph*)]
+        \item Why is the task objectively verifiable?
+        \item How is the environment reproducible?
+        \item How does the verifier handle incorrect outputs and boundary cases?
+        \item What limitations remain?
+    \end{enumerate}
+    Include the task inputs you ran, the test and validation logs, and the verifier's verdicts. Put this evidence in the report, not in the plugin repositories.
+\end{enumerate}
+
+The TAs should be able to reproduce your results without any manual fixes.
+
+\end{document}
