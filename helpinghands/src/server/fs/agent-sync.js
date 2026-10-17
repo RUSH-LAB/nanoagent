@@ -64,6 +64,12 @@ function createAgentSync({fs}) {
     if (listing.truncated) {
       throw new Error(`NanoAgent listed only part of the run's folder (${listing.files.length} files); nothing was written back`);
     }
+    // NanoAgent lists a folder that is gone as an empty one (one that restarted, or a computer
+    // other than the run's), so a listing with nothing in it, of a run that was given files,
+    // cannot say what the run deleted: it is not acted on either.
+    if (sent.size && !listing.files.length && !listing.folders?.length) {
+      throw new Error('NanoAgent listed the run\'s folder as empty, as it lists one that is gone; nothing was written back or deleted');
+    }
     const left = new Set();
     for (const file of listing.files) {
       left.add(file.path);

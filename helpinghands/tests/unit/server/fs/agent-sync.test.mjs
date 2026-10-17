@@ -118,6 +118,46 @@ describe('plugin runs as file system clients', () => {
     assert.equal(nano.folders.size, 0);
   });
 
+  it('deletes nothing when the run\'s folder is gone, as after its NanoAgent restarted, and still removes it', async () => {
+    const nano = fakeNanoAgent();
+    await fs.write(alice, 'home/alice/agent/echo/kept-1.md', 'one');
+    await fs.write(alice, 'home/alice/agent/echo/kept-2.md', 'two');
+    await assert.rejects(() => runIn(createAgentSync({fs}), alice, nano, async workspace => {
+      // A NanoAgent started since has no such folder, and lists it as empty.
+      nano.folders.delete(workspace);
+    }), /listed the run's folder as empty, as it lists one that is gone; nothing was written back or deleted/);
+    assert.equal((await fs.read(alice, 'home/alice/agent/echo/kept-1.md')).body.toString(), 'one');
+    assert.equal((await fs.read(alice, 'home/alice/agent/echo/kept-2.md')).body.toString(), 'two');
+    assert.equal(nano.removed.length, 1);
+  });
+
+  it('keeps the member\'s files when a run empties its whole folder, saying nothing was written back', async () => {
+    const nano = fakeNanoAgent();
+    await fs.write(alice, 'home/alice/agent/echo/only.md', 'here');
+    await assert.rejects(() => runIn(createAgentSync({fs}), alice, nano, async workspace => {
+      nano.of(workspace).clear();
+    }), /nothing was written back or deleted/);
+    assert.equal((await fs.read(alice, 'home/alice/agent/echo/only.md')).body.toString(), 'here');
+  });
+
+  it('writes back a run that deletes files but leaves a folder in its own, deletions included', async () => {
+    const nano = fakeNanoAgent();
+    nano.workspaceFiles = async workspace => ({value: {
+      files: [...nano.of(workspace)].map(([path, body]) => ({path, size: body.length})), folders: ['archive'], truncated: false,
+    }});
+    await fs.write(alice, 'home/alice/agent/echo/old.md', 'old');
+    await runIn(createAgentSync({fs}), alice, nano, async workspace => {
+      nano.of(workspace).clear();
+    });
+    assert.equal(await fs.read(alice, 'home/alice/agent/echo/old.md'), null);
+  });
+
+  it('takes an empty folder from a run that was given nothing', async () => {
+    const nano = fakeNanoAgent();
+    await runIn(createAgentSync({fs}), alice, nano, async () => {}, 'empty-plugin');
+    assert.equal(nano.removed.length, 1);
+  });
+
   it('writes results back even when the run fails', async () => {
     const nano = fakeNanoAgent();
     const sync = createAgentSync({fs});
