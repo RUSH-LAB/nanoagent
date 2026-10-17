@@ -17,10 +17,26 @@ import {
  * keeps the session's conversation, which a resumed session continues. A run
  * is Mochi's, not the page's: the page closing or leaving only stops following
  * it, and a session resumed while it still answers a message follows its run
- * (`follow`) to its end. Only `cancel` stops one.
+ * (`follow`) to its end. A run's stream that drops (Mochi restarted, the
+ * network went away) is followed again once Mochi answers: the page is told
+ * the run starts over (`chat.restart`), as following replays it from its first
+ * event, or, when it ended meanwhile, given the turn the session kept
+ * (`chat.turn`). Only `cancel` stops one.
  */
+// As long as the member's computer holds a run for Mochi to take up again (runner/protocol.js HOLD_MS).
+const RECONNECT_MS = 10 * 60_000;
+const RECONNECT_WAIT_MS = 2000;
+const CLOSED = 'The connection closed before the app finished. The session keeps its answer when it does: open the session again to see it.';
+const sleep = (ms, signal) => new Promise(resolve => {
+  const timer = setTimeout(resolve, ms);
+  signal.addEventListener('abort', () => {
+    clearTimeout(timer);
+    resolve();
+  }, {once: true});
+});
+
 export function createBridgeHost({frameWindow, plugin, workspaceId, theme, request}) {
-  const runs = new Map(); // runId -> {controller, session}
+  const runs = new Map(); // runId -> {controller, session}, the controller of its stream now
   // Each session's conversation, by id: a run left going in one session keeps its turn there.
   const turns = new Map();
   let session = null;
@@ -48,20 +64,44 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     return {runId, response, controller};
   }
 
-  /** Read a run's events into `onEvent`; the reason it stopped early, or null when it finished. */
-  async function readRun({runId, response, controller}, onEvent, closedEarly) {
+  /** Read a stream's events into `onEvent`: true once one ends the run, false when the stream stopped first. */
+  async function readRun(response, onEvent) {
     let finished = false;
     try {
       await readEvents(response, parsed => {
         if (!finished) finished = onEvent(parsed);
       });
     } catch {
-      // Cancelled, or the connection dropped; told below.
-    } finally {
-      runs.delete(runId);
+      // Cancelled, or the connection dropped; the caller tells which.
     }
-    if (finished) return null;
-    return controller.signal.aborted ? 'Cancelled' : closedEarly;
+    return finished;
+  }
+
+  /**
+   * Follow session `id`'s run `runId` again after its stream dropped, trying until Mochi answers
+   * or RECONNECT_MS passes: `{response}`, its stream from its first event; `{ended: true}` when
+   * the session answers no message any more; or `{error}`.
+   */
+  async function reconnect(id, runId) {
+    const deadline = Date.now() + RECONNECT_MS;
+    for (;;) {
+      const controller = new AbortController();
+      runs.set(runId, {controller, session: id});
+      let response = null;
+      try {
+        response = await request(`${sessionsPath}/${id}/run`, {signal: controller.signal});
+      } catch {
+        // Mochi is not back yet.
+      }
+      if (controller.signal.aborted) return {error: 'Cancelled'};
+      if (response?.status === 404) return {ended: true};
+      if (response?.ok && (response.headers.get('content-type') ?? '').includes(SSE_CONTENT_TYPE)) return {response};
+      // Mochi refused it for a reason waiting does not change (signed out, no access).
+      if (response && response.status < 500) return {error: (await failed(response, 'Could not follow the session\'s answer')).message};
+      if (Date.now() > deadline) return {error: CLOSED};
+      await sleep(RECONNECT_WAIT_MS, controller.signal);
+      if (controller.signal.aborted) return {error: 'Cancelled'};
+    }
   }
 
   function current() {
@@ -107,19 +147,51 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     return {result: {runId: run.runId, prompt: text}, after: () => relay(run, id, text)};
   }
 
-  /** Post a run's events to the frame, and keep its turn when it is answered. */
+  /**
+   * Post a run's events to the frame, following it again whenever its stream drops, and keep its
+   * turn when it is answered.
+   */
   async function relay(run, id, text) {
+    const {runId} = run;
     let answer = null;
-    const stopped = await readRun(run, parsed => {
-      const mapped = chatEvent(parsed);
-      if (!mapped) return false;
-      post(runEvent(mapped.event, run.runId, mapped.data));
-      if (mapped.event === 'chat.answer') answer = mapped.data.text;
-      return Boolean(mapped.final);
-    }, 'The connection closed before the app finished. The session keeps its answer when it does: open the session again to see it.');
-    if (stopped) post(runEvent('chat.error', run.runId, {message: stopped}));
+    let response = run.response;
+    for (;;) {
+      answer = null;
+      const finished = await readRun(response, parsed => {
+        const mapped = chatEvent(parsed);
+        if (!mapped) return false;
+        post(runEvent(mapped.event, runId, mapped.data));
+        if (mapped.event === 'chat.answer') answer = mapped.data.text;
+        return Boolean(mapped.final);
+      });
+      if (finished) break;
+      if (runs.get(runId).controller.signal.aborted) {
+        post(runEvent('chat.error', runId, {message: 'Cancelled'}));
+        break;
+      }
+      const again = await reconnect(id, runId);
+      if (again.error) {
+        post(runEvent('chat.error', runId, {message: again.error}));
+        break;
+      }
+      if (again.ended) {
+        // It ended while no stream followed it: what the session kept of it is its turn.
+        try {
+          const kept = await readSession(`${sessionsPath}/${id}`, undefined, 'Could not read the session');
+          const turn = kept.chat.at(-1);
+          post(runEvent('chat.turn', runId, {turn}));
+          if (!turn.error) answer = turn.answer;
+        } catch (error) {
+          post(runEvent('chat.error', runId, {message: error.message}));
+        }
+        break;
+      }
+      post(runEvent('chat.restart', runId, {}));
+      response = again.response;
+    }
+    runs.delete(runId);
     if (answer !== null) turns.get(id).push({prompt: text, answer});
-    post(runEvent('chat.done', run.runId, {}));
+    post(runEvent('chat.done', runId, {}));
   }
 
   const methods = {

@@ -153,12 +153,45 @@ describe('the bridge host', () => {
     assert.deepEqual(messages(posted), [{protocol: PROTOCOL, id: 'p1', error: {message: 'Mochi Lab is not connected'}}]);
   });
 
-  it('ends a prompt that stops early, or is cancelled, with chat.error and chat.done', async () => {
-    const truncated = await hostWith(() => eventStream(sse('delta', {text: 'Sav'})));
-    truncated.send('p1', 'prompt', {text: 'Save 1706.03762'});
-    await until(() => messages(truncated.posted).some(message => message.event === 'chat.done'));
-    assert.deepEqual(eventsOf(truncated.posted, 'run-1').slice(1), [
-      ['chat.error', {message: 'The connection closed before the app finished. The session keeps its answer when it does: open the session again to see it.'}],
+  it('follows a run again when its stream drops, from its first event', async () => {
+    const {posted, calls, send} = await hostWith(path => (path === '/api/ai/stream'
+      ? eventStream(sse('agent', {type: 'reasoning.delta', text: 'Find'}) + sse('delta', {text: 'Sav'}))
+      : eventStream(sse('agent', {type: 'reasoning.delta', text: 'Find'}) + sse('delta', {text: 'Saved'}) + sse('done', {text: 'Saved it.'}))));
+    send('p1', 'prompt', {text: 'Save 1706.03762'});
+    await until(() => messages(posted).some(message => message.event === 'chat.done'));
+    assert.deepEqual(eventsOf(posted, 'run-1').map(([event]) => event), [
+      'chat.reasoning', 'chat.delta', 'chat.restart', 'chat.reasoning', 'chat.delta', 'chat.answer', 'chat.done',
+    ]);
+    assert.deepEqual(calls.map(({path}) => path), ['/api/ai/stream', `${SESSIONS}/${SESSION}/run`]);
+    // The answer is the conversation's, as if the stream had never dropped.
+    send('p2', 'prompt', {text: 'Why?'});
+    await until(() => calls.length === 3);
+    assert.deepEqual(JSON.parse(calls[2].init.body).messages.at(-1), {role: 'assistant', content: 'Saved it.'});
+  });
+
+  it('shows the turn the session kept when its run ended while the stream was down', async () => {
+    const turn = {prompt: 'Save 1706.03762', answer: 'Saved it.', tools: [], activity: [{kind: 'thought', text: 'Find'}], error: null};
+    const {posted, calls, send} = await hostWith(path => {
+      if (path === '/api/ai/stream') return eventStream(sse('delta', {text: 'Sav'}));
+      if (path === `${SESSIONS}/${SESSION}/run`) return Response.json({error: 'This session is not answering a message any more.'}, {status: 404});
+      return Response.json({session: sessionWith([turn])});
+    });
+    send('p1', 'prompt', {text: 'Save 1706.03762'});
+    await until(() => messages(posted).some(message => message.event === 'chat.done'));
+    assert.deepEqual(eventsOf(posted, 'run-1').slice(1), [['chat.turn', {turn}], ['chat.done', {}]]);
+    send('p2', 'prompt', {text: 'Why?'});
+    await until(() => calls.length === 4);
+    assert.deepEqual(JSON.parse(calls[3].init.body).messages.at(-1), {role: 'assistant', content: 'Saved it.'});
+  });
+
+  it('ends a prompt that stops early and cannot be followed again, or is cancelled, with chat.error and chat.done', async () => {
+    const refused = await hostWith(path => (path === '/api/ai/stream'
+      ? eventStream(sse('delta', {text: 'Sav'}))
+      : Response.json({error: 'Sign in to use plugins'}, {status: 401})));
+    refused.send('p1', 'prompt', {text: 'Save 1706.03762'});
+    await until(() => messages(refused.posted).some(message => message.event === 'chat.done'));
+    assert.deepEqual(eventsOf(refused.posted, 'run-1').slice(1), [
+      ['chat.error', {message: 'Sign in to use plugins'}],
       ['chat.done', {}],
     ]);
 

@@ -70,7 +70,7 @@ Methods:
 | method | params | result | events |
 |---|---|---|---|
 | `describe` | `{}` | `{plugin, workspace: {id}, theme: "light"\|"dark"}` (`plugin`: the catalog entry, tasks with `inputSchema`) | — |
-| `prompt` | `{text}` | `{runId}` | `chat.reasoning {text}`, `chat.delta {text}`, `chat.tool.started {id, name}`, `chat.tool.progress {id, name, event, data}` (a task's `task.reference {tool}`, `task.tool {name, isError}`, `task.delta {kind, text}` and `task.result {}` while it runs), `chat.tool {id, name, arguments, output, isError}`, `chat.answer {text}`, `chat.error {message}`, `chat.done` |
+| `prompt` | `{text}` | `{runId}` | `chat.reasoning {text}`, `chat.delta {text}`, `chat.tool.started {id, name}`, `chat.tool.progress {id, name, event, data}` (a task's `task.reference {tool}`, `task.tool {name, isError}`, `task.delta {kind, text}` and `task.result {}` while it runs), `chat.tool {id, name, arguments, output, isError}`, `chat.answer {text}`, `chat.error {message}`, `chat.restart {}` (the stream dropped and the run is followed again from its first event), `chat.turn {turn}` (it ended while the stream was down: the turn the session kept), `chat.done` |
 | `follow` | `{}` | `{runId, prompt}` | as `prompt`'s, for the message the current session was still answering when it was resumed (`running`) |
 | `cancel` | `{runId}` | `{}` | — |
 | `sessions.list` | `{}` | `{sessions: [summary]}`, each `{id, pluginId, title, createdAt, updatedAt, archivedAt, runs, cost, ttftS, running}`, archived ones too; `running` is whether it is answering a message | — |
@@ -80,7 +80,9 @@ Methods:
 | `session.archive` | `{id, archived}` | `{session}` (its summary); an archived session leaves the Dashboard's list for its Archived view until it is restored (`archived: false`) or chatted in again | — |
 
 `prompt` is today's chat: a free-form message to the plugin's agent; the session keeps the
-conversation (its last 12 turns, each `{prompt, answer, tools, error}`). `prompt` runs in the
+conversation (its last 12 turns, each `{prompt, answer, tools, activity, error}`, `activity`
+being what the agent did on the way, in order: each `{kind: "thought", text}` and each finished
+task's `{kind: "task", name, steps, thinking, text}`). `prompt` runs in the
 current session, and the host refuses it until a session is started or resumed. A run is the
 host's, not the page's: a page closed, reloaded or left mid-answer leaves it going, and a page
 that resumes the session meanwhile shows the message being answered and `follow`s it to its end.

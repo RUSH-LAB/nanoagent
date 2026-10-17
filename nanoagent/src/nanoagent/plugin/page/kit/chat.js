@@ -11,10 +11,12 @@ import { currentSession, metricsLine } from "./session.js";
  * whether it passed its check, and picking the chip draws its result with `show`, beside the
  * chat; the latest result is drawn as it arrives. A task that failed says why. While a message is
  * answered, everything the agent does shows as it happens: what it thinks, as it thinks it, and
- * each task it runs, with what the task is doing, until the task's chip replaces it. The host keeps the
- * conversation with the session, task results included, so a resumed session shows it again,
+ * each task it runs, with what the task is doing, until the task's chip comes. Each finished thought,
+ * and how each task ran, stays folded above the answer. The host keeps the conversation with the
+ * session, task results and all the agent did included, so a resumed session shows it again,
  * its latest result drawn, and continues it; a message it is still answering shows being
- * answered, to its end, the page having been closed or not. Each answer says what it cost and how long it took.
+ * answered, to its end, the page having been closed or not, and Mochi having restarted meanwhile or not.
+ * Each answer says what it cost and how long it took.
  * @param {object} options
  * @param {Node} options.intro What the empty log shows.
  * @param {string} options.placeholder The message box's placeholder.
@@ -57,17 +59,36 @@ export function chatPanel({ intro, placeholder, tasks, show }) {
     chip.addEventListener("click", () => pick(chip));
     return chip;
   };
+  const step = ({ name, isError }) => h("li", { class: isError ? "error-text" : "", text: isError ? `${name} failed` : `Called ${name}` });
+  /** A thought the agent finished, folded. */
+  const thoughtBlock = (text) => h("details", { class: "thinking" }, h("summary", {}, h("span", { text: "Thought" })), h("p", { class: "thinking-text", text }));
+  /** How a task the agent ran went, folded: the tools its agent called, what it thought and what it wrote; null when it did none of them. */
+  const taskBlock = ({ name, steps, thinking, text }) => {
+    if (!steps.length && !thinking && !text) return null;
+    return h(
+      "details",
+      { class: "thinking" },
+      h("summary", {}, h("span", { text: `How ${tasks[name]?.label ?? name} ran` })),
+      h("ul", { class: "task-run-steps" }, steps.map(step)),
+      h("p", { class: "task-run-thinking", text: thinking }),
+      h("p", { class: "task-run-text", text }),
+    );
+  };
+  /** A turn the session kept, as its parts: what the agent did, its tasks' chips, its answer, and why it was not answered. */
+  const keptTurn = ({ answer, tools = [], activity = [], error }) => [
+    h("div", { class: "activity" }, activity.map((entry) => (entry.kind === "thought" ? thoughtBlock(entry.text) : taskBlock(entry)))),
+    h("div", { class: "tool-results" }, tools.map(toolResult)),
+    answer ? h("div", { class: "message agent" }, markdown(answer)) : null,
+    // A message the session did not answer (it failed, was stopped or interrupted) says why.
+    error ? h("p", { class: "error-text", text: error }) : null,
+  ];
   const clearIntro = () => {
     if (fresh) log.replaceChildren();
     fresh = false;
   };
-  for (const { prompt, answer, tools = [], error } of currentSession()?.chat ?? []) {
+  for (const kept of currentSession()?.chat ?? []) {
     clearIntro();
-    const turn = h("div", { class: "turn" }, h("div", { class: "tool-results" }, tools.map(toolResult)));
-    if (answer) turn.append(h("div", { class: "message agent" }, markdown(answer)));
-    // A message the session did not answer (it failed, was stopped or interrupted) says why.
-    if (error) turn.append(h("p", { class: "error-text", text: error }));
-    log.append(h("div", { class: "message user" }, h("p", { text: prompt })), turn);
+    log.append(h("div", { class: "message user" }, h("p", { text: kept.prompt })), h("div", { class: "turn" }, keptTurn(kept)));
   }
   const chips = log.querySelectorAll(".result-chip");
   if (chips.length) pick(chips[chips.length - 1]);
@@ -86,7 +107,8 @@ export function chatPanel({ intro, placeholder, tasks, show }) {
   async function answer(text, start) {
     clearIntro();
     log.append(h("div", { class: "message user" }, h("p", { text })));
-    const reply = h("div", { class: "message agent" }, h("p", { class: "typing", "aria-label": "The agent is replying" }, h("span"), h("span"), h("span")));
+    const typing = () => h("p", { class: "typing", "aria-label": "The agent is replying" }, h("span"), h("span"), h("span"));
+    const reply = h("div", { class: "message agent" }, typing());
     const activity = h("div", { class: "activity" });
     const results = h("div", { class: "tool-results" });
     const turn = h("div", { class: "turn" }, activity, results, reply);
@@ -113,7 +135,7 @@ export function chatPanel({ intro, placeholder, tasks, show }) {
       thinking.body.append(text);
       thinking.body.scrollTop = thinking.body.scrollHeight;
     };
-    // Each task running, by its call's id, until its chip replaces it.
+    // Each task running, by its call's id, until its chip comes: what it showed, and what it did.
     const running = new Map();
     const startTask = ({ id, name }) => {
       const status = h("span", { class: "task-run-status", text: "Starting…" });
@@ -128,7 +150,7 @@ export function chatPanel({ intro, placeholder, tasks, show }) {
         thoughts,
         text,
       );
-      running.set(id, { element, status, steps, thoughts, text });
+      running.set(id, { element, status, steps, thoughts, text, did: { name, steps: [], thinking: "", text: "" } });
       activity.append(element);
     };
     /** Show what a running task reports: the `task.*` events of TaskTool.report (nanoagent.web.plugin_agent). */
@@ -137,10 +159,13 @@ export function chatPanel({ intro, placeholder, tasks, show }) {
       if (!task) return;
       if (event === "task.reference") task.status.textContent = `Running its reference, ${data.tool}…`;
       else if (event === "task.tool") {
-        task.steps.append(h("li", { class: data.isError ? "error-text" : "", text: data.isError ? `${data.name} failed` : `Called ${data.name}` }));
+        const called = { name: data.name, isError: Boolean(data.isError) };
+        task.did.steps.push(called);
+        task.steps.append(step(called));
         task.status.textContent = "Working…";
       } else if (event === "task.delta") {
         const into = data.kind === "reasoning" ? task.thoughts : task.text;
+        task.did[data.kind === "reasoning" ? "thinking" : "text"] += data.text;
         into.append(data.text);
         into.scrollTop = into.scrollHeight;
         task.status.textContent = data.kind === "reasoning" ? "Thinking…" : "Working…";
@@ -180,11 +205,35 @@ export function chatPanel({ intro, placeholder, tasks, show }) {
             taskProgress(data);
             break;
           case "chat.tool": {
-            running.get(data.id)?.element.remove();
+            // How the task ran stays, folded.
+            const ran = running.get(data.id);
+            const block = ran && taskBlock(ran.did);
+            if (block) ran.element.replaceWith(block);
+            else ran?.element.remove();
             running.delete(data.id);
             const shown = toolResult(data);
             results.append(shown);
             if (shown.matches(".result-chip")) pick(shown);
+            break;
+          }
+          // The host follows the run again after its stream dropped, from its first event.
+          case "chat.restart":
+            thinking = null;
+            running.clear();
+            streamed = "";
+            started = false;
+            activity.replaceChildren();
+            results.replaceChildren();
+            reply.replaceChildren(typing());
+            break;
+          // It ended while no stream followed it: the turn the session kept, in place of the one shown.
+          case "chat.turn": {
+            thinking = null;
+            running.clear();
+            started = true;
+            turn.replaceChildren(...keptTurn(data.turn));
+            const shown = turn.querySelectorAll(".result-chip");
+            if (shown.length) pick(shown[shown.length - 1]);
             break;
           }
           case "chat.answer":

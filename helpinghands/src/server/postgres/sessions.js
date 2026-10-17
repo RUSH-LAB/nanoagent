@@ -6,6 +6,8 @@ const {withRequestContext} = require('./client');
 // a prompt sends NanoAgent, routes/ai.js).
 const CHAT_TURNS = 12;
 const TURN_MAX = 10000;
+// The most of each thought, and of each task's thinking and writing, a turn keeps.
+const ACTIVITY_MAX = 50000;
 
 class SessionError extends Error {
   constructor(status, message) {
@@ -186,6 +188,9 @@ function createPostgresSessions({pool}) {
           prompt: turn.prompt.slice(0, TURN_MAX),
           answer: turn.answer.slice(0, TURN_MAX),
           tools: turn.tools,
+          activity: turn.activity.map(entry => (entry.kind === 'thought'
+            ? {kind: 'thought', text: entry.text.slice(0, ACTIVITY_MAX)}
+            : {...entry, thinking: entry.thinking.slice(0, ACTIVITY_MAX), text: entry.text.slice(0, ACTIVITY_MAX)})),
           error: turn.error === null ? null : turn.error.slice(0, TURN_MAX),
         };
         // An untitled session is named for its first question.

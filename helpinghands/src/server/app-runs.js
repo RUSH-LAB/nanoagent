@@ -81,6 +81,10 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
       marked = sessions.markRunRan(context, row.id);
     };
     const tools = [];
+    // What the agent did on the way, in order, as its page showed it: each thought, and each task
+    // it ran with the tools that task's agent called, its thinking and what it wrote.
+    const activity = [];
+    let thinking = false;
     let folder = row.folder ? {workspace: row.folder, sent: row.sent} : null;
     let result;
     try {
@@ -98,12 +102,28 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
         signal: run.signal,
         onDelta: text => {
           markRan();
+          thinking = false;
           run.send('delta', {text});
         },
         onEvent: event => {
           if (event.type === 'step.completed' || event.type === 'reasoning.delta') markRan();
+          if (event.type === 'reasoning.delta') {
+            if (!thinking) activity.push({kind: 'thought', text: ''});
+            thinking = true;
+            activity.at(-1).text += event.text;
+          }
+          if (event.type === 'tool.started') {
+            thinking = false;
+            activity.push({kind: 'task', id: event.call.id, name: event.call.name, steps: [], thinking: '', text: '', done: false});
+          }
+          const task = event.call && activity.find(entry => entry.kind === 'task' && entry.id === event.call.id);
+          if (event.type === 'tool.progress' && task) {
+            if (event.event === 'task.tool') task.steps.push({name: event.data.name, isError: Boolean(event.data.isError)});
+            if (event.event === 'task.delta') task[event.data.kind === 'reasoning' ? 'thinking' : 'text'] += event.data.text;
+          }
           if (event.type === 'tool.completed' || event.type === 'tool.failed') {
             tools.push({name: event.call.name, arguments: event.call.arguments, output: event.call.output, isError: event.type === 'tool.failed'});
+            if (task) task.done = true;
           }
           if (event.type !== 'output_text.delta') run.send('agent', event);
         },
@@ -124,7 +144,9 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
     let ended;
     try {
       await marked;
-      ended = await sessions.endRun(context, row.id, {prompt: row.prompt, answer: result.error ? '' : result.text, tools, error: error ?? null});
+      // A task that never ended (the agent called it again, or the run stopped) is not kept, as its page dropped it.
+      const kept = activity.filter(entry => entry.kind === 'thought' || entry.done).map(({id: _id, done: _done, ...entry}) => entry);
+      ended = await sessions.endRun(context, row.id, {prompt: row.prompt, answer: result.error ? '' : result.text, tools, activity: kept, error: error ?? null});
     } catch (problem) {
       // The computer keeps the run until it is let go, so the next Mochi to hear of it ends it.
       console.error('[apps] Could not keep a run\'s turn:', problem.message);
@@ -148,7 +170,7 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
         error = `${reason} What it did could not be written back to your agent folder: ${problem.message}`;
       }
     }
-    if (await sessions.endRun(context, row.id, {prompt: row.prompt, answer: '', tools: [], error})) {
+    if (await sessions.endRun(context, row.id, {prompt: row.prompt, answer: '', tools: [], activity: [], error})) {
       await charge(context, row, null, row.ran);
     }
     for (const waiter of waiting.get(row.sessionId) ?? []) {

@@ -333,7 +333,16 @@ describe('POST /api/ai/stream', () => {
     const stream = ctx.ai.stream;
     const call = {id: 'c1', name: 'download_source', arguments: {arxiv_id: '1706.03762'}, output: '{"folder": "papers/1706.03762"}'};
     ctx.ai.stream = async request => {
+      request.onEvent({type: 'reasoning.delta', runId: 'r1', text: 'Find the '});
+      request.onEvent({type: 'reasoning.delta', runId: 'r1', text: 'paper.'});
+      request.onEvent({type: 'tool.started', runId: 'r1', call: {id: 'c1', name: 'download_source'}});
+      request.onEvent({type: 'tool.progress', runId: 'r1', call: {id: 'c1', name: 'download_source'}, event: 'task.tool', data: {name: 'fetch'}});
+      request.onEvent({type: 'tool.progress', runId: 'r1', call: {id: 'c1', name: 'download_source'}, event: 'task.delta', data: {kind: 'reasoning', text: 'It is on arXiv.'}});
+      request.onEvent({type: 'tool.progress', runId: 'r1', call: {id: 'c1', name: 'download_source'}, event: 'task.delta', data: {kind: 'text', text: 'Saved.'}});
       request.onEvent({type: 'tool.completed', runId: 'r1', call});
+      // A call that never ends is not kept.
+      request.onEvent({type: 'tool.started', runId: 'r1', call: {id: 'c3', name: 'download_source'}});
+      request.onEvent({type: 'reasoning.delta', runId: 'r1', text: 'Again.'});
       request.onEvent({type: 'tool.failed', runId: 'r1', call: {...call, id: 'c2', output: 'arXiv is down'}});
       return stream(request);
     };
@@ -346,12 +355,17 @@ describe('POST /api/ai/stream', () => {
     assert.equal(ctx.calls.ai[0].run.resume, false);
     assert.equal('profile' in ctx.calls.ai[0], false);
     assert.equal('instructions' in ctx.calls.ai[0], false);
-    // The session keeps the turn with its tool calls, and the call is charged to it.
+    // The session keeps the turn with its tool calls and what the agent did on the way, and the call is charged to it.
     assert.deepEqual(ctx.sessions.turns, [{
       pluginId: 'arxiv-source', id: SESSION, prompt: 'save 1706.03762', answer: 'a completion',
       tools: [
         {name: 'download_source', arguments: {arxiv_id: '1706.03762'}, output: '{"folder": "papers/1706.03762"}', isError: false},
         {name: 'download_source', arguments: {arxiv_id: '1706.03762'}, output: 'arXiv is down', isError: true},
+      ],
+      activity: [
+        {kind: 'thought', text: 'Find the paper.'},
+        {kind: 'task', name: 'download_source', steps: [{name: 'fetch', isError: false}], thinking: 'It is on arXiv.', text: 'Saved.'},
+        {kind: 'thought', text: 'Again.'},
       ],
       error: null,
     }]);

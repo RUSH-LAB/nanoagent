@@ -25,7 +25,7 @@ describe('plugin sessions over PostgreSQL', () => {
   async function answered(context, pluginId, sessionId, turn) {
     const id = crypto.randomUUID();
     await sessions.startRun(context, pluginId, sessionId, {id, prompt: turn.prompt, install: 'a'.repeat(64)});
-    return sessions.endRun(context, id, {error: null, ...turn});
+    return sessions.endRun(context, id, {error: null, activity: [], ...turn});
   }
 
   it('starts a session and keeps the latest turns of its conversation', async () => {
@@ -41,6 +41,20 @@ describe('plugin sessions over PostgreSQL', () => {
     assert.deepEqual(read.chat.at(-1).tools, [{name: 'download_source', arguments: {turn: CHAT_TURNS + 1}, output: '{}', isError: false}]);
     // Named for its first question.
     assert.equal(read.title, 'paper 0');
+  });
+
+  it('keeps what the agent did on the way to each answer, each thought and task cut to 50000 characters', async () => {
+    const started = await sessions.create(as('alice'), 'arxiv-source');
+    const long = 'x'.repeat(60000);
+    await answered(as('alice'), 'arxiv-source', started.id, {prompt: 'find it', answer: 'found', tools: [], activity: [
+      {kind: 'thought', text: long},
+      {kind: 'task', name: 'search_papers', steps: [{name: 'fetch', isError: false}], thinking: long, text: 'done'},
+    ]});
+    const [turn] = (await sessions.get(as('alice'), 'arxiv-source', started.id)).chat;
+    assert.deepEqual(turn.activity, [
+      {kind: 'thought', text: 'x'.repeat(50000)},
+      {kind: 'task', name: 'search_papers', steps: [{name: 'fetch', isError: false}], thinking: 'x'.repeat(50000), text: 'done'},
+    ]);
   });
 
   it('keeps each session to its own member and plugin', async () => {
@@ -92,12 +106,12 @@ describe('plugin sessions over PostgreSQL', () => {
       install: 'b'.repeat(64), folder: 'f1', sent: {'refs.bib': {rev: 2, contentHash: 'h'}}, ran: true, startedAt: undefined,
     });
     assert.deepEqual(await sessions.runs({userId: 'bob', workspaceId: null}), []);
-    assert.equal(await sessions.endRun(as('bob'), 'run-a', {prompt: 'x', answer: '', tools: [], error: 'x'}), false);
-    assert.equal(await sessions.endRun(as('alice'), 'run-a', {prompt: 'check refs.bib', answer: '', tools: [], error: 'Mochi Lab stopped while answering'}), true);
-    assert.equal(await sessions.endRun(as('alice'), 'run-a', {prompt: 'check refs.bib', answer: '', tools: [], error: 'twice'}), false);
+    assert.equal(await sessions.endRun(as('bob'), 'run-a', {prompt: 'x', answer: '', tools: [], activity: [], error: 'x'}), false);
+    assert.equal(await sessions.endRun(as('alice'), 'run-a', {prompt: 'check refs.bib', answer: '', tools: [], activity: [], error: 'Mochi Lab stopped while answering'}), true);
+    assert.equal(await sessions.endRun(as('alice'), 'run-a', {prompt: 'check refs.bib', answer: '', tools: [], activity: [], error: 'twice'}), false);
     const read = await sessions.get(as('alice'), 'bibtex-check', started.id);
     assert.equal(read.running, null);
-    assert.deepEqual(read.chat, [{prompt: 'check refs.bib', answer: '', tools: [], error: 'Mochi Lab stopped while answering'}]);
+    assert.deepEqual(read.chat, [{prompt: 'check refs.bib', answer: '', tools: [], activity: [], error: 'Mochi Lab stopped while answering'}]);
   });
 
   it('archives a session until it is restored or chatted in again', async () => {
