@@ -10,6 +10,7 @@
 //! itself the build its site serves (update.rs).
 
 mod lab;
+mod setup;
 #[cfg(target_os = "macos")]
 mod sign_in;
 mod update;
@@ -21,7 +22,7 @@ use std::time::Duration;
 use lab::Lab;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::webview::NewWindowResponse;
+use tauri::webview::{NewWindowResponse, PageLoadEvent};
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -196,6 +197,7 @@ fn main() {
             };
             #[cfg(target_os = "macos")]
             app.manage(Site(site.clone()));
+            app.manage(setup::Setup::new());
             let update_site = site.clone();
             let handle = app.handle().clone();
             let opener = app.handle().clone();
@@ -205,6 +207,12 @@ fn main() {
                 .min_inner_size(800.0, 600.0)
                 .visible(!at_login)
                 .initialization_script(IN_APP)
+                // Each page is told what setting up is doing (setup.rs), as the one before it was.
+                .on_page_load(|window, payload| {
+                    if payload.event() == PageLoadEvent::Finished {
+                        setup::again(&window);
+                    }
+                })
                 // The site's rushlab: links are the app's to follow, not the page's.
                 .on_navigation(move |url| {
                     if url.scheme() != "rushlab" {
@@ -277,10 +285,14 @@ fn main() {
                 if exe.starts_with("/Volumes") || exe.to_string_lossy().contains("/AppTranslocation/") {
                     fail(&handle, "Drag RUSH Lab into your Applications folder, then open it from there.".into());
                 }
+                setup::installing(&handle);
                 let lab = Arc::new(Lab::install(&handle).unwrap_or_else(|message| fail(&handle, format!("RUSH Lab could not be installed: {message}"))));
                 if let Err(error) = handle.autolaunch().enable() {
                     fail(&handle, format!("RUSH Lab could not set itself to open at login: {error}"));
                 }
+                // What the last run said of setting up is not this one's.
+                let _ = std::fs::remove_file(lab.data.join(setup::FILE));
+                setup::follow(handle.clone(), lab.data.clone());
                 lab.start();
                 match lab::update_target(&handle) {
                     Ok(Some(target)) => update::keep_updated(handle.clone(), lab.clone(), update_site, target),

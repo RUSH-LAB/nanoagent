@@ -419,8 +419,12 @@ async function main() {
   const pidFile = path.join(data, 'services.pid');
   // There while any connection's relay has a request going.
   const busyFile = path.join(data, 'busy');
+  // What this is doing to set the computer up, which the app's window shows (desktop/src-tauri/src/setup.rs):
+  // {stage, error}, `stage` python, nanoagent or connect, `error` why it stopped there, or null.
+  const setupFile = path.join(data, 'setup.json');
+  const setupStage = (stage, error = null) => fs.writeFileSync(setupFile, JSON.stringify({stage, error}));
   const system = systemEnv(process.env, bin, data);
-  // The connections, by id: {id, folder, site, installed, services, state, restartAt, relayStdin, token, port, requests}.
+  // The connections, by id: {id, folder, site, installed, services, state, stage, restartAt, relayStdin, token, port, requests}.
   const connections = new Map();
   let stopping = false;
 
@@ -546,6 +550,7 @@ async function main() {
     await stopLeftovers();
     fs.rmSync(busyFile, {force: true});
     log('Preparing NanoAgent\'s Python environment (the first start downloads Python)…');
+    setupStage('python');
     // Only NanoAgent's dependencies, as the bundled uv.lock pins them: NanoAgent itself is the
     // compiled module in site/, with no source to check the lock against.
     const services = [];
@@ -554,7 +559,9 @@ async function main() {
     ], {cwd: nanoagent, env: system, logFile: path.join(data, 'logs', 'uv-sync.log')});
     await uv.done;
     if (uv.exited.error || uv.exited.code !== 0) {
-      throw new Error(uv.exited.error ? exitMessage(uv) : `uv sync failed (${describeExit(uv.exited)}).\n\n${tail(uv.logFile)}`);
+      const message = uv.exited.error ? exitMessage(uv) : `uv sync failed (${describeExit(uv.exited)}).\n\n${tail(uv.logFile)}`;
+      setupStage('python', message);
+      throw new Error(message);
     }
     const sitePackages = WINDOWS
       ? path.join(nanoagent, '.venv', 'Lib', 'site-packages')
@@ -562,7 +569,9 @@ async function main() {
     try {
       fs.writeFileSync(path.join(sitePackages, 'nanoagent.pth'), `${path.join(nanoagent, 'site')}\n`);
     } catch (error) {
-      throw new Error(`could not add NanoAgent to its environment: ${error.message}`);
+      const message = `could not add NanoAgent to its environment: ${error.message}`;
+      setupStage('python', message);
+      throw new Error(message);
     }
   }
 
@@ -588,7 +597,7 @@ async function main() {
         connection = null;
       }
       if (!connection) {
-        connection = {id, folder: path.join(connectionsFolder, id), installed, services: [], state: 'starting'};
+        connection = {id, folder: path.join(connectionsFolder, id), installed, services: [], state: 'starting', stage: 'nanoagent'};
         connections.set(id, connection);
         startConnection(connection).catch(error => log(`could not start: ${error.message}`, id));
       } else if (connection.state === 'failed' && Date.now() >= connection.restartAt) {
@@ -621,6 +630,7 @@ async function main() {
     if (connection.state !== 'running' && connection.state !== 'starting') return;
     connection.state = replaced ? 'replaced' : 'failed';
     connection.restartAt = Date.now() + RESTART_MS;
+    if (!replaced) setupStage(connection.stage, message);
     log(replaced ? 'Another computer took this member\'s runs; stopping until connected again.' : `${message}\nStarting again in ${RESTART_MS / 1000}s.`, connection.id);
     connection.relayStdin = null;
     connection.token = null;
@@ -639,6 +649,8 @@ async function main() {
       const settings = readSettings(settingsFile);
       Object.assign(connection, {site, settingsFile, port: await freePort()});
       log(`Starting NanoAgent for @${member.login} on ${site}…`, id);
+      connection.stage = 'nanoagent';
+      setupStage(connection.stage);
       // Only this connection's relay and this process hold it, so nothing else on this computer can run its NanoAgent.
       const token = crypto.randomBytes(32).toString('hex');
       const command = nanoagentCommand({
@@ -651,6 +663,8 @@ async function main() {
       log(`NanoAgent is ready on 127.0.0.1:${connection.port}`, id);
 
       log(`Connecting to ${site}…`, id);
+      connection.stage = 'connect';
+      setupStage(connection.stage);
       const files = path.join(os.homedir(), filesFolderFor(config, site), member.login);
       const relay = startService(services, 'The relay', path.join(bin, exe('node')), ['relay.mjs'], {
         cwd: path.join(root, 'runner'),
