@@ -42,8 +42,12 @@ export default function LabScreen({onConnected, onSignOut}) {
       <div className={styles.page}>
         <div className={styles.card}>
           <img src="/img/rush-lab.png" alt="" className={styles.logo} />
-          <h1 className={styles.title}>Connecting this computer</h1>
-          <p className={styles.tagline}>Your AI and plugins will run here, on this Mac. The first time takes a minute.</p>
+          <h1 className={styles.title}>Setting up RUSH Lab</h1>
+          <p className={styles.tagline}>Your AI and plugins run here, on this computer. The first time takes about a minute.</p>
+          <ol className={styles.progress} aria-live="polite">
+            <li className={styles.progressDone}>Signed in</li>
+            <li className={error ? styles.progressFailed : styles.progressActive}>Connecting this computer</li>
+          </ol>
           {error && <p className={styles.error} role="alert">{error}</p>}
           <button type="button" className={styles.switch} onClick={onSignOut}>
             Sign out
