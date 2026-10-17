@@ -1,0 +1,13 @@
+# RUSH Lab cloud's front door (infra/aws/web/run.sh): HTTPS for the site's domain, its certificate
+# from Let's Encrypt, in front of Mochi. Server-sent events and the /api/runner WebSocket pass
+# through as they are.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy rush-lab-web:3000 {
+		# Mochi rate-limits sign-ins and new computers by the address in CF-Connecting-IP, else
+		# X-Real-IP (src/server/auth.js, index.js): give it the visitor's own, and never one they
+		# sent. Behind Cloudflare, trust Cloudflare's addresses here instead and keep its header.
+		header_up X-Real-IP {remote_host}
+		header_up -Cf-Connecting-Ip
+	}
+}

@@ -1,0 +1,9 @@
+_ > nanoagent.plugin.manifest.ProductConfig:
+tagline: "Checks that RUSH Lab cloud's runner confines every plugin"
+summary: "Reports, from inside NanoAgent's bubblewrap sandbox on RUSH Lab cloud's runner, what a plugin can see, reach and use. Built only to check a runner, never published."
+highlights:
+  - "Its verifier decides whether the sandbox held"
+  - "Tries the runner's memory and process limits"
+steps:
+  - "The runner check installs it into a runner under test"
+  - "Each task reports what the sandbox allowed"

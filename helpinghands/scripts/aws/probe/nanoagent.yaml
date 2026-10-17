@@ -1,0 +1,55 @@
+_ > nanoagent.plugin.manifest.ManifestConfig:
+id: cloud-probe
+name: Cloud Probe
+version: 0.1.0
+status: ready
+nanoagent: ~=0.5.0
+
+runtime > nanoagent.plugin.manifest.RuntimeConfig:
+  type: mcp_stdio
+  command: [uv, run, --frozen, python, -m, plugin]
+
+# pypi.org: a public host to reach through the egress proxy; localtest.me: a public name for 127.0.0.1.
+permissions > nanoagent.plugin.manifest.PermissionsConfig:
+  network > nanoagent.plugin.manifest.NetworkConfig:
+    hosts: [pypi.org, localtest.me]
+  filesystem > nanoagent.plugin.manifest.FilesystemConfig:
+    write: [workspace]
+
+# One entry per contract.Tool; its input and output classes are contract.TOOLS's.
+tools > dict[contract.Tool, nanoagent.plugin.manifest.ToolConfig]:
+  probe:
+    description: Report what the sandbox lets this plugin see and reach
+  hog:
+    description: Try to hold more memory than the runner allows
+  swarm:
+    description: Fill the runner's memory with processes each smaller than NanoAgent
+  forks:
+    description: Try to start more processes than the runner allows
+
+# One entry per contract.Task; its input class is contract.TASKS's.
+tasks > dict[contract.Task, nanoagent.plugin.manifest.TaskConfig]:
+  probe:
+    description: Check the sandbox holds
+    runner: tool
+    tools: [probe]
+    reference: null
+    instructions: Probe the sandbox with the hosts given and return its report.
+  hog:
+    description: Check the memory limit holds
+    runner: tool
+    tools: [hog]
+    reference: null
+    instructions: Try to hold the megabytes given.
+  swarm:
+    description: Check the kernel stops a plugin's processes, not NanoAgent, when memory runs out
+    runner: tool
+    tools: [swarm]
+    reference: null
+    instructions: Start the processes given, each holding the megabytes given.
+  forks:
+    description: Check the process limit holds
+    runner: tool
+    tools: [forks]
+    reference: null
+    instructions: Try to start the processes given.

@@ -1,0 +1,15 @@
+#!/bin/sh
+# bubblewrap as NanoAgent starts it for each plugin on RUSH Lab cloud's runner, with two things more
+# (docs/infra/aws-deployment.md). run.sh mounts this file as /usr/local/bin/bwrap, which comes before
+# /usr/bin/bwrap on NanoAgent's PATH; NanoAgent passes its PATH to what it starts.
+#
+#   --unshare-user --disable-userns   a plugin makes no user namespace of its own. The runner's
+#       seccomp profile lets bubblewrap make namespaces; a plugin with a user namespace of its own
+#       would have the kernel's namespace and netfilter calls, which Docker's profile keeps from a
+#       container for the kernel bugs they have reached.
+#   oom_score_adj 1000   a plugin's processes are the first the kernel stops when the container is
+#       out of memory, so a plugin that fills it never stops NanoAgent and every member's runs with
+#       it. Any process may raise its own; bubblewrap and the plugin inherit it.
+set -eu
+echo 1000 > /proc/self/oom_score_adj
+exec /usr/bin/bwrap --unshare-user --disable-userns "$@"

@@ -36,6 +36,28 @@ jobs:
       - name: Live NanoAgent contract
         run: npm run nanoagent:verify
 
+  # RUSH Lab cloud's runner (docs/infra/aws-deployment.md): NanoAgent's image started with
+  # infra/aws/runner/run.sh's flags, shown to refuse Docker's default seccomp profile, and to
+  # confine and bound every plugin (scripts/aws/verify-runner.mjs). bubblewrap makes user
+  # namespaces, which Ubuntu's AppArmor refuses until this sysctl, as in NanoAgent's CI.
+  cloud-runner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: helpinghands/package-lock.json
+      - uses: astral-sh/setup-uv@v6
+      - name: Let bubblewrap make user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Install Mochi
+        run: npm ci
+      - name: Runner check
+        run: npm run cloud:verify
+
   # Railway deploys Mochi and NanoAgent separately, so whichever side changed must work with the
   # other side as it is in production: this Mochi against production's NanoAgent, and production's
   # Mochi against this NanoAgent. A side that did not change is production's already.

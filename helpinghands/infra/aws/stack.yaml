@@ -1,0 +1,344 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  RUSH Lab cloud (helpinghands/docs/infra/aws-deployment.md): the website (Mochi behind Caddy) on
+  one VM, and the runner (NanoAgent, every plugin confined by bubblewrap) on another that only the
+  website reaches. scripts/aws/deploy.mjs deploys this stack and rolls out its containers.
+
+Parameters:
+  Domain:
+    Type: String
+    Description: The site's domain, whose A record points at WebAddress. Caddy gets its certificate.
+    AllowedPattern: '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$'
+  WebInstanceType:
+    Type: String
+    Default: t4g.small
+    Description: Graviton (arm64), as the images are built.
+  RunnerInstanceType:
+    Type: String
+    Default: t4g.medium
+    Description: Graviton (arm64). infra/aws/runner/run.sh gives the runner container 3 GiB of its 4.
+  # A fixed image, as a new one replaces both VMs: scripts/aws/deploy.mjs gives the latest Amazon
+  # Linux 2023 (arm64) when it creates the stack, keeps it after, and moves to deploy.yaml's image_id.
+  ImageId:
+    Type: AWS::EC2::Image::Id
+    Description: The Amazon Linux 2023 arm64 image both VMs run.
+  Repository:
+    Type: String
+    Default: https://github.com/RUSH-LAB/nanoagent
+    Description: The public repository each VM checks out the deployed commit of.
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.42.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}'}]
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  # One public subnet and no NAT gateway: each VM reaches the internet through its own public
+  # address, and only the website takes connections from it.
+  Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.42.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}'}]
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRoutes:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Subnet
+      RouteTableId: !Ref RouteTable
+
+  # The website: HTTPS from anyone (80 only for Let's Encrypt and the redirect); out to HTTPS
+  # (GitHub, Resend, OpenRouter, AWS), PostgreSQL (Neon) and NanoAgent's port in the VPC, which
+  # only the runner's group admits it to. Every rule of each group is inline: a group's inline
+  # rules replace any of its rules made elsewhere.
+  WebSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RUSH Lab cloud website
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: 'HTTP, for the certificate and the redirect'}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS}
+        - {IpProtocol: udp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTP/3}
+      SecurityGroupEgress:
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS}
+        - {IpProtocol: tcp, FromPort: 5432, ToPort: 5432, CidrIp: 0.0.0.0/0, Description: PostgreSQL}
+        - {IpProtocol: tcp, FromPort: 8787, ToPort: 8787, CidrIp: !GetAtt Vpc.CidrBlock, Description: NanoAgent on the runner}
+
+  # The runner: NanoAgent's port from the website only; out to HTTPS only (OpenRouter, the hosts
+  # plugins declare, PyPI and GitHub for their installs, AWS). The VPC's DNS, instance metadata
+  # and time service are not filtered by security groups.
+  RunnerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RUSH Lab cloud runner
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 8787, ToPort: 8787, SourceSecurityGroupId: !Ref WebSecurityGroup, Description: 'NanoAgent, for the website'}
+      SecurityGroupEgress:
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS}
+
+  WebRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration: {ScanOnPush: true}
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"Keep the 20 newest","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":20},"action":{"type":"expire"}}]}'
+
+  RunnerRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration: {ScanOnPush: true}
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"Keep the 20 newest","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":20},"action":{"type":"expire"}}]}'
+
+  WebLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/rush-lab/${AWS::StackName}/web'
+      RetentionInDays: 30
+
+  RunnerLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/rush-lab/${AWS::StackName}/runner'
+      RetentionInDays: 30
+
+  # Each VM may read its own settings and the shared ones, pull its own image, write its own log,
+  # and be reached by Session Manager (no SSH): nothing else. AmazonSSMManagedInstanceCore, which
+  # Session Manager and Run Command need, would also read every parameter: each role denies that.
+  WebRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{Effect: Allow, Principal: {Service: ec2.amazonaws.com}, Action: sts:AssumeRole}]
+      ManagedPolicyArns: [!Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore']
+      Policies:
+        - PolicyName: rush-lab-web
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [ssm:GetParametersByPath, ssm:GetParameters]
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rush-lab/${AWS::StackName}/shared'
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rush-lab/${AWS::StackName}/shared/*'
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rush-lab/${AWS::StackName}/web'
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rush-lab/${AWS::StackName}/web/*'
+              # AmazonSSMManagedInstanceCore lets the VM read every parameter in the account
+              # (ssm:GetParameter and ssm:GetParameters on "*"): none but its own and the shared ones.
+              - Effect: Deny
+                Action: [ssm:GetParameter, ssm:GetParameters, ssm:GetParametersByPath, ssm:GetParameterHistory]
+                NotResource:
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rush-lab/${AWS::StackName}/shared'
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rush-lab/${AWS::StackName}/shared/*'
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rush-lab/${AWS::StackName}/web'
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rush-lab/${AWS::StackName}/web/*'
+              - Effect: Allow
+                Action: kms:Decrypt
+                Resource: '*'
+                Condition: {StringEquals: {'kms:ViaService': !Sub 'ssm.${AWS::Region}.amazonaws.com'}}
+              - {Effect: Allow, Action: ecr:GetAuthorizationToken, Resource: '*'}
+              - Effect: Allow
+                Action: [ecr:BatchGetImage, ecr:GetDownloadUrlForLayer, ecr:BatchCheckLayerAvailability]
+                Resource: !GetAtt WebRepository.Arn
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub '${WebLogs.Arn}'
+
+  RunnerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{Effect: Allow, Principal: {Service: ec2.amazonaws.com}, Action: sts:AssumeRole}]
+      ManagedPolicyArns: [!Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore']
+      Policies:
+        - PolicyName: rush-lab-runner
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [ssm:GetParametersByPath, ssm:GetParameters]
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rush-lab/${AWS::StackName}/shared'
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rush-lab/${AWS::StackName}/shared/*'
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rush-lab/${AWS::StackName}/runner'
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rush-lab/${AWS::StackName}/runner/*'
+              # AmazonSSMManagedInstanceCore lets the VM read every parameter in the account
+              # (ssm:GetParameter and ssm:GetParameters on "*"): none but its own and the shared ones.
+              - Effect: Deny
+                Action: [ssm:GetParameter, ssm:GetParameters, ssm:GetParametersByPath, ssm:GetParameterHistory]
+                NotResource:
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rush-lab/${AWS::StackName}/shared'
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rush-lab/${AWS::StackName}/shared/*'
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rush-lab/${AWS::StackName}/runner'
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rush-lab/${AWS::StackName}/runner/*'
+              - Effect: Allow
+                Action: kms:Decrypt
+                Resource: '*'
+                Condition: {StringEquals: {'kms:ViaService': !Sub 'ssm.${AWS::Region}.amazonaws.com'}}
+              - {Effect: Allow, Action: ecr:GetAuthorizationToken, Resource: '*'}
+              - Effect: Allow
+                Action: [ecr:BatchGetImage, ecr:GetDownloadUrlForLayer, ecr:BatchCheckLayerAvailability]
+                Resource: !GetAtt RunnerRepository.Arn
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub '${RunnerLogs.Arn}'
+
+  WebProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref WebRole]
+
+  RunnerProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref RunnerRole]
+
+  # Each VM's first boot fetches Docker, git and the repository: the route out comes first.
+  WebInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: [DefaultRoute, SubnetRoutes]
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: !Ref WebInstanceType
+      SubnetId: !Ref Subnet
+      SecurityGroupIds: [!Ref WebSecurityGroup]
+      IamInstanceProfile: !Ref WebProfile
+      # IMDSv2 only, one hop: containers on the VM cannot reach its credentials.
+      MetadataOptions: {HttpTokens: required, HttpPutResponseHopLimit: 1, HttpEndpoint: enabled}
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: {VolumeSize: 20, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true}
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-web'}, {Key: rush-lab:role, Value: web}]
+      # The first boot only: Docker, git and the repository. Each deploy checks out its commit and
+      # runs that commit's infra/aws/rollout.sh (scripts/aws/deploy.mjs).
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y docker git
+          systemctl enable --now docker
+          install -d -m 0755 /etc/rush-lab
+          printf 'STACK=%s\nAWS_REGION=%s\nDOMAIN=%s\n' '${AWS::StackName}' '${AWS::Region}' '${Domain}' > /etc/rush-lab/stack.env
+          git clone --quiet --filter=blob:none '${Repository}' /opt/rush-lab/repo
+          touch /etc/rush-lab/booted
+
+  RunnerInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: [DefaultRoute, SubnetRoutes]
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: !Ref RunnerInstanceType
+      SubnetId: !Ref Subnet
+      SecurityGroupIds: [!Ref RunnerSecurityGroup]
+      IamInstanceProfile: !Ref RunnerProfile
+      MetadataOptions: {HttpTokens: required, HttpPutResponseHopLimit: 1, HttpEndpoint: enabled}
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: {VolumeSize: 40, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true}
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-runner'}, {Key: rush-lab:role, Value: runner}]
+      # bubblewrap makes user namespaces (infra/aws/runner/run.sh); NanoAgent refuses to start
+      # where it cannot.
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y docker git
+          systemctl enable --now docker
+          echo 'user.max_user_namespaces = 28633' > /etc/sysctl.d/90-rush-lab.conf
+          sysctl --system
+          install -d -m 0755 /etc/rush-lab
+          printf 'STACK=%s\nAWS_REGION=%s\nDOMAIN=%s\n' '${AWS::StackName}' '${AWS::Region}' '${Domain}' > /etc/rush-lab/stack.env
+          git clone --quiet --filter=blob:none '${Repository}' /opt/rush-lab/repo
+          touch /etc/rush-lab/booted
+
+  # An address in this VPC needs its internet gateway attached first (AWS::EC2::EIP).
+  WebAddress:
+    Type: AWS::EC2::EIP
+    DependsOn: GatewayAttachment
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref WebInstance
+
+  # Mochi's NANOAGENT_URL: the runner's address in the VPC (infra/aws/rollout.sh reads it).
+  RunnerUrl:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/rush-lab/${AWS::StackName}/web/NANOAGENT_URL'
+      Type: String
+      Value: !Sub 'http://${RunnerInstance.PrivateIp}:8787'
+
+  # A VM whose host fails is moved to another, its disk and addresses kept.
+  WebRecovery:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Recover the website VM when its host fails
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_System
+      Dimensions: [{Name: InstanceId, Value: !Ref WebInstance}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions: [!Sub 'arn:${AWS::Partition}:automate:${AWS::Region}:ec2:recover']
+
+  RunnerRecovery:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Recover the runner VM when its host fails
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_System
+      Dimensions: [{Name: InstanceId, Value: !Ref RunnerInstance}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions: [!Sub 'arn:${AWS::Partition}:automate:${AWS::Region}:ec2:recover']
+
+Outputs:
+  WebAddress:
+    Description: Point the domain's A record here.
+    Value: !Ref WebAddress
+  WebInstance:
+    Value: !Ref WebInstance
+  RunnerInstance:
+    Value: !Ref RunnerInstance
+  WebRepository:
+    Value: !GetAtt WebRepository.RepositoryUri
+  RunnerRepository:
+    Value: !GetAtt RunnerRepository.RepositoryUri

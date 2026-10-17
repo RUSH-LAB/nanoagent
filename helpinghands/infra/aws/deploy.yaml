@@ -1,0 +1,15 @@
+# RUSH Lab cloud on AWS: what scripts/aws/deploy.mjs deploys (docs/infra/aws-deployment.md).
+# One stack per site; its settings live in SSM Parameter Store under /rush-lab/<stack>/.
+stack: rush-lab-cloud
+region: us-east-1
+# The site's domain. Its A record points at the stack's WebAddress output, and the GitHub OAuth
+# App's callback is https://<domain>/api/auth/callback/github. Set it before the first deploy.
+domain: null
+# Only a commit already on origin/<branch> deploys: each VM checks that commit out from GitHub.
+branch: production
+repository: https://github.com/RUSH-LAB/nanoagent
+web_instance_type: t4g.small
+runner_instance_type: t4g.medium
+# The VMs' image. null keeps the one they run: a new stack's VMs get the latest Amazon Linux 2023
+# (arm64). An AMI id moves them to it, which replaces both VMs, their containers and their disks.
+image_id: null
