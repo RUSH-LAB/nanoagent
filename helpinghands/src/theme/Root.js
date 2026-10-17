@@ -1,7 +1,7 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
-import { useLocation } from '@docusaurus/router';
+import { Redirect, useLocation } from '@docusaurus/router';
 import PageTracker from '@site/src/components/Analytics/PageTracker';
 import {clientPlatform} from '@site/src/platform/client';
 import {isOpenPage, signInUrl} from '@site/src/utils/signIn';
@@ -97,7 +97,7 @@ function accountOf(data, refresh) {
 function AuthGate({ children }) {
   // Required lazily, inside BrowserOnly, because workspace discovery reads the
   // authenticated API and should never run during the static build.
-  const { loadWorkspaces } = require('@site/src/utils/workspaces');
+  const { loadWorkspaces, workspaceSlugFromPath } = require('@site/src/utils/workspaces');
   const [status, setStatus] = useState(CHECKING);
   const [detail, setDetail] = useState(null);
   const [data, setData] = useState(null);
@@ -161,6 +161,13 @@ function AuthGate({ children }) {
   if (status === CHECKING) return null;
 
   if (status === SIGNED_IN) {
+    // A workspace the account is not in, or that does not exist, has no page:
+    // its address goes to the landing page, as any address without one does
+    // (theme/NotFound).
+    const slug = workspaceSlugFromPath(pathname);
+    if (slug !== null && !ungated && !account.workspaces.some(item => item.slug === slug)) {
+      return <Redirect to="/" />;
+    }
     const workspaces = account.workspaces.length;
     if (workspaces === 0 && !ungated) {
       return (
