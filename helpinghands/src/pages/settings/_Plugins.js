@@ -1,7 +1,7 @@
 import React, {useEffect, useState} from 'react';
 import Link from '@docusaurus/Link';
 import {clientPlatform} from '@site/src/platform/client';
-import useWorkspaceApps, {forgetWorkspaceApps} from '@site/src/hooks/useWorkspaceApps';
+import useWorkspaceApps, {forgetWorkspaceApps, prepareWorkspaceApps} from '@site/src/hooks/useWorkspaceApps';
 import {apiRequest} from '@site/src/utils/api';
 import {PaneHeading, Skeleton} from './_parts';
 import styles from './styles.module.css';
@@ -9,7 +9,8 @@ import styles from './styles.module.css';
 /**
  * The plugins the member installed from the marketplace, which they use on the
  * Plugins page of every workspace they are in; they uninstall them here and
- * install them there.
+ * install them there. An upload updates itself to each new version, or with
+ * Auto-update off stays on its version until they update it (server/routes/apps.js).
  */
 export default function Plugins({workspace}) {
   const {apps, error} = useWorkspaceApps(workspace);
@@ -17,6 +18,22 @@ export default function Plugins({workspace}) {
   const [state, setState] = useState({busy: null, error: null});
   useEffect(() => setShown(apps), [apps]);
   const marketplace = `/w/${encodeURIComponent(workspace.slug)}/marketplace`;
+
+  /** Keep `app` on `version`, or with null have it follow the latest. */
+  async function pin(app, version) {
+    setState({busy: app.id, error: null});
+    try {
+      const data = await apiRequest(`/api/workspaces/${encodeURIComponent(workspace.id)}/apps/${encodeURIComponent(app.id)}`, {
+        method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({version}),
+      });
+      forgetWorkspaceApps(workspace.id);
+      prepareWorkspaceApps(workspace.id, {again: true});
+      setShown(current => current.map(item => (item.id === app.id ? {...data.app, tags: item.tags} : item)));
+      setState({busy: null, error: null});
+    } catch (err) {
+      setState({busy: null, error: err.message});
+    }
+  }
 
   async function remove(app) {
     if (!clientPlatform.dialogs.confirm(`Uninstall ${app.name}? Your files from it stay in your folder.`)) return;
@@ -42,9 +59,33 @@ export default function Plugins({workspace}) {
             <div className={styles.row} key={app.id}>
               <div className={styles.rowLabel}>
                 <strong>{app.name}</strong>
-                <span>{app.status === 'unavailable' ? 'No longer in the marketplace' : app.product?.tagline}</span>
+                <span>
+                  {app.status === 'unavailable' ? 'No longer in the marketplace' : app.product?.tagline}
+                  {app.version && ` · v${app.version}${app.latest && app.version === app.latest ? ', up to date' : ''}`}
+                </span>
               </div>
               <div className={styles.rowControl}>
+                {app.latest && app.version !== app.latest && (
+                  <button
+                    type="button"
+                    className={styles.primaryButton}
+                    disabled={state.busy === app.id}
+                    onClick={() => pin(app, app.latest)}
+                  >
+                    Update to v{app.latest}
+                  </button>
+                )}
+                {app.latest && (
+                  <label className={styles.autoUpdate} title="Use each new version as soon as it is published">
+                    <input
+                      type="checkbox"
+                      checked={app.autoUpdate}
+                      disabled={state.busy === app.id}
+                      onChange={event => pin(app, event.target.checked ? null : app.version)}
+                    />
+                    Auto-update
+                  </label>
+                )}
                 <button
                   type="button"
                   className={styles.secondaryButton}

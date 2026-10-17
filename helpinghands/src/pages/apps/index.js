@@ -8,7 +8,7 @@ import Layout from '@theme/Layout';
 import PluginFrame from '@site/src/components/PluginFrame';
 import PluginSidebar, {pluginNavigation} from '@site/src/components/PluginSidebar';
 import TwoColumnLayout from '@site/src/components/TwoColumnLayout';
-import useWorkspaceApps from '@site/src/hooks/useWorkspaceApps';
+import useWorkspaceApps, {forgetWorkspaceApps, prepareWorkspaceApps} from '@site/src/hooks/useWorkspaceApps';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 import styles from './styles.module.css';
 
@@ -57,10 +57,13 @@ function UnavailableNotice({app}) {
 /**
  * A ready app is its own page, opened once NanoAgent has it installed: the
  * first open after NanoAgent starts builds its environment, which takes a while.
- * One still being built is our notice.
+ * One still being built is our notice. The page moving the member to another
+ * version opens that version.
  */
 function AppDetail({app, workspace}) {
   const [opened, setOpened] = React.useState({app: null, error: null});
+  // Counts the versions the page moved to, so each opens again.
+  const [moved, setMoved] = React.useState(0);
   const ready = app.status === 'ready';
   React.useEffect(() => {
     if (!ready) return undefined;
@@ -72,12 +75,17 @@ function AppDetail({app, workspace}) {
       () => !cancelled && setOpened({app: null, error: 'Could not reach the API server'}),
     );
     return () => { cancelled = true; };
-  }, [ready, workspace.id, app.id, app.name]);
+  }, [ready, workspace.id, app.id, app.name, moved]);
   if (app.status === 'unavailable') return <UnavailableNotice app={app} />;
   if (!ready) return <MaintenanceNotice app={app} />;
   if (opened.error) return <div className={styles.error}>{opened.error}</div>;
   if (!opened.app) return <p className={styles.muted}>Preparing {app.name}…</p>;
-  return <PluginFrame app={opened.app} workspace={workspace} />;
+  const onVersion = changed => {
+    forgetWorkspaceApps(workspace.id);
+    prepareWorkspaceApps(workspace.id, {again: true});
+    if (changed.sha256 !== opened.app.sha256) setMoved(count => count + 1);
+  };
+  return <PluginFrame app={opened.app} workspace={workspace} onVersion={onVersion} />;
 }
 
 function AppsColumns() {

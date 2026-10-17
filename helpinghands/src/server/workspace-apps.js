@@ -3,12 +3,13 @@
 /**
  * A member's apps: the marketplace plugins they installed (postgres/user-plugins.js),
  * which they run in any workspace they are in, each from an install of the
- * plugin's current package on the NanoAgent of their own computer. `ai`, Mochi's own NanoAgent, only offers packages.
+ * plugin's package on the NanoAgent of their own computer. `ai`, Mochi's own NanoAgent, only offers packages.
  *
  * The marketplace offers NanoAgent's own packages and the uploads
  * (postgres/market.js), one id each: an upload may not take one of NanoAgent's.
- * A member keeps only which ids they installed, so they always run a plugin's
- * latest version. NanoAgent installs a package by its sha256 and keeps it until
+ * A member's upload follows its latest version, or stays on the version they
+ * chose until they update it; NanoAgent's own run as NanoAgent offers them.
+ * NanoAgent installs a package by its sha256 and keeps it until
  * it restarts; opening an app sends the package when NanoAgent has no install
  * of it, which takes as long as building the plugin's environment, once.
  */
@@ -27,7 +28,7 @@ function createWorkspaceApps({ai, market, plugins}) {
     const found = await on.install(entry.sha256);
     if (found.status !== 404) return found.error ? found : {value: found.value.plugin};
     const data = source === 'upload'
-      ? {value: (await market.get(userId, entry.id))?.package}
+      ? {value: (await market.get(userId, entry.id, entry.version))?.package}
       : await ai.packageFile(entry.id);
     if (data.error) return data;
     if (!data.value) return {error: `${entry.id} is no longer in the marketplace`, status: 404};
@@ -36,21 +37,31 @@ function createWorkspaceApps({ai, market, plugins}) {
   }
 
   /**
-   * The caller's apps, each its marketplace entry, `source` and the caller's
-   * `tags` for it; one that left the marketplace is listed as `unavailable`,
-   * for them to remove.
+   * Of the caller's upload `added`: the `latest` version published, whether they follow it, and
+   * the `repository` the version they run was published from.
+   */
+  const versionOf = added => ({latest: added.latest, autoUpdate: added.pinned === null, repository: added.repository});
+
+  /**
+   * `added`, one of the caller's plugins, as they run it: its marketplace entry
+   * `found`, and for an upload the version they run, the `latest` published,
+   * and whether they follow it (`autoUpdate`).
+   */
+  function app(added, found) {
+    const {id, source, tags} = added;
+    if (!found || found.source !== source) return {id, name: id, status: 'unavailable', source, tags};
+    if (source !== 'upload') return {...found.entry, source, tags};
+    return {...found.entry, ...added.entry, sha256: added.sha256, source, tags, ...versionOf(added)};
+  }
+
+  /**
+   * The caller's apps, each as `app` has it; one that left the marketplace is
+   * listed as `unavailable`, for them to remove.
    */
   async function list(context) {
     const offered = await catalog(context.userId);
     if (offered.error) return offered;
-    return {
-      value: (await plugins.list(context)).map(({id, source, tags}) => {
-        const found = offered.value.get(id);
-        return found && found.source === source
-          ? {...found.entry, source, tags}
-          : {id, name: id, status: 'unavailable', source, tags};
-      }),
-    };
+    return {value: (await plugins.list(context)).map(added => app(added, offered.value.get(added.id)))};
   }
 
   return Object.freeze({
@@ -79,8 +90,23 @@ function createWorkspaceApps({ai, market, plugins}) {
       if (offered.error) return offered;
       const found = offered.value.get(id);
       if (!found) return {error: `No plugin named ${id} in the marketplace`, status: 404};
-      const {tags} = await plugins.add(context, id, found.source);
-      return {value: {...found.entry, source: found.source, tags}};
+      return {value: app(await plugins.add(context, id, found.source), found)};
+    },
+
+    /**
+     * Keep the caller's upload `id` on `version`, or with null have it follow
+     * the latest: `{value}`, the app, or `{error, status}`.
+     */
+    async pin(context, id, version) {
+      try {
+        if (!await plugins.pin(context, id, version)) return {error: `You have not installed an upload named ${id}`, status: 404};
+      } catch (error) {
+        if (error.code === '23503') return {error: `${id} has no version ${version}`, status: 404};
+        throw error;
+      }
+      const offered = await catalog(context.userId);
+      if (offered.error) return offered;
+      return {value: app(await plugins.get(context, id), offered.value.get(id))};
     },
 
     /** Replace the tags the caller files their plugin `id` under: whether they have one. */
@@ -92,14 +118,14 @@ function createWorkspaceApps({ai, market, plugins}) {
     /**
      * The caller's app `id`, installed and ready to run on the NanoAgent `on`
      * (the member's own computer's): its catalog entry, with the `sha256` its runs and page are
-     * addressed by and its `uiVersion`; or `{error, status}`, 404 for a plugin
-     * the caller did not install.
+     * addressed by and its `uiVersion`, and for an upload its `latest`, `autoUpdate` and `repository`; or
+     * `{error, status}`, 404 for a plugin the caller did not install.
      */
     async open(context, id, on) {
       const added = await plugins.get(context, id);
       if (!added) return {error: `You have not installed a plugin named ${id}`, status: 404};
       // An upload's version comes with the caller's row; NanoAgent's from its own list.
-      let entry = {id, sha256: added.sha256};
+      let entry = {id, version: added.version, sha256: added.sha256};
       if (added.source === 'nanoagent') {
         const builtIn = await ai.packages();
         if (builtIn.error) return builtIn;
@@ -107,7 +133,8 @@ function createWorkspaceApps({ai, market, plugins}) {
         if (!entry) return {error: `${id} is no longer in the marketplace`, status: 404};
       }
       const result = await installed(on, context.userId, added.source, entry);
-      return result.error ? result : {value: {...result.value, source: added.source}};
+      if (result.error) return result;
+      return {value: {...result.value, source: added.source, ...(added.source === 'upload' ? versionOf(added) : {})}};
     },
   });
 }

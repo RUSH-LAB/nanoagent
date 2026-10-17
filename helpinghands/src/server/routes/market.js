@@ -5,7 +5,7 @@
  *
  *   GET    /api/market                every plugin: NanoAgent's own, then the uploads
  *   POST   /api/market                publish {url}, a plugin's folder in a public GitHub repository
- *   GET    /api/market/{id}/package   download one
+ *   GET    /api/market/{id}/package   download one, at its latest version
  *   DELETE /api/market/{id}           remove an upload of yours
  *
  * NanoAgent's own plugins come from the NanoAgent service (/v1/packages); the
@@ -13,10 +13,10 @@
  * repository (server/github.js): the commit its ref names now is fetched, and
  * NanoAgent packs the plugin folder in it as a `nanoagent plugin pack` archive,
  * checking every plugin rule without running it. Publishing again takes the
- * ref's newest commit. Nothing here runs a plugin either: whoever downloads one
- * runs it on their own machine (market-publish.js). A plugin's author is the
- * GitHub account of whoever published it, so publishing takes an account signed
- * in with GitHub.
+ * ref's newest commit, as a new version: each version published is kept.
+ * Nothing here runs a plugin either: whoever downloads one runs it on their own
+ * machine (market-publish.js). A plugin's author is the GitHub account of
+ * whoever published it, so publishing takes an account signed in with GitHub.
  */
 const {publishFromGithub} = require('../market-publish');
 

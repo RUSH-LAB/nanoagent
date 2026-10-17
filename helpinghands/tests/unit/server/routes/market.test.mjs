@@ -94,13 +94,23 @@ describe('the plugin marketplace', () => {
     assert.equal((await call('alice', 'GET', '/api/market/broken/package')).status, 404);
   });
 
-  it('lets only the uploader replace or remove an upload', async () => {
-    assert.equal((await call('bob', 'POST', '/api/market', 'notes@9.9.9')).status, 409);
-    assert.equal((await call('bob', 'DELETE', '/api/market/notes')).status, 404);
+  it('keeps every version published, and refuses one published already', async () => {
     const updated = await call('alice', 'POST', '/api/market', 'notes@1.1.0');
     assert.equal(updated.payload.plugin.version, '1.1.0');
+    const again = await call('alice', 'POST', '/api/market', 'notes@1.1.0');
+    assert.equal(again.status, 409);
+    assert.match(again.payload.error, /notes 1\.1\.0 is published already/);
+    assert.equal((await call('bob', 'GET', '/api/market/notes/package')).written.body.toString(), 'notes@1.1.0');
+    assert.equal((await ctx.market.get('bob', 'notes', '1.0.0')).package.toString(), 'notes@1.0.0');
+    assert.equal(await ctx.market.get('bob', 'notes', '0.1.0'), null);
+  });
+
+  it('lets only the uploader publish or remove an upload, with every version', async () => {
+    assert.equal((await call('bob', 'POST', '/api/market', 'notes@9.9.9')).status, 409);
+    assert.equal((await call('bob', 'DELETE', '/api/market/notes')).status, 404);
     assert.equal((await call('alice', 'DELETE', '/api/market/notes')).status, 200);
     assert.equal((await call('bob', 'GET', '/api/market/notes/package')).status, 404);
+    assert.equal(await ctx.market.get('bob', 'notes', '1.0.0'), null);
   });
 
   it('caps what one user\'s uploads hold in all', async () => {
@@ -109,8 +119,9 @@ describe('the plugin marketplace', () => {
     const over = await call('carol', 'POST', '/api/market', `big-two@1.0.0@${half + 1}`);
     assert.equal(over.status, 413);
     assert.match(over.payload.error, /50 MB in all/);
-    // A new version replaces the old one, so it counts only once.
-    assert.equal((await call('carol', 'POST', '/api/market', `big-one@1.1.0@${half + 1}`)).status, 201);
+    // Each version is kept, so each counts.
+    assert.equal((await call('carol', 'POST', '/api/market', `big-one@1.1.0@${half + 1}`)).status, 413);
+    assert.equal((await call('carol', 'POST', '/api/market', 'big-one@1.1.0@7')).status, 201);
   });
 
   it('keeps NanoAgent\'s plugin ids for NanoAgent', async () => {
@@ -126,6 +137,10 @@ describe('the plugin marketplace', () => {
       await db.exec("begin; select set_config('app.user_id', 'bob', true)");
       const changed = await db.query("update market_plugin set version = '6.6.6' where id = 'mine' returning id");
       assert.deepEqual(changed.rows, []);
+      await db.exec("select set_config('app.user_id', 'alice', true)");
+      // A version is never changed or removed, even by its uploader.
+      assert.deepEqual((await db.query("update market_plugin_version set package = 'x' where plugin_id = 'mine' returning plugin_id")).rows, []);
+      assert.deepEqual((await db.query("delete from market_plugin_version where plugin_id = 'mine' returning plugin_id")).rows, []);
       await db.exec('rollback');
     } finally {
       await db.exec('reset role');

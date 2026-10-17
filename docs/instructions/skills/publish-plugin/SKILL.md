@@ -228,7 +228,10 @@ Then walk this list by hand:
 5. RUSH Lab checks every rule without running the plugin and lists every rule
    the plugin breaks. Fix each rule in the code, push, and submit again.
    Submitting again also publishes each later version. Bump `version` in both
-   files and run `uv lock` each time.
+   files and run `uv lock` each time: each version published is kept, and one
+   published already is refused. A member's install updates itself to each new
+   version unless they turn off **Auto-update** under **Settings → Plugins**;
+   **Update**, there or on the plugin's Dashboard, then takes the newest.
 6. Once a workspace owner adds the plugin, the person opens it, asks the chat
    for a task, and checks the verdict on the result card. Passing the
    publication checks only shows the format is right. The verifier's tests

@@ -8,7 +8,48 @@ import { applyTheme, h, humanize, icon } from "./dom.js";
 import { resultCard, resultsPane } from "./result.js";
 import { dashboard, enterSession } from "./session.js";
 
-/** The plugin's header (its icon, name and tagline) over `children`. */
+/** Where `repository`'s folder is on GitHub at the commit the plugin was published from. */
+const sourceUrl = ({ owner, repo, commit, path }) => `https://github.com/${owner}/${repo}/tree/${commit}${path ? `/${path}` : ""}`;
+
+/**
+ * The version the person runs, with a link to its source when the host names the repository it
+ * was published from; and for a plugin the host can update (`latest` names its newest version),
+ * Update when that is newer. `plugin.version` asks the host for it, and a host that moves the
+ * plugin to another version opens its page again.
+ */
+function versionControl(plugin) {
+  const box = h("div", { class: "app-version" });
+  const error = h("span", { class: "error-text small-text", role: "alert" });
+  let state = { version: plugin.version, latest: plugin.latest ?? null, repository: plugin.repository ?? null };
+
+  async function choose(version, control) {
+    control.disabled = true;
+    error.textContent = "";
+    try {
+      state = await request("plugin.version", { version });
+    } catch (problem) {
+      error.textContent = problem.message;
+    }
+    draw();
+  }
+
+  function draw() {
+    const current = h("span", { class: "app-version-current", text: `v${state.version}` });
+    const source = state.repository
+      ? h("a", { class: "button small ghost", href: sourceUrl(state.repository), target: "_blank", rel: "noopener noreferrer", text: "Source on GitHub" })
+      : null;
+    const behind = state.latest !== null && state.version !== state.latest;
+    const update = behind ? h("button", { type: "button", class: "button small primary", text: `Update to v${state.latest}` }) : null;
+    update?.addEventListener("click", () => choose(state.latest, update));
+    const fresh = state.latest !== null && !behind ? h("span", { class: "muted small-text", text: "Up to date" }) : null;
+    return box.replaceChildren(...[current, fresh, source, update, error].filter(Boolean));
+  }
+
+  if (plugin.version) draw();
+  return box;
+}
+
+/** The plugin's header (its icon, name, tagline and version) over `children`. */
 function homePage(plugin, ...children) {
   const header = h(
     "header",
@@ -18,6 +59,7 @@ function homePage(plugin, ...children) {
       { class: "app-header-inner" },
       h("img", { class: "app-icon", src: plugin.product.icon, alt: "" }),
       h("div", { class: "app-titles" }, h("h1", { text: plugin.name }), h("p", { class: "app-tagline", text: plugin.product.tagline })),
+      versionControl(plugin),
     ),
   );
   return h("div", { class: "app" }, header, h("main", { class: "page" }, children));

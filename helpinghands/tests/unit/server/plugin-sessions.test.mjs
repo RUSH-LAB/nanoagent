@@ -7,17 +7,20 @@ import {migratedDatabase, as} from './fs/_pglite.mjs';
 const require = createRequire(import.meta.url);
 const {createPostgresSessions, CHAT_TURNS} = require('../../../src/server/postgres/sessions.js');
 const {createPostgresTenancy} = require('../../../src/server/postgres/tenancy.js');
+const {createPostgresMarket} = require('../../../src/server/postgres/market.js');
 
 describe('plugin sessions over PostgreSQL', () => {
   let db;
   let sessions;
   let tenancy;
+  let market;
 
   before(async () => {
     let pool;
     ({db, pool} = await migratedDatabase());
     tenancy = createPostgresTenancy({pool});
     sessions = createPostgresSessions({pool});
+    market = createPostgresMarket({pool});
   });
   after(async () => db?.close());
 
@@ -111,7 +114,17 @@ describe('plugin sessions over PostgreSQL', () => {
     assert.equal(await sessions.endRun(as('alice'), 'run-a', {prompt: 'check refs.bib', answer: '', tools: [], activity: [], error: 'twice'}), false);
     const read = await sessions.get(as('alice'), 'bibtex-check', started.id);
     assert.equal(read.running, null);
-    assert.deepEqual(read.chat, [{prompt: 'check refs.bib', answer: '', tools: [], activity: [], error: 'Mochi Lab stopped while answering'}]);
+    assert.deepEqual(read.chat, [{prompt: 'check refs.bib', answer: '', tools: [], activity: [], error: 'Mochi Lab stopped while answering', version: null}]);
+  });
+
+  it('keeps with each turn the upload version it ran on', async () => {
+    const entry = {id: 'notes', name: 'Notes', version: '1.0.0', sha256: 'a'.repeat(64), size: 1};
+    await market.publish('alice', entry, Buffer.from('x'), null);
+    await market.publish('alice', {...entry, version: '1.1.0', sha256: 'e'.repeat(64)}, Buffer.from('y'), null);
+    const started = await sessions.create(as('bob'), 'notes');
+    // `answered` runs the install 'a'…: 1.0.0, though 1.1.0 is the latest.
+    await answered(as('bob'), 'notes', started.id, {prompt: 'hi', answer: 'hello', tools: []});
+    assert.equal((await sessions.get(as('bob'), 'notes', started.id)).chat[0].version, '1.0.0');
   });
 
   it('archives a session until it is restored or chatted in again', async () => {

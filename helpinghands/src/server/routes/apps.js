@@ -163,8 +163,9 @@ function tagsOf(body) {
  * One of the caller's apps: GET opens it, installed and ready to run on the
  * member's own computer, with the `computer` page id its page is served by; PUT
  * installs the marketplace plugin of that id, PATCH replaces the tags the
- * caller files it under, and DELETE uninstalls it. Each is the member's own to
- * do, in any role: an install is theirs, not the workspace's.
+ * caller files it under (`{tags}`) or for an upload the version it stays on
+ * (`{version}`, null to follow the latest), and DELETE uninstalls it. Each is
+ * the member's own to do, in any role: an install is theirs, not the workspace's.
  */
 async function appRoute(req, res, ctx, id) {
   const {json, readBody, requireWorkspacePermission, workspaceApps} = ctx;
@@ -191,9 +192,16 @@ async function appRoute(req, res, ctx, id) {
     } catch {
       body = null;
     }
+    if (body && 'version' in body) {
+      if (body.version !== null && (typeof body.version !== 'string' || !body.version || body.version.length > 64)) {
+        return json(res, 400, {error: 'Request body must be {"version": "<a published version>"} or {"version": null}'});
+      }
+      const pinned = await workspaceApps.pin(req.context, id, body.version);
+      return pinned.error ? json(res, pinned.status, {error: pinned.error}) : json(res, 200, {app: pinned.value});
+    }
     const tags = tagsOf(body);
     if (!tags) {
-      return json(res, 400, {error: `Request body must be {"tags": [...]}: at most ${MAX_TAGS} names, each 1 to ${MAX_TAG_LENGTH} characters`});
+      return json(res, 400, {error: `Request body must be {"tags": [...]} (at most ${MAX_TAGS} names, each 1 to ${MAX_TAG_LENGTH} characters) or {"version": …}`});
     }
     if (!await workspaceApps.tag(req.context, id, tags)) return json(res, 404, {error: `You have not installed a plugin named ${id}`});
     return json(res, 200, {tags});

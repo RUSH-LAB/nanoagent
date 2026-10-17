@@ -107,6 +107,28 @@ describe('a member\'s apps', () => {
     await market.publish('alice', next, Buffer.from('upload package 1.1'), REPOSITORY);
     installs.set(next.sha256, {...next, uiVersion: 'fedcba9876543210'});
     assert.equal((await apps.open(as('bob'), 'notes', computer)).value.version, '1.1.0');
+    const [, notes] = (await apps.list(as('bob'))).value;
+    assert.deepEqual([notes.version, notes.latest, notes.autoUpdate, notes.sha256], ['1.1.0', '1.1.0', true, next.sha256]);
+  });
+
+  it('keeps a member on the version they choose until they update it', async () => {
+    const pinned = await apps.pin(as('bob'), 'notes', '1.0.0');
+    assert.deepEqual([pinned.value.version, pinned.value.latest, pinned.value.autoUpdate], ['1.0.0', '1.1.0', false]);
+    const opened = (await apps.open(as('bob'), 'notes', computer)).value;
+    assert.deepEqual([opened.sha256, opened.latest, opened.autoUpdate, opened.repository], [UPLOAD.sha256, '1.1.0', false, REPOSITORY]);
+    // A version published later reaches whoever follows the latest, not bob.
+    const later = {...UPLOAD, version: '1.2.0', sha256: 'f'.repeat(64)};
+    await market.publish('alice', later, Buffer.from('upload package 1.2'), REPOSITORY);
+    installs.set(later.sha256, {...later, uiVersion: 'fedcba9876543210'});
+    assert.equal((await apps.open(as('bob'), 'notes', computer)).value.version, '1.0.0');
+    assert.equal((await apps.open(as('vic'), 'notes', computer)).value.version, '1.2.0');
+    assert.deepEqual((await apps.list(as('bob'))).value[1].latest, '1.2.0');
+    // Updating stays on the version updated to; following the latest again takes it.
+    assert.equal((await apps.pin(as('bob'), 'notes', '1.2.0')).value.autoUpdate, false);
+    const following = (await apps.pin(as('bob'), 'notes', null)).value;
+    assert.deepEqual([following.version, following.autoUpdate], ['1.2.0', true]);
+    assert.deepEqual(await apps.pin(as('bob'), 'notes', '9.9.9'), {error: 'notes has no version 9.9.9', status: 404});
+    assert.deepEqual(await apps.pin(as('bob'), 'bibtex-check', '0.1.0'), {error: 'You have not installed an upload named bibtex-check', status: 404});
   });
 
   it('lists the tags a member gives a plugin, to them alone', async () => {

@@ -176,13 +176,19 @@ function createPostgresSessions({pool}) {
     /**
      * End the run `runId`: its `turn` (`{prompt, answer, tools, error}`, `error`
      * null when it was answered) joins its session's conversation, keeping the
-     * latest, and an archived session is restored. False when it had ended already.
+     * latest, with the upload version it ran on (null for NanoAgent's own), and
+     * an archived session is restored. False when it had ended already.
      */
     async endRun(context, runId, turn) {
       return run(context, async client => {
-        const ended = (await client.query('delete from plugin_run where id = $1 returning session_id', [runId])).rows[0];
+        const ended = (await client.query(
+          'delete from plugin_run where id = $1 returning session_id, plugin_id, install', [runId],
+        )).rows[0];
         if (!ended) return false;
         const id = ended.session_id;
+        const version = (await client.query(
+          'select version from market_plugin_version where plugin_id = $1 and sha256 = $2', [ended.plugin_id, ended.install],
+        )).rows[0]?.version ?? null;
         const {chat} = (await client.query('select chat from plugin_session where id = $1 for update', [id])).rows[0];
         const kept = {
           prompt: turn.prompt.slice(0, TURN_MAX),
@@ -192,6 +198,7 @@ function createPostgresSessions({pool}) {
             ? {kind: 'thought', text: entry.text.slice(0, ACTIVITY_MAX)}
             : {...entry, thinking: entry.thinking.slice(0, ACTIVITY_MAX), text: entry.text.slice(0, ACTIVITY_MAX)})),
           error: turn.error === null ? null : turn.error.slice(0, TURN_MAX),
+          version,
         };
         // An untitled session is named for its first question.
         await client.query(

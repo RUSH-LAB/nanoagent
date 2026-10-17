@@ -43,6 +43,9 @@ const PARAMS = {
   'session.archive': ({id, archived}) => (SESSION_ID.test(id ?? '') && typeof archived === 'boolean'
     ? null
     : 'session.archive needs a session id and archived, true or false'),
+  'plugin.version': ({version}) => (version === null || (typeof version === 'string' && version)
+    ? null
+    : 'plugin.version needs version, a published version or null'),
 };
 
 export const METHODS = Object.keys(PARAMS);

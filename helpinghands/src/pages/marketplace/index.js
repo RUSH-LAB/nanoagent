@@ -54,6 +54,9 @@ const publish = url => send('/api/market', {
   method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({url}),
 });
 
+/** Whether the member's install of `plugin`, `added`, runs an older version than its latest. */
+const behind = added => Boolean(added?.latest && added.version !== added.latest);
+
 function Tile({plugin, added, onOpen}) {
   const author = authorOf(plugin);
   return (
@@ -65,7 +68,7 @@ function Tile({plugin, added, onOpen}) {
       <div className={styles.tileBody}>
         <h2 className={styles.name}>
           {plugin.name}
-          {added && <span className={styles.added}>Added</span>}
+          {added && <span className={styles.added}>{behind(added) ? 'Update available' : 'Added'}</span>}
         </h2>
         <p className={styles.author}>
           by {author.name}
@@ -173,19 +176,26 @@ function Detail({plugin, added, workspace, slug, onBack, onChanged, onAdded}) {
     setState({busy: false, error: null});
     return after(result.data);
   };
-  const add = () => act(() => send(`/api/apps/${plugin.id}`, {method: 'PUT'}), () => onAdded(true));
+  const add = () => act(() => send(`/api/apps/${plugin.id}`, {method: 'PUT'}), data => onAdded(data.app));
   const uninstall = () => {
     if (!window.confirm(`Uninstall ${plugin.name}? Your files from it stay in your folder.`)) return;
-    act(() => send(`/api/apps/${plugin.id}`, {method: 'DELETE'}), () => onAdded(false));
+    act(() => send(`/api/apps/${plugin.id}`, {method: 'DELETE'}), () => onAdded(null));
   };
   const update = () => act(() => publish(publishUrl(plugin.repository)), data => onChanged(data.plugin.id));
+  const updateInstall = () => act(
+    () => send(`/api/apps/${plugin.id}`, {
+      method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({version: added.latest}),
+    }),
+    data => onAdded(data.app),
+  );
   const remove = () => {
     if (!window.confirm(`Remove ${plugin.name} from the Marketplace? People can no longer download it, and it is uninstalled for everyone.`)) return;
     act(() => send(`/api/market/${plugin.id}`, {method: 'DELETE'}), () => onChanged(null));
   };
 
   const more = [
-    ...(plugin.mine && plugin.repository ? [{label: 'Update from GitHub', onSelect: update}] : []),
+    ...(behind(added) ? [{label: `Update to v${added.latest}`, onSelect: updateInstall}] : []),
+    ...(plugin.mine && plugin.repository ? [{label: 'Publish again from GitHub', onSelect: update}] : []),
     ...(added ? [{label: 'Uninstall', onSelect: uninstall, danger: true}] : []),
     ...(plugin.mine ? [{label: 'Remove from Marketplace', onSelect: remove, danger: true}] : []),
   ];
@@ -199,6 +209,7 @@ function Detail({plugin, added, workspace, slug, onBack, onChanged, onAdded}) {
   const meta = (
     <>
       v{plugin.version}
+      {behind(added) && ` (you have v${added.version})`}
       {plugin.repository && (
         <> · <a href={commitUrl(plugin.repository)} target="_blank" rel="noreferrer">Source</a></>
       )}
@@ -227,7 +238,7 @@ function Marketplace() {
   const history = useHistory();
   const {slug, workspace, site} = useWorkspaceSite();
   const workspaceId = workspace?.id ?? null;
-  // The ids of the plugins the member installed, or null outside a workspace.
+  // The plugins the member installed, by id, as they run them, or null outside a workspace.
   const [added, setAdded] = React.useState(null);
   const params = new URLSearchParams(location.search);
   const openId = params.get('plugin');
@@ -247,17 +258,18 @@ function Marketplace() {
     if (!workspaceId) return undefined;
     let cancelled = false;
     apiJson(workspaceAppsUrl(workspaceId), {fresh: true}).then(
-      result => !cancelled && result.ok && setAdded(new Set(result.data.apps.map(app => app.id))),
+      result => !cancelled && result.ok && setAdded(new Map(result.data.apps.map(app => [app.id, app]))),
       () => {},
     );
     return () => { cancelled = true; };
   }, [workspaceId]);
-  const markAdded = (id, isAdded) => {
+  /** The member's install of `id` is now `app`, or with null they uninstalled it. */
+  const markAdded = (id, app) => {
     forgetWorkspaceApps(workspaceId);
-    if (isAdded) prepareWorkspaceApps(workspaceId, {again: true});
+    if (app) prepareWorkspaceApps(workspaceId, {again: true});
     setAdded(current => {
-      const next = new Set(current);
-      if (isAdded) next.add(id);
+      const next = new Map(current);
+      if (app) next.set(id, app);
       else next.delete(id);
       return next;
     });
@@ -285,10 +297,10 @@ function Marketplace() {
       <main className={styles.page}>
         <Detail
           plugin={open}
-          added={Boolean(added?.has(open.id))}
+          added={added?.get(open.id) ?? null}
           workspace={added ? workspace : null}
           slug={slug}
-          onAdded={isAdded => markAdded(open.id, isAdded)}
+          onAdded={app => markAdded(open.id, app)}
           onBack={() => navigate({plugin: null})}
           onChanged={async id => {
             await load();
@@ -340,7 +352,7 @@ function Marketplace() {
           <Tile
             key={plugin.id}
             plugin={plugin}
-            added={Boolean(added?.has(plugin.id))}
+            added={added?.get(plugin.id) ?? null}
             onOpen={chosen => navigate({plugin: chosen.id})}
           />
         ))}

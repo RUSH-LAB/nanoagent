@@ -10,7 +10,8 @@ import {
  *
  * `frameWindow()` is the frame's window, the only one whose messages are
  * accepted; `request(path, init)` fetches a Mochi API path with the user's
- * session.
+ * session; `onVersion(app)` hears that the member chose another version of the
+ * plugin, or to follow its latest (`plugin.version`), with the app as they now run it.
  *
  * Every run belongs to the current plugin session, which the page starts or
  * resumes (`session.start`, `session.resume`): Mochi charges the run to it, and
@@ -35,7 +36,7 @@ const sleep = (ms, signal) => new Promise(resolve => {
   }, {once: true});
 });
 
-export function createBridgeHost({frameWindow, plugin, workspaceId, theme, request}) {
+export function createBridgeHost({frameWindow, plugin, workspaceId, theme, request, onVersion}) {
   const runs = new Map(); // runId -> {controller, session}, the controller of its stream now
   // Each session's conversation, by id: a run left going in one session keeps its turn there.
   const turns = new Map();
@@ -216,6 +217,16 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     }),
     'session.start': async () => enter(await readSession(sessionsPath, {method: 'POST'}, 'Could not start a session')),
     'session.resume': async ({id}) => enter(await readSession(`${sessionsPath}/${id}`, undefined, 'Could not open the session')),
+    'plugin.version': async ({version}) => {
+      const response = await request(`/api/apps/${encodeURIComponent(plugin.id)}`, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({version}),
+      });
+      if (!response.ok) throw await failed(response, 'Could not change the version');
+      const {app} = await response.json();
+      return {result: {version: app.version, latest: app.latest, repository: app.repository}, after: () => onVersion(app)};
+    },
     'session.archive': async ({id, archived}) => ({
       result: {
         session: await readSession(`${sessionsPath}/${id}`, {

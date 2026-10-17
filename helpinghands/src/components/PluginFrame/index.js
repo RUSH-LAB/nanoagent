@@ -8,9 +8,10 @@ import styles from './styles.module.css';
  * A plugin's own page, from its ui/ folder, in a sandboxed frame: scripts,
  * forms and links that open in a new tab, but no same-origin access, so the
  * page has an opaque origin and none of Mochi's session, cookies or network. It reaches NanoAgent only through
- * the `nanoagent.ui/v1` bridge this component hosts (./host.js).
+ * the `nanoagent.ui/v1` bridge this component hosts (./host.js). `onVersion(app)`
+ * hears that the page changed which version the member runs.
  */
-export default function PluginFrame({app, workspace}) {
+export default function PluginFrame({app, workspace, onVersion}) {
   const frame = useRef(null);
   const host = useRef(null);
   const {colorMode} = useColorMode();
@@ -45,6 +46,7 @@ export default function PluginFrame({app, workspace}) {
       workspaceId: workspace.id,
       theme: colorMode,
       request: (path, init) => apiFetch(`${API_BASE}${path}`, init),
+      onVersion: changed => onVersion?.(changed),
     });
     host.current = bridge;
     window.addEventListener('message', bridge.onMessage);

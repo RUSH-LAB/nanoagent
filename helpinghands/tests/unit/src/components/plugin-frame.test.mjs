@@ -18,7 +18,7 @@ const sessionWith = (chat = []) => ({id: SESSION, pluginId: 'arxiv-source', titl
  * session already started (with `chat` as its conversation); every message
  * posted and every request made after that is in `posted` and `calls`.
  */
-async function hostWith(request, {chat = [], started = true} = {}) {
+async function hostWith(request, {chat = [], started = true, onVersion = () => {}} = {}) {
   const posted = [];
   const frame = {postMessage: (message, origin) => posted.push({message, origin})};
   const calls = [];
@@ -31,6 +31,7 @@ async function hostWith(request, {chat = [], started = true} = {}) {
       calls.push({path, init});
       return request(path, init);
     },
+    onVersion,
   });
   const send = (id, method, params = {}) => host.onMessage({source: frame, data: {protocol: PROTOCOL, id, method, params}});
   if (started) {
@@ -78,6 +79,8 @@ describe('nanoagent.ui/v1 requests', () => {
       ['follow', {}],
       ['cancel', {runId: 'run-1'}],
       ['session.archive', {id: SESSION, archived: true}],
+      ['plugin.version', {version: '1.2.0'}],
+      ['plugin.version', {version: null}],
     ];
     for (const [method, params] of valid) assert.equal(invalidRequest({method, params}), null, method);
     const invalid = [
@@ -95,6 +98,8 @@ describe('nanoagent.ui/v1 requests', () => {
       ['session.save', {state: {}}],
       ['session.archive', {id: SESSION}],
       ['session.archive', {id: 'not-an-id', archived: true}],
+      ['plugin.version', {}],
+      ['plugin.version', {version: ''}],
     ];
     for (const [method, params] of invalid) assert.equal(typeof invalidRequest({method, params}), 'string', method);
   });
@@ -334,6 +339,20 @@ describe('the bridge host', () => {
     send('p2', 'prompt', {text: 'Again?'});
     await until(() => calls.length === 2);
     assert.deepEqual(JSON.parse(calls[1].init.body).messages, []);
+  });
+
+  it('moves the member to another version of the plugin, or to follow its latest, and says so', async () => {
+    const moved = [];
+    const repository = {owner: 'alice', repo: 'notes', ref: 'HEAD', path: '', commit: 'd'.repeat(40)};
+    const app = {id: PLUGIN.id, version: '1.2.0', latest: '1.2.0', autoUpdate: false, repository, sha256: 'f'.repeat(64)};
+    const {posted, calls, send} = await hostWith(() => Response.json({app}), {onVersion: changed => moved.push(changed)});
+    send('v', 'plugin.version', {version: '1.2.0'});
+    await until(() => moved.length);
+    assert.deepEqual(calls.map(({path, init}) => [path, init.method, JSON.parse(init.body)]), [
+      [`/api/apps/${PLUGIN.id}`, 'PATCH', {version: '1.2.0'}],
+    ]);
+    assert.deepEqual(messages(posted), [{protocol: PROTOCOL, id: 'v', result: {version: '1.2.0', latest: '1.2.0', repository}}]);
+    assert.deepEqual(moved, [app]);
   });
 
   it('tells the page the site\'s theme', async () => {
