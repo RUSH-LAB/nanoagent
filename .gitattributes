@@ -1,0 +1,4 @@
+# Migrations are checksummed (src/server/postgres/client.js), so they are LF on every platform.
+*.sql text eol=lf
+# Shell scripts run under sh, which reads a CRLF as part of the command; install.sh is also served as is.
+*.sh text eol=lf

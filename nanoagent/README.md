@@ -27,7 +27,6 @@ pyproject.toml
 uv.lock
 .gitignore
 .env             # environment variable NAMEs the plugin needs, never values
-run.sh           # exits 0 when this environment can run the plugin
 src/             # the plugin's code, organized as it likes
 tests/           # the plugin's tests, including test_verifier.py
 verifier/        # deterministic verifier package, .py files only
@@ -49,8 +48,7 @@ keyed by the contract's `Tool` and `Task`, the standard `runtime.command`
 deterministic verifier, a `ui/` and a
 `product/` (below), no extra files, and standard files that are the
 template's (`nanoagent/plugin/template/`, what `nanoagent plugin new`
-writes): its MIT `LICENSE` naming whoever built it, its `.gitignore` entries, its
-`run.sh` checks first (a plugin adds its own after them), a `README.md`
+writes): its MIT `LICENSE` naming whoever built it, its `.gitignore` entries, a `README.md`
 opening with `# <name>` with the sections Tools, Layout and Develop and run
 and every tool and task named under Tools, and a `pyproject.toml` naming the
 project `nanoagent-<id>` at the manifest's version, with the template's
@@ -73,9 +71,9 @@ release raises the patch version. Each release is a git tag,
 `nanoagent-v<version>`, and [CHANGELOG.md](CHANGELOG.md) says what a plugin
 must change for it.
 
-Before each launch NanoAgent runs `run.sh` with the plugin's environment: `NANOAGENT_WORKSPACE` plus each `.env`
-name taken from NanoAgent's own environment. It refuses to launch unless
-`run.sh` exits 0. It then starts the declared MCP runtime with that same
+Before each launch NanoAgent checks the plugin's environment: `NANOAGENT_WORKSPACE` plus each `.env`
+name taken from NanoAgent's own environment, which must be set, and a `uv.lock` that matches `pyproject.toml`.
+It refuses to launch otherwise. It then starts the declared MCP runtime with that same
 environment, builds every input and output into its contract class
 (`slimconfig.build_output`), and runs the verifier, which gets the same typed
 values, before and after each tool call. Every JSON Schema NanoAgent shows (to
@@ -167,7 +165,7 @@ only to its workspace, which NanoAgent passes as `NANOAGENT_WORKSPACE`.
   `inputs/<name>`.
 - **One plugin process per run.** An agent run keeps one plugin process
   (`nanoagent.plugin.PluginSession`) for the whole task, so a plugin can hold
-  state, such as a browser, between calls. `run.sh` runs once. Every call is
+  state, such as a browser, between calls. The environment is checked once. Every call is
   still checked against the rules, both contract classes and the verifier.
 - **Images.** A tool response's `images` field (a list of
   `{"media_type": "image/png", "data": <base64>}`) is shown to the model as
@@ -263,7 +261,7 @@ as apps:
   agent that has the plugin's tools. The body is a run request and the reply is
   a run stream.
 
-Every process a plugin brings (its `run.sh`, MCP server, verifier, and the
+Every process a plugin brings (its MCP server, verifier, and the
 `uv sync` that installs it) runs in the sandbox `WebConfig.sandbox` names
 (`nanoagent.plugin.sandbox`). `bwrap` gives it new namespaces, an
 empty environment, the system and the plugin's own folder read-only, and only

@@ -56,7 +56,8 @@ NanoAgent.
 Each NanoAgent's token is random for each start, and only its relay and lab.mjs hold it. Plugins
 run in macOS's `seatbelt` sandbox (`nanoagent.plugin.sandbox`), via `sandbox-exec`. Each plugin can
 read the system and its own folder, can write only its run's folder, and can reach the network only
-through its own egress proxy port. It cannot see other processes, or their environments.
+through its own egress proxy port. It cannot see other processes, or their environments. On
+Windows they run in an AppContainer (`nanoagent/docs/plans/windows-sandbox.md`).
 
 ## The app
 
@@ -200,8 +201,7 @@ this computer, as rush-lab.org does. To try a change to the runner or NanoAgent,
 
 - **Updates.** The app does not update itself; a member downloads a new dmg (FUTURE.md).
 - **Signing out** of the site does not disconnect the relay. Its session is its own.
-- **Windows** (FUTURE.md). There is no plugin sandbox, and NanoAgent runs each plugin's `run.sh`
-  with `bash`.
+- **Windows** (FUTURE.md). An installer builds, but CI does not build or ship one.
 - **One Mochi process.** Mochi keeps the connected computers in memory, as it does every other
   live connection (`src/server/fs/events.js`). Running several Mochi processes would need them
   relayed between processes.

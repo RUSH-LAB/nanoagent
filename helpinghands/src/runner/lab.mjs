@@ -27,7 +27,8 @@
  * Mochi, through the relay: kept in the connection's settings.env, handed to its NanoAgent
  * (PUT /v1/keys), and the relay is told which are set. SIGTERM stops every connection, cleanly.
  *
- * It runs on macOS, where plugins run in seatbelt (PLATFORMS). Node's own modules are all it loads.
+ * It runs on macOS, where plugins run in seatbelt, and on Windows, in an AppContainer (PLATFORMS).
+ * Node's own modules are all it loads.
  */
 import {spawn} from 'node:child_process';
 import crypto from 'node:crypto';
@@ -63,8 +64,11 @@ export const PROVIDER_KEYS = [
   ['ZAI_API_KEY', 'Z.ai'],
   ['HF_TOKEN', 'Hugging Face'],
 ];
+const WINDOWS = process.platform === 'win32';
 // What the services see of this process's environment; everything else comes from settings.
-const SYSTEM_ENV = ['HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'TMPDIR'];
+const SYSTEM_ENV = WINDOWS
+  ? ['SystemRoot', 'SystemDrive', 'USERNAME', 'USERDOMAIN', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP', 'COMSPEC', 'PATHEXT']
+  : ['HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'TMPDIR'];
 const isProviderKey = name => PROVIDER_KEYS.some(([env]) => env === name);
 /**
  * Where it runs: the sandbox NanoAgent confines plugins in (nanoagent.plugin.sandbox), and how a
@@ -72,7 +76,9 @@ const isProviderKey = name => PROVIDER_KEYS.some(([env]) => env === name);
  */
 export const PLATFORMS = {
   darwin: {sandbox: 'seatbelt', open: () => ['open']},
+  win32: {sandbox: 'appcontainer', open: () => ['rundll32', 'url.dll,FileProtocolHandler']},
 };
+const exe = name => (WINDOWS ? `${name}.exe` : name);
 // The hosts a development checkout's site runs on, which a connect link may name besides the app's own site.
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -268,14 +274,16 @@ export function writeKeys(file, changes) {
 }
 
 /**
- * What every service sees: the system basics, the bundled runtimes first on PATH, and the folder uv
+ * What every service sees: the system basics, the bundled runtimes first on PATH (on Windows with
+ * the bundled git, the only one a plugin's sandbox can run, then the system's PATH), and the folder uv
  * installs Python into, the data folder's python/. NanoAgent's plugin sandbox lets plugins, and its
  * own helpers there, read that folder whole (nanoagent.plugin.sandbox), so every link uv makes in it
  * resolves inside the sandbox too.
  */
 export function systemEnv(env, bin, data) {
   const system = Object.fromEntries(SYSTEM_ENV.filter(name => env[name] !== undefined).map(name => [name, env[name]]));
-  return {...system, PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin`, UV_PYTHON_INSTALL_DIR: path.join(data, 'python')};
+  const PATH = WINDOWS ? [bin, path.join(bin, '..', 'git', 'cmd'), env.PATH].join(';') : `${bin}:/usr/bin:/bin:/usr/sbin:/sbin`;
+  return {...system, PATH, UV_PYTHON_INSTALL_DIR: path.join(data, 'python')};
 }
 
 /**
@@ -283,7 +291,7 @@ export function systemEnv(env, bin, data) {
  * connection's, the uv cache the install's, with the member's `keys` and its bearer `token`.
  */
 export function nanoagentCommand({nanoagent, data, connection, port, sandbox, system, keys, token}) {
-  const python = path.join(nanoagent, '.venv', 'bin', 'python');
+  const python = WINDOWS ? path.join(nanoagent, '.venv', 'Scripts', 'python.exe') : path.join(nanoagent, '.venv', 'bin', 'python');
   return {
     program: python,
     args: [
@@ -378,12 +386,17 @@ async function nanoagentReady(port, token) {
   return true;
 }
 
+/** Kill `pid` and every process it started: Windows has no signals, and a venv's python.exe starts the interpreter as its child. */
+const killTree = pid => new Promise(resolve => {
+  spawn('taskkill', ['/PID', String(pid), '/T', '/F'], {stdio: 'ignore', windowsHide: true}).on('close', resolve).on('error', resolve);
+});
+
 const describeExit = ({code, signal}) => (signal ? `signal: ${signal}` : `exit status: ${code}`);
 
 async function main() {
   const platform = PLATFORMS[process.platform];
   if (!platform) {
-    throw new Error(`RUSH Lab runs on macOS, where plugins run in a sandbox; this is ${process.platform}.`);
+    throw new Error(`RUSH Lab runs on macOS and Windows, where plugins run in a sandbox; this is ${process.platform}.`);
   }
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const config = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8'));
@@ -396,7 +409,7 @@ async function main() {
   /** Open `page` in the member's browser; when that cannot be done, the log has the page. */
   const openPage = page => {
     const [program, ...args] = platform.open();
-    spawn(program, [...args, page], {stdio: 'ignore'}).on('error', error => log(`could not open ${page}: ${error.message}`));
+    spawn(program, [...args, page], {stdio: 'ignore', windowsHide: true}).on('error', error => log(`could not open ${page}: ${error.message}`));
   };
   // Every service this has running, of every connection: one `pid<TAB>program` line each.
   const pidFile = path.join(data, 'services.pid');
@@ -412,13 +425,21 @@ async function main() {
       const [pid, program] = line.split('\t');
       if (!program) continue;
       const command = await new Promise(resolve => {
-        const ps = spawn('/bin/ps', ['-p', pid, '-o', 'command='], {stdio: ['ignore', 'pipe', 'ignore']});
+        const ps = WINDOWS
+          ? spawn('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], {stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true})
+          : spawn('/bin/ps', ['-p', pid, '-o', 'command='], {stdio: ['ignore', 'pipe', 'ignore']});
         let out = '';
         ps.stdout.on('data', chunk => { out += chunk; });
         ps.on('close', () => resolve(out));
       });
-      if (!command.startsWith(program)) continue;
+      // tasklist names the program's file only, in quotes.
+      const running = WINDOWS ? command.toLowerCase().startsWith(`"${path.basename(program).toLowerCase()}"`) : command.startsWith(program);
+      if (!running) continue;
       log(`Stopping ${program} (${pid}), left running before`);
+      if (WINDOWS) {
+        await killTree(pid);
+        continue;
+      }
       const alive = () => { try { process.kill(Number(pid), 0); return true; } catch { return false; } };
       process.kill(Number(pid), 'SIGTERM');
       const deadline = Date.now() + STOP_TIMEOUT_MS;
@@ -434,7 +455,7 @@ async function main() {
    */
   function startService(services, name, program, args, {cwd, env, logFile, piped = false}) {
     const fd = openLog(logFile);
-    const child = spawn(program, args, {cwd, env, stdio: [piped ? 'pipe' : 'ignore', piped ? 'pipe' : fd, fd]});
+    const child = spawn(program, args, {cwd, env, stdio: [piped ? 'pipe' : 'ignore', piped ? 'pipe' : fd, fd], windowsHide: true});
     const service = {name, child, logFile, fd, exited: null};
     // `close` comes once its output is read too, so nothing writes the log after it is closed.
     service.done = new Promise(resolve => {
@@ -452,12 +473,13 @@ async function main() {
     return service;
   }
 
-  /** The last first: SIGTERM so each shuts down cleanly, SIGKILL after STOP_TIMEOUT_MS. */
+  /** The last first: SIGTERM so each shuts down cleanly, SIGKILL after STOP_TIMEOUT_MS; on Windows, killed with its tree. */
   async function stopServices(services) {
     while (services.length) {
       const service = services.pop();
       if (service.exited) continue;
-      service.child.kill('SIGTERM');
+      if (WINDOWS) await killTree(service.child.pid);
+      else service.child.kill('SIGTERM');
       const deadline = Date.now() + STOP_TIMEOUT_MS;
       while (!service.exited && Date.now() < deadline) await sleep(100);
       if (!service.exited) service.child.kill('SIGKILL');
@@ -519,14 +541,16 @@ async function main() {
     // Only NanoAgent's dependencies, as the bundled uv.lock pins them: NanoAgent itself is the
     // compiled module in site/, with no source to check the lock against.
     const services = [];
-    const uv = startService(services, 'uv sync', path.join(bin, 'uv'), [
+    const uv = startService(services, 'uv sync', path.join(bin, exe('uv')), [
       'sync', '--frozen', '--no-dev', '--no-install-project', '--extra', 'web', '--managed-python', '--python', config.python_version,
     ], {cwd: nanoagent, env: system, logFile: path.join(data, 'logs', 'uv-sync.log')});
     await uv.done;
     if (uv.exited.error || uv.exited.code !== 0) {
       throw new Error(uv.exited.error ? exitMessage(uv) : `uv sync failed (${describeExit(uv.exited)}).\n\n${tail(uv.logFile)}`);
     }
-    const sitePackages = path.join(nanoagent, '.venv', 'lib', `python${config.python_version}`, 'site-packages');
+    const sitePackages = WINDOWS
+      ? path.join(nanoagent, '.venv', 'Lib', 'site-packages')
+      : path.join(nanoagent, '.venv', 'lib', `python${config.python_version}`, 'site-packages');
     try {
       fs.writeFileSync(path.join(sitePackages, 'nanoagent.pth'), `${path.join(nanoagent, 'site')}\n`);
     } catch (error) {
@@ -611,7 +635,7 @@ async function main() {
 
       log(`Connecting to ${site}…`, id);
       const files = path.join(os.homedir(), filesFolderFor(config, site), member.login);
-      const relay = startService(services, 'The relay', path.join(bin, 'node'), ['relay.mjs'], {
+      const relay = startService(services, 'The relay', path.join(bin, exe('node')), ['relay.mjs'], {
         cwd: path.join(root, 'runner'),
         env: relayEnv({system, site, port: connection.port, token, connection: folder, keys: keyStatus(readSettings(settingsFile)), files}),
         logFile: path.join(logs, 'relay.log'),

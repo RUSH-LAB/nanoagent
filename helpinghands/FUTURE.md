@@ -48,16 +48,16 @@ To decide:
 
 RUSH Lab, the app (`desktop/`), ships for macOS only, Apple silicon and Intel:
 `.github/workflows/helpinghands-desktop.yml` builds those two dmgs. Linux is not planned.
-`desktop/scripts/stage.mjs` already stages Node and uv for `x86_64-pc-windows-msvc`.
+`npm run build:windows` (in `desktop/`, on Windows) builds a per-user NSIS installer: plugins run
+in an AppContainer (`nanoagent/docs/plans/windows-sandbox.md`), lab.mjs and lab.rs run there, and
+the app's data folder is `%LOCALAPPDATA%\lab.mochi.lab`.
 
 To decide:
 
-- Windows has no plugin sandbox yet (`nanoagent.plugin.sandbox` has seatbelt and bwrap), and
-  lab.mjs refuses to run plugins unconfined. NanoAgent also runs each plugin's `run.sh` with
-  `bash`. Shipping it needs a sandbox, and a way to run plugins without bash.
-- lab.mjs's paths and signals are macOS's: `.venv/bin`, `/bin/ps`, SIGTERM.
-- The app's connect link reaches a running app through `tauri-plugin-single-instance`, which
-  Windows needs; its data folder would be `%APPDATA%`.
+- The window signs in through the member's browser, which needs rushlab:// to reach the running
+  app on Windows too, and a random state without `/dev/urandom` (`main.rs`).
+- CI builds no installer, and it is unsigned: SmartScreen warns on a downloaded one.
+- Quitting kills lab.mjs and its services at once (`taskkill /T`), as Windows has no SIGTERM.
 
 ## RUSH Lab updates
 

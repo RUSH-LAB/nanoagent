@@ -1,6 +1,6 @@
 """Running plugin tools: one plugin process per :class:`PluginSession`, every call checked.
 
-A session runs the plugin's ``run.sh`` once, starts its MCP server once and keeps it for every call,
+A session checks the plugin's environment once (:func:`preflight`), starts its MCP server once and keeps it for every call,
 so a plugin can hold state (a browser, a game) for the whole of one task run. Each call re-checks
 the plugin rules, builds its input and output into their contract classes (see
 :mod:`nanoagent.plugin.contract`) and runs the verifier on both. A tool that fails raises; the
@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from collections.abc import Iterator, Sequence
 from contextlib import AsyncExitStack
@@ -44,8 +45,15 @@ def plugin_env(manifest: PluginManifest, workspace: Path) -> dict[str, str]:
 
 
 def preflight(manifest: PluginManifest, env: dict[str, str]) -> None:
-    """Run the plugin's `run.sh` in the environment the plugin will get; fail unless it exits 0."""
-    with sandbox.launch(["bash", "run.sh"], root=manifest.root, env=env) as (argv, launch_env):
+    """Check this environment can run the plugin: uv is installed, every variable its `.env` names is
+    set, and its `uv.lock` matches its `pyproject.toml`. The lock is checked in the sandbox, with the
+    environment the plugin will get."""
+    if shutil.which("uv") is None:
+        raise RuntimeError(f"{manifest.id}: this environment cannot run the plugin: uv is not installed")
+    for name in manifest.env:
+        if not env.get(name):
+            raise RuntimeError(f"{manifest.id}: this environment cannot run the plugin: {name} is not set (declared in .env)")
+    with sandbox.launch(["uv", "lock", "--check", "--offline", "--quiet"], root=manifest.root, env=env) as (argv, launch_env):
         completed = subprocess.run(
             argv,
             cwd=manifest.root,
@@ -57,7 +65,7 @@ def preflight(manifest: PluginManifest, env: dict[str, str]) -> None:
         )
     if completed.returncode:
         output = (completed.stderr or completed.stdout).strip() or f"exit {completed.returncode}"
-        raise RuntimeError(f"{manifest.id} run.sh: this environment cannot run the plugin: {output}")
+        raise RuntimeError(f"{manifest.id}: this environment cannot run the plugin: `uv lock --check` failed (uv.lock out of date with pyproject.toml?): {output}")
 
 
 def call_tool(

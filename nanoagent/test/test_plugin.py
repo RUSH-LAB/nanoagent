@@ -116,7 +116,7 @@ pythonpath = ["."]
 
 @functools.cache
 def _uv_lock() -> str:
-    """The fixture's lock, as this machine's uv writes it, so the template's run.sh accepts it."""
+    """The fixture's lock, as this machine's uv writes it, so the preflight accepts it."""
     with tempfile.TemporaryDirectory() as folder:
         (Path(folder) / "pyproject.toml").write_text(PYPROJECT, encoding="utf-8")
         subprocess.run(["uv", "lock", "--quiet"], cwd=folder, check=True)
@@ -133,7 +133,6 @@ def write_plugin(root: Path) -> Path:
         "uv.lock": _uv_lock(),
         ".gitignore": (TEMPLATE / "dot.gitignore").read_text(),
         ".env": "# no variables\n",
-        "run.sh": (TEMPLATE / "run.sh").read_text(),
         "src/plugin/__init__.py": "",
         "src/plugin/__main__.py": SERVER,
         "tests/test_verifier.py": "",
@@ -196,10 +195,10 @@ def test_env_names_variables_without_values(tmp_path: Path) -> None:
             load_manifest(tmp_path)
 
 
-def test_failing_run_sh_stops_the_launch(tmp_path: Path) -> None:
+def test_an_unset_variable_stops_the_launch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     write_plugin(tmp_path)
-    with (tmp_path / "run.sh").open("a", encoding="utf-8") as run_sh:
-        run_sh.write("echo 'API_KEY is not set' >&2\nexit 1\n")
+    (tmp_path / ".env").write_text("API_KEY\n", encoding="utf-8")
+    monkeypatch.delenv("API_KEY", raising=False)
     with pytest.raises(RuntimeError, match="API_KEY is not set"):
         call_tool(load_manifest(tmp_path), "echo", {"value": "x"}, workspace=tmp_path)
 
@@ -888,18 +887,16 @@ def test_reports_every_broken_rule_at_once(tmp_path: Path) -> None:
     from nanoagent.plugin import PluginError
 
     path = write_plugin(tmp_path)
-    (tmp_path / "run.sh").unlink()
     (tmp_path / "tests" / "test_verifier.py").unlink()
     (tmp_path / ".env").write_text("TOKEN=secret\n", encoding="utf-8")
     path.write_text(path.read_text().replace("name: Echo\n", "name: Echo\nauthor: someone\n"))
     with pytest.raises(PluginError) as error:
         load_manifest(tmp_path)
-    assert error.value.violations[:3] == [
-        "missing run.sh",
+    assert error.value.violations[:2] == [
         "missing tests/test_verifier.py",
         ".env line 1 must be a variable NAME alone, with no = or value",
     ]
-    assert "sets `author`, which is not a field of" in error.value.violations[3]
+    assert "sets `author`, which is not a field of" in error.value.violations[2]
 
 
 def test_refuses_a_plugin_edited_after_it_loaded(tmp_path: Path) -> None:
@@ -1140,7 +1137,6 @@ def test_serves_the_plugin_page_in_nanoagents_own_kit(tmp_path: Path) -> None:
         ("LICENSE", lambda text: text.replace("Ada Lovelace", ""), "LICENSE must be the template's MIT license"),
         ("LICENSE", lambda text: text.replace("MIT License", "BSD License"), "LICENSE must be the template's MIT license"),
         (".gitignore", lambda text: text.replace("*.pyc\n", ""), ".gitignore must ignore *.pyc"),
-        ("run.sh", lambda text: "exit 0\n", "run.sh must begin with the template's checks"),
         ("README.md", lambda text: text.replace("# Echo", "# Repeat"), "README.md must open with # Echo"),
         ("README.md", lambda text: text.replace("## Layout\n", ""), "README.md must have the sections"),
         ("README.md", lambda text: text.replace("`echo`", "echo"), "README.md ## Tools does not name echo"),

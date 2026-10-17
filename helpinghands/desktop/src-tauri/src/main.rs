@@ -240,6 +240,7 @@ fn main() {
 
             // A signal (Ctrl+C on `npm run desktop`, kill) quits like the menu does, so lab.mjs is
             // stopped rather than left running.
+            #[cfg(unix)]
             {
                 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
                 let mut signals = signal_hook::iterator::Signals::new([SIGHUP, SIGINT, SIGTERM])?;
@@ -256,6 +257,7 @@ fn main() {
         .expect("RUSH Lab failed to start");
     app.run(|app, event| match event {
         // The Dock icon, or opening the app again, brings the window back.
+        #[cfg(target_os = "macos")]
         tauri::RunEvent::Reopen { .. } => show(app),
         tauri::RunEvent::Exit => {
             if let Some(lab) = app.try_state::<Arc<Lab>>() {

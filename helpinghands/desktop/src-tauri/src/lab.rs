@@ -1,7 +1,8 @@
 //! What runs behind RUSH Lab's window and menu-bar icon: src/runner/lab.mjs, which serves every connection
 //! on this computer (a NanoAgent and a relay for each member connected here).
 //!
-//! The app bundles lab.mjs with the relay, NanoAgent compiled, Node and uv (scripts/stage.mjs).
+//! The app bundles lab.mjs with the relay, NanoAgent compiled, Node and uv, and on Windows git
+//! (scripts/stage.mjs).
 //! Each build is installed once into the data folder's app/<stamp>/mochi-lab/, the layout lab.mjs
 //! runs from, because NanoAgent's .venv is made beside it. lab.mjs runs from there while the app is
 //! open, and starts again when it exits; quitting the app stops it.
@@ -18,6 +19,7 @@ use serde::Deserialize;
 use tauri::{AppHandle, Manager};
 
 // lab.mjs takes up to 10s to stop each service of each connection.
+#[cfg(unix)]
 const STOP_TIMEOUT: Duration = Duration::from_secs(60);
 const RESTART: Duration = Duration::from_secs(30);
 const POLL: Duration = Duration::from_millis(250);
@@ -30,7 +32,7 @@ struct Config {
 }
 
 pub struct Lab {
-    /// ~/Library/Application Support/<label>/: lab.mjs's data folder.
+    /// ~/Library/Application Support/<label>/, on Windows %LOCALAPPDATA%\<label>\: lab.mjs's data folder.
     pub data: PathBuf,
     /// This build's files, installed: app/<stamp>/mochi-lab/.
     root: PathBuf,
@@ -57,7 +59,8 @@ impl Lab {
     pub fn install(app: &AppHandle) -> Result<Self, String> {
         let resources = app.path().resource_dir().map_err(|error| error.to_string())?;
         let config = config(app)?;
-        let data = app.path().data_dir().map_err(|error| error.to_string())?.join(&config.label);
+        let data = app.path().local_data_dir().map_err(|error| error.to_string())?.join(&config.label);
+        #[cfg(target_os = "macos")]
         remove_launch_agent(app, &config.label)?;
         let stamp_file = resources.join("stamp");
         let stamp = fs::read_to_string(&stamp_file).map_err(|error| format!("{}: {error}", stamp_file.display()))?;
@@ -67,18 +70,19 @@ impl Lab {
             let partial = apps.join(format!("{}.partial", stamp.trim()));
             let _ = fs::remove_dir_all(&partial);
             let root = partial.join("mochi-lab");
-            for part in ["runner", "nanoagent"] {
+            let parts: &[&str] = if cfg!(windows) { &["runner", "nanoagent", "git"] } else { &["runner", "nanoagent"] };
+            for part in parts {
                 copy_dir(&resources.join(part), &root.join(part)).map_err(|error| format!("installing {part}: {error}"))?;
             }
             for file in ["stamp", "config.json"] {
                 fs::copy(resources.join(file), root.join(file)).map_err(|error| format!("installing {file}: {error}"))?;
             }
             // The bundled runtimes are beside this executable.
-            let exe = std::env::current_exe().map_err(|error| error.to_string())?;
-            let bin = exe.parent().ok_or("the executable has no folder")?;
+            let current = std::env::current_exe().map_err(|error| error.to_string())?;
+            let bin = current.parent().ok_or("the executable has no folder")?;
             fs::create_dir_all(root.join("bin")).map_err(|error| error.to_string())?;
-            for name in ["node", "uv"] {
-                fs::copy(bin.join(name), root.join("bin").join(name)).map_err(|error| format!("installing {name}: {error}"))?;
+            for name in [exe("node"), exe("uv")] {
+                fs::copy(bin.join(&name), root.join("bin").join(&name)).map_err(|error| format!("installing {name}: {error}"))?;
             }
             for entry in fs::read_dir(&apps).map_err(|error| error.to_string())?.flatten() {
                 let old = entry.path();
@@ -99,8 +103,11 @@ impl Lab {
     }
 
     fn node(&self) -> Command {
-        let mut command = Command::new(self.root.join("bin/node"));
+        let mut command = Command::new(self.root.join("bin").join(exe("node")));
         command.arg(self.root.join("runner/lab.mjs")).current_dir(self.root.join("runner"));
+        // Without a console window: this app has none, and Windows would open one for node.
+        #[cfg(windows)]
+        std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);
         command
     }
 
@@ -151,16 +158,25 @@ impl Lab {
         });
     }
 
-    /// Quit: SIGTERM so lab.mjs stops every connection cleanly, SIGKILL after STOP_TIMEOUT.
+    /// Quit: SIGTERM so lab.mjs stops every connection cleanly, SIGKILL after STOP_TIMEOUT. Windows
+    /// has no signals, so there lab.mjs is killed with every service it started.
     pub fn stop(&self) {
         let mut slot = self.child.lock().unwrap();
         self.stopping.store(true, Ordering::SeqCst);
         let Some(mut child) = slot.take() else { return };
         drop(slot);
-        unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
-        let deadline = Instant::now() + STOP_TIMEOUT;
-        while Instant::now() < deadline && child.try_wait().ok().flatten().is_none() {
-            thread::sleep(Duration::from_millis(100));
+        #[cfg(unix)]
+        {
+            unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
+            let deadline = Instant::now() + STOP_TIMEOUT;
+            while Instant::now() < deadline && child.try_wait().ok().flatten().is_none() {
+                thread::sleep(Duration::from_millis(100));
+            }
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            let _ = Command::new("taskkill").args(["/PID", &child.id().to_string(), "/T", "/F"]).creation_flags(0x0800_0000).output();
         }
         let _ = child.kill();
         let _ = child.wait();
@@ -179,6 +195,7 @@ impl Lab {
 }
 
 /// The one-line install had launchd run lab.mjs as `label`: stop it, and keep launchd from starting it again.
+#[cfg(target_os = "macos")]
 fn remove_launch_agent(app: &AppHandle, label: &str) -> Result<(), String> {
     let plist = app.path().home_dir().map_err(|error| error.to_string())?.join("Library/LaunchAgents").join(format!("{label}.plist"));
     if !plist.exists() {
@@ -197,6 +214,10 @@ fn remove_launch_agent(app: &AppHandle, label: &str) -> Result<(), String> {
         }
     }
     fs::remove_file(&plist).map_err(|error| format!("removing {}: {error}", plist.display()))
+}
+
+fn exe(name: &str) -> String {
+    if cfg!(windows) { format!("{name}.exe") } else { name.to_string() }
 }
 
 fn append(log: &Path, line: &str) {

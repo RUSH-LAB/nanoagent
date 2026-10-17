@@ -21,7 +21,7 @@ def test_a_helper_runs_on_this_python() -> None:
 
 def test_an_unknown_helper_is_refused() -> None:
     completed = subprocess.run(helpers.command("package")[:-1] + ["nope"], capture_output=True, text=True, check=False)
-    assert completed.returncode == 2 and "usage: nanoagent helper {package|verifier|egress-bridge}" in completed.stderr
+    assert completed.returncode == 2 and "usage: nanoagent helper {package|verifier|egress-bridge|appcontainer}" in completed.stderr
 
 
 def test_a_helper_starts_without_the_cli() -> None:

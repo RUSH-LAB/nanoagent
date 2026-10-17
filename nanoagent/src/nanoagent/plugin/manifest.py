@@ -57,8 +57,7 @@ raises :class:`PluginError` listing every broken rule at once:
    link outside itself.
 10. The standard files are the :data:`TEMPLATE`'s, what ``nanoagent plugin new`` writes:
     ``LICENSE`` is its license with a year and the name of whoever holds the copyright; ``.gitignore`` ignores
-    every path it ignores; ``run.sh`` begins with its checks, and a plugin adds its own after
-    them; ``README.md`` opens with ``# <name>`` and has its sections (:data:`README_SECTIONS`, in
+    every path it ignores; ``README.md`` opens with ``# <name>`` and has its sections (:data:`README_SECTIONS`, in
     order), naming every tool and task under ``## Tools``; ``pyproject.toml`` names the project
     ``nanoagent-<id>``, puts the plugin root on pytest's path, and has the template's
     ``requires-python``, its dependencies and its ``slimconfig`` source, every other dependency
@@ -121,7 +120,6 @@ REQUIRED_FILES = (
     "uv.lock",
     ".gitignore",
     ".env",  # the environment variables the plugin needs, one name per line, no values
-    "run.sh",  # exits 0 when this environment can run the plugin; run before every launch
 )
 REQUIRED_FOLDERS = (
     "src",
@@ -662,16 +660,13 @@ def _import_violations(script: Path, text: str, served: set[str]) -> list[str]:
 
 
 def _template_violations(root: Path) -> list[str]:
-    """``.gitignore`` and ``run.sh`` start from the template's (rule 10)."""
+    """``.gitignore`` starts from the template's (rule 10)."""
     violations: list[str] = []
     if (root / ".gitignore").is_file():
         ignored = set((root / ".gitignore").read_text(encoding="utf-8").splitlines())
         violations += [
             f".gitignore must ignore {line}" for line in (TEMPLATE / "dot.gitignore").read_text(encoding="utf-8").splitlines() if line not in ignored
         ]
-    template = (TEMPLATE / "run.sh").read_text(encoding="utf-8")
-    if (root / "run.sh").is_file() and not (root / "run.sh").read_text(encoding="utf-8").startswith(template):
-        violations.append("run.sh must begin with the template's checks; add the plugin's own after them")
     return violations
 
 

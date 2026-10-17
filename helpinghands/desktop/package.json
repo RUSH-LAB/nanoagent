@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "build": "tauri build",
+    "build:windows": "tauri build --bundles nsis",
     "bundle:lab": "node scripts/bundle-lab.mjs"
   },
   "devDependencies": {

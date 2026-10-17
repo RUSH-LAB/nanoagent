@@ -7,6 +7,7 @@
  *   src-tauri/resources/nanoagent/  NanoAgent compiled by Nuitka (site/), its uv.lock, the PI runner's bundle, and the config the app runs
  *   src-tauri/resources/config.json this folder's config.yaml, as JSON: lab.mjs loads only Node's own modules
  *   src-tauri/resources/stamp       names this staging; the app installs each stamp once
+ *   src-tauri/resources/git/        Windows only: MinGit, with busybox-w32 as its shell
  *   src-tauri/binaries/{node,uv}-<target>   the runtimes, downloaded and checksum-verified
  */
 import crypto from 'node:crypto';
@@ -59,8 +60,8 @@ async function download(url, file) {
   fs.renameSync(`${file}.partial`, file);
 }
 
-/** Download `url` into the cache, check it against `expected`, and unpack it into a fresh folder. */
-async function fetchVerified(url, expected) {
+/** Download `url` into the cache and check it against `expected`: its file. */
+async function fetchChecked(url, expected) {
   const file = path.join(cache, path.basename(url));
   await download(url, file);
   const actual = sha256(file);
@@ -68,6 +69,12 @@ async function fetchVerified(url, expected) {
     fs.rmSync(file);
     throw new Error(`${path.basename(url)}: sha256 ${actual}, expected ${expected}`);
   }
+  return file;
+}
+
+/** Download `url` into the cache, check it against `expected`, and unpack it into a fresh folder. */
+async function fetchVerified(url, expected) {
+  const file = await fetchChecked(url, expected);
   const unpacked = path.join(cache, `${path.basename(url)}.d`);
   fs.rmSync(unpacked, {recursive: true, force: true});
   fs.mkdirSync(unpacked);
@@ -98,6 +105,21 @@ async function stageUv(target, platform) {
   fs.copyFileSync(binary, path.join(binaries, `uv-${target}${platform.exe}`));
 }
 
+/**
+ * Windows only: git, which uv runs to fetch a git dependency. MinGit's shell is MSYS's, which cannot
+ * start in a plugin's AppContainer, so busybox-w32 takes its place as usr/bin/sh.exe.
+ */
+async function stageGit() {
+  const unpacked = await fetchVerified(
+    `https://github.com/git-for-windows/git/releases/download/${config.mingit_release}/MinGit-${config.mingit_version}-64-bit.zip`,
+    config.mingit_sha256,
+  );
+  const git = path.join(resources, 'git');
+  fs.cpSync(unpacked, git, {recursive: true});
+  const busybox = await fetchChecked(`https://frippery.org/files/busybox/busybox-w64u-${config.busybox_build}.exe`, config.busybox_sha256);
+  fs.copyFileSync(busybox, path.join(git, 'usr', 'bin', 'sh.exe'));
+}
+
 // lab.mjs, the relay and the protocol it shares with Mochi's server; Node's own modules are all they load.
 function stageRunner() {
   copy(path.join(mochiRoot, 'src', 'runner'), path.join(resources, 'runner'));
@@ -118,7 +140,8 @@ async function stageNanoAgent(uv) {
     'run', '--no-project', '--managed-python', '--python', config.python_version, '--with-editable', '.[compile]',
     'python', '-m', 'nuitka', '--mode=package', '--assume-yes-for-downloads', `--output-dir=${build}`, 'src/nanoagent',
   ], {cwd: nanoagentRoot});
-  const [module] = fs.readdirSync(build).filter(name => name.endsWith('.so'));
+  // Nuitka's module is a .so on macOS and Linux, a .pyd on Windows.
+  const [module] = fs.readdirSync(build).filter(name => /\.(so|pyd)$/.test(name));
   copy(path.join(build, module), path.join(out, 'site', module));
   // What the code reads from its package's folder: every file but its .py, and the plugin
   // template whole, which `nanoagent plugin new` copies.
@@ -163,11 +186,14 @@ async function main() {
     throw new Error(`TAURI_ENV_TARGET_TRIPLE is ${JSON.stringify(target)}; run this through npm run build (targets: ${Object.keys(TARGETS).join(', ')})`);
   }
   fs.rmSync(resources, {recursive: true, force: true});
+  // Tauri copies resources into its target folder and never removes a file a later build dropped.
+  for (const part of ['runner', 'nanoagent', 'git']) fs.rmSync(path.join(desktop, 'src-tauri', 'target', 'release', part), {recursive: true, force: true});
   fs.mkdirSync(resources, {recursive: true});
   fs.mkdirSync(binaries, {recursive: true});
   await stageNode(target, platform);
   await stageUv(target, platform);
   stageRunner();
+  if (platform.exe) await stageGit();
   await stageNanoAgent(path.join(binaries, `uv-${target}${platform.exe}`));
   fs.writeFileSync(path.join(resources, 'config.json'), `${JSON.stringify(config, null, 2)}\n`);
   const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {cwd: mochiRoot, encoding: 'utf8'}).trim();

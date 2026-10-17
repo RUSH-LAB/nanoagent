@@ -181,8 +181,6 @@ sandbox does, with `build_output(plain_output(...), Class)`.
   every task under `## Tools`.
 - `.env` lists the environment variable names the plugin needs, one per
   line, and never their values.
-- `run.sh` keeps the reference plugin's checks first. Add any checks of your own
-  after them.
 - `.gitignore` keeps every entry the reference plugin has.
 
 When everything above is done, set `status: ready`.
@@ -196,13 +194,13 @@ uv lock                 # after any pyproject.toml change; commit uv.lock
 uv sync --extra dev
 uv run pytest
 uv run ruff check .
-bash run.sh && echo ok  # exits 0 when this machine can run the plugin
+uv lock --check  # uv.lock matches pyproject.toml
 ```
 
 Then walk this list by hand:
 
 - [ ] The top level holds only `nanoagent.yaml`, `contract.py`, `README.md`,
-      `LICENSE`, `pyproject.toml`, `uv.lock`, `.gitignore`, `.env`, `run.sh`,
+      `LICENSE`, `pyproject.toml`, `uv.lock`, `.gitignore`, `.env`,
       `src/`, `tests/`, `verifier/`, `ui/` and `product/`. No reports, run
       outputs or notes.
 - [ ] The `id`, README title, `nanoagent-<id>` project name and LICENSE
@@ -247,7 +245,7 @@ Lab, and emails it to the course staff instead.
 | `<id> is one of NanoAgent's own plugins` | Choose a new id. |
 | `Your uploads may hold N MB in all` | Remove one of your other published plugins, or shrink this one. |
 | `uv.lock is out of date with pyproject.toml` | Run `uv lock` and commit the result. |
-| A broken README, LICENSE, `.gitignore` or `run.sh` rule | Restore the reference plugin's version of that part, then add yours after it. |
+| A broken README, LICENSE, or `.gitignore` rule | Restore the reference plugin's version of that part, then add yours after it. |
 | A `decide` field that cannot be filled | Make the field an Enum or bool, or make sure an earlier tool output or the task input holds a value of exactly its type. |
 | A verifier import or call that is not allowed | Replace it with a pure standard-library equivalent, or move the work into a tool. |
 | A `ready` product page that still has placeholder text | Rewrite the tagline, summary, highlights and steps for this plugin. |
