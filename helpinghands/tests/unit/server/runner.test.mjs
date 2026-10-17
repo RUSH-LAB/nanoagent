@@ -5,8 +5,10 @@ import {createRequire} from 'node:module';
 import {connect} from '../../../src/runner/relay.mjs';
 
 const require = createRequire(import.meta.url);
-const {createRunners} = require('../../../src/server/runner.js');
-const {RUNNER_OFFLINE} = require('../../../src/server/ai.js');
+const {createRunners, CLOUD_PAGE} = require('../../../src/server/runner.js');
+const {RUNNER_OFFLINE, createNanoAgentGateway} = require('../../../src/server/ai.js');
+const {createCloudRuns} = require('../../../src/server/cloud-runs.js');
+const {createPreferences} = require('../../../src/server/preferences.js');
 const {createAppRuns} = require('../../../src/server/app-runs.js');
 const {fakeSessions, SESSION} = await import('../_harness.mjs');
 
@@ -117,8 +119,9 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
 
   it('serves a plugin page from the computer its connection\'s page id names, with its own policy, until it leaves', async () => {
     await dialIn();
-    const page = runners.page('u1');
+    const {page, gateway} = await runners.hostFor('u1');
     assert.match(page, /^[0-9a-f-]{36}$/);
+    assert.equal(gateway, runners.computer('u1'));
     const file = await runners.byPage(page).installUiFile('a'.repeat(64), '0123456789abcdef', 'index.html');
     assert.equal(file.value.toString(), '<!doctype html>');
     assert.equal(file.headers.get('content-security-policy'), "default-src 'none'");
@@ -128,7 +131,7 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     dropComputers();
     await until(() => !runners.status('u1').connected);
     assert.equal(runners.byPage(page), null);
-    assert.equal(runners.page('u1'), null);
+    assert.equal(await runners.hostFor('u1'), null);
   });
 
   it('refuses a run while the member\'s computer is not connected, rather than running it elsewhere', async () => {
@@ -271,7 +274,7 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     };
     const {closed} = await dialIn('member-token', {held});
     const first = appRunsOn(runners);
-    await first.start({userId: 'u1', workspaceId: 'lab'}, {pluginId: 'echo', sessionId: SESSION, prompt: 'slow', request: {input: 'slow', install: 'a'.repeat(64)}});
+    await first.start({userId: 'u1', workspaceId: 'lab'}, {pluginId: 'echo', sessionId: SESSION, prompt: 'slow', request: {input: 'slow', install: 'a'.repeat(64)}, ai: await runners.aiFor('u1')});
     await until(() => [...held.values()][0]?.frames.length === 2);
     runners.close();
     await closed;
@@ -346,5 +349,181 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     assert.equal(await upgrade({Cookie: 'session=member'}), 403);
     assert.equal(await upgrade({Authorization: 'Bearer member-token', Cookie: 'session=member'}), 101);
     assert.equal(await upgrade({Authorization: 'Bearer stolen'}), 401);
+  });
+});
+
+describe('RUSH Lab cloud beside members\' own computers (server/runner.js, cloud-runs.js)', () => {
+  let mochi; let site; let laptop; let laptopUrl; let cloudNano; let cloudUrl; let preferences; let runners; let relays; let sockets;
+
+  /** The SQLite preferences the unit suites use, on a scratch database of their own. */
+  function scratchPreferences() {
+    const Database = require('better-sqlite3');
+    const db = new Database(':memory:');
+    db.exec('CREATE TABLE user_preferences ("userId" TEXT PRIMARY KEY, "value" TEXT NOT NULL, "updatedAt" TEXT NOT NULL)');
+    return createPreferences({db});
+  }
+
+  /** Runners whose RUSH Lab cloud is Mochi's own NanoAgent at cloudUrl, offered when `env` says so. */
+  function runnersWith(env) {
+    const gateway = createNanoAgentGateway({env: {NANOAGENT_URL: cloudUrl, NANOAGENT_API_TOKEN: 'cloud-secret'}});
+    return createRunners({
+      resolveIdentity: async ({headers}) => (headers.authorization === 'Bearer member-token' && !headers.cookie
+        ? {ok: true, identity: {userId: 'u1'}}
+        : {ok: false, status: 401, error: 'Not signed in'}),
+      cloud: createCloudRuns({env, gateway, preferences}),
+    });
+  }
+
+  beforeEach(async () => {
+    relays = [];
+    sockets = [];
+    preferences = scratchPreferences();
+    laptop = fakeNanoAgent();
+    laptopUrl = await listen(laptop.server);
+    cloudNano = fakeNanoAgent();
+    cloudUrl = await listen(cloudNano.server);
+    runners = runnersWith({CLOUD_RUNS: 'on'});
+    mochi = http.createServer((req, res) => res.writeHead(404).end());
+    mochi.on('upgrade', (req, socket, head) => {
+      sockets.push(socket);
+      runners.upgrade(req, socket, head);
+    });
+    site = await listen(mochi);
+  });
+
+  afterEach(async () => {
+    sockets.forEach(socket => socket.destroy());
+    for (const server of [mochi, laptop.server, cloudNano.server]) server.closeAllConnections();
+    await Promise.all([mochi, laptop.server, cloudNano.server].map(server => new Promise(resolve => server.close(resolve))));
+    await Promise.all(relays);
+  });
+
+  async function dialIn() {
+    let opened = false;
+    relays.push(connect({site, nanoagent: laptopUrl, nanoagentToken: 'laptop-secret', token: 'member-token', device: 'laptop', onEvent: () => { opened = true; }}));
+    await until(() => opened && runners.status('u1').device === 'laptop');
+  }
+
+  it('sends a cloud member\'s plugin run to RUSH Lab cloud, with Mochi\'s token, and streams it back', async () => {
+    preferences.merge('u1', {runner: 'cloud'});
+    const ai = await runners.appsFor('u1');
+    assert.equal(ai.local, false);
+    const deltas = [];
+    const result = await ai.stream({input: 'hi', onDelta: text => deltas.push(text)});
+    assert.equal(result.text, 'hello world');
+    assert.deepEqual(deltas, ['hello ', 'world']);
+    assert.deepEqual(cloudNano.seen.map(call => [call.method, call.url, call.authorization]), [['POST', '/v1/runs', 'Bearer cloud-secret']]);
+    assert.deepEqual(laptop.seen, []);
+  });
+
+  it('keeps a cloud member\'s plugin runs in RUSH Lab cloud while their computer is connected too', async () => {
+    preferences.merge('u1', {runner: 'cloud'});
+    await dialIn();
+    assert.equal(runners.status('u1').connected, true);
+    const result = await (await runners.appsFor('u1')).stream({input: 'hi'});
+    assert.equal(result.text, 'hello world');
+    assert.equal(cloudNano.seen.length, 1);
+    assert.deepEqual(laptop.seen, []);
+  });
+
+  it('keeps a cloud member\'s other AI calls on their own computer: RUSH Lab cloud runs only plugins', async () => {
+    preferences.merge('u1', {runner: 'cloud'});
+    assert.deepEqual(await (await runners.aiFor('u1')).stream({input: 'inline'}), {error: RUNNER_OFFLINE, status: 503});
+    await dialIn();
+    const ai = await runners.aiFor('u1');
+    assert.equal(ai.local, true);
+    assert.equal((await ai.stream({input: 'inline'})).text, 'hello world');
+    assert.equal(laptop.seen.length, 1);
+    assert.deepEqual(cloudNano.seen, []);
+  });
+
+  it('runs the plugins of a member who has not chosen on their computer, refused while it is not connected', async () => {
+    const ai = await runners.appsFor('u1');
+    assert.equal(ai.local, true);
+    assert.deepEqual(await ai.stream({input: 'hi'}), {error: RUNNER_OFFLINE, status: 503});
+    assert.deepEqual(await ai.installPackage('a'.repeat(64), Buffer.from('x')), {error: RUNNER_OFFLINE, status: 503});
+    assert.equal(await runners.hostFor('u1'), null);
+    assert.deepEqual(cloudNano.seen, []);
+    assert.deepEqual(laptop.seen, []);
+  });
+
+  it('refuses the run of a member who chose their computer while it is not connected, rather than send it to RUSH Lab cloud', async () => {
+    preferences.merge('u1', {runner: 'computer'});
+    assert.deepEqual(await (await runners.appsFor('u1')).stream({input: 'hi'}), {error: RUNNER_OFFLINE, status: 503});
+    assert.equal(await runners.hostFor('u1'), null);
+    assert.deepEqual(cloudNano.seen, []);
+  });
+
+  it('runs on the member\'s computer once they choose it and it is connected', async () => {
+    preferences.merge('u1', {runner: 'computer'});
+    await dialIn();
+    const ai = await runners.appsFor('u1');
+    assert.equal(ai.local, true);
+    assert.equal((await ai.stream({input: 'hi'})).text, 'hello world');
+    assert.deepEqual(laptop.seen.map(call => [call.method, call.url, call.authorization]), [['POST', '/v1/runs', 'Bearer laptop-secret']]);
+    assert.deepEqual(cloudNano.seen, []);
+  });
+
+  it('sends each plugin run where the member chose when it starts', async () => {
+    await dialIn();
+    preferences.merge('u1', {runner: 'computer'});
+    await (await runners.appsFor('u1')).stream({input: 'first'});
+    preferences.merge('u1', {runner: 'cloud'});
+    await (await runners.appsFor('u1')).stream({input: 'second'});
+    preferences.merge('u1', {runner: 'computer'});
+    await (await runners.appsFor('u1')).stream({input: 'third'});
+    const inputs = calls => calls.map(call => JSON.parse(call.body).input);
+    assert.deepEqual(inputs(laptop.seen), ['first', 'third']);
+    assert.deepEqual(inputs(cloudNano.seen), ['second']);
+  });
+
+  it('installs a cloud member\'s plugins on RUSH Lab cloud and serves their pages under its one page id', async () => {
+    preferences.merge('u1', {runner: 'cloud'});
+    const host = await runners.hostFor('u1');
+    assert.equal(host.page, CLOUD_PAGE);
+    assert.match(CLOUD_PAGE, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    const data = Buffer.from(Array.from({length: 70_000}, (_, i) => i % 256));
+    const put = await host.gateway.installPackage('a'.repeat(64), data);
+    assert.equal(put.value.plugin.bytes, data.length);
+    const file = await runners.byPage(CLOUD_PAGE).installUiFile('a'.repeat(64), '0123456789abcdef', 'index.html');
+    assert.equal(file.value.toString(), '<!doctype html>');
+    assert.equal(file.headers.get('content-security-policy'), "default-src 'none'");
+    assert.deepEqual(cloudNano.seen.map(call => [call.method, call.url, call.authorization]), [
+      ['PUT', `/v1/installs/${'a'.repeat(64)}`, 'Bearer cloud-secret'],
+      ['GET', `/v1/installs/${'a'.repeat(64)}/ui/0123456789abcdef/index.html`, 'Bearer cloud-secret'],
+    ]);
+    assert.deepEqual(cloudNano.seen[0].body, data);
+    assert.deepEqual(laptop.seen, []);
+  });
+
+  it('gives a computer member their connection\'s page, never RUSH Lab cloud\'s', async () => {
+    await dialIn();
+    const host = await runners.hostFor('u1');
+    assert.notEqual(host.page, CLOUD_PAGE);
+    assert.equal(host.gateway, runners.computer('u1'));
+    assert.equal(runners.byPage(host.page), host.gateway);
+  });
+
+  it('offers nothing of RUSH Lab cloud where it is not offered: computers only, and no cloud page', async () => {
+    runners = runnersWith({});
+    preferences.merge('u1', {runner: 'cloud'});
+    assert.equal(runners.byPage(CLOUD_PAGE), null);
+    assert.equal(await runners.hostFor('u1'), null);
+    assert.deepEqual(await (await runners.appsFor('u1')).stream({input: 'hi'}), {error: RUNNER_OFFLINE, status: 503});
+    assert.deepEqual(cloudNano.seen, []);
+  });
+
+  it('keeps the computer\'s own status: RUSH Lab cloud is not a connected computer', async () => {
+    preferences.merge('u1', {runner: 'cloud'});
+    assert.deepEqual(runners.status('u1'), {connected: false, device: null, since: null, keys: []});
+    await dialIn();
+    assert.equal(runners.status('u1').connected, true);
+    assert.equal(runners.status('u1').device, 'laptop');
+  });
+
+  it('sends nobody signed in nowhere', async () => {
+    assert.equal(await runners.hostFor(null), null);
+    assert.deepEqual(await (await runners.appsFor(null)).stream({input: 'hi'}), {error: RUNNER_OFFLINE, status: 503});
+    assert.deepEqual(cloudNano.seen, []);
   });
 });

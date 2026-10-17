@@ -8,10 +8,10 @@ const {RUNNER_OFFLINE} = require('../ai');
 // they install, tag and uninstall at /api/apps/{id}, and the caller's own folder
 // for each app, `home/<user>/agent/<app>/` in the workspace file system, where
 // that app leaves its files (/api/agent-files?plugin=<app>).
-// Opening an app (GET /api/apps/{id}) has the NanoAgent on the member's own
-// computer install its package, by sha256; its own page (its ui/ folder) comes
-// from that computer too, at /api/apps/{sha256}/ui/{page}/{uiVersion}/ (`page`
-// names the computer's connection, server/runner.js), and is
+// Opening an app (GET /api/apps/{id}) has the NanoAgent the member's runs go to
+// (their own computer's, or RUSH Lab cloud's: server/runner.js hostFor) install
+// its package, by sha256; its own page (its ui/ folder) comes from that NanoAgent
+// too, at /api/apps/{sha256}/ui/{page}/{uiVersion}/ (`page` names it), and is
 // shown in a sandboxed frame (src/components/PluginFrame). A prompt for an app
 // goes through /api/ai/stream with an appId and runs on that app's NanoAgent
 // agent inside the same workspace (routes/ai.js).
@@ -161,7 +161,8 @@ function tagsOf(body) {
 
 /**
  * One of the caller's apps: GET opens it, installed and ready to run on the
- * member's own computer, with the `computer` page id its page is served by; PUT
+ * NanoAgent the member's runs go to, with the `computer` page id its page is
+ * served by (server/runner.js hostFor); PUT
  * installs the marketplace plugin of that id, PATCH replaces the tags the
  * caller files it under, and DELETE uninstalls it. Each is the member's own to
  * do, in any role: an install is theirs, not the workspace's.
@@ -172,11 +173,10 @@ async function appRoute(req, res, ctx, id) {
   if (!workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
   if (req.method === 'GET') {
     requireWorkspacePermission(req.context, 'content:read');
-    const computer = ctx.runners.computer(req.context.userId);
-    if (!computer) return json(res, 503, {error: RUNNER_OFFLINE});
-    const page = ctx.runners.page(req.context.userId);
-    const opened = await workspaceApps.open(req.context, id, computer);
-    return opened.error ? json(res, opened.status, {error: opened.error}) : json(res, 200, {app: {...opened.value, computer: page}});
+    const host = await ctx.runners.hostFor(req.context.userId);
+    if (!host) return json(res, 503, {error: RUNNER_OFFLINE});
+    const opened = await workspaceApps.open(req.context, id, host.gateway);
+    return opened.error ? json(res, opened.status, {error: opened.error}) : json(res, 200, {app: {...opened.value, computer: host.page}});
   }
   if (req.method === 'PUT') {
     requireWorkspacePermission(req.context, 'apps:use');
@@ -225,14 +225,14 @@ module.exports = async function app_routes(req, res, url, pathname, ctx) {
   }
 
   // Entering a workspace installs the member's apps ahead of the first open, on
-  // their computer, where their pages and runs are. Answered at once; an
-  // install that fails is logged, and opening that app reports it.
+  // the NanoAgent their pages and runs are on. Answered at once; an install that
+  // fails is logged, and opening that app reports it.
   if (req.method === 'POST' && pathname === '/api/app-installs') {
     requireWorkspacePermission(req.context, 'content:read');
     if (!ctx.workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
-    const computer = ctx.runners.computer(req.context.userId);
-    if (!computer) return json(res, 503, {error: RUNNER_OFFLINE});
-    ctx.workspaceApps.prepare(req.context, computer).then(
+    const host = await ctx.runners.hostFor(req.context.userId);
+    if (!host) return json(res, 503, {error: RUNNER_OFFLINE});
+    ctx.workspaceApps.prepare(req.context, host.gateway).then(
       result => {
         for (const failed of result.error ? [result] : result.value.filter(app => app.error)) {
           console.error(`[apps] preparing ${failed.id ?? 'the member\'s apps'} failed: ${failed.error}`);

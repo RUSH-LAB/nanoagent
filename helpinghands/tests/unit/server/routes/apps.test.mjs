@@ -55,7 +55,7 @@ function ctxWith(ai, fs = fakeFs()) {
   ctx.runners = {
     ...ctx.runners,
     computer: userId => (userId === context.userId ? ctx.ai : null),
-    page: userId => (userId === context.userId ? PAGE : null),
+    hostFor: async userId => (userId === context.userId ? {gateway: ctx.ai, page: PAGE} : null),
     byPage: page => (page === PAGE ? ctx.ai : null),
   };
   ctx.workspaceFs = fs;
@@ -122,6 +122,7 @@ describe('NanoAgent apps', () => {
   it('neither opens nor prepares an app while the member\'s computer is not connected', async () => {
     const ctx = ctxWith({});
     ctx.runners.computer = () => null;
+    ctx.runners.hostFor = async () => null;
     ctx.workspaceApps.prepare = async () => assert.fail('must not install anywhere');
     for (const [method, path] of [['GET', '/api/apps/echo'], ['POST', '/api/app-installs']]) {
       const result = await invoke(routes, {method, path, ctx, requestContext: context});
@@ -351,7 +352,7 @@ describe('an app\'s sessions', () => {
       signal.addEventListener('abort', () => { cancelled = true; resolve({error: 'The AI request was cancelled.', status: 499}); });
       finish = () => resolve({text: 'Saved.'});
     });
-    await ctx.appRuns.start(context, {pluginId: 'echo', sessionId: SESSION, prompt: 'save 1706.03762', request: {install: SHA}});
+    await ctx.appRuns.start(context, {pluginId: 'echo', sessionId: SESSION, prompt: 'save 1706.03762', request: {install: SHA}, ai: ctx.ai});
     const listed = await invoke(routes, {method: 'GET', path: PATH, ctx, requestContext: context});
     assert.deepEqual(listed.payload.sessions.map(session => session.running), [true]);
     const read = await invoke(routes, {method: 'GET', path: `${PATH}/${SESSION}`, ctx, requestContext: context});
@@ -367,7 +368,7 @@ describe('an app\'s sessions', () => {
     assert.equal(gone.status, 404);
     assert.equal((await invoke(routes, {method: 'GET', path: `${PATH}/${SESSION}`, ctx, requestContext: context})).payload.session.running, null);
 
-    await ctx.appRuns.start(context, {pluginId: 'echo', sessionId: SESSION, prompt: 'again', request: {install: SHA}});
+    await ctx.appRuns.start(context, {pluginId: 'echo', sessionId: SESSION, prompt: 'again', request: {install: SHA}, ai: ctx.ai});
     await new Promise(resolve => setImmediate(resolve));
     const stopped = await invoke(routes, {method: 'DELETE', path: `${PATH}/${SESSION}/run`, ctx, requestContext: context});
     assert.equal(stopped.status, 200);
@@ -388,5 +389,80 @@ describe('an app\'s sessions', () => {
     ctx.sessions = null;
     const result = await invoke(routes, {method: 'GET', path: PATH, ctx, requestContext: context});
     assert.equal(result.status, 409);
+  });
+});
+
+describe('apps of a member who runs in RUSH Lab cloud', () => {
+  const require = createRequire(import.meta.url);
+  const {createRunners, CLOUD_PAGE} = require('../../../../src/server/runner.js');
+  const {createCloudRuns} = require('../../../../src/server/cloud-runs.js');
+  const {RUNNER_OFFLINE} = require('../../../../src/server/ai.js');
+  const CSP = "default-src 'self'; connect-src 'none'";
+  const CACHE = 'public, max-age=31536000, immutable';
+
+  /** A ctx on a site offering RUSH Lab cloud, its NanoAgent (ctx.ai) the cloud's, with real runners and no computer. */
+  function cloudCtx(nanoagent = {}) {
+    const ctx = makeCtx();
+    ctx.ai = {...ctx.ai, local: false, ...nanoagent};
+    ctx.cloudRuns = createCloudRuns({env: {CLOUD_RUNS: 'on'}, gateway: ctx.ai, preferences: ctx.preferences});
+    ctx.runners = createRunners({resolveIdentity: async () => ({ok: false, status: 401}), cloud: ctx.cloudRuns});
+    ctx.workspaceFs = fakeFs();
+    ctx.sessions = fakeSessions();
+    ctx.appRuns = appRunsFor(ctx);
+    ctx.workspaceApps = fakeApps();
+    ctx.preferences.merge(context.userId, {runner: 'cloud'});
+    return ctx;
+  }
+
+  it('opens a cloud member\'s app installed in RUSH Lab cloud, its page under RUSH Lab cloud\'s one id', async () => {
+    const ctx = cloudCtx();
+    const on = [];
+    const open = ctx.workspaceApps.open;
+    ctx.workspaceApps.open = async (context, id, nanoagent) => { on.push(nanoagent); return open(context, id); };
+    const opened = await invoke(routes, {method: 'GET', path: '/api/apps/echo', ctx, requestContext: {...context, role: 'viewer'}});
+    assert.equal(opened.status, 200);
+    assert.equal(opened.payload.app.sha256, SHA);
+    assert.equal(opened.payload.app.computer, CLOUD_PAGE);
+    assert.deepEqual(on, [ctx.ai]);
+  });
+
+  it('prepares a cloud member\'s apps in RUSH Lab cloud, answering at once', async () => {
+    const ctx = cloudCtx();
+    const prepared = [];
+    ctx.workspaceApps.prepare = async (_context, nanoagent) => { prepared.push(nanoagent); return {value: []}; };
+    const answer = await invoke(routes, {method: 'POST', path: '/api/app-installs', ctx, requestContext: context});
+    assert.equal(answer.status, 202);
+    assert.deepEqual(prepared, [ctx.ai]);
+  });
+
+  it('serves a page under RUSH Lab cloud\'s id from RUSH Lab cloud, to anyone, as any plugin page', async () => {
+    const asked = [];
+    const ctx = cloudCtx({installUiFile: async (...args) => {
+      asked.push(args);
+      return {value: Buffer.from('export default {};'), headers: new Headers({'content-type': 'text/javascript', 'content-security-policy': CSP, 'cache-control': CACHE})};
+    }});
+    const served = await invoke(routes, {method: 'GET', path: `/api/apps/${SHA}/ui/${CLOUD_PAGE}/0123456789abcdef/renderers.js`, ctx, auth: null});
+    assert.deepEqual(asked, [[SHA, '0123456789abcdef', 'renderers.js']]);
+    assert.equal(served.written.status, 200);
+    assert.equal(served.written.headers['Content-Security-Policy'], CSP);
+    assert.equal(served.written.body.toString(), 'export default {};');
+  });
+
+  it('serves no page under RUSH Lab cloud\'s id where this site does not offer it', async () => {
+    const ctx = cloudCtx({installUiFile: async () => assert.fail('no NanoAgent may be asked')});
+    ctx.runners = createRunners({resolveIdentity: async () => ({ok: false, status: 401}), cloud: createCloudRuns({env: {}, gateway: ctx.ai, preferences: ctx.preferences})});
+    const refused = await invoke(routes, {method: 'GET', path: `/api/apps/${SHA}/ui/${CLOUD_PAGE}/0123456789abcdef/renderers.js`, ctx, auth: null});
+    assert.equal(refused.status, 503);
+  });
+
+  it('opens nothing for a member who runs on their computer while it is not connected, though this site offers RUSH Lab cloud', async () => {
+    const ctx = cloudCtx({install: async () => assert.fail('RUSH Lab cloud must not be asked'), installPackage: async () => assert.fail('RUSH Lab cloud must not be asked')});
+    ctx.preferences.merge(context.userId, {runner: 'computer'});
+    ctx.workspaceApps.prepare = async () => assert.fail('must not install anywhere');
+    for (const [method, path] of [['GET', '/api/apps/echo'], ['POST', '/api/app-installs']]) {
+      const result = await invoke(routes, {method, path, ctx, requestContext: context});
+      assert.deepEqual([result.status, result.payload], [503, {error: RUNNER_OFFLINE}], path);
+    }
+    assert.deepEqual(ctx.workspaceApps.calls, []);
   });
 });

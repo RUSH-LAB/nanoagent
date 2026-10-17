@@ -1,8 +1,9 @@
 'use strict';
 
 /**
- * A member's AI settings (Settings → AI), kept as their `ai` preference. Every
- * run is on their own computer (server/runner.js), so these are its:
+ * A member's AI settings (Settings → AI), kept as their `ai` preference. They
+ * are for the NanoAgent on their own computer (server/runner.js); RUSH Lab
+ * cloud's runs on its own model and limits, and takes only their instructions:
  *
  *   behaviour           how NanoAgent behaves for them
  *   instructions        their own words, added to chat and app runs
@@ -67,9 +68,13 @@ function normalize(input, sanitizeText = text => text) {
 
 /**
  * What a run for `use` sends NanoAgent from `settings`: `{model}` (MODEL),
- * `settings`, and the member's `instructions` for chat and apps.
+ * `settings`, and the member's `instructions` for chat and apps. A NanoAgent
+ * many members share (`shared`, RUSH Lab cloud: server/cloud-runs.js) runs its
+ * configured model, MODEL too, within its own limits, and refuses a run that
+ * names a model or asks past those limits: it is sent only the instructions.
  */
-function forRun(settings, use) {
+function forRun(settings, use, {shared = false} = {}) {
+  if (shared) return use !== 'inline' && settings.instructions ? {instructions: settings.instructions} : {};
   const run = {model: {...MODEL}};
   const tuned = Object.fromEntries(APPLIES[use]
     .filter(key => settings.behaviour[key] != null)

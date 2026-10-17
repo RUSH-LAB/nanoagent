@@ -71,4 +71,20 @@ describe('account-wide API paths on a workspace page', () => {
       resetClientPlatform();
     }
   });
+
+  it('sends where the member\'s runs go unscoped, from any workspace page', async () => {
+    const {installClientPlatform, resetClientPlatform} = await import('../../../src/platform/client.js');
+    installClientPlatform({runtimeConfig: () => ({}), location: {pathname: () => '/w/not-mine/docs'}});
+    const asked = [];
+    globalThis.fetch = async (input, init) => {
+      asked.push([typeof input === 'string' ? input : input.url, init?.method]);
+      return new Response(JSON.stringify({runner: 'cloud'}), {status: 200});
+    };
+    try {
+      assert.deepEqual(await api.apiRequest('/api/runner/target', {method: 'PUT', body: JSON.stringify({runner: 'cloud'})}), {runner: 'cloud'});
+      assert.deepEqual(asked, [['/api/runner/target', 'PUT']]);
+    } finally {
+      resetClientPlatform();
+    }
+  });
 });

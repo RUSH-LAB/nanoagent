@@ -15,6 +15,7 @@ import {createRequire} from 'node:module';
 import {loadRoute, makeCtx, invoke, fakeSessions, appRunsFor, SESSION} from '../../_harness.mjs';
 
 const aiSettings = createRequire(import.meta.url)('../../../../src/server/ai-settings.js');
+const {createCloudRuns} = createRequire(import.meta.url)('../../../../src/server/cloud-runs.js');
 
 const routes = loadRoute('ai');
 const until = async test => {
@@ -711,5 +712,140 @@ describe('/api/ai/settings and /api/ai/models', () => {
     assert.equal(refused.status, 400);
     assert.match(refused.payload.error, /not a key/);
     assert.deepEqual(sent[0], ['u1', {OPENROUTER_API_KEY: 'sk-1'}]);
+  });
+});
+
+describe('RUSH Lab cloud through the AI routes', () => {
+  const SHA = 'a'.repeat(64);
+  const MODEL = {provider: 'openrouter', model: 'deepseek/deepseek-v4-flash-0731'};
+  const status = (ctx, auth = {userId: 'u1'}) => invoke(routes, {path: '/api/runner/status', ctx, auth});
+  const target = (ctx, body, opts = {}) => invoke(routes, {method: 'PUT', path: '/api/runner/target', body, ctx, auth: {userId: 'u1'}, ...opts});
+  const appPrompt = ctx => invoke(routes, {
+    method: 'POST', path: '/api/ai/stream', ctx, requestContext: WORKSPACE,
+    body: {prompt: 'save 1706.03762', appId: 'arxiv-source', sessionId: SESSION},
+  });
+
+  /**
+   * A ctx on a site offering RUSH Lab cloud: the member's plugin runs go to its NanoAgent
+   * (ctx.cloud, not local, which records what it is asked), their other AI calls to their
+   * own computer's (ctx.ai), with one app.
+   */
+  function cloudCtx(overrides = {}) {
+    const ctx = makeCtx(overrides);
+    const asked = [];
+    ctx.cloud = {
+      ...ctx.ai,
+      local: false,
+      asked,
+      complete: async request => { asked.push(request); return {text: 'a completion'}; },
+      stream: async request => {
+        asked.push(request);
+        request.onDelta?.('a ');
+        request.onDelta?.('completion');
+        return {text: 'a completion'};
+      },
+    };
+    ctx.appsFor = async () => ctx.cloud;
+    ctx.cloudRuns = createCloudRuns({env: {CLOUD_RUNS: 'on'}, gateway: ctx.cloud, preferences: ctx.preferences});
+    ctx.sessions = fakeSessions();
+    ctx.workspaceApps = {open: async (_context, id, on) => (on === ctx.cloud ? {value: {id, sha256: SHA}} : assert.fail('installed off RUSH Lab cloud'))};
+    ctx.appRuns = appRunsFor(ctx);
+    return ctx;
+  }
+
+  it('tells where the member\'s plugins run, and whether this site offers RUSH Lab cloud', async () => {
+    assert.deepEqual((await status(makeCtx())).payload, {connected: false, device: null, keys: [], runner: 'computer', cloud: false});
+    const ctx = cloudCtx();
+    assert.deepEqual((await status(ctx)).payload, {connected: false, device: null, keys: [], runner: 'computer', cloud: true});
+    ctx.preferences.merge('u1', {runner: 'cloud'});
+    assert.equal((await status(ctx)).payload.runner, 'cloud');
+    // The computer's own part is still the computer's.
+    ctx.runners.status = () => ({connected: true, device: 'laptop', since: '2026-10-17T00:00:00.000Z', keys: []});
+    assert.deepEqual((await status(ctx)).payload, {connected: true, device: 'laptop', since: '2026-10-17T00:00:00.000Z', keys: [], runner: 'cloud', cloud: true});
+  });
+
+  it('lets a member run their plugins in RUSH Lab cloud or on their computer, answering with where they run now', async () => {
+    const ctx = cloudCtx();
+    const toCloud = await target(ctx, {runner: 'cloud'});
+    assert.equal(toCloud.status, 200);
+    assert.deepEqual(toCloud.payload, {connected: false, device: null, keys: [], runner: 'cloud', cloud: true});
+    assert.equal(ctx.preferences.get('u1').runner, 'cloud');
+    const toComputer = await target(ctx, {runner: 'computer'});
+    assert.equal(toComputer.status, 200);
+    assert.equal(toComputer.payload.runner, 'computer');
+    assert.equal((await status(ctx)).payload.runner, 'computer');
+    assert.deepEqual(ctx.calls.rateLimit.at(-1), {key: 'runner-target:u1', maxPerMinute: 10});
+  });
+
+  it('refuses a choice that is not a runner, a body that is not JSON, and RUSH Lab cloud where it is not offered', async () => {
+    const ctx = cloudCtx();
+    for (const body of [{runner: 'laptop'}, {runner: 'CLOUD'}, {}, {runner: ['cloud']}]) {
+      const refused = await target(ctx, body);
+      assert.deepEqual([refused.status, refused.payload], [400, {error: 'runner must be "cloud" or "computer"'}], JSON.stringify(body));
+    }
+    const garbled = await target(ctx, 'not json');
+    assert.deepEqual([garbled.status, garbled.payload], [400, {error: 'Request body must be JSON, within the size limit'}]);
+    const notOffered = await target(makeCtx(), {runner: 'cloud'});
+    assert.deepEqual([notOffered.status, notOffered.payload], [409, {error: 'This site does not offer RUSH Lab cloud: run on your computer'}]);
+    assert.deepEqual(ctx.preferences.get('u1'), {});
+  });
+
+  it('asks who chooses, and how often', async () => {
+    const anonymous = await target(cloudCtx(), {runner: 'cloud'}, {auth: null});
+    assert.deepEqual([anonymous.status, anonymous.payload], [401, {error: 'Sign in to choose where your runs go'}]);
+    let reads = 0;
+    const limited = cloudCtx({rateLimitAllow: false, readBody: async () => { reads++; return {runner: 'cloud'}; }});
+    const refused = await target(limited, undefined);
+    assert.deepEqual([refused.status, refused.payload], [429, {error: 'Too many requests. Try again in a minute.'}]);
+    assert.equal(reads, 0);
+  });
+
+  it('sends RUSH Lab cloud an app prompt with only the member\'s instructions, its own model and limits running it', async () => {
+    const ctx = cloudCtx();
+    ctx.settings = aiSettings.normalize({behaviour: {temperature: 0.3, maxSteps: 40}, instructions: 'Be terse.'}).value;
+    const r = await appPrompt(ctx);
+    assert.equal(r.res.written.status, 200);
+    const [app] = ctx.cloud.asked;
+    assert.equal(app.install, SHA);
+    assert.equal(app.app, 'arxiv-source');
+    assert.equal('model' in app, false);
+    assert.equal('settings' in app, false);
+    assert.equal(app.instructions, 'Be terse.');
+    assert.deepEqual(ctx.calls.ai, []);
+  });
+
+  it('keeps a cloud member\'s inline completion on their own computer, which names the model as before', async () => {
+    const ctx = cloudCtx();
+    ctx.preferences.merge('u1', {runner: 'cloud'});
+    await invoke(routes, {method: 'POST', path: '/api/ai/inline-complete', body: {prompt: 'x'}, ctx, auth: {userId: 'u1'}});
+    await invoke(routes, {method: 'POST', path: '/api/ai/stream', body: {prompt: 'chat'}, ctx, auth: {userId: 'u1'}});
+    assert.deepEqual(ctx.calls.ai.map(request => request.model), [MODEL, MODEL]);
+    assert.deepEqual(ctx.cloud.asked, []);
+  });
+
+  it('runs a cloud member\'s app in RUSH Lab cloud, charged to the workspace, telling no computer', async () => {
+    const ctx = cloudCtx();
+    const r = await appPrompt(ctx);
+    assert.equal(r.res.written.status, 200);
+    assert.deepEqual(ctx.sessions.turns.map(({prompt, answer, error}) => ({prompt, answer, error})), [{prompt: 'save 1706.03762', answer: 'a completion', error: null}]);
+    assert.deepEqual(ctx.calls.aiUsage.map(({kind, local, pluginId}) => ({kind, local, pluginId})), [{kind: 'app', local: false, pluginId: 'arxiv-source'}]);
+    assert.deepEqual(ctx.appRuns.released, []);
+    assert.deepEqual(ctx.calls.ai, []);
+  });
+
+  it('refuses a cloud member\'s app run once their budget is spent, before RUSH Lab cloud is asked; their own computer\'s calls go on', async () => {
+    const spent = Object.assign(new Error('You have used your $0.50 daily assistant budget in this workspace. It resets at midnight UTC.'), {
+      name: 'TenancyError', status: 429, code: 'ai-budget-member-daily',
+    });
+    const ctx = cloudCtx();
+    ctx.aiMeter.assertAllowed = async (_context, {local = false} = {}) => { if (!local) throw spent; };
+    const refused = await appPrompt(ctx);
+    assert.deepEqual([refused.status, refused.payload], [429, {error: spent.message, code: 'ai-budget-member-daily'}]);
+    assert.deepEqual(ctx.cloud.asked, []);
+    assert.equal(ctx.sessions.rows.size, 0);
+    // On their own computer, a member's runs are theirs to pay for, and never refused.
+    const completion = await invoke(routes, {method: 'POST', path: '/api/ai/inline-complete', body: {prompt: 'x'}, ctx, auth: {userId: 'u1'}});
+    assert.equal(completion.status, 200);
+    assert.equal(ctx.calls.ai.length, 1);
   });
 });

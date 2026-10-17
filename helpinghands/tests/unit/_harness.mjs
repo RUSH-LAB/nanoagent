@@ -34,6 +34,7 @@ export const utils = require('../../src/server/server-utils.js');
 const {buildPluginApi} = require('../../src/server/plugin-api.js');
 const aiSettings = require('../../src/server/ai-settings.js');
 const {createAppRuns} = require('../../src/server/app-runs.js');
+const {createCloudRuns} = require('../../src/server/cloud-runs.js');
 const workspaceContext = require('../../src/server/workspace-context.js');
 
 /**
@@ -531,14 +532,19 @@ export function makeCtx(overrides = {}) {
         limits: {max_steps: 6, cost_limit: 0.1, token_limit: 65536, max_tokens: 2048, capped: true},
       }),
       describe: () => ({available: true, provider: 'nanoagent', model: 'test-model'}),
-      local: false,
+      local: true,
     },
-    // Every member's runs go to ctx.ai, as with Settings → AI on Mochi servers
-    // (server/runner.js); a suite testing the member's own computer replaces it.
+    // Every member's runs go to ctx.ai, their own computer's NanoAgent, as by
+    // default (server/runner.js); a suite testing RUSH Lab cloud replaces it with
+    // one that is not local.
     aiFor: async function () { return this.ai; },
+    // And so do their plugin runs, unless a suite sends them to RUSH Lab cloud.
+    appsFor: async function () { return this.ai; },
     // The member's Settings → AI: none chosen, unless a suite sets ctx.settings.
     aiSettings: async function () { return this.settings ?? aiSettings.stored(null); },
-    runners: {status: () => ({connected: false, device: null, keys: []}), computer: () => null},
+    runners: {status: () => ({connected: false, device: null, keys: []}), computer: () => null, hostFor: async () => null},
+    // RUSH Lab cloud, not offered unless a suite offers it (cloud-runs.js).
+    cloudRuns: createCloudRuns({env: {}, gateway: null, preferences: preferenceLayer}),
     PROJECT_ROOT: root,
     /**
      * The caller's content root. Ignores the organization id in production
@@ -925,10 +931,10 @@ export function fakeSessions(plugins = ['echo', 'arxiv-source']) {
       const going = [...sessions.rows.values()].find(row => row.sessionId === id);
       return {...summary(id, pluginId), chat: [], running: going ? {prompt: going.prompt} : null, calls: []};
     },
-    async startRun(context, pluginId, sessionId, {id, prompt, install}) {
+    async startRun(context, pluginId, sessionId, {id, prompt, install, runner}) {
       await sessions.assertOwned(context, pluginId, sessionId);
       if ([...sessions.rows.values()].some(row => row.sessionId === sessionId)) throw new SessionError(409, 'This session is still answering a message');
-      sessions.rows.set(id, {id, workspaceId: context.workspaceId, userId: context.userId, sessionId, pluginId, prompt, install, folder: null, sent: null, ran: false});
+      sessions.rows.set(id, {id, workspaceId: context.workspaceId, userId: context.userId, sessionId, pluginId, prompt, install, runner, folder: null, sent: null, ran: false, startedAt: new Date()});
     },
     async setRunFolder(_context, id, {folder, sent}) {
       Object.assign(sessions.rows.get(id), {folder, sent});
@@ -967,7 +973,8 @@ export function appRunsFor(ctx, {agentSync = {prepare: async () => ({workspace: 
   const runs = createAppRuns({
     sessions: ctx.sessions,
     agentSync,
-    runners: {aiFor: async () => ctx.ai, release: (userId, id) => released.push([userId, id])},
+    // The member's computer, when ctx.ai is its NanoAgent; RUSH Lab cloud's is not one.
+    runners: {computer: () => (ctx.ai.local ? ctx.ai : null), release: (userId, id) => released.push([userId, id])},
     aiMeter: ctx.aiMeter,
   });
   return Object.assign(Object.create(runs), {released});

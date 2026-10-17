@@ -156,10 +156,10 @@ function composeRequest(body, sanitizeText, agent = null, catalog = null, run = 
 
 /**
  * Resolve an agent inside the verified workspace; never trust its browser copy.
- * The run is for `use` (chat or inline), on the NanoAgent `ai`, with the member's `settings`.
+ * `supplied` is the request's body. The run is for `use` (chat or inline), on
+ * the NanoAgent `ai`, with the member's `settings`.
  */
-async function composeStoredRequest(req, ctx, overrides, use, ai, settings) {
-  const supplied = await ctx.readBody(req);
+async function composeStoredRequest(req, ctx, supplied, overrides, use, ai, settings) {
   const catalog = typeof ai.profiles === 'function'
     ? await ai.profiles()
     : fallbackProfiles;
@@ -175,7 +175,7 @@ async function composeStoredRequest(req, ctx, overrides, use, ai, settings) {
     if (!agent) return {error: 'Agent not found', status: 404};
   }
   const composed = composeRequest(
-    body, ctx.sanitizeText, agent, catalog, aiSettings.forRun(settings, runUse),
+    body, ctx.sanitizeText, agent, catalog, aiSettings.forRun(settings, runUse, {shared: !ai.local}),
   );
   if (composed.error) return composed;
   // The browser may choose only a profile id from NanoAgent's discovered
@@ -285,10 +285,11 @@ async function answerRun(req, ctx, ai, kind, composed, send, signal) {
 async function meteredCompletion(req, res, ctx, kind, overrides, use) {
   const {json, aiMeter} = ctx;
   try {
+    const supplied = await ctx.readBody(req);
     const ai = await ctx.aiFor(req.auth?.userId);
     await aiMeter.assertAllowed(req.context, ai);
     const settings = await ctx.aiSettings(req.auth?.userId);
-    const {error, request, status} = await composeStoredRequest(req, ctx, overrides, use, ai, settings);
+    const {error, request, status} = await composeStoredRequest(req, ctx, supplied, overrides, use, ai, settings);
     if (error) return json(res, status || 400, {error});
     // Which model answers is server/ai.js's business. This one composes the
     // message and reports whatever comes back.
@@ -336,11 +337,17 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     let composed;
     let ai;
     try {
-      ai = await ctx.aiFor(req.auth?.userId);
+      const supplied = await ctx.readBody(req);
+      // An app's prompt runs where the member's plugins do (server/runner.js appsFor): in RUSH Lab
+      // cloud for a member who runs there. Every other prompt runs on their own computer (aiFor).
+      ai = !inlineStream && supplied?.appId !== undefined
+        ? await ctx.appsFor(req.auth?.userId)
+        : await ctx.aiFor(req.auth?.userId);
       await aiMeter.assertAllowed(req.context, ai);
       composed = await composeStoredRequest(
         req,
         ctx,
+        supplied,
         inlineStream ? {type: 'inline'} : {},
         inlineStream ? 'inline' : 'chat',
         ai,
@@ -375,7 +382,7 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
       let run;
       try {
         run = await ctx.appRuns.start(req.context, {
-          pluginId: composed.request.app, sessionId: composed.session, prompt: composed.request.input, request: composed.request,
+          pluginId: composed.request.app, sessionId: composed.session, prompt: composed.request.input, request: composed.request, ai,
         });
       } catch (error) {
         if (error.name === 'SessionError') return json(res, error.status, {error: error.message});
@@ -452,9 +459,24 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     return json(res, 200, {connected: true, device: computer.device, ...localModels(listing.value, catalog)});
   }
 
-  // ── Whether the member's own computer is connected to run their AI ──
+  // ── Where the member's runs go, and whether their own computer is connected to run them ──
   if (req.method === 'GET' && pathname === '/api/runner/status') {
-    return json(res, 200, ctx.runners.status(req.auth?.userId));
+    return json(res, 200, await runnerStatus(ctx, req.auth?.userId));
+  }
+
+  // ── Send the member's runs to RUSH Lab cloud or to their own computer (cloud-runs.js) ──
+  if (req.method === 'PUT' && pathname === '/api/runner/target') {
+    if (!req.auth?.userId) return json(res, 401, {error: 'Sign in to choose where your runs go'});
+    if (!await rateLimit(`runner-target:${req.caller}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    let body;
+    try {
+      body = await ctx.readBody(req);
+    } catch {
+      return json(res, 400, {error: 'Request body must be JSON, within the size limit'});
+    }
+    const chosen = await ctx.cloudRuns.choose(req.auth.userId, body?.runner);
+    if (chosen.error) return json(res, chosen.status, {error: chosen.error});
+    return json(res, 200, await runnerStatus(ctx, req.auth.userId));
   }
 
   // ── What the OpenRouter key on the member's computer has spent, as OpenRouter says ──
@@ -498,6 +520,15 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     return json(res, 200, saved.value);
   }
 };
+
+/**
+ * Where the member's runs go, `runner` ('cloud' or 'computer'), whether this
+ * site offers RUSH Lab cloud (`cloud`), and whether their computer is connected,
+ * what it calls itself and which keys it holds (server/runner.js status).
+ */
+async function runnerStatus(ctx, userId) {
+  return {...ctx.runners.status(userId), runner: await ctx.cloudRuns.runnerOf(userId), cloud: ctx.cloudRuns.offered};
+}
 
 /** The member's computer's catalog as models to choose, each available once Mochi Lab holds its provider's key. */
 function localModels(listing, catalog) {

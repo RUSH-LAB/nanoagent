@@ -51,6 +51,7 @@ function createPostgresSessions({pool}) {
     pluginId: row.plugin_id,
     prompt: row.prompt,
     install: row.install,
+    runner: row.runner,
     folder: row.folder,
     sent: row.sent,
     ran: row.ran,
@@ -134,16 +135,17 @@ function createPostgresSessions({pool}) {
 
     /**
      * Start the run `id` of the caller's session `id` with `pluginId`, its message
-     * `prompt`, on the install `install`; refuses a session already answering one.
+     * `prompt`, on the install `install` of `runner` ('computer' or 'cloud',
+     * app-runs.js); refuses a session already answering one.
      */
-    async startRun(context, pluginId, sessionId, {id, prompt, install}) {
+    async startRun(context, pluginId, sessionId, {id, prompt, install, runner}) {
       return run(context, async client => {
         await owned(client, pluginId, sessionId);
         try {
           await client.query(
-            `insert into plugin_run(id, workspace_id, user_id, session_id, plugin_id, prompt, install)
-               values ($1, $2, $3, $4, $5, $6, $7)`,
-            [id, context.workspaceId, context.userId, sessionId, pluginId, prompt, install],
+            `insert into plugin_run(id, workspace_id, user_id, session_id, plugin_id, prompt, install, runner)
+               values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [id, context.workspaceId, context.userId, sessionId, pluginId, prompt, install, runner],
           );
         } catch (error) {
           if (error.code === '23505') throw new SessionError(409, 'This session is still answering a message');

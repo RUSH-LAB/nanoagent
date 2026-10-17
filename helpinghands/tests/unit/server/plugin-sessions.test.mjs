@@ -24,7 +24,7 @@ describe('plugin sessions over PostgreSQL', () => {
   /** One message answered in the session: its run started and ended with `turn`. */
   async function answered(context, pluginId, sessionId, turn) {
     const id = crypto.randomUUID();
-    await sessions.startRun(context, pluginId, sessionId, {id, prompt: turn.prompt, install: 'a'.repeat(64)});
+    await sessions.startRun(context, pluginId, sessionId, {id, prompt: turn.prompt, install: 'a'.repeat(64), runner: 'computer'});
     return sessions.endRun(context, id, {error: null, ...turn});
   }
 
@@ -76,9 +76,9 @@ describe('plugin sessions over PostgreSQL', () => {
 
   it('answers one message at a time, keeping the run until its turn, answered or not, is in the chat', async () => {
     const started = await sessions.create(as('alice'), 'bibtex-check');
-    await sessions.startRun(as('alice'), 'bibtex-check', started.id, {id: 'run-a', prompt: 'check refs.bib', install: 'b'.repeat(64)});
+    await sessions.startRun(as('alice'), 'bibtex-check', started.id, {id: 'run-a', prompt: 'check refs.bib', install: 'b'.repeat(64), runner: 'computer'});
     await assert.rejects(
-      sessions.startRun(as('alice'), 'bibtex-check', started.id, {id: 'run-b', prompt: 'again', install: 'b'.repeat(64)}),
+      sessions.startRun(as('alice'), 'bibtex-check', started.id, {id: 'run-b', prompt: 'again', install: 'b'.repeat(64), runner: 'computer'}),
       error => error.status === 409 && error.message === 'This session is still answering a message',
     );
     assert.deepEqual((await sessions.get(as('alice'), 'bibtex-check', started.id)).running, {prompt: 'check refs.bib'});
@@ -89,7 +89,7 @@ describe('plugin sessions over PostgreSQL', () => {
     const [run] = await sessions.runs({userId: 'alice', workspaceId: null});
     assert.deepEqual({...run, startedAt: undefined}, {
       id: 'run-a', workspaceId: 'lab', userId: 'alice', sessionId: started.id, pluginId: 'bibtex-check', prompt: 'check refs.bib',
-      install: 'b'.repeat(64), folder: 'f1', sent: {'refs.bib': {rev: 2, contentHash: 'h'}}, ran: true, startedAt: undefined,
+      install: 'b'.repeat(64), runner: 'computer', folder: 'f1', sent: {'refs.bib': {rev: 2, contentHash: 'h'}}, ran: true, startedAt: undefined,
     });
     assert.deepEqual(await sessions.runs({userId: 'bob', workspaceId: null}), []);
     assert.equal(await sessions.endRun(as('bob'), 'run-a', {prompt: 'x', answer: '', tools: [], error: 'x'}), false);
@@ -98,6 +98,24 @@ describe('plugin sessions over PostgreSQL', () => {
     const read = await sessions.get(as('alice'), 'bibtex-check', started.id);
     assert.equal(read.running, null);
     assert.deepEqual(read.chat, [{prompt: 'check refs.bib', answer: '', tools: [], error: 'Mochi Lab stopped while answering'}]);
+  });
+
+  it('keeps which NanoAgent a run is on, its member\'s computer or RUSH Lab cloud, and no other', async () => {
+    const cloud = await sessions.create(as('alice'), 'bibtex-check');
+    await sessions.startRun(as('alice'), 'bibtex-check', cloud.id, {id: 'run-cloud', prompt: 'check refs.bib', install: 'b'.repeat(64), runner: 'cloud'});
+    const computer = await sessions.create(as('alice'), 'bibtex-check');
+    await sessions.startRun(as('alice'), 'bibtex-check', computer.id, {id: 'run-laptop', prompt: 'check refs.bib', install: 'b'.repeat(64), runner: 'computer'});
+    const runners = Object.fromEntries((await sessions.runs({userId: 'alice', workspaceId: null})).map(run => [run.id, run.runner]));
+    assert.deepEqual(runners, {'run-cloud': 'cloud', 'run-laptop': 'computer'});
+    const other = await sessions.create(as('alice'), 'bibtex-check');
+    await assert.rejects(
+      sessions.startRun(as('alice'), 'bibtex-check', other.id, {id: 'run-x', prompt: 'x', install: 'b'.repeat(64), runner: 'laptop'}),
+      /plugin_run_runner_check/,
+    );
+    await assert.rejects(
+      sessions.startRun(as('alice'), 'bibtex-check', other.id, {id: 'run-y', prompt: 'y', install: 'b'.repeat(64)}),
+      /null value in column "runner"/,
+    );
   });
 
   it('archives a session until it is restored or chatted in again', async () => {

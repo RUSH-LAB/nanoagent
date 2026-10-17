@@ -34,8 +34,9 @@ const {contextualChat, contextualOrg} = require('./context-services');
 const roles = postgresServices?.roles ?? require('./roles');
 const chat = contextualChat(postgresServices?.chat ?? require('./chat'));
 const org = contextualOrg(postgresServices?.org ?? require('./org'));
-// Mochi's own NanoAgent: the marketplace's plugin packages only. Every run, install and
-// plugin page is on the member's own computer (server/runner.js).
+// Mochi's own NanoAgent: the marketplace's plugin packages, and the runs, installs and plugin
+// pages of the members who run in RUSH Lab cloud where this site offers it (cloud-runs.js).
+// Every other member's are on their own computer (server/runner.js).
 const ai = require('./ai');
 const {createGithub} = require('./github');
 // Every assistant call is checked against its workspace's budget and charged to it.
@@ -44,6 +45,7 @@ const {createAgentSync} = require('./fs/agent-sync');
 const {createWorkspaceApps} = require('./workspace-apps');
 const {createAppRuns} = require('./app-runs');
 const {createRunners} = require('./runner');
+const {createCloudRuns} = require('./cloud-runs');
 const {createOpenRouterKeys, TOTAL} = require('./openrouter-keys');
 // The per-workspace data layer. See server/store/index.js: the only way a route
 // module is allowed to reach the thirteen features' data, because it is the
@@ -63,8 +65,12 @@ const openrouterKeys = createOpenRouterKeys({
   managementKey: process.env.OPENROUTER_MANAGEMENT_KEY.trim(),
   production: process.env.NODE_ENV === 'production',
 });
-// Members' own computers, which run every NanoAgent call of theirs.
-const runners = createRunners({resolveIdentity, openrouterKeys});
+// RUSH Lab cloud, where this site offers it (CLOUD_RUNS=on): the runs of members who choose it, on
+// Mochi's own NanoAgent.
+const cloudRuns = createCloudRuns({gateway: ai, preferences});
+// Members' own computers, which run every NanoAgent call of theirs, or RUSH Lab cloud for those
+// who run there.
+const runners = createRunners({resolveIdentity, openrouterKeys, cloud: cloudRuns});
 const aiSettings = require('./ai-settings');
 const workspaceSettings = postgresServices?.workspaceSettings ?? require('./workspace-settings');
 const {createObjectStorage} = require('./object-storage');
@@ -517,9 +523,13 @@ const ctx = {
   chat,
   org,
   ai,
-  // The NanoAgent a member's runs go to: their own computer's (server/runner.js).
+  // The NanoAgent a member's AI calls go to, their own computer's, and the one their plugin runs go
+  // to, which is RUSH Lab cloud's for a member who runs there (server/runner.js).
   aiFor: runners.aiFor,
+  appsFor: runners.appsFor,
   runners,
+  // Whether this site offers RUSH Lab cloud, and where each member chose to run (cloud-runs.js).
+  cloudRuns,
   // The OpenRouter keys Mochi gives members' computers, or null (openrouter-keys.js).
   openrouterKeys,
   // What a member chose in Settings → AI (ai-settings.js).
@@ -942,6 +952,7 @@ postgresDatabase.ready.then(() => ensureRootUser(auth)).then(root => server.list
   const catalog = ai.describe();
   console.log(catalog.available ? '  Plugin catalog: NanoAgent' : `  Plugin catalog: unavailable. ${catalog.reason}`);
   console.log(`  OpenRouter keys: each member's computer is given one, $${TOTAL} for every member together (${openrouterKeys.workspace})`);
+  console.log(cloudRuns.offered ? '  RUSH Lab cloud: offered (CLOUD_RUNS=on), on the plugin catalog\'s NanoAgent' : '  RUSH Lab cloud: not offered (CLOUD_RUNS unset)');
 
   cleanPendingObjects().catch(error => console.error('[objects] Cleanup failed:', error.message));
   console.log(`  Root: GitHub ${root.login} (owner)${root.created ? ', account created' : ''}`);

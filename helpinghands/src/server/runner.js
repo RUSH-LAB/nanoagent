@@ -5,7 +5,7 @@
  *
  * A computer dials in: it opens a WebSocket to /api/runner signed in as its
  * member, and from then on that member's runs go down that socket
- * (runner/protocol.js): every run is on the member's own computer. Mochi cannot reach a laptop, so the laptop reaches
+ * (runner/protocol.js), on the member's own computer. Mochi cannot reach a laptop, so the laptop reaches
  * Mochi. Settings → AI sets the computer's API keys the same way: Mochi passes
  * them on and keeps nothing, and the computer says only which are set. One
  * computer per member: a second replaces the first. The sockets are
@@ -13,6 +13,13 @@
  *
  * Plugin pages come from the computer too. Their frame carries no session, so
  * a page's address names the computer by `page`, a random id of its connection.
+ *
+ * A deployment may also offer RUSH Lab cloud (server/cloud-runs.js): a member
+ * who runs there has their plugin runs, installs and pages on Mochi's own
+ * NanoAgent instead (appsFor, hostFor), its pages under the one id CLOUD_PAGE.
+ * Their other AI calls, chat and inline completion, stay their computer's
+ * (aiFor). A member's runs go where they chose, and are refused there rather
+ * than sent to the other.
  */
 const crypto = require('crypto');
 const {WebSocketServer} = require('ws');
@@ -26,6 +33,9 @@ const REPLACED = 4000;
 // The close code a server shutting down sends, so each Mochi Lab dials its replacement.
 const GOING_AWAY = 1001;
 const NULL_BODY = new Set([101, 204, 205, 304]);
+// The `page` RUSH Lab cloud's plugin pages are served under: a UUID like a connection's
+// (routes/apps.js), and one for every member, as a page's files are its package's own.
+const CLOUD_PAGE = '00000000-0000-4000-8000-00000000c10d';
 // What a key's name and value may be, as RUSH Lab's lab.mjs checks them again.
 const KEY_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
 const KEY_LENGTH = 1000;
@@ -118,9 +128,10 @@ function socketFetch(entry) {
 
 /**
  * `openrouterKeys` (openrouter-keys.js), when Mochi gives members an OpenRouter
- * key: a computer that connects without one is given one.
+ * key: a computer that connects without one is given one. `cloud`
+ * (cloud-runs.js), when the deployment can offer RUSH Lab cloud.
  */
-function createRunners({resolveIdentity, openrouterKeys = null}) {
+function createRunners({resolveIdentity, openrouterKeys = null, cloud = null}) {
   const connected = new Map();
   const pages = new Map();
   // Held calls whose computer went away, by id: {userId, call, timer}, until it is back.
@@ -128,6 +139,17 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
   let onRuns = () => {};
   const offline = createNanoAgentGateway({endpoint: {error: RUNNER_OFFLINE}, local: true});
   const sockets = new WebSocketServer({noServer: true, maxPayload: MAX_PAYLOAD});
+
+  /**
+   * Where the member's plugin runs, installs and pages go, `{gateway, page}`:
+   * RUSH Lab cloud's NanoAgent for a member who runs there, else their
+   * computer's while it is connected, else null.
+   */
+  async function hostFor(userId) {
+    if (cloud && await cloud.runnerOf(userId) === 'cloud') return {gateway: cloud.gateway, page: CLOUD_PAGE};
+    const entry = connected.get(userId);
+    return entry ? {gateway: entry.gateway, page: entry.page} : null;
+  }
 
   function attach(userId, socket) {
     // `runs`: the held requests the computer said it has, once it has said hello.
@@ -251,13 +273,11 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
       return connected.get(userId)?.gateway ?? null;
     },
 
-    /** The `page` id plugin pages address the member's connected computer by, else null. */
-    page(userId) {
-      return connected.get(userId)?.page ?? null;
-    },
+    hostFor,
 
-    /** The NanoAgent of the computer whose connection has the `page` id, else null. */
+    /** The NanoAgent whose plugin pages have the `page` id: a connected computer's, or RUSH Lab cloud's; else null. */
     byPage(page) {
+      if (page === CLOUD_PAGE) return cloud?.offered ? cloud.gateway : null;
       return pages.get(page)?.gateway ?? null;
     },
 
@@ -311,7 +331,15 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
       if (entry && !entry.closed) entry.socket.send(JSON.stringify({type: 'release', id}));
     },
 
-    /** The NanoAgent the member's runs go to: their computer's, refusing every call while it is not connected. */
+    /**
+     * The NanoAgent the member's plugin runs go to (hostFor): RUSH Lab cloud's, or
+     * their computer's, refusing every call while it is not connected.
+     */
+    async appsFor(userId) {
+      return (await hostFor(userId))?.gateway ?? offline;
+    },
+
+    /** The NanoAgent the member's other AI calls go to: their computer's, refusing every call while it is not connected. */
     async aiFor(userId) {
       return connected.get(userId)?.gateway ?? offline;
     },
@@ -327,4 +355,4 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
   return api;
 }
 
-module.exports = {createRunners, socketFetch, MAX_PAYLOAD};
+module.exports = {createRunners, socketFetch, MAX_PAYLOAD, CLOUD_PAGE};

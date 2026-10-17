@@ -26,6 +26,14 @@ describe('AI metering', () => {
     assert.equal(tenancy.recorded[0].estimated, true);
   });
 
+  it('records nothing for a call that stopped before it cost anything: not priced, and not far enough to', async () => {
+    const tenancy = fakeTenancy();
+    const meter = createAiMeter(tenancy);
+    await meter.record({}, 'app', {error: 'Agent run was cancelled', status: 502}, {ran: false});
+    await meter.record({}, 'app', null, {ran: false});
+    assert.deepEqual(tenancy.recorded, []);
+  });
+
   it('never refuses or charges a run on the member\'s own computer, and still records it', async () => {
     const tenancy = fakeTenancy();
     const meter = createAiMeter(tenancy);

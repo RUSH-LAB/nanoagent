@@ -93,7 +93,7 @@ describe('workspace API paths', () => {
 
 describe('global API allowlist', () => {
   it('keeps account and pre-authentication endpoints outside workspace scope', () => {
-    for (const path of ['/api/health', '/api/workspaces', '/api/preferences', '/api/auth/sign-in/social', '/api/invite/token', '/api/invite/token/accept', '/api/users/u1/role', '/api/users/me/invitations', '/api/org']) {
+    for (const path of ['/api/health', '/api/workspaces', '/api/preferences', '/api/auth/sign-in/social', '/api/invite/token', '/api/invite/token/accept', '/api/users/u1/role', '/api/users/me/invitations', '/api/org', '/api/runner/status', '/api/runner/target', '/api/runner/keys']) {
       assert.equal(isGlobalApiPath(path), true, path);
     }
   });
