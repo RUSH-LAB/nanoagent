@@ -86,9 +86,14 @@ At launch the app (`src-tauri/src/main.rs`, `lab.rs`):
    (`~/Library/LaunchAgents/lab.mochi.lab.plist`). Its connections stay, and this app serves them.
 3. Installs this build once into `~/Library/Application Support/lab.mochi.lab/app/<stamp>/mochi-lab/`,
    and removes older ones: NanoAgent's `.venv` is made beside it.
-4. Sets itself to open at login (`tauri-plugin-autostart`, a launch agent named for the app).
+4. Sets itself to open at login (`tauri-plugin-autostart`, a launch agent named for the app,
+   which passes `--login`).
 5. Runs `node lab.mjs` from there, its output in `logs/lab.log`, and starts it again 30 s after
    it exits. Quitting sends it SIGTERM, which stops every connection, and SIGKILL after 60 s.
+
+6. Opens the site in the browser, as it has no window of its own: whenever the member opens it,
+   and opened again while it runs; at login, only while no member is connected. A launch for a
+   connect link does not.
 
 A failure in steps 2 to 4 says why in a dialog, and the app quits.
 

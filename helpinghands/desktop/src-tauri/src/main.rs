@@ -20,7 +20,9 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
 
-// How long a launch waits, once running, for a connect link it was opened with before opening the site to get one.
+// How long a launch waits, once running, for a connect link it was opened with before opening the site.
+// What the login item opens RUSH Lab with: then it opens the site only while no member is connected.
+const AT_LOGIN: &str = "--login";
 const LINK_WAIT: Duration = Duration::from_secs(3);
 
 /// Say `message` and quit: RUSH Lab cannot run.
@@ -69,7 +71,7 @@ fn main() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
+        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![AT_LOGIN])))
         .setup(move |app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -121,9 +123,11 @@ fn main() {
                 }
                 lab.start();
                 handle.manage(lab.clone());
-                // With no member connected yet, and no link to connect one, the site gives the link.
+                // Opened by the member, it shows them RUSH Lab; at login, only a member not connected
+                // yet needs the site, for the link that connects them. A link it was opened with is enough.
+                let at_login = std::env::args().any(|arg| arg == AT_LOGIN);
                 thread::sleep(LINK_WAIT);
-                if !first.load(Ordering::SeqCst) && !lab.has_connections() {
+                if !first.load(Ordering::SeqCst) && (!at_login || !lab.has_connections()) {
                     let _ = handle.opener().open_url(&lab.site_url, None::<&str>);
                 }
             });
@@ -144,11 +148,18 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("RUSH Lab failed to start");
-    app.run(|app, event| {
-        if let tauri::RunEvent::Exit = event {
+    app.run(|app, event| match event {
+        // Opened again while it runs, it shows RUSH Lab: it has no window of its own.
+        tauri::RunEvent::Reopen { .. } => {
+            if let Some(lab) = app.try_state::<Arc<Lab>>() {
+                let _ = app.opener().open_url(&lab.site_url, None::<&str>);
+            }
+        }
+        tauri::RunEvent::Exit => {
             if let Some(lab) = app.try_state::<Arc<Lab>>() {
                 lab.stop();
             }
         }
+        _ => {}
     });
 }
