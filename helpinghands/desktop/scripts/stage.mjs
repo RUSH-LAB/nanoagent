@@ -8,11 +8,12 @@
  *   src-tauri/resources/config.json this folder's config.yaml, as JSON: lab.mjs loads only Node's own modules;
  *                                   with --release (npm run build:release), the target it updates itself as
  *   src-tauri/resources/stamp       names this staging; the app installs each stamp once
- *   src-tauri/resources/git/        Windows only: MinGit, with busybox-w32 as its shell
+ *   src-tauri/resources/git/        git: on macOS built from source, on Windows MinGit with busybox-w32 as its shell
  *   src-tauri/binaries/{node,uv}-<target>   the runtimes, downloaded and checksum-verified
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import {execFileSync} from 'node:child_process';
@@ -29,8 +30,8 @@ const config = YAML.parse(fs.readFileSync(path.join(desktop, 'config.yaml'), 'ut
 
 // Rust target triple -> the runtimes' own platform names.
 const TARGETS = {
-  'aarch64-apple-darwin': {node: 'darwin-arm64', archive: 'tar.gz', exe: ''},
-  'x86_64-apple-darwin': {node: 'darwin-x64', archive: 'tar.gz', exe: ''},
+  'aarch64-apple-darwin': {node: 'darwin-arm64', archive: 'tar.gz', exe: '', arch: 'arm64'},
+  'x86_64-apple-darwin': {node: 'darwin-x64', archive: 'tar.gz', exe: '', arch: 'x86_64'},
   'x86_64-unknown-linux-gnu': {node: 'linux-x64', archive: 'tar.gz', exe: ''},
   'x86_64-pc-windows-msvc': {node: 'win-x64', archive: 'zip', exe: '.exe'},
 };
@@ -121,6 +122,41 @@ async function stageGit() {
   fs.copyFileSync(busybox, path.join(git, 'usr', 'bin', 'sh.exe'));
 }
 
+/**
+ * macOS only: git, built for `arch` from its source. It links only to the system's libraries
+ * (curl, zlib, iconv), and with RUNTIME_PREFIX finds its own helpers beside wherever it is, as the
+ * app installs it in the data folder (src-tauri/src/lab.rs). The build is kept in the cache.
+ */
+async function stageMacGit(target, arch) {
+  const built = path.join(cache, `git-${config.git_version}-${target}`);
+  if (!fs.existsSync(built)) {
+    const unpacked = await fetchVerified(`https://mirrors.edge.kernel.org/pub/software/scm/git/git-${config.git_version}.tar.xz`, config.git_sha256);
+    run('make', [
+      `-j${os.availableParallelism()}`,
+      `CFLAGS=-O2 -arch ${arch}`,
+      `LDFLAGS=-arch ${arch}`,
+      'prefix=/',
+      'gitexecdir=libexec/git-core',
+      'template_dir=share/git-core/templates',
+      'sysconfdir=etc',
+      'RUNTIME_PREFIX=YesPlease',
+      // Never the libraries Homebrew has on the building Mac.
+      'NO_HOMEBREW=YesPlease',
+      'NO_GETTEXT=YesPlease',
+      'NO_TCLTK=YesPlease',
+      'NO_PERL=YesPlease',
+      'NO_PYTHON=YesPlease',
+      'NO_EXPAT=YesPlease',
+      'SKIP_DASHED_BUILT_INS=YesPlease',
+      `DESTDIR=${built}.partial`,
+      'install',
+    ], {cwd: path.join(unpacked, `git-${config.git_version}`), env: {...process.env, MACOSX_DEPLOYMENT_TARGET: '10.13'}});
+    fs.renameSync(`${built}.partial`, built);
+  }
+  // A link the install made between its programs is copied as the program it names.
+  fs.cpSync(built, path.join(resources, 'git'), {recursive: true, dereference: true});
+}
+
 // lab.mjs, the relay and the protocol it shares with Mochi's server; Node's own modules are all they load.
 function stageRunner() {
   copy(path.join(mochiRoot, 'src', 'runner'), path.join(resources, 'runner'));
@@ -177,6 +213,7 @@ async function main() {
   await stageUv(target, platform);
   stageRunner();
   if (platform.exe) await stageGit();
+  if (platform.arch) await stageMacGit(target, platform.arch);
   await stageNanoAgent(path.join(binaries, `uv-${target}${platform.exe}`));
   // A release updates itself from its site (src-tauri/src/update.rs); any other build stays as built.
   if (process.argv.includes('--release')) config.update_target = target;

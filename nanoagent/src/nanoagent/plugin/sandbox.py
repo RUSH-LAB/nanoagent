@@ -153,10 +153,14 @@ def _seatbelt(
     home: Path,
     port: int,
 ) -> tuple[list[str], dict[str, str]]:
-    # uv and the Python plugins run on, which a plugin's environment is built from.
-    tools = [Path(found).resolve().parent for found in [shutil.which("uv")] if found]
+    # uv, the git it builds a git source (slimconfig) with, and the Python plugins run on, which a
+    # plugin's environment is built from. Git runs the helpers in its <root>/libexec/git-core, so
+    # the sandbox reads all of <root>: the git the app bundles, as a Mac may have no other.
+    git = shutil.which("git")
+    tools = [Path(found).resolve().parent for found in [shutil.which("uv"), git] if found]
     tools.append(_plugin_python().executable.parent)
-    reads = [*MACOS_SYSTEM, *_runtime(), *tools, root, *readable, *writable, home]
+    git_roots = [Path(git).resolve().parents[1]] if git else []
+    reads = [*MACOS_SYSTEM, *_runtime(), *tools, *git_roots, root, *readable, *writable, home]
     profile = "\n".join(
         [
             "(version 1)",

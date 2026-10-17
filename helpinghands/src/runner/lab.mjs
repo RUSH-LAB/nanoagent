@@ -6,6 +6,7 @@
  *   mochi-lab/stamp          names this build
  *   mochi-lab/config.json    desktop/config.yaml: its own site, the install's label, the files folders, Python's version
  *   mochi-lab/bin/{node,uv}  the runtimes, first on every service's PATH
+ *   mochi-lab/git/           git, next on it
  *   mochi-lab/runner/        this file, the relay (relay.mjs) and what it loads
  *   mochi-lab/nanoagent/     NanoAgent's source (site/), its uv.lock, the PI runner's bundle, its config
  *
@@ -276,15 +277,15 @@ export function writeKeys(file, changes) {
 }
 
 /**
- * What every service sees: the system basics, the bundled runtimes first on PATH (on Windows with
- * the bundled git, the only one a plugin's sandbox can run, then the system's PATH), and the folder uv
+ * What every service sees: the system basics, the bundled runtimes and git first on PATH (on Windows
+ * then the system's PATH, as the bundled git is the only one a plugin's sandbox can run), and the folder uv
  * installs Python into, the data folder's python/. NanoAgent's plugin sandbox lets plugins, and its
  * own helpers there, read that folder whole (nanoagent.plugin.sandbox), so every link uv makes in it
  * resolves inside the sandbox too.
  */
 export function systemEnv(env, bin, data) {
   const system = Object.fromEntries(SYSTEM_ENV.filter(name => env[name] !== undefined).map(name => [name, env[name]]));
-  const PATH = WINDOWS ? [bin, path.join(bin, '..', 'git', 'cmd'), env.PATH].join(';') : `${bin}:/usr/bin:/bin:/usr/sbin:/sbin`;
+  const PATH = WINDOWS ? [bin, path.join(bin, '..', 'git', 'cmd'), env.PATH].join(';') : `${bin}:${path.join(bin, '..', 'git', 'bin')}:/usr/bin:/bin:/usr/sbin:/sbin`;
   return {...system, PATH, UV_PYTHON_INSTALL_DIR: path.join(data, 'python')};
 }
 
