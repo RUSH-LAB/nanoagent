@@ -80,7 +80,8 @@ def task_decider(model: DecisionModel, limits: AgentConfig) -> Callable[[str], D
 
 class TaskTool(Tool):
     """One of the plugin's tasks as the chat agent's tool. Its result is the task's output and
-    verdict as JSON; an agent or decide task's model calls count in the chat's cost."""
+    verdict as JSON; an agent or decide task's model calls count in the chat's cost. While it runs
+    it reports how the task is going (:meth:`report`)."""
 
     def __init__(
         self,
@@ -90,6 +91,7 @@ class TaskTool(Tool):
         make_agent: Callable[[str], Agent],
         make_decider: Callable[[str], Decider],
         timeout: float,
+        reasoning: bool,
     ) -> None:
         self.NAME = task.id
         self.PARAMETERS = task.input
@@ -100,6 +102,7 @@ class TaskTool(Tool):
         self._make_agent = make_agent
         self._make_decider = make_decider
         self._timeout = timeout
+        self._reasoning = reasoning
 
     @property
     def description(self) -> str:
@@ -114,7 +117,7 @@ class TaskTool(Tool):
             make_agent=self._make_agent,
             make_decider=self._make_decider,
             timeout=self._timeout,
-            on_event=lambda _kind, _data: None,
+            on_event=self.report,
             stage=staged_from(self._workspace),
         )
         profile = outcome.agent.profile if outcome.agent is not None else None
@@ -124,6 +127,21 @@ class TaskTool(Tool):
             else tuple(dataclasses.replace(call, kind="tool") for step in profile.steps for call in step.model_calls)
         )
         return ToolText(json.dumps({"output": outcome.output, "verdict": outcome.verdict.to_dict()}), model_calls=model_calls)
+
+    def report(self, kind: str, data: dict[str, Any]) -> None:
+        """Pass on a task event for the page to show while the task runs: its reference tool
+        (``task.reference``), each tool it calls (``task.tool``, name and whether it failed), what
+        its agent writes (``task.delta``, reasoning only where the host shows reasoning) and that
+        its result is being checked (``task.result``, empty). What the task returned and its
+        verdict come with the call's result, so they are not repeated here."""
+        if kind == "task.reference":
+            self.progress(kind, data)
+        elif kind == "task.tool":
+            self.progress(kind, {"name": data["name"], "isError": data["isError"]})
+        elif kind == "task.delta" and (data["kind"] == "content" or self._reasoning):
+            self.progress(kind, data)
+        elif kind == "task.result":
+            self.progress(kind, {})
 
 
 def plugin_prompt(manifest: PluginManifest) -> str:
@@ -163,7 +181,15 @@ def plugin_profile(
         # The server's prompt; the chat's only tools are the plugin's tasks.
         prompt, _tools = build_prompt_and_tools(cfg.agent, cfg.tools, cfg.tools_dir, cfg.allowed_tools, suffix)
         tasks = [
-            TaskTool(manifest, task, workspace, task_agent(model, limits), task_decider(model, limits), cfg.request_timeout)
+            TaskTool(
+                manifest,
+                task,
+                workspace,
+                task_agent(model, limits),
+                task_decider(model, limits),
+                cfg.request_timeout,
+                cfg.include_reasoning,
+            )
             for task in manifest.tasks
         ]
         agent = Agent(

@@ -70,7 +70,7 @@ Methods:
 | method | params | result | events |
 |---|---|---|---|
 | `describe` | `{}` | `{plugin, workspace: {id}, theme: "light"\|"dark"}` (`plugin`: the catalog entry, tasks with `inputSchema`) | — |
-| `prompt` | `{text}` | `{runId}` | `chat.delta {text}`, `chat.tool {name, arguments, output, isError}`, `chat.answer {text}`, `chat.error {message}`, `chat.done` |
+| `prompt` | `{text}` | `{runId}` | `chat.reasoning {text}`, `chat.delta {text}`, `chat.tool.started {id, name}`, `chat.tool.progress {id, name, event, data}` (a task's `task.reference {tool}`, `task.tool {name, isError}`, `task.delta {kind, text}` and `task.result {}` while it runs), `chat.tool {id, name, arguments, output, isError}`, `chat.answer {text}`, `chat.error {message}`, `chat.done` |
 | `follow` | `{}` | `{runId, prompt}` | as `prompt`'s, for the message the current session was still answering when it was resumed (`running`) |
 | `cancel` | `{runId}` | `{}` | — |
 | `sessions.list` | `{}` | `{sessions: [summary]}`, each `{id, pluginId, title, createdAt, updatedAt, archivedAt, runs, cost, ttftS, running}`, archived ones too; `running` is whether it is answering a message | — |

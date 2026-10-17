@@ -261,7 +261,7 @@ async function answerRun(req, ctx, ai, kind, composed, send, signal) {
       // establish the wire contract for future tool progress without
       // changing text streaming or inventing a second transport later.
       onEvent: event => {
-        if (event.type === 'step.completed') ran = true;
+        if (event.type === 'step.completed' || event.type === 'reasoning.delta') ran = true;
         if (event.type !== 'output_text.delta') send('agent', event);
       },
     });

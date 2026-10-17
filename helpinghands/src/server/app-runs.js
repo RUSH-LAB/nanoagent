@@ -101,7 +101,7 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
           run.send('delta', {text});
         },
         onEvent: event => {
-          if (event.type === 'step.completed') markRan();
+          if (event.type === 'step.completed' || event.type === 'reasoning.delta') markRan();
           if (event.type === 'tool.completed' || event.type === 'tool.failed') {
             tools.push({name: event.call.name, arguments: event.call.arguments, output: event.call.output, isError: event.type === 'tool.failed'});
           }

@@ -337,6 +337,19 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .turn { display: grid; gap: 8px; min-width: 0; }
 .tool-results { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .tool-results:empty { display: none; }
+/* What the agent does while it answers: its thoughts, and each task it is running. */
+.activity { display: grid; gap: 8px; min-width: 0; }
+.activity:empty { display: none; }
+.thinking { justify-self: start; max-width: 88%; color: var(--muted); font-size: 13px; }
+.thinking > summary { cursor: pointer; font-weight: 560; }
+.thinking-text, .task-run-thinking, .task-run-text { margin: 4px 0 0; max-height: 9em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.thinking-text:empty, .task-run-thinking:empty, .task-run-text:empty, .task-run-steps:empty { display: none; }
+.task-run { justify-self: start; display: grid; gap: 4px; max-width: 88%; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); font-size: 13px; }
+.task-run-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.task-run-head > strong { font-weight: 580; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-run-status { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-run-steps { margin: 0; padding-left: 18px; color: var(--muted); }
+.task-run-thinking { color: var(--muted); }
 /* A task the agent ran: a chip that draws its result beside the chat. */
 .result-chip { appearance: none; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 11px 4px 8px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 520; cursor: pointer; }
 .result-chip > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

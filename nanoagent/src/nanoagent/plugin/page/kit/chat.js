@@ -9,7 +9,9 @@ import { currentSession, metricsLine } from "./session.js";
  * A conversation with the plugin's agent. Answers are shown as Markdown. Each of the agent's
  * tools is one of the plugin's tasks; each task it ran shows as a chip above the answer, with
  * whether it passed its check, and picking the chip draws its result with `show`, beside the
- * chat; the latest result is drawn as it arrives. A task that failed says why. The host keeps the
+ * chat; the latest result is drawn as it arrives. A task that failed says why. While a message is
+ * answered, everything the agent does shows as it happens: what it thinks, as it thinks it, and
+ * each task it runs, with what the task is doing, until the task's chip replaces it. The host keeps the
  * conversation with the session, task results included, so a resumed session shows it again,
  * its latest result drawn, and continues it; a message it is still answering shows being
  * answered, to its end, the page having been closed or not. Each answer says what it cost and how long it took.
@@ -85,13 +87,65 @@ export function chatPanel({ intro, placeholder, tasks, show }) {
     clearIntro();
     log.append(h("div", { class: "message user" }, h("p", { text })));
     const reply = h("div", { class: "message agent" }, h("p", { class: "typing", "aria-label": "The agent is replying" }, h("span"), h("span"), h("span")));
+    const activity = h("div", { class: "activity" });
     const results = h("div", { class: "tool-results" });
-    const turn = h("div", { class: "turn" }, results, reply);
+    const turn = h("div", { class: "turn" }, activity, results, reply);
     log.append(turn);
     scroll();
     sendButton.disabled = true;
     let streamed = "";
     let started = false;
+    // What the agent is thinking now, until it does something else; a thought after that is a new one.
+    let thinking = null;
+    const thought = () => {
+      if (!thinking) return;
+      thinking.element.open = false;
+      thinking.label.textContent = "Thought";
+      thinking = null;
+    };
+    const think = (text) => {
+      if (!thinking) {
+        const label = h("span", { text: "Thinking…" });
+        const body = h("p", { class: "thinking-text" });
+        thinking = { label, body, element: h("details", { class: "thinking", open: true }, h("summary", {}, label), body) };
+        activity.append(thinking.element);
+      }
+      thinking.body.append(text);
+      thinking.body.scrollTop = thinking.body.scrollHeight;
+    };
+    // Each task running, by its call's id, until its chip replaces it.
+    const running = new Map();
+    const startTask = ({ id, name }) => {
+      const status = h("span", { class: "task-run-status", text: "Starting…" });
+      const steps = h("ul", { class: "task-run-steps" });
+      const thoughts = h("p", { class: "task-run-thinking" });
+      const text = h("p", { class: "task-run-text" });
+      const element = h(
+        "div",
+        { class: "task-run", role: "status" },
+        h("div", { class: "task-run-head" }, h("span", { class: "run-spinner", "aria-hidden": "true" }), h("strong", { text: tasks[name]?.label ?? name }), status),
+        steps,
+        thoughts,
+        text,
+      );
+      running.set(id, { element, status, steps, thoughts, text });
+      activity.append(element);
+    };
+    /** Show what a running task reports: the `task.*` events of TaskTool.report (nanoagent.web.plugin_agent). */
+    const taskProgress = ({ id, event, data }) => {
+      const task = running.get(id);
+      if (!task) return;
+      if (event === "task.reference") task.status.textContent = `Running its reference, ${data.tool}…`;
+      else if (event === "task.tool") {
+        task.steps.append(h("li", { class: data.isError ? "error-text" : "", text: data.isError ? `${data.name} failed` : `Called ${data.name}` }));
+        task.status.textContent = "Working…";
+      } else if (event === "task.delta") {
+        const into = data.kind === "reasoning" ? task.thoughts : task.text;
+        into.append(data.text);
+        into.scrollTop = into.scrollHeight;
+        task.status.textContent = data.kind === "reasoning" ? "Thinking…" : "Working…";
+      } else if (event === "task.result") task.status.textContent = "Checking the result…";
+    };
     const write = (value) => {
       started = true;
       reply.replaceChildren(markdown(value));
@@ -101,22 +155,40 @@ export function chatPanel({ intro, placeholder, tasks, show }) {
       sendButton.disabled = false;
       stop.hidden = true;
       stop.disabled = false;
+      thought();
+      // A call that never ended: the agent retried it, or the run stopped while it ran.
+      for (const task of running.values()) task.element.remove();
+      running.clear();
       if (!started) reply.remove();
     };
     try {
       runId = await start((name, data) => {
         switch (name) {
+          case "chat.reasoning":
+            think(data.text ?? "");
+            break;
           case "chat.delta":
+            thought();
             streamed += data.text ?? "";
             write(streamed);
             break;
+          case "chat.tool.started":
+            thought();
+            startTask(data);
+            break;
+          case "chat.tool.progress":
+            taskProgress(data);
+            break;
           case "chat.tool": {
+            running.get(data.id)?.element.remove();
+            running.delete(data.id);
             const shown = toolResult(data);
             results.append(shown);
             if (shown.matches(".result-chip")) pick(shown);
             break;
           }
           case "chat.answer":
+            thought();
             write(data.text ?? "");
             if (data.metrics) reply.append(h("p", { class: "message-metrics", text: metricsLine(data.metrics) }));
             break;

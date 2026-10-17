@@ -15,7 +15,8 @@ const DEFAULT_URL = 'http://127.0.0.1:8787';
 const DEFAULT_TIMEOUT_MS = 190_000;
 // NanoAgent's own bound on building a plugin's environment (nanoagent.plugin.install), and then some.
 const INSTALL_TIMEOUT_MS = 620_000;
-const DEFAULT_MAX_STREAM_BYTES = 2 * 1024 * 1024;
+// A run streams its reasoning, every task's progress and each fragment as its own event.
+const DEFAULT_MAX_STREAM_BYTES = 16 * 1024 * 1024;
 const DEFAULT_PROFILE_CACHE_MS = 30_000;
 const DEFAULT_PROFILE_TIMEOUT_MS = 5_000;
 const CANCELLED = 'The AI request was cancelled.';
@@ -274,6 +275,17 @@ function publicEvent(event, {app = false} = {}) {
       ...(metrics ? {metrics} : {}),
     };
   }
+  if (event?.type === 'tool_start') {
+    return {type: 'tool.started', runId, call: {id: event.id ?? null, name: event.name ?? 'unknown'}};
+  }
+  // What a tool reports while it runs is the app's own: a plugin task's progress.
+  if (event?.type === 'tool_progress' && app) {
+    return {
+      type: 'tool.progress', runId,
+      call: {id: event.id ?? null, name: event.name ?? 'unknown'},
+      event: event.event, data: event.data ?? null,
+    };
+  }
   if (event?.type === 'tool') {
     return {
       type: event.is_error ? 'tool.failed' : 'tool.completed',
@@ -415,6 +427,11 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
           text += event.text;
           request.onDelta?.(event.text);
           request.onEvent?.({type: 'output_text.delta', runId: event.runId ?? null, text: event.text});
+          return;
+        }
+        // An app's page shows its run thinking, like its tool calls (publicEvent).
+        if (event.type === 'delta' && event.kind === 'reasoning' && request.install && typeof event.text === 'string') {
+          request.onEvent?.({type: 'reasoning.delta', runId: event.runId ?? null, text: event.text});
           return;
         }
         if (event.type === 'done' || event.type === 'error') terminal = event;

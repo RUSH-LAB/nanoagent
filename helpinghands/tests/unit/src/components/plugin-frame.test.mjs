@@ -103,8 +103,15 @@ describe('nanoagent.ui/v1 requests', () => {
 describe('run events on the bridge', () => {
   it('maps the chat stream onto chat events', () => {
     assert.deepEqual(chatEvent({event: 'delta', data: {text: 'he'}}), {event: 'chat.delta', data: {text: 'he'}});
-    assert.deepEqual(chatEvent({event: 'agent', data: {type: 'tool.failed', call: {name: 'move', arguments: {a: 1}, output: 'bad'}}}), {
-      event: 'chat.tool', data: {name: 'move', arguments: {a: 1}, output: 'bad', isError: true},
+    assert.deepEqual(chatEvent({event: 'agent', data: {type: 'reasoning.delta', text: 'hm'}}), {event: 'chat.reasoning', data: {text: 'hm'}});
+    assert.deepEqual(chatEvent({event: 'agent', data: {type: 'tool.started', call: {id: 'c1', name: 'move'}}}), {
+      event: 'chat.tool.started', data: {id: 'c1', name: 'move'},
+    });
+    assert.deepEqual(chatEvent({event: 'agent', data: {type: 'tool.progress', call: {id: 'c1', name: 'move'}, event: 'task.tool', data: {name: 'step', isError: false}}}), {
+      event: 'chat.tool.progress', data: {id: 'c1', name: 'move', event: 'task.tool', data: {name: 'step', isError: false}},
+    });
+    assert.deepEqual(chatEvent({event: 'agent', data: {type: 'tool.failed', call: {id: 'c1', name: 'move', arguments: {a: 1}, output: 'bad'}}}), {
+      event: 'chat.tool', data: {id: 'c1', name: 'move', arguments: {a: 1}, output: 'bad', isError: true},
     });
     assert.equal(chatEvent({event: 'agent', data: {type: 'step.completed'}}), null);
     assert.deepEqual(chatEvent({event: 'done', data: {text: 'all done'}}), {event: 'chat.answer', data: {text: 'all done', metrics: null}, final: true});
@@ -176,14 +183,14 @@ describe('the bridge host', () => {
   it('prompts the app\'s agent, keeping the conversation for the next prompt', async () => {
     const answer = sse('delta', {text: 'Saved'})
       + sse('agent', {type: 'run.started'})
-      + sse('agent', {type: 'tool.completed', call: {name: 'download_source', arguments: {arxiv_id: '1706.03762'}, output: {path: 'attention'}}})
+      + sse('agent', {type: 'tool.completed', call: {id: 'call-1', name: 'download_source', arguments: {arxiv_id: '1706.03762'}, output: {path: 'attention'}}})
       + sse('done', {text: 'Saved it.', cost: 0.01, model: 'm', usage: {prompt_tokens: 3}, metrics: {ttft_s: 0.5, generation_s: 1, duration_s: 2}});
     const {posted, calls, send} = await hostWith(() => eventStream(answer));
     send('p1', 'prompt', {text: 'Save 1706.03762'});
     await until(() => messages(posted).some(message => message.event === 'chat.done'));
     assert.deepEqual(eventsOf(posted, 'run-1'), [
       ['chat.delta', {text: 'Saved'}],
-      ['chat.tool', {name: 'download_source', arguments: {arxiv_id: '1706.03762'}, output: {path: 'attention'}, isError: false}],
+      ['chat.tool', {id: 'call-1', name: 'download_source', arguments: {arxiv_id: '1706.03762'}, output: {path: 'attention'}, isError: false}],
       ['chat.answer', {text: 'Saved it.', metrics: {model: 'm', cost: 0.01, usage: {prompt_tokens: 3}, ttft_s: 0.5, generation_s: 1, duration_s: 2}}],
       ['chat.done', {}],
     ]);

@@ -168,7 +168,7 @@ test('starts a connection\'s NanoAgent compiled, sandboxed, in its own folders, 
   assert.equal(command.program, '/app/nanoagent/.venv/bin/python');
   assert.deepEqual(command.args, [
     '-I', '-c', 'from nanoagent.__main__ import main; raise SystemExit(main())', 'web',
-    'web_cfg=deploy/railway/nanoagent.yaml', 'host=127.0.0.1', 'port=47311', 'sandbox=seatbelt', 'run_models=true',
+    'web_cfg=deploy/railway/nanoagent.yaml', 'host=127.0.0.1', 'port=47311', 'sandbox=seatbelt', 'run_models=true', 'include_reasoning=true',
     `workspaces="${connection}/agent-workspaces"`,
     `installs="${connection}/nanoagent-installs"`,
     `uv_cache="${data}/nanoagent-uv-cache"`,

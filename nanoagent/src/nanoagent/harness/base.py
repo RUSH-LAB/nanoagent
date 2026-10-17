@@ -174,6 +174,14 @@ def validate_progress_event(event: Any) -> dict[str, Any]:
             raise RunnerProtocolError("tool event has invalid required fields")
         if "arguments" not in event:
             raise RunnerProtocolError("tool event is missing 'arguments'")
+    elif event_type == "tool_start":
+        if any(not isinstance(event.get(key), str) for key in ("id", "name")):
+            raise RunnerProtocolError("tool_start event requires id and name")
+    elif event_type == "tool_progress":
+        if any(not isinstance(event.get(key), str) for key in ("id", "name", "event")) or not isinstance(
+            event.get("data"), dict
+        ):
+            raise RunnerProtocolError("tool_progress event requires id, name, event and data")
     elif event_type == "step":
         _non_negative_int(event.get("step"), "step")
         _non_negative_number(event.get("cost"), "cost")

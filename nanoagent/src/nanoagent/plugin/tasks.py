@@ -6,7 +6,8 @@ lets an agent work the task with only the task's tools, sharing one plugin proce
 task's output is what the agent last passes to :data:`SUBMIT`. A ``runner: decide`` task pins its
 reference the same way, then calls its tools and builds its output itself, every value chosen by a
 :class:`~nanoagent.plugin.dataflow.Decider` or copied (:func:`~nanoagent.plugin.dataflow.fill`),
-and each batch of choices is a ``task.decision`` event. Every way, the plugin's
+and each batch of choices is a ``task.decision`` event; an agent task's agent streams what it writes
+as ``task.delta`` events. Every way, the plugin's
 ``verify_task`` judges the output. Progress goes to ``on_event(type, data)``, with the ``task.*`` types of the
 web protocol (docs/plans/plugin-ui.md).
 """
@@ -205,8 +206,9 @@ async def run_task(
             async with PluginSession(manifest, workspace, timeout=timeout) as session:
                 for tool in plugin_tools(manifest, workspace, task.tools, session=session):
                     agent.add_tool(tool)
-                # Streamed, though nothing reads the text, so the run's profile measures time to first token.
-                result = await agent.run(user, on_step=on_step, on_delta=lambda _kind, _text: None)
+                result = await agent.run(
+                    user, on_step=on_step, on_delta=lambda kind, text: on_event("task.delta", {"kind": kind, "text": text})
+                )
             on_event("task.answer", {"text": result.answer})
             if submit.output is None:
                 raise RuntimeError(f"the agent ended task {task.id!r} without calling {SUBMIT}")

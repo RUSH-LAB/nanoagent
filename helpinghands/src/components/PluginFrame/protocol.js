@@ -66,10 +66,18 @@ export const themeEvent = theme => ({protocol: PROTOCOL, event: 'host.theme', da
  */
 export function chatEvent({event, data}) {
   if (event === 'delta') return {event: 'chat.delta', data: {text: data.text}};
+  if (event === 'agent' && data?.type === 'reasoning.delta') return {event: 'chat.reasoning', data: {text: data.text}};
+  if (event === 'agent' && data?.type === 'tool.started') {
+    return {event: 'chat.tool.started', data: {id: data.call.id, name: data.call.name}};
+  }
+  if (event === 'agent' && data?.type === 'tool.progress') {
+    return {event: 'chat.tool.progress', data: {id: data.call.id, name: data.call.name, event: data.event, data: data.data}};
+  }
   if (event === 'agent' && (data?.type === 'tool.completed' || data?.type === 'tool.failed')) {
     return {
       event: 'chat.tool',
       data: {
+        id: data.call.id,
         name: data.call.name,
         arguments: data.call.arguments,
         output: data.call.output,

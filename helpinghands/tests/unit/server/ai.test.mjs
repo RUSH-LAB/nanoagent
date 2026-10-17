@@ -303,6 +303,27 @@ describe('NanoAgent plugin API', () => {
     assert.deepEqual(seen, [[`http://127.0.0.1:8787/v1/workspaces/w1/installs/${sha}/runs`, {input: 'save it', messages: []}]]);
   });
 
+  it('shows an app run its thinking and each task as it runs, which other runs keep private', async () => {
+    const chunks = [
+      sse({type: 'delta', runId: 'r1', kind: 'reasoning', text: 'which task?'}),
+      sse({type: 'tool_start', runId: 'r1', id: 'call-1', name: 'echo'}),
+      sse({type: 'tool_progress', runId: 'r1', id: 'call-1', name: 'echo', event: 'task.result', data: {}}),
+      sse({type: 'tool', runId: 'r1', id: 'call-1', name: 'echo', arguments: {value: 'hi'}, output: '{}', is_error: false}),
+      sse({type: 'done', runId: 'r1', answer: 'saved'}),
+    ];
+    const gateway = ai.createNanoAgentGateway({env: {}, fetchImpl: async () => response(chunks)});
+    const events = [];
+    await gateway.stream({input: 'save it', install: 'a'.repeat(64), workspace: 'w1', onEvent: event => events.push(event)});
+    assert.deepEqual(events.slice(0, 3), [
+      {type: 'reasoning.delta', runId: 'r1', text: 'which task?'},
+      {type: 'tool.started', runId: 'r1', call: {id: 'call-1', name: 'echo'}},
+      {type: 'tool.progress', runId: 'r1', call: {id: 'call-1', name: 'echo'}, event: 'task.result', data: {}},
+    ]);
+    const others = [];
+    await gateway.stream({input: 'hi', onEvent: event => others.push(event)});
+    assert.deepEqual(others.map(event => event.type), ['tool.started', 'tool.completed', 'run.completed']);
+  });
+
   it('reads a workspace file as bytes and relays a missing one as 404', async () => {
     const seen = [];
     const gateway = ai.createNanoAgentGateway({

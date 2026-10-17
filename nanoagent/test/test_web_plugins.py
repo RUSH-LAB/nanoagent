@@ -241,12 +241,16 @@ def test_runs_a_prompt_in_the_callers_workspace(client: TestClient, model: Scrip
     with client.stream("POST", f"{runs(client)}/runs", json={"input": "echo hi"}) as response:
         assert response.status_code == 200
         events = [json.loads(line[len("data: ") :]) for line in response.iter_lines() if line.startswith("data: ")]
-    assert [event["type"] for event in events] == ["start", "tool", "step", "delta", "done"]
+    assert [event["type"] for event in events] == ["start", "tool_start", "tool_progress", "tool", "step", "delta", "done"]
     assert events[0]["profile"] == "plugin-echo"
     assert events[-1]["metrics"]["ttft_s"] is not None
-    assert events[1]["name"] == "echo" and not events[1]["is_error"]
+    # The task shows as it starts, and reports checking its result before it ends.
+    call = events[3]["id"]
+    assert {key: events[1][key] for key in ("id", "name")} == {"id": call, "name": "echo"}
+    assert {key: events[2][key] for key in ("id", "event", "data")} == {"id": call, "event": "task.result", "data": {}}
+    assert events[3]["name"] == "echo" and not events[3]["is_error"]
     # The chat's tool is the echo task: its result is the task's typed output and its verdict.
-    result = json.loads(events[1]["output"])
+    result = json.loads(events[3]["output"])
     assert result["output"] == {"value": "hi"} and result["verdict"]["valid"] is True
     assert "hi" in events[-1]["answer"]
     assert "You operate the Echo plugin" in model.prompts[0]
@@ -482,6 +486,19 @@ def test_a_chat_runs_an_agent_task_and_counts_its_cost(tmp_path: Path, monkeypat
         events = [json.loads(line[len("data: ") :]) for line in response.iter_lines() if line.startswith("data: ")]
     [tool] = [event for event in events if event["type"] == "tool"]
     assert tool["name"] == "echo-agent" and json.loads(tool["output"])["output"] == {"value": "hi"}
+    # While it runs, the task shows what its agent writes and each tool it calls; the agent's own
+    # calls are the task's progress, not calls of the chat.
+    [started] = [event for event in events if event["type"] == "tool_start"]
+    assert (started["id"], started["name"]) == (tool["id"], "echo-agent")
+    progress = [(event["event"], event["data"]) for event in events if event["type"] == "tool_progress"]
+    assert progress == [
+        ("task.delta", {"kind": "content", "text": "x"}),
+        ("task.tool", {"name": "echo", "isError": False}),
+        ("task.delta", {"kind": "content", "text": "x"}),
+        ("task.tool", {"name": "submit", "isError": False}),
+        ("task.delta", {"kind": "content", "text": "x"}),
+        ("task.result", {}),
+    ]
     # Two chat replies and the task agent's three.
     assert events[-1]["metrics"]["cost"] == pytest.approx(0.05)
     # The task's agent works with its instructions and only its own tools.

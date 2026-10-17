@@ -304,6 +304,8 @@ export function nanoagentCommand({nanoagent, data, connection, port, sandbox, sy
       `sandbox=${sandbox}`,
       // The member's runs choose any model their keys reach, and settings of their own.
       'run_models=true',
+      // The member watches their own runs think, on their own keys.
+      'include_reasoning=true',
       `workspaces=${JSON.stringify(path.join(connection, 'agent-workspaces'))}`,
       `installs=${JSON.stringify(path.join(connection, 'nanoagent-installs'))}`,
       `uv_cache=${JSON.stringify(path.join(data, 'nanoagent-uv-cache'))}`,

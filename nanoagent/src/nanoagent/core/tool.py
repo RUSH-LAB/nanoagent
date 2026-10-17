@@ -25,7 +25,8 @@ import inspect
 import os
 import signal
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from contextvars import ContextVar
 from typing import Any
 
 
@@ -34,6 +35,10 @@ from typing import Any
 # to enumerate.
 JsonSchema = dict[str, Any]
 
+# Where the call running in this context reports its progress (:meth:`Tool.progress`). The agent
+# loop sets it for each call it dispatches, None when nobody watches its tools, so a tool that
+# runs an agent of its own never reports to its caller's watcher.
+tool_progress: ContextVar[Callable[[str, dict[str, Any]], None] | None] = ContextVar("tool_progress", default=None)
 
 
 class ToolText(str):
@@ -115,6 +120,17 @@ class Tool:
         :meth:`~nanoagent.core.agent.Agent.add_tool`). The only way a tool can reach back into
         its agent — :mod:`nanoagent.tools.write` needs it to register the tools it writes.
         """
+
+    def progress(self, kind: str, data: dict[str, Any]) -> None:
+        """Report how the call in progress is going, as event ``kind`` with ``data``, to whoever
+        watches the run's tools (``on_tool`` of :meth:`~nanoagent.core.agent.Agent.run`).
+
+        Only an ``async def run`` reports: a synchronous one runs on a worker thread, and the
+        watcher is the event loop's.
+        """
+        report = tool_progress.get()
+        if report is not None:
+            report(kind, data)
 
     @property
     def name(self) -> str:
