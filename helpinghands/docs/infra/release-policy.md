@@ -72,6 +72,9 @@ independently.
 - Local `npm start` starts the adjacent `nanoagent/` checkout.
 - Production Mochi must set `NANOAGENT_URL` and `NANOAGENT_API_TOKEN`.
 - Neither the production NanoAgent nor Mochi stores a model-provider key: each
-  member's Mochi Lab holds its own.
+  member's Mochi Lab holds its own. A RUSH Lab cloud runner holds the lab's own
+  key, for the members who run there ([aws-deployment.md](aws-deployment.md)).
 - NanoAgent has no public domain and is reachable only over Railway's private
-  network.
+  network, or, on AWS, from the website's security group.
+- `CLOUD_RUNS=on` is set only beside a NanoAgent that confines plugins
+  (`sandbox=bwrap`), never on Railway's.

@@ -11,6 +11,12 @@ runs every plugin. Mochi's servers keep no model key and run no model or plugin:
 they only list the marketplace and hold its plugin packages. While a member's
 Mochi Lab is not connected, their AI and plugins are refused, never run elsewhere.
 
+A site may also offer RUSH Lab cloud (`CLOUD_RUNS=on`, docs/infra/aws-deployment.md):
+a member who chooses it runs their plugins on a sandboxed NanoAgent of the site's,
+with nothing installed, on the lab's key and within their workspace's AI budget.
+Each member chooses, at the arrival screen or in Settings → Connection, and their
+runs go only where they chose.
+
 ## OpenRouter keys
 
 - AI runs on the member's own laptop, using the OpenRouter key saved in their

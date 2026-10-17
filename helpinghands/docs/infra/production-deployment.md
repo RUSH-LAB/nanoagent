@@ -9,6 +9,12 @@ published to the marketplace from GitHub: every run, plugin install and plugin
 page is on the member's own computer, through Mochi Lab
 (`src/server/runner.js`), and is refused while it is not connected.
 
+A deployment may also offer RUSH Lab cloud, members' plugin runs on a sandboxed
+NanoAgent of its own ([aws-deployment.md](aws-deployment.md)): Mochi with
+`CLOUD_RUNS=on`, beside a NanoAgent started with `sandbox=bwrap`. Railway's
+NanoAgent runs plugins unconfined (`sandbox: none`), so this deployment never
+sets `CLOUD_RUNS`.
+
 ## Required services
 
 - Production's PostgreSQL database, with a direct schema-owner URL and a

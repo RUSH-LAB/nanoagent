@@ -81,3 +81,27 @@ To decide:
 - What chat is for in RUSH Lab: talking to an agent about a workspace, running plugins from a
   conversation, or messaging other members in channels.
 - Whether it is on for every workspace or one an owner turns on, as with Book and Blog above.
+
+## RUSH Lab cloud, past its first runner
+
+RUSH Lab cloud (docs/infra/aws-deployment.md) runs members' plugins on one runner VM: NanoAgent
+in a locked-down container, each plugin under bubblewrap. Its plugin runs end when Mochi restarts,
+and it runs everyone's on the lab's key.
+
+To decide:
+
+- A microVM per run (Firecracker, or a managed sandbox such as `nanoagent/docs/plans/plugin-sandbox.md`
+  option 2), so a kernel exploit escapes into one run's VM rather than the runner's.
+- Limits per run: a cgroup for each plugin's memory and processes, so a plugin cannot hold the
+  runner's limits from other members' plugins for the length of its run, as it can today.
+- Writing back what an interrupted cloud run left in its folder, as a computer's is, once
+  `plugin_run.folder` is recorded (`app-runs.js` passes `setRunFolder` the wrong shape).
+- More than one runner: runs, installs and plugin pages addressed by install, so a run and its
+  page reach the runner that has its plugin installed.
+- Whether a cloud run outlives Mochi restarting, as a computer's held run does: NanoAgent would keep
+  a run going without its HTTP stream, and Mochi take it up again by id.
+- NanoAgent running a plugin's lock check and its input and output verifiers off its event loop
+  (`plugin/runtime.py`, `plugin/verifier.py`), so a slow plugin does not delay other members' runs.
+- Members' own keys in the cloud, which Mochi would have to keep, encrypted.
+- `/health` saying which sandbox NanoAgent confines plugins with, so Mochi refuses `CLOUD_RUNS`
+  beside one that does not, rather than relying on its deployment.
