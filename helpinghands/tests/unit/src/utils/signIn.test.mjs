@@ -9,17 +9,23 @@ const page = (url, accept = 'text/html,application/xhtml+xml') => ({method: 'GET
 
 describe('sign-in gate', () => {
   it('gates navigations to application pages', () => {
-    for (const url of ['/', '/tasks?view=week', '/w/team/channels', '/404.html']) {
+    for (const url of ['/w', '/tasks?view=week', '/w/team/channels', '/404.html']) {
       assert.equal(asksForSession(page(url)), true, url);
       assert.equal(redirectFor(page(url), true), null, url);
     }
     assert.equal(redirectFor(page('/tasks?view=week'), false), '/signin?next=%2Ftasks%3Fview%3Dweek');
   });
 
+  it('shows everybody the landing page at the root', () => {
+    assert.equal(isOpenPage('/'), true);
+    assert.equal(asksForSession(page('/?ref=x')), false);
+    assert.equal(redirectFor(page('/w'), false), '/signin?next=%2Fw');
+  });
+
   it('sends somebody signed in on from the sign-in page', () => {
     assert.equal(asksForSession(page('/signin?next=%2Ftasks')), true);
     assert.equal(redirectFor(page('/signin?next=%2Ftasks'), true), '/tasks');
-    assert.equal(redirectFor(page('/signin/'), true), '/');
+    assert.equal(redirectFor(page('/signin/'), true), '/w');
     assert.equal(redirectFor(page('/signin?next=%2Ftasks'), false), null);
   });
 
@@ -43,9 +49,9 @@ describe('sign-in gate', () => {
     const url = new URL(signInUrl('/tasks?view=week#today'), 'http://x');
     assert.equal(url.pathname, '/signin');
     assert.equal(nextFrom(url.search), '/tasks?view=week#today');
-    assert.equal(nextFrom(''), '/');
-    assert.equal(nextFrom('?next=https://evil.example'), '/');
-    assert.equal(nextFrom('?next=//evil.example'), '/');
-    assert.equal(nextFrom('?next=/\\evil.example'), '/');
+    assert.equal(nextFrom(''), '/w');
+    assert.equal(nextFrom('?next=https://evil.example'), '/w');
+    assert.equal(nextFrom('?next=//evil.example'), '/w');
+    assert.equal(nextFrom('?next=/\\evil.example'), '/w');
   });
 });

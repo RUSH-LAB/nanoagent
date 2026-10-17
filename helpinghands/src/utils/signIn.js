@@ -13,6 +13,12 @@
 /** The sign-in page (pages/signin). */
 const SIGN_IN_PATH = '/signin';
 
+/** The site's root: the landing page (pages/index), offering the app and the site. */
+const LANDING_PATH = '/';
+
+/** Where the site itself starts (pages/w): the member's workspace. */
+const START_PATH = '/w';
+
 /**
  * Pages anyone may open.
  *
@@ -20,7 +26,8 @@ const SIGN_IN_PATH = '/signin';
  * somebody who has no account yet, and /join is written for exactly that
  * visitor, reading the invitation without a session and saying which
  * workspace, who sent it, and which address it names. And /download, where
- * anyone gets the RUSH Lab app, in which members sign in.
+ * anyone gets the RUSH Lab app, in which members sign in. The landing page, the
+ * root alone, is open too.
  */
 const OPEN = [SIGN_IN_PATH, '/join', '/download'];
 
@@ -32,7 +39,8 @@ const OPEN = [SIGN_IN_PATH, '/join', '/download'];
 const PUBLISHED = /^\/w\/[^/]+\/documents(?:\/|$)/;
 
 function isOpenPage(pathname) {
-  return OPEN.some(page => pathname === page || pathname.startsWith(`${page}/`))
+  return pathname === LANDING_PATH
+    || OPEN.some(page => pathname === page || pathname.startsWith(`${page}/`))
     || PUBLISHED.test(pathname);
 }
 
@@ -75,13 +83,14 @@ function signInUrl(destination) {
 }
 
 /**
- * Where to go after signing in, from the sign-in page's query string. Only a
+ * Where to go after signing in, from the sign-in page's query string, or the
+ * member's workspace when it names nowhere. Only a
  * path on this site: `next` arrives in a URL anybody can write, and following
  * it to another origin would make the sign-in page an open redirect.
  */
 function nextFrom(search) {
   const next = new URLSearchParams(search).get('next');
-  return next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : '/';
+  return next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : START_PATH;
 }
 
 module.exports = {isOpenPage, isSignInPage, asksForSession, redirectFor, signInUrl, nextFrom};
