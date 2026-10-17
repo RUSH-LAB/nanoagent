@@ -1,7 +1,6 @@
 """The programs NanoAgent runs in processes of their own: ``nanoagent helper <name> [args...]``.
 
-:func:`command` starts a helper on this Python, through ``nanoagent.__main__.ENTRY``, so it runs
-the same from source and compiled by Nuitka into one module. :func:`readable` is what a sandbox
+:func:`command` starts a helper on this Python. :func:`readable` is what a sandbox
 must let a helper read to start. ``nanoagent/__main__.py`` sends ``helper`` here before the CLI
 loads, so a helper loads only NanoAgent's package and what it imports itself.
 
@@ -21,7 +20,6 @@ from importlib import import_module
 from pathlib import Path
 
 import nanoagent
-from nanoagent.__main__ import ENTRY
 
 HELPERS = {
     "package": "nanoagent.plugin.package",
@@ -35,7 +33,7 @@ def command(name: str, *args: str) -> list[str]:
     """The command that runs the helper ``name`` on ``args`` in a fresh process."""
     if name not in HELPERS:
         raise ValueError(f"no NanoAgent helper {name!r}")
-    return [sys.executable, "-I", "-c", ENTRY, "helper", name, *args]
+    return [sys.executable, "-I", "-m", "nanoagent", "helper", name, *args]
 
 
 def readable() -> list[Path]:

@@ -79,6 +79,25 @@ function createGithub({fetchImpl = (...args) => fetch(...args)} = {}) {
         return {error: 'Could not reach GitHub', status: 502};
       }
     },
+    /**
+     * Whether `repository`'s ref has changed its folder since `repository.commit`:
+     * `{value: commit}`, the newest commit that changed it, or `{value: null}`, otherwise `{error, status}`.
+     */
+    async newer({owner, repo, ref, path, commit}) {
+      const base = `https://api.github.com/repos/${owner}/${repo}`;
+      try {
+        const touched = await get(`${base}/commits?sha=${encodeURIComponent(ref)}${path ? `&path=${encodeURIComponent(path)}` : ''}&per_page=1`, 'application/vnd.github+json');
+        if (!touched.ok) return {error: `GitHub refused to list the commits (${touched.status}); try again later`, status: 502};
+        const [latest] = await touched.json();
+        if (!latest || latest.sha === commit) return {value: null};
+        const compared = await get(`${base}/compare/${commit}...${latest.sha}`, 'application/vnd.github+json');
+        if (!compared.ok) return {error: `GitHub refused to compare the commits (${compared.status}); try again later`, status: 502};
+        // 'ahead': the newest change comes after the commit published; otherwise the commit holds it.
+        return {value: (await compared.json()).status === 'ahead' ? latest.sha : null};
+      } catch {
+        return {error: 'Could not reach GitHub', status: 502};
+      }
+    },
   });
 }
 

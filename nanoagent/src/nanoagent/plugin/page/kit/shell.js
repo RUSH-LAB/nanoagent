@@ -11,16 +11,27 @@ import { dashboard, enterSession } from "./session.js";
 /** Where `repository`'s folder is on GitHub at the commit the plugin was published from. */
 const sourceUrl = ({ owner, repo, commit, path }) => `https://github.com/${owner}/${repo}/tree/${commit}${path ? `/${path}` : ""}`;
 
+/** What changed on GitHub from the commit `from` was published from to `to`'s, or null when they are in different repositories. */
+function changesUrl(from, to) {
+  if (!from || !to || from.owner !== to.owner || from.repo !== to.repo) return null;
+  return `https://github.com/${from.owner}/${from.repo}/compare/${from.commit}...${to.commit}`;
+}
+
 /**
  * The version the person runs, with a link to its source when the host names the repository it
  * was published from; and for a plugin the host can update (`latest` names its newest version),
- * Update when that is newer. `plugin.version` asks the host for it, and a host that moves the
- * plugin to another version opens its page again.
+ * Update when that is newer, with what changed since. `plugin.version` asks the host for it, and a
+ * host that moves the plugin to another version opens its page again.
  */
 function versionControl(plugin) {
   const box = h("div", { class: "app-version" });
   const error = h("span", { class: "error-text small-text", role: "alert" });
-  let state = { version: plugin.version, latest: plugin.latest ?? null, repository: plugin.repository ?? null };
+  let state = {
+    version: plugin.version,
+    latest: plugin.latest ?? null,
+    repository: plugin.repository ?? null,
+    latestRepository: plugin.latestRepository ?? null,
+  };
 
   async function choose(version, control) {
     control.disabled = true;
@@ -42,7 +53,9 @@ function versionControl(plugin) {
     const update = behind ? h("button", { type: "button", class: "button small primary", text: `Update to v${state.latest}` }) : null;
     update?.addEventListener("click", () => choose(state.latest, update));
     const fresh = state.latest !== null && !behind ? h("span", { class: "muted small-text", text: "Up to date" }) : null;
-    return box.replaceChildren(...[current, fresh, source, update, error].filter(Boolean));
+    const changes = behind ? changesUrl(state.repository, state.latestRepository) : null;
+    const news = changes ? h("a", { class: "button small ghost", href: changes, target: "_blank", rel: "noopener noreferrer", text: "What's new" }) : null;
+    return box.replaceChildren(...[current, fresh, source, news, update, error].filter(Boolean));
   }
 
   if (plugin.version) draw();

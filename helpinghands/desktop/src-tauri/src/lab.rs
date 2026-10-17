@@ -1,7 +1,7 @@
 //! What runs behind RUSH Lab's window and menu-bar icon: src/runner/lab.mjs, which serves every connection
 //! on this computer (a NanoAgent and a relay for each member connected here).
 //!
-//! The app bundles lab.mjs with the relay, NanoAgent compiled, Node and uv, and on Windows git
+//! The app bundles lab.mjs with the relay, NanoAgent, Node and uv, and on Windows git
 //! (scripts/stage.mjs).
 //! Each build is installed once into the data folder's app/<stamp>/mochi-lab/, the layout lab.mjs
 //! runs from, because NanoAgent's .venv is made beside it. lab.mjs runs from there while the app is

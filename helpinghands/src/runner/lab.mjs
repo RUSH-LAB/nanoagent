@@ -7,7 +7,7 @@
  *   mochi-lab/config.json    desktop/config.yaml: its own site, the install's label, the files folders, Python's version
  *   mochi-lab/bin/{node,uv}  the runtimes, first on every service's PATH
  *   mochi-lab/runner/        this file, the relay (relay.mjs) and what it loads
- *   mochi-lab/nanoagent/     NanoAgent compiled by Nuitka (site/), its uv.lock, the PI runner's bundle, its config
+ *   mochi-lab/nanoagent/     NanoAgent's source (site/), its uv.lock, the PI runner's bundle, its config
  *
  * One install serves every connection on this computer's account: one member of one site each,
  * however many members and sites. The install's data folder, ~/Library/Application Support/<label>/,
@@ -297,8 +297,7 @@ export function nanoagentCommand({nanoagent, data, connection, port, sandbox, sy
   return {
     program: python,
     args: [
-      // A compiled NanoAgent has no code object for `-m nanoagent` (nanoagent/__main__.py).
-      '-I', '-c', 'from nanoagent.__main__ import main; raise SystemExit(main())', 'web',
+      '-I', '-m', 'nanoagent', 'web',
       'web_cfg=deploy/railway/nanoagent.yaml',
       'host=127.0.0.1',
       `port=${port}`,
@@ -551,8 +550,8 @@ async function main() {
     fs.rmSync(busyFile, {force: true});
     log('Preparing NanoAgent\'s Python environment (the first start downloads Python)…');
     setupStage('python');
-    // Only NanoAgent's dependencies, as the bundled uv.lock pins them: NanoAgent itself is the
-    // compiled module in site/, with no source to check the lock against.
+    // Only NanoAgent's dependencies, as the bundled uv.lock pins them: NanoAgent itself is its
+    // package in site/, which nanoagent.pth puts on the environment's path.
     const services = [];
     const uv = startService(services, 'uv sync', path.join(bin, exe('uv')), [
       'sync', '--frozen', '--no-dev', '--no-install-project', '--extra', 'web', '--managed-python', '--python', config.python_version,

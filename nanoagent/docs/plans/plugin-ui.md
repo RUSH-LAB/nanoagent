@@ -69,7 +69,7 @@ Methods:
 
 | method | params | result | events |
 |---|---|---|---|
-| `describe` | `{}` | `{plugin, workspace: {id}, theme: "light"\|"dark"}` (`plugin`: the catalog entry, tasks with `inputSchema`; with `latest`, its newest version, when the host can update it, and `repository`, `{owner, repo, path, commit}` on GitHub, when it was published from one) | — |
+| `describe` | `{}` | `{plugin, workspace: {id}, theme: "light"\|"dark"}` (`plugin`: the catalog entry, tasks with `inputSchema`; with `latest`, its newest version, when the host can update it, and `repository` and `latestRepository`, `{owner, repo, path, commit}` on GitHub, of the version it runs and the newest, when they were published from one) | — |
 | `prompt` | `{text}` | `{runId}` | `chat.reasoning {text}`, `chat.delta {text}`, `chat.tool.started {id, name}`, `chat.tool.progress {id, name, event, data}` (a task's `task.reference {tool}`, `task.tool {name, isError}`, `task.delta {kind, text}` and `task.result {}` while it runs), `chat.tool {id, name, arguments, output, isError}`, `chat.answer {text}`, `chat.error {message}`, `chat.restart {}` (the stream dropped and the run is followed again from its first event), `chat.turn {turn}` (it ended while the stream was down: the turn the session kept), `chat.done` |
 | `follow` | `{}` | `{runId, prompt}` | as `prompt`'s, for the message the current session was still answering when it was resumed (`running`) |
 | `cancel` | `{runId}` | `{}` | — |
@@ -78,7 +78,7 @@ Methods:
 | `session.start` | `{}` | `{session}`, a new one with `chat: []`; it becomes the current session. The kit sends it on a new session's first `prompt` | — |
 | `session.resume` | `{id}` | `{session}`, with `running: {prompt}` while it is still answering a message, else null; it becomes the current session, and `prompt` continues its conversation | — |
 | `session.archive` | `{id, archived}` | `{session}` (its summary); an archived session leaves the Dashboard's list for its Archived view until it is restored (`archived: false`) or chatted in again | — |
-| `plugin.version` | `{version}` | `{version, latest, repository}`: the person runs `version` from now on, or with `version` null follows the newest; the host opens the page again when the version changed. The Dashboard's header shows the version, a link to its source, and Update when a newer one is out | — |
+| `plugin.version` | `{version}` | `{version, latest, repository, latestRepository}`: the person runs `version` from now on, or with `version` null follows the newest; the host opens the page again when the version changed. The Dashboard's header shows the version, a link to its source, and when a newer one is out What's new (GitHub's comparison of the two commits) and Update | — |
 
 `prompt` is today's chat: a free-form message to the plugin's agent; the session keeps the
 conversation (its last 12 turns, each `{prompt, answer, tools, activity, error}`, `activity`

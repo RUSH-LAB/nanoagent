@@ -38,9 +38,11 @@ function createWorkspaceApps({ai, market, plugins}) {
 
   /**
    * Of the caller's upload `added`: the `latest` version published, whether they follow it, and
-   * the `repository` the version they run was published from.
+   * the `repository` the version they run was published from, and the latest (`latestRepository`).
    */
-  const versionOf = added => ({latest: added.latest, autoUpdate: added.pinned === null, repository: added.repository});
+  const versionOf = added => ({
+    latest: added.latest, autoUpdate: added.pinned === null, repository: added.repository, latestRepository: added.latestRepository,
+  });
 
   /**
    * `added`, one of the caller's plugins, as they run it: its marketplace entry
@@ -118,7 +120,7 @@ function createWorkspaceApps({ai, market, plugins}) {
     /**
      * The caller's app `id`, installed and ready to run on the NanoAgent `on`
      * (the member's own computer's): its catalog entry, with the `sha256` its runs and page are
-     * addressed by and its `uiVersion`, and for an upload its `latest`, `autoUpdate` and `repository`; or
+     * addressed by and its `uiVersion`, and for an upload `versionOf` it; or
      * `{error, status}`, 404 for a plugin the caller did not install.
      */
     async open(context, id, on) {

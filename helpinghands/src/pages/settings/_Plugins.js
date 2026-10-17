@@ -6,6 +6,12 @@ import {apiRequest} from '@site/src/utils/api';
 import {PaneHeading, Skeleton} from './_parts';
 import styles from './styles.module.css';
 
+/** What changed on GitHub from `app`'s version to its latest, or null when they are in different repositories. */
+function changesUrl({repository: from, latestRepository: to}) {
+  if (!from || !to || from.owner !== to.owner || from.repo !== to.repo) return null;
+  return `https://github.com/${from.owner}/${from.repo}/compare/${from.commit}...${to.commit}`;
+}
+
 /**
  * The plugins the member installed from the marketplace, which they use on the
  * Plugins page of every workspace they are in; they uninstall them here and
@@ -65,6 +71,9 @@ export default function Plugins({workspace}) {
                 </span>
               </div>
               <div className={styles.rowControl}>
+                {app.latest && app.version !== app.latest && changesUrl(app) && (
+                  <a href={changesUrl(app)} target="_blank" rel="noreferrer">What's new</a>
+                )}
                 {app.latest && app.version !== app.latest && (
                   <button
                     type="button"

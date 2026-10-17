@@ -225,7 +225,8 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
       });
       if (!response.ok) throw await failed(response, 'Could not change the version');
       const {app} = await response.json();
-      return {result: {version: app.version, latest: app.latest, repository: app.repository}, after: () => onVersion(app)};
+      const {version: current, latest, repository, latestRepository} = app;
+      return {result: {version: current, latest, repository, latestRepository}, after: () => onVersion(app)};
     },
     'session.archive': async ({id, archived}) => ({
       result: {

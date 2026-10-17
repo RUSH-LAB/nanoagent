@@ -22,6 +22,23 @@ To decide:
 Bringing back the navbar items: they are removed in the commit that added this
 file, and `git show` on it restores the code.
 
+## A search engine
+
+The navbar's search pill is hidden for now, and so is the dialog it and the `/` key opened
+(`components/SearchTrigger`, `components/SearchDialog`). Their code stays, as does the search
+page (`/content-search`, also in the command palette). Today search is three requests
+(`hooks/useContentSearch.js`): `/api/content/search` matches a document's path or title,
+`/api/search` runs BM25 over the workspace's markdown, and `/api/references` the bibliography's
+papers. We will need a real search engine before bringing it back.
+
+To decide:
+
+- What it searches: documents only, or also plugin sessions, apps, the marketplace and the
+  files apps saved.
+- Where the index lives and how it stays current as content changes, per workspace.
+- Bringing back the pill: it is removed in the commit that added this section, and `git show` on
+  it restores the code.
+
 ## A plugin run that resumes after Mochi Lab quits
 
 A plugin run survives Mochi restarting and Mochi Lab's connection dropping for less than ten

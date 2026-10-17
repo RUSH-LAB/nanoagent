@@ -4,7 +4,7 @@
  * (TAURI_ENV_TARGET_TRIPLE, which Tauri sets for beforeBuildCommand):
  *
  *   src-tauri/resources/runner/     the relay that lends this computer's NanoAgent to Mochi
- *   src-tauri/resources/nanoagent/  NanoAgent compiled by Nuitka (site/), its uv.lock, the PI runner's bundle, and the config the app runs
+ *   src-tauri/resources/nanoagent/  NanoAgent's source (site/), its uv.lock, the PI runner's bundle, and the config the app runs
  *   src-tauri/resources/config.json this folder's config.yaml, as JSON: lab.mjs loads only Node's own modules;
  *                                   with --release (npm run build:release), the target it updates itself as
  *   src-tauri/resources/stamp       names this staging; the app installs each stamp once
@@ -127,31 +127,13 @@ function stageRunner() {
 }
 
 /**
- * NanoAgent ships compiled, not as source: Nuitka builds its package into one module, for the
- * Python the app runs it on, in resources/nanoagent/site/ with the files it reads beside it.
- * Its dependencies are open source and are installed from the uv.lock resolved here, on first
- * launch. Beside them go the PI runner's two bundled files and the config lab.mjs runs, at
- * the paths that config names them by.
+ * NanoAgent's package ships as its source, in resources/nanoagent/site/, and its dependencies are
+ * installed from the uv.lock resolved here, on first launch. Beside them go the PI runner's two
+ * bundled files and the config lab.mjs runs, at the paths that config names them by.
  */
 async function stageNanoAgent(uv) {
   const out = path.join(resources, 'nanoagent');
-  const build = path.join(cache, 'nuitka');
-  fs.rmSync(build, {recursive: true, force: true});
-  run(uv, [
-    'run', '--no-project', '--managed-python', '--python', config.python_version, '--with-editable', '.[compile]',
-    'python', '-m', 'nuitka', '--mode=package', '--assume-yes-for-downloads', `--output-dir=${build}`, 'src/nanoagent',
-  ], {cwd: nanoagentRoot});
-  // Nuitka's module is a .so on macOS and Linux, a .pyd on Windows.
-  const [module] = fs.readdirSync(build).filter(name => /\.(so|pyd)$/.test(name));
-  copy(path.join(build, module), path.join(out, 'site', module));
-  // What the code reads from its package's folder: every file but its .py, and the plugin
-  // template whole, which `nanoagent plugin new` copies.
-  const source = path.join(nanoagentRoot, 'src', 'nanoagent');
-  const template = path.join(source, 'plugin', 'template');
-  fs.cpSync(source, path.join(out, 'site', 'nanoagent'), {
-    recursive: true,
-    filter: from => !SKIP.has(path.basename(from)) && (from.startsWith(template) || !from.endsWith('.py')),
-  });
+  copy(path.join(nanoagentRoot, 'src', 'nanoagent'), path.join(out, 'site', 'nanoagent'));
   // NanoAgent is a library and keeps no lock; the app pins the versions resolved for this build,
   // which it installs with `uv sync --frozen` on first launch. Locking reads NanoAgent's version
   // from its source, so it runs on a copy with the source, and only the lock ships.

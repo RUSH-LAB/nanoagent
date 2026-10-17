@@ -54,4 +54,4 @@ Spiked on Windows 11 (2026-10-16), launched through `CreateProcessW` with
   AppContainer, and busybox's `ash` is not bash, so no plugin may depend on a shell.
 - `lab.mjs` and the desktop shell stop processes without POSIX signals, and use
   `%LOCALAPPDATA%` for data.
-- Nuitka compiles the Windows NanoAgent; the bundle target is `x86_64-pc-windows-msvc`.
+- The Windows bundle target is `x86_64-pc-windows-msvc`.

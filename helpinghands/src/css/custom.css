@@ -555,11 +555,9 @@ li > input[type="checkbox"]:checked {
   }
 }
 
-/* Root.js DevelopmentBanner: the local site, on its copy of production's database. */
+/* Root.js DevelopmentBanner: the local site, on its copy of production's database.
+   It stays in the page's flow, below the navbar's fixed menu, which covers it. */
 .development-banner {
-  position: sticky;
-  top: 0;
-  z-index: 1000;
   padding: 0.25rem 1rem;
   background: #b45309;
   color: #fff;

@@ -1,14 +1,15 @@
 'use strict';
+const {gt} = require('@renovatebot/pep440');
 const {withRequestContext} = require('./client');
 
 // What one user's uploads may hold in all; each package is also capped by NanoAgent.
 const USER_MAX_BYTES = 50 * 1024 * 1024;
 
 /**
- * The marketplace's uploads (migrations 0012, 0013, 0041): NanoAgent plugin packages any
+ * The marketplace's uploads (migrations 0012, 0013, 0041, 0042): NanoAgent plugin packages any
  * signed-in user may download, each published and removed only by its uploader.
- * An upload keeps every version published, each one package for good, and is
- * listed as its latest.
+ * Each version is one package for good, newer than every version before it; an
+ * upload is listed as its latest, and keeps that and each version a member stays on.
  * Row-level security holds both rules; publish checks the owner first to say
  * "that id is taken", and an upload's owner never changes, so the check holds
  * (a race it loses still fails on the policy, which the route reports alike).
@@ -26,6 +27,27 @@ function createPostgresMarket({pool}) {
     owner: {id: row.owner_id, name: row.owner_name, github: row.owner_github},
     updatedAt: row.updated_at,
   });
+  /**
+   * Remove the versions of the caller's upload `id` that no member stays on
+   * but its latest: user_plugin_version_fkey refuses each one a member does,
+   * which then stays.
+   */
+  async function prune(client, id) {
+    const versions = (await client.query(
+      `select v.version from market_plugin_version v join market_plugin m on m.id = v.plugin_id
+        where v.plugin_id = $1 and v.version <> m.version`, [id],
+    )).rows;
+    for (const {version} of versions) {
+      await client.query('savepoint prune');
+      try {
+        await client.query('delete from market_plugin_version where plugin_id = $1 and version = $2', [id, version]);
+        await client.query('release savepoint prune');
+      } catch (error) {
+        if (error.code !== '23503') throw error;
+        await client.query('rollback to savepoint prune');
+      }
+    }
+  }
   const COLUMNS = 'v.entry, v.repository, v.sha256, v.size, v.published_at, m.owner_id, u.display_name as owner_name, u.github_login as owner_github, m.updated_at';
   // Each upload at its latest version; `get` names another.
   const FROM = 'from market_plugin m join app_user u on u.id = m.owner_id join market_plugin_version v on v.plugin_id = m.id';
@@ -48,7 +70,7 @@ function createPostgresMarket({pool}) {
     /** Store a checked package, packed from `repository`, as the caller's: new, or a new version of their own. */
     async publish(userId, entry, data, repository) {
       return run(userId, async client => {
-        const current = (await client.query('select owner_id from market_plugin where id = $1', [entry.id])).rows[0];
+        const current = (await client.query('select owner_id, version from market_plugin where id = $1', [entry.id])).rows[0];
         if (current && current.owner_id !== userId) {
           const error = new Error(`Someone else already publishes a plugin named ${entry.id}`);
           error.status = 409;
@@ -56,15 +78,14 @@ function createPostgresMarket({pool}) {
           throw error;
         }
         const {sha256, size, ...stored} = entry;
-        if (current && (await client.query(
-          'select 1 from market_plugin_version where plugin_id = $1 and version = $2', [entry.id, entry.version],
-        )).rows.length) {
-          const error = new Error(`${entry.id} ${entry.version} is published already. Raise version in nanoagent.yaml and pyproject.toml to publish this code.`);
+        if (current && !gt(entry.version, current.version)) {
+          const error = new Error(`${entry.id} ${entry.version} is not newer than its latest version, ${current.version}. Raise version in nanoagent.yaml and pyproject.toml to publish this code.`);
           error.status = 409;
           error.code = 'published';
           throw error;
         }
-        // Every version counts, as each is kept.
+        if (current) await prune(client, entry.id);
+        // Every version kept counts.
         const held = (await client.query(
           `select coalesce(sum(v.size), 0)::bigint as total
              from market_plugin_version v join market_plugin m on m.id = v.plugin_id where m.owner_id = $1`, [userId],

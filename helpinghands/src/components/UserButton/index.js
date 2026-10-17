@@ -67,19 +67,24 @@ export default function UserButton({ mobile = false }) {
   const label = labelOf(user);
 
   // In the mobile sidebar the navbar collapses to a list of text links, where a
-  // bare circle would read as a bullet with no meaning.
+  // bare circle would read as a bullet with no meaning; each is one of the
+  // menu's items, spaced as the others are.
   if (mobile) {
     return (
-      <div className={styles.mobileAccount}>
-        <Link className="menu__link" to={settingsPath}>
-          {user ? `Signed in as ${label}` : 'Account'}
-        </Link>
+      <>
+        <li className="menu__list-item">
+          <Link className="menu__link" to={settingsPath}>
+            {user ? `Signed in as ${label}` : 'Account'}
+          </Link>
+        </li>
         {user ? (
-          <button type="button" className={`menu__link ${styles.mobileSignOut}`} disabled={signingOut} onClick={signOut}>
-            {signingOut ? 'Signing out…' : 'Sign out'}
-          </button>
+          <li className="menu__list-item">
+            <button type="button" className={`menu__link ${styles.mobileSignOut}`} disabled={signingOut} onClick={signOut}>
+              {signingOut ? 'Signing out…' : 'Sign out'}
+            </button>
+          </li>
         ) : null}
-      </div>
+      </>
     );
   }
 

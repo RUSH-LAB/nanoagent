@@ -177,10 +177,6 @@ const config = {
         items: [
           // Content navigation belongs to the workspace and is supplied by
           // workspace_settings after the URL workspace has been verified.
-          // Naming the search bar explicitly moves it from its default
-          // auto-appended position to here, which is what lets the account
-          // button sit to the right of it.
-          {type: 'search', position: 'right'},
           {type: 'custom-userButton', position: 'right'},
         ],
       },

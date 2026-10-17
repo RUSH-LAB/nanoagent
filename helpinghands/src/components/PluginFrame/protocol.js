@@ -89,7 +89,7 @@ export function chatEvent({event, data}) {
     };
   }
   if (event === 'done') {
-    return {event: 'chat.answer', data: {text: data.text, metrics: answerMetrics(data)}, final: true};
+    return {event: 'chat.answer', data: {text: data.text, metrics: answerMetrics(data), version: data.version ?? null}, final: true};
   }
   if (event === 'error') return {event: 'chat.error', data: {message: data.error}, final: true};
   return null;

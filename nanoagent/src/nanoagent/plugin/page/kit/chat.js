@@ -74,11 +74,14 @@ export function chatPanel({ intro, placeholder, tasks, show }) {
       h("p", { class: "task-run-text", text }),
     );
   };
-  /** A turn the session kept, as its parts: what the agent did, its tasks' chips, its answer, and why it was not answered. */
-  const keptTurn = ({ answer, tools = [], activity = [], error }) => [
+  /**
+   * A turn the session kept, as its parts: what the agent did, its tasks' chips, its answer with
+   * the plugin version it ran on, and why it was not answered.
+   */
+  const keptTurn = ({ answer, tools = [], activity = [], error, version }) => [
     h("div", { class: "activity" }, activity.map((entry) => (entry.kind === "thought" ? thoughtBlock(entry.text) : taskBlock(entry)))),
     h("div", { class: "tool-results" }, tools.map(toolResult)),
-    answer ? h("div", { class: "message agent" }, markdown(answer)) : null,
+    answer ? h("div", { class: "message agent" }, markdown(answer), version ? h("p", { class: "message-metrics", text: `v${version}` }) : null) : null,
     // A message the session did not answer (it failed, was stopped or interrupted) says why.
     error ? h("p", { class: "error-text", text: error }) : null,
   ];
@@ -239,7 +242,10 @@ export function chatPanel({ intro, placeholder, tasks, show }) {
           case "chat.answer":
             thought();
             write(data.text ?? "");
-            if (data.metrics) reply.append(h("p", { class: "message-metrics", text: metricsLine(data.metrics) }));
+            {
+              const line = [data.version && `v${data.version}`, data.metrics && metricsLine(data.metrics)].filter(Boolean).join(" · ");
+              if (line) reply.append(h("p", { class: "message-metrics", text: line }));
+            }
             break;
           case "chat.error":
             turn.append(h("p", { class: "error-text", role: "alert", text: data.message === "cancelled" ? "Stopped." : data.message }));

@@ -156,7 +156,8 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
     if (ended) await charge(context, row, result, ran);
     runners.release(row.userId, row.id);
     if (error) run.send('error', {error, status: result.status || 502});
-    else run.send('done', completionPayload(result));
+    // The version it ran on, as its turn keeps it, unless another process ended it.
+    else run.send('done', {...completionPayload(result), version: ended ? ended.version : null});
   }
 
   /** End the run `row`, which no process is doing any more, as not answered, for `reason`. */

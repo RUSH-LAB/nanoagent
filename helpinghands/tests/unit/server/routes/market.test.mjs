@@ -20,6 +20,7 @@ describe('the plugin marketplace', () => {
     source: async url => (url === 'not github'
       ? {error: 'Give a GitHub repository URL', status: 400}
       : {value: {repository: REPOSITORY, archive: Buffer.from(url)}}),
+    newer: async repository => ({value: repository.commit === REPOSITORY.commit ? 'e'.repeat(40) : null}),
   };
   const ai = {
     packages: async () => ({value: {packages: [BUILT_IN]}}),
@@ -99,10 +100,24 @@ describe('the plugin marketplace', () => {
     assert.equal(updated.payload.plugin.version, '1.1.0');
     const again = await call('alice', 'POST', '/api/market', 'notes@1.1.0');
     assert.equal(again.status, 409);
-    assert.match(again.payload.error, /notes 1\.1\.0 is published already/);
+    assert.match(again.payload.error, /notes 1\.1\.0 is not newer than its latest version, 1\.1\.0/);
+    // By PEP 440: a release candidate comes before its release, 1.10 after 1.9.
+    assert.equal((await call('alice', 'POST', '/api/market', 'notes@1.1.0rc1')).status, 409);
+    assert.equal((await call('alice', 'POST', '/api/market', 'notes@1.0.9')).status, 409);
     assert.equal((await call('bob', 'GET', '/api/market/notes/package')).written.body.toString(), 'notes@1.1.0');
     assert.equal((await ctx.market.get('bob', 'notes', '1.0.0')).package.toString(), 'notes@1.0.0');
     assert.equal(await ctx.market.get('bob', 'notes', '0.1.0'), null);
+    // Publishing again keeps the latest before it, and removes the rest nobody stays on.
+    assert.equal((await call('alice', 'POST', '/api/market', 'notes@1.10.0')).status, 201);
+    assert.equal(await ctx.market.get('bob', 'notes', '1.0.0'), null);
+    assert.equal((await ctx.market.get('bob', 'notes', '1.1.0')).version, '1.1.0');
+  });
+
+  it('tells only the uploader whether GitHub changed their plugin since its latest version', async () => {
+    const newer = await call('alice', 'GET', '/api/market/notes/source');
+    assert.deepEqual([newer.status, newer.payload], [200, {newer: 'e'.repeat(40)}]);
+    assert.equal((await call('bob', 'GET', '/api/market/notes/source')).status, 404);
+    assert.equal((await call('alice', 'GET', '/api/market/missing/source')).status, 404);
   });
 
   it('lets only the uploader publish or remove an upload, with every version', async () => {
@@ -119,9 +134,11 @@ describe('the plugin marketplace', () => {
     const over = await call('carol', 'POST', '/api/market', `big-two@1.0.0@${half + 1}`);
     assert.equal(over.status, 413);
     assert.match(over.payload.error, /50 MB in all/);
-    // Each version is kept, so each counts.
+    // Each version kept counts: the latest stays when another is published.
     assert.equal((await call('carol', 'POST', '/api/market', `big-one@1.1.0@${half + 1}`)).status, 413);
     assert.equal((await call('carol', 'POST', '/api/market', 'big-one@1.1.0@7')).status, 201);
+    // Once it is not the latest, the version nobody stays on goes, and makes room.
+    assert.equal((await call('carol', 'POST', '/api/market', `big-one@1.2.0@${half + 1}`)).status, 201);
   });
 
   it('keeps NanoAgent\'s plugin ids for NanoAgent', async () => {

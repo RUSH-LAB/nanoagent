@@ -4,7 +4,10 @@ What each Mochi release changes, one sentence each.
 
 ## Unreleased
 
-- A marketplace plugin keeps every version its author publishes, refusing a version published already; each member's install updates itself unless they turn off Auto-update in Settings → Plugins, the plugin's Dashboard shows its version, a link to its source on GitHub and Update when a newer one is out, and each session turn keeps the version it ran on.
+- In a narrow window the navbar's menu lists the workspace's Plugins and Workspace above your account, spaced alike, and its header is no longer under the local site's banner.
+- The navbar no longer shows a search bar, nor does `/` open search, until search has a real engine behind it (FUTURE.md).
+- A marketplace plugin keeps its latest version and each version a member stays on, refusing a version not newer (PEP 440) than its latest; each member's install updates itself unless they turn off Auto-update in Settings → Plugins, the plugin's Dashboard shows its version, a link to its source on GitHub, and What's new and Update when a newer one is out, each answer in a session says the version it ran on, and the marketplace tells a plugin's author when GitHub has changes its latest version lacks.
+- RUSH Lab ships NanoAgent as its source rather than compiled by Nuitka, since NanoAgent is open source.
 - RUSH Lab updates itself to the build its site serves, opening it once nothing is running on the computer and its window is closed.
 - Opening a link to a workspace you are not in no longer says the API server cannot be reached.
 - A plugin install that RUSH Lab moved into a member's connection is built again where it is now, instead of failing with "Connection closed".

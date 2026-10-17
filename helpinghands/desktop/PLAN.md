@@ -72,17 +72,15 @@ RUSH Lab.app
 ├── MacOS/node, MacOS/uv          bundled runtimes (sidecars)
 └── Resources/
     ├── runner/                   src/runner/: lab.mjs, the relay and what they load
-    ├── nanoagent/                NanoAgent compiled by Nuitka (site/), its uv.lock, the PI runner's bundle, its config
+    ├── nanoagent/                NanoAgent's source (site/), its uv.lock, the PI runner's bundle, its config
     ├── config.json               config.yaml: the Mochi it serves, its label, the files folders, runtime versions
     └── stamp                     names this build
 ```
 
 `scripts/stage.mjs` produces the resources and downloads the runtimes (checksums verified)
-before every `tauri build`. NanoAgent ships compiled, not as source: Nuitka builds its package
-into one module (`--mode=package`, NanoAgent's `compile` extra) for Python 3.12, with the files it
-reads beside it. Its open-source dependencies are installed from the bundled uv.lock, and the PI
-runner ships as its two bundled files. Its strings can still be read out of the module, so it
-holds nothing secret.
+before every `tauri build`. NanoAgent ships as its source, as it is
+open source; its dependencies are installed from the bundled uv.lock on Python 3.12, and the PI
+runner ships as its two bundled files.
 
 At launch the app (`src-tauri/src/main.rs`, `lab.rs`):
 

@@ -57,6 +57,7 @@
     "@mdx-js/react": "^3.0.0",
     "@neon/config": "^1.1.0",
     "@neon/env": "^1.1.6",
+    "@renovatebot/pep440": "^5.0.1",
     "@uiw/react-codemirror": "^4.25.11",
     "better-auth": "^1.7.2",
     "better-sqlite3": "^12.11.1",

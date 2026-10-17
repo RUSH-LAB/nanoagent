@@ -167,7 +167,16 @@ function MoreMenu({items, busy}) {
 
 function Detail({plugin, added, workspace, slug, onBack, onChanged, onAdded}) {
   const [state, setState] = React.useState({busy: false, error: null});
+  // For its uploader: the newest commit on GitHub that changed the plugin since its latest version.
+  const [newer, setNewer] = React.useState(null);
   const author = authorOf(plugin);
+  const fromGithub = Boolean(plugin.mine && plugin.repository);
+  React.useEffect(() => {
+    if (!fromGithub) return undefined;
+    let cancelled = false;
+    send(`/api/market/${plugin.id}/source`).then(result => !cancelled && setNewer(result.error ? {error: result.error} : {commit: result.data.newer}));
+    return () => { cancelled = true; };
+  }, [fromGithub, plugin.id, plugin.version]);
 
   const act = async (request, after) => {
     setState({busy: true, error: null});
@@ -223,6 +232,13 @@ function Detail({plugin, added, workspace, slug, onBack, onChanged, onAdded}) {
     <section className={styles.detail}>
       <button type="button" className={styles.back} onClick={onBack}>← Marketplace</button>
       {state.error && <div className={styles.error}>{state.error}</div>}
+      {newer?.error && <div className={styles.error}>Could not ask GitHub about newer commits: {newer.error}</div>}
+      {newer?.commit && (
+        <div className={styles.notice}>
+          GitHub has <a href={`https://github.com/${plugin.repository.owner}/${plugin.repository.repo}/compare/${plugin.repository.commit}...${newer.commit}`} target="_blank" rel="noreferrer">changes to {plugin.name}</a> since
+          v{plugin.version}. Raise its version, then choose Publish again from GitHub in the ⋯ menu.
+        </div>
+      )}
       <AppProduct
         app={plugin}
         byline={<>by <a href={author.href} target="_blank" rel="noreferrer">{author.name}</a></>}

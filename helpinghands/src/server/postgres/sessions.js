@@ -177,7 +177,7 @@ function createPostgresSessions({pool}) {
      * End the run `runId`: its `turn` (`{prompt, answer, tools, error}`, `error`
      * null when it was answered) joins its session's conversation, keeping the
      * latest, with the upload version it ran on (null for NanoAgent's own), and
-     * an archived session is restored. False when it had ended already.
+     * an archived session is restored: the turn kept, or false when it had ended already.
      */
     async endRun(context, runId, turn) {
       return run(context, async client => {
@@ -206,7 +206,7 @@ function createPostgresSessions({pool}) {
              title = case when title = '' then $3 else title end where id = $1`,
           [id, JSON.stringify([...chat, kept].slice(-CHAT_TURNS)), turn.prompt.split('\n')[0].slice(0, 80)],
         );
-        return true;
+        return kept;
       });
     },
   });

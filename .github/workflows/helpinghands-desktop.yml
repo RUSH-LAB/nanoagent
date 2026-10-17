@@ -1,8 +1,8 @@
 name: Helping Hands desktop app
 
 # Builds RUSH Lab, the Tauri app (helpinghands/desktop) members download from the site, for each
-# kind of Mac. NanoAgent is compiled here by Nuitka (scripts/stage.mjs), which cannot
-# cross-compile: each target builds on its own runner.
+# kind of Mac. Each target builds on its own runner, as the app bundles that Mac's runtimes
+# (scripts/stage.mjs).
 #
 # The app is ad-hoc signed (signingIdentity "-" in tauri.conf.json), not notarized: the first time
 # it opens on a member's Mac, macOS blocks it until they click Open Anyway in System Settings ->
@@ -11,7 +11,7 @@ name: Helping Hands desktop app
 # (TAURI_SIGNING_PRIVATE_KEY) and uploads beside each dmg.
 
 # A push to production rebuilds the app only when something it is built from changed: desktop/
-# (the app, its scripts and config.yaml), the runner, and the NanoAgent that stage.mjs compiles.
+# (the app, its scripts and config.yaml), the runner, and the NanoAgent that stage.mjs bundles.
 on:
   workflow_dispatch:
   push:

@@ -107,16 +107,20 @@
   opacity: 0.55;
 }
 
-.mobileAccount {
-  display: grid;
-}
-
 .mobileSignOut {
   width: 100%;
   border: 0;
   background: transparent;
   color: var(--ifm-color-danger-dark);
-  font: inherit;
+  font-family: inherit;
+  font-size: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+/* The menu's hover bar, tinted as the danger it does. */
+.mobileSignOut:hover:not(:disabled),
+.mobileSignOut:focus-visible {
+  background: color-mix(in srgb, var(--ifm-color-danger) 12%, transparent);
+  color: var(--ifm-color-danger-dark);
 }

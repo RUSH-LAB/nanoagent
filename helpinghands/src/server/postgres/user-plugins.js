@@ -13,12 +13,14 @@ function createPostgresUserPlugins({pool}) {
   const run = (context, operation) => withRequestContext(pool, context, operation);
   const installed = row => ({
     id: row.plugin_id, source: row.source, tags: row.tags, installedAt: row.installed_at,
-    pinned: row.pinned, version: row.version, latest: row.latest, sha256: row.sha256, entry: row.entry, repository: row.repository,
+    pinned: row.pinned, version: row.version, latest: row.latest, sha256: row.sha256, entry: row.entry, repository: row.repository, latestRepository: row.latest_repository,
   });
   // An upload's install at the version it runs: the one it stays on, or the latest.
-  const COLUMNS = `u.plugin_id, u.source, u.tags, u.installed_at, u.version as pinned, v.version, m.version as latest, v.sha256, v.entry, v.repository
+  const COLUMNS = `u.plugin_id, u.source, u.tags, u.installed_at, u.version as pinned, v.version, m.version as latest, v.sha256, v.entry, v.repository,
+    l.repository as latest_repository
     from user_plugin u left join market_plugin m on m.id = u.upload_id
-    left join market_plugin_version v on v.plugin_id = m.id and v.version = coalesce(u.version, m.version)`;
+    left join market_plugin_version v on v.plugin_id = m.id and v.version = coalesce(u.version, m.version)
+    left join market_plugin_version l on l.plugin_id = m.id and l.version = m.version`;
 
   return Object.freeze({
     /** The caller's plugins, in the order they were installed. */

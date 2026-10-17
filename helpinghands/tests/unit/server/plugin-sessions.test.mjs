@@ -110,7 +110,7 @@ describe('plugin sessions over PostgreSQL', () => {
     });
     assert.deepEqual(await sessions.runs({userId: 'bob', workspaceId: null}), []);
     assert.equal(await sessions.endRun(as('bob'), 'run-a', {prompt: 'x', answer: '', tools: [], activity: [], error: 'x'}), false);
-    assert.equal(await sessions.endRun(as('alice'), 'run-a', {prompt: 'check refs.bib', answer: '', tools: [], activity: [], error: 'Mochi Lab stopped while answering'}), true);
+    assert.equal((await sessions.endRun(as('alice'), 'run-a', {prompt: 'check refs.bib', answer: '', tools: [], activity: [], error: 'Mochi Lab stopped while answering'})).error, 'Mochi Lab stopped while answering');
     assert.equal(await sessions.endRun(as('alice'), 'run-a', {prompt: 'check refs.bib', answer: '', tools: [], activity: [], error: 'twice'}), false);
     const read = await sessions.get(as('alice'), 'bibtex-check', started.id);
     assert.equal(read.running, null);
@@ -123,7 +123,7 @@ describe('plugin sessions over PostgreSQL', () => {
     await market.publish('alice', {...entry, version: '1.1.0', sha256: 'e'.repeat(64)}, Buffer.from('y'), null);
     const started = await sessions.create(as('bob'), 'notes');
     // `answered` runs the install 'a'…: 1.0.0, though 1.1.0 is the latest.
-    await answered(as('bob'), 'notes', started.id, {prompt: 'hi', answer: 'hello', tools: []});
+    assert.equal((await answered(as('bob'), 'notes', started.id, {prompt: 'hi', answer: 'hello', tools: []})).version, '1.0.0');
     assert.equal((await sessions.get(as('bob'), 'notes', started.id)).chat[0].version, '1.0.0');
   });
 

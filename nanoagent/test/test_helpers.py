@@ -8,13 +8,12 @@ import pytest
 from packaging.tags import sys_tags
 
 from nanoagent import helpers
-from nanoagent.__main__ import ENTRY
 from nanoagent.plugin import sandbox
 from nanoagent.plugin.python import plugin_python
 
 
 def test_a_helper_runs_on_this_python() -> None:
-    assert helpers.command("package", "x") == [sys.executable, "-I", "-c", ENTRY, "helper", "package", "x"]
+    assert helpers.command("package", "x") == [sys.executable, "-I", "-m", "nanoagent", "helper", "package", "x"]
     with pytest.raises(ValueError, match="no NanoAgent helper 'nope'"):
         helpers.command("nope")
 

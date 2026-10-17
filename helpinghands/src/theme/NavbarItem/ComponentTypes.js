@@ -4,7 +4,9 @@
  * Docusaurus maps each navbar item's `type` to a component through this table.
  * Swizzling it is the supported way to add one of our own, and it is a wrapper
  * rather than a replacement: the default types are spread in, so `doc`,
- * `docSidebar`, `search` and the rest keep working.
+ * `docSidebar`, `search` and the rest keep working. Given `mobile`, a type
+ * renders its entries in the narrow window's menu as `li.menu__list-item`s, as
+ * the default types do, so they are spaced as the others are.
  */
 import DefaultNavbarItem from '@theme/NavbarItem/DefaultNavbarItem';
 import DropdownNavbarItem from '@theme/NavbarItem/DropdownNavbarItem';

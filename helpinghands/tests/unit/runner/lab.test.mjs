@@ -158,7 +158,7 @@ test('gives the services only the system basics, the bundled runtimes first on P
   assert.deepEqual(system, {HOME: '/Users/m', USER: 'm', PATH: '/app/bin:/usr/bin:/bin:/usr/sbin:/sbin', UV_PYTHON_INSTALL_DIR: '/data/python'});
 });
 
-test('starts a connection\'s NanoAgent compiled, sandboxed, in its own folders, with its keys and token', () => {
+test('starts a connection\'s NanoAgent sandboxed, in its own folders, with its keys and token', () => {
   const data = '/Users/m/Library/Application Support/lab.mochi.lab';
   const connection = `${data}/connections/rush-lab.org-alice`;
   const command = nanoagentCommand({
@@ -167,7 +167,7 @@ test('starts a connection\'s NanoAgent compiled, sandboxed, in its own folders, 
   });
   assert.equal(command.program, '/app/nanoagent/.venv/bin/python');
   assert.deepEqual(command.args, [
-    '-I', '-c', 'from nanoagent.__main__ import main; raise SystemExit(main())', 'web',
+    '-I', '-m', 'nanoagent', 'web',
     'web_cfg=deploy/railway/nanoagent.yaml', 'host=127.0.0.1', 'port=47311', 'sandbox=seatbelt', 'run_models=true', 'include_reasoning=true',
     `workspaces="${connection}/agent-workspaces"`,
     `installs="${connection}/nanoagent-installs"`,

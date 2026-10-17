@@ -119,7 +119,8 @@ describe('run events on the bridge', () => {
       event: 'chat.tool', data: {id: 'c1', name: 'move', arguments: {a: 1}, output: 'bad', isError: true},
     });
     assert.equal(chatEvent({event: 'agent', data: {type: 'step.completed'}}), null);
-    assert.deepEqual(chatEvent({event: 'done', data: {text: 'all done'}}), {event: 'chat.answer', data: {text: 'all done', metrics: null}, final: true});
+    assert.deepEqual(chatEvent({event: 'done', data: {text: 'all done'}}), {event: 'chat.answer', data: {text: 'all done', metrics: null, version: null}, final: true});
+    assert.equal(chatEvent({event: 'done', data: {text: 'all done', version: '1.2.0'}}).data.version, '1.2.0');
     assert.deepEqual(chatEvent({event: 'error', data: {error: 'nope'}}), {event: 'chat.error', data: {message: 'nope'}, final: true});
   });
 
@@ -222,14 +223,14 @@ describe('the bridge host', () => {
     const answer = sse('delta', {text: 'Saved'})
       + sse('agent', {type: 'run.started'})
       + sse('agent', {type: 'tool.completed', call: {id: 'call-1', name: 'download_source', arguments: {arxiv_id: '1706.03762'}, output: {path: 'attention'}}})
-      + sse('done', {text: 'Saved it.', cost: 0.01, model: 'm', usage: {prompt_tokens: 3}, metrics: {ttft_s: 0.5, generation_s: 1, duration_s: 2}});
+      + sse('done', {text: 'Saved it.', version: '1.2.0', cost: 0.01, model: 'm', usage: {prompt_tokens: 3}, metrics: {ttft_s: 0.5, generation_s: 1, duration_s: 2}});
     const {posted, calls, send} = await hostWith(() => eventStream(answer));
     send('p1', 'prompt', {text: 'Save 1706.03762'});
     await until(() => messages(posted).some(message => message.event === 'chat.done'));
     assert.deepEqual(eventsOf(posted, 'run-1'), [
       ['chat.delta', {text: 'Saved'}],
       ['chat.tool', {id: 'call-1', name: 'download_source', arguments: {arxiv_id: '1706.03762'}, output: {path: 'attention'}, isError: false}],
-      ['chat.answer', {text: 'Saved it.', metrics: {model: 'm', cost: 0.01, usage: {prompt_tokens: 3}, ttft_s: 0.5, generation_s: 1, duration_s: 2}}],
+      ['chat.answer', {text: 'Saved it.', metrics: {model: 'm', cost: 0.01, usage: {prompt_tokens: 3}, ttft_s: 0.5, generation_s: 1, duration_s: 2}, version: '1.2.0'}],
       ['chat.done', {}],
     ]);
     send('p2', 'prompt', {text: 'Why?'});
@@ -344,14 +345,14 @@ describe('the bridge host', () => {
   it('moves the member to another version of the plugin, or to follow its latest, and says so', async () => {
     const moved = [];
     const repository = {owner: 'alice', repo: 'notes', ref: 'HEAD', path: '', commit: 'd'.repeat(40)};
-    const app = {id: PLUGIN.id, version: '1.2.0', latest: '1.2.0', autoUpdate: false, repository, sha256: 'f'.repeat(64)};
+    const app = {id: PLUGIN.id, version: '1.2.0', latest: '1.2.0', autoUpdate: false, repository, latestRepository: repository, sha256: 'f'.repeat(64)};
     const {posted, calls, send} = await hostWith(() => Response.json({app}), {onVersion: changed => moved.push(changed)});
     send('v', 'plugin.version', {version: '1.2.0'});
     await until(() => moved.length);
     assert.deepEqual(calls.map(({path, init}) => [path, init.method, JSON.parse(init.body)]), [
       [`/api/apps/${PLUGIN.id}`, 'PATCH', {version: '1.2.0'}],
     ]);
-    assert.deepEqual(messages(posted), [{protocol: PROTOCOL, id: 'v', result: {version: '1.2.0', latest: '1.2.0', repository}}]);
+    assert.deepEqual(messages(posted), [{protocol: PROTOCOL, id: 'v', result: {version: '1.2.0', latest: '1.2.0', repository, latestRepository: repository}}]);
     assert.deepEqual(moved, [app]);
   });
 

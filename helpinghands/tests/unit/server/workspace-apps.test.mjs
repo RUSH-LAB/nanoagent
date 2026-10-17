@@ -115,7 +115,8 @@ describe('a member\'s apps', () => {
     const pinned = await apps.pin(as('bob'), 'notes', '1.0.0');
     assert.deepEqual([pinned.value.version, pinned.value.latest, pinned.value.autoUpdate], ['1.0.0', '1.1.0', false]);
     const opened = (await apps.open(as('bob'), 'notes', computer)).value;
-    assert.deepEqual([opened.sha256, opened.latest, opened.autoUpdate, opened.repository], [UPLOAD.sha256, '1.1.0', false, REPOSITORY]);
+    assert.deepEqual([opened.sha256, opened.latest, opened.autoUpdate, opened.repository, opened.latestRepository],
+      [UPLOAD.sha256, '1.1.0', false, REPOSITORY, REPOSITORY]);
     // A version published later reaches whoever follows the latest, not bob.
     const later = {...UPLOAD, version: '1.2.0', sha256: 'f'.repeat(64)};
     await market.publish('alice', later, Buffer.from('upload package 1.2'), REPOSITORY);
@@ -127,6 +128,12 @@ describe('a member\'s apps', () => {
     assert.equal((await apps.pin(as('bob'), 'notes', '1.2.0')).value.autoUpdate, false);
     const following = (await apps.pin(as('bob'), 'notes', null)).value;
     assert.deepEqual([following.version, following.autoUpdate], ['1.2.0', true]);
+    // Publishing keeps the latest and each version a member stays on, and removes the rest.
+    await apps.pin(as('vic'), 'notes', '1.0.0');
+    await market.publish('alice', {...UPLOAD, version: '1.3.0', sha256: '1'.repeat(64)}, Buffer.from('upload package 1.3'), REPOSITORY);
+    assert.deepEqual(await Promise.all(['1.0.0', '1.1.0', '1.2.0', '1.3.0'].map(async version => Boolean(await market.get('alice', 'notes', version)))),
+      [true, false, true, true]);
+    await apps.pin(as('vic'), 'notes', null);
     assert.deepEqual(await apps.pin(as('bob'), 'notes', '9.9.9'), {error: 'notes has no version 9.9.9', status: 404});
     assert.deepEqual(await apps.pin(as('bob'), 'bibtex-check', '0.1.0'), {error: 'You have not installed an upload named bibtex-check', status: 404});
   });
