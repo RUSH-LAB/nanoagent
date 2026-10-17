@@ -4,6 +4,7 @@ import {authClient} from '@site/src/utils/authClient';
 import API_BASE from '@site/src/utils/api';
 import {clientPlatform} from '@site/src/platform/client';
 import {isSignInPage, nextFrom} from '@site/src/utils/signIn';
+import {inLabApp} from '@site/src/utils/labApp';
 import styles from './authScreen.module.css';
 
 /**
@@ -30,6 +31,12 @@ export default function AuthScreen({ unreachable = null }) {
   }, []);
 
   async function signInWithGitHub() {
+    // In the RUSH Lab app, GitHub's sign-in asks for passkeys its window cannot give: the app
+    // signs it in through the member's browser instead (server/routes/lab.js).
+    if (inLabApp()) {
+      window.location.href = 'rushlab://sign-in';
+      return;
+    }
     setError(null);
     setBusy(true);
     try {

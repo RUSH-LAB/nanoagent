@@ -13,6 +13,9 @@ export const DOWNLOADS = {
 export const INSTALL_HINT = 'Open the download and drag RUSH Lab into Applications, then open it there. The first time, macOS blocks it: open System Settings, Privacy & Security, and click Open Anyway.';
 export const CONNECT_HINT = 'Once RUSH Lab is open, this hands it your account. The link is yours: keep it to yourself.';
 
+/** Whether this page is in the RUSH Lab app's own window, which says so (desktop/src-tauri/src/main.rs). */
+export const inLabApp = () => typeof window !== 'undefined' && window.__RUSH_LAB_APP__ === true;
+
 /**
  * The link that connects the RUSH Lab app on this computer to the member's account
  * (rushlab://connect, server/routes/lab.js): {link, error}.

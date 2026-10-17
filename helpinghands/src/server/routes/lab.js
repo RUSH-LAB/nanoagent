@@ -13,6 +13,16 @@
  *   POST /api/lab/session?token=       {session, member: {id, login}}: the app keeps the session as
  *                                      the member's connection on this computer, for its relay,
  *                                      so it connects with no sign-in page
+ *   GET /api/lab/sign-in?state=        in the member's browser, which the app's window sends them to
+ *                                      to sign in: signed in, back to the app with
+ *                                      rushlab://sign-in?state=&token=; signed out, the sign-in page first
+ *   GET /api/lab/window-sign-in?token= in the app's window: signs it in as the token's member, and
+ *                                      opens the site
+ *
+ * GitHub's sign-in asks for passkeys the app's window cannot give, so the window
+ * signs in through the member's browser, where they are signed in already or
+ * sign in as they always do; `state` is the app's, so it takes back only the
+ * sign-in it asked for.
  *
  * The link is `rushlab://connect?site=<SITE_URL>&token=<t>`. `t` is a token for the member that
  * lasts an hour (lab-tokens.js), signed with the session secret, so the app needs no session to
@@ -22,13 +32,16 @@
  */
 const crypto = require('crypto');
 const {signDownloadToken, verifyDownloadToken} = require('../lab-tokens');
+const {signInUrl} = require('../../utils/signIn');
 
 const TARGETS = new Set(['aarch64-apple-darwin', 'x86_64-apple-darwin']);
 // What the download is called on the member's computer, by target.
 const FILE_NAMES = {'aarch64-apple-darwin': 'RUSH-Lab-Apple-silicon.dmg', 'x86_64-apple-darwin': 'RUSH-Lab-Intel.dmg'};
 const MAX_BUNDLE_BYTES = 200 * 1024 * 1024;
 const STAMP = /^[A-Za-z0-9._-]{1,128}$/;
-const ROUTE = /^\/api\/lab\/(?:(connect)|(session)|bundles\/([^/]+))$/;
+const ROUTE = /^\/api\/lab\/(?:(connect)|(session)|(sign-in)|(window-sign-in)|bundles\/([^/]+))$/;
+// The app's sign-in state: random, which it names its sign-in by.
+const STATE = /^[A-Za-z0-9_-]{16,128}$/;
 
 /** Whether `header` is `Bearer <token>`, compared in constant time. */
 function bearerIs(header, token) {
@@ -69,8 +82,28 @@ async function sendBundle(res, bundles, userId, bundle) {
 module.exports = async function lab(req, res, url, pathname, ctx) {
   const match = ROUTE.exec(pathname);
   if (!match) return;
-  const {json, lab: {bundles, secret, siteUrl, uploadToken, findMember, createSession}} = ctx;
-  const [, connect, session, target] = match;
+  const {json, lab: {bundles, secret, siteUrl, uploadToken, findMember, createSession, sessionCookie}} = ctx;
+  const [, connect, session, signIn, windowSignIn, target] = match;
+
+  if (signIn) {
+    if (req.method !== 'GET') return json(res, 405, {error: 'Method not allowed'});
+    const state = url.searchParams.get('state');
+    if (!STATE.test(state ?? '')) return json(res, 400, {error: 'Sign in from the RUSH Lab app'});
+    const location = req.auth?.userId
+      ? `rushlab://sign-in?${new URLSearchParams({site: siteUrl, state, token: signDownloadToken(secret, req.auth.userId)})}`
+      : signInUrl(`${pathname}?${new URLSearchParams({state})}`);
+    res.writeHead(302, {Location: location, 'Cache-Control': 'no-store'});
+    return res.end();
+  }
+
+  if (windowSignIn) {
+    if (req.method !== 'GET') return json(res, 405, {error: 'Method not allowed'});
+    const userId = verifyDownloadToken(secret, url.searchParams.get('token'));
+    const created = userId && await createSession(userId);
+    if (!created) return json(res, 401, {error: 'This sign-in is invalid or has expired. Sign in from the RUSH Lab app again.'});
+    res.writeHead(302, {Location: '/', 'Set-Cookie': await sessionCookie(created.token), 'Cache-Control': 'no-store'});
+    return res.end();
+  }
 
   if (connect) {
     if (req.method !== 'GET') return json(res, 405, {error: 'Method not allowed'});

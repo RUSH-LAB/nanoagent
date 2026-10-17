@@ -50,13 +50,14 @@ describe('RUSH Lab\'s download and connect link', () => {
     ctx = makeCtx({lab: {
       bundles: createPostgresLab({pool: database.pool}), secret: SECRET, siteUrl: SITE, uploadToken: UPLOAD,
       findMember: async userId => (userId === 'gone' ? null : {login: `${userId}-gh`}),
+      sessionCookie: async token => `session=${token}; Path=/; HttpOnly`,
       createSession: async userId => (userId === 'gone' ? null : {token: `session-for-${userId}`, login: `${userId}-gh`}),
     }});
   });
   after(() => db?.close());
 
   it('belongs to no workspace', () => {
-    for (const pathname of ['/api/lab/connect', '/api/lab/session', `/api/lab/bundles/${ARM}`]) assert.equal(isGlobalApiPath(pathname), true, pathname);
+    for (const pathname of ['/api/lab/connect', '/api/lab/session', '/api/lab/sign-in', '/api/lab/window-sign-in', `/api/lab/bundles/${ARM}`]) assert.equal(isGlobalApiPath(pathname), true, pathname);
     assert.equal(isGlobalApiPath('/api/lab/bundles'), false);
   });
 
@@ -102,6 +103,34 @@ describe('RUSH Lab\'s download and connect link', () => {
       }
     }
     assert.equal((await call({method: 'PUT', path: '/api/lab/session', query: {token}})).status, 405);
+  });
+
+  it('sends the browser back to the app signed in, or to the sign-in page first', async () => {
+    const state = 'a'.repeat(48);
+    const signedIn = await call({path: '/api/lab/sign-in', query: {state}, auth: as('alice')});
+    assert.equal(signedIn.written.status, 302);
+    const back = new URL(signedIn.written.headers.Location);
+    assert.equal(`${back.protocol}//${back.host}`, 'rushlab://sign-in');
+    assert.equal(back.searchParams.get('site'), SITE);
+    assert.equal(back.searchParams.get('state'), state);
+    assert.equal(verifyDownloadToken(SECRET, back.searchParams.get('token')), 'alice');
+    const signedOut = await call({path: '/api/lab/sign-in', query: {state}});
+    assert.equal(signedOut.written.status, 302);
+    assert.equal(signedOut.written.headers.Location, `/signin?next=${encodeURIComponent(`/api/lab/sign-in?state=${state}`)}`);
+    for (const query of [{}, {state: 'short'}, {state: `${state}&x`}]) {
+      assert.equal((await call({path: '/api/lab/sign-in', query, auth: as('alice')})).status, 400);
+    }
+  });
+
+  it('signs the app\'s window in as the token\'s member, and no one else', async () => {
+    const {written} = await call({path: '/api/lab/window-sign-in', query: {token: signDownloadToken(SECRET, 'alice')}});
+    assert.equal(written.status, 302);
+    assert.equal(written.headers.Location, '/');
+    assert.equal(written.headers['Set-Cookie'], 'session=session-for-alice; Path=/; HttpOnly');
+    const expired = signDownloadToken(SECRET, 'alice', Date.now() - TOKEN_MS - 1000);
+    for (const query of [{}, {token: 'forged'}, {token: expired}, {token: signDownloadToken(SECRET, 'gone')}]) {
+      assert.equal((await call({path: '/api/lab/window-sign-in', query})).status, 401);
+    }
   });
 
   it('refuses uploads while LAB_UPLOAD_TOKEN is unset, and without it', async () => {

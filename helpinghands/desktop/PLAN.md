@@ -1,21 +1,21 @@
 # RUSH Lab, the app (Tauri 2)
 
-A Mac app that lends this computer to its members' AI on the hosted Mochi. It lives in the menu
-bar, opens at every login, and runs NanoAgent with each member's own API keys, and a relay that
-connects that NanoAgent to Mochi. Every AI run of a member connected here (model calls and plugin
-code) runs on this computer, never on Mochi's servers.
+A Mac app that shows the hosted Mochi in a window of its own and lends this computer to its
+members' AI. It runs NanoAgent with each member's own API keys, and a relay that connects that
+NanoAgent to Mochi. Every AI run of a member connected here (model calls and plugin code) runs on
+this computer, never on Mochi's servers. It opens at every login, in the menu bar; closing its
+window leaves it running there, so runs still reach this computer.
 
 ## Install, as a member
 
-1. While their computer is not connected, the site holds a signed-in member at **Install RUSH Lab**
-   (`src/theme/Root/LabScreen.js`; also Settings → Connection). They download the dmg for their
-   Mac: Apple silicon or Intel.
+1. The site's **Install RUSH Lab** screen (`src/theme/Root/LabScreen.js`; also Settings →
+   Connection) offers the dmg for their Mac: Apple silicon or Intel.
 2. They drag RUSH Lab into Applications and open it. It is ad-hoc signed, not notarized, so the
    first time macOS blocks it until they click **Open Anyway** in System Settings → Privacy &
    Security. Opened from the disk image or Downloads instead, it says to move it, and quits.
-3. With no member connected yet, the app opens the site. They click **Connect RUSH Lab**, which
-   hands the app their connect link. The app asks them to confirm the site and their GitHub
-   login, and connects. The site lets them in once it sees the computer.
+3. Its window shows the site. **Continue with GitHub** signs in through their browser (below);
+   the browser asks to open RUSH Lab, and the window is signed in.
+4. Signed in, the window connects this computer by itself, and lets them in once it is.
 
 ## Build
 
@@ -80,8 +80,11 @@ holds nothing secret.
 
 At launch the app (`src-tauri/src/main.rs`, `lab.rs`):
 
-1. Shows its menu-bar icon: Open RUSH Lab (the site), Show Logs, Quit RUSH Lab. It has no window
-   and no Dock icon.
+1. Opens its window on `site_url`, hidden when the login item opened it (`--login`), and its
+   menu-bar icon: Open RUSH Lab (the window), Show Logs, Quit RUSH Lab. The Dock icon, or opening
+   the app again, shows the window too; closing it hides it, and the Dock icon with it. The
+   window's pages see `window.__RUSH_LAB_APP__`. Links that ask for a new window open in the
+   browser.
 2. Stops and removes a RUSH Lab the old one-line install had launchd run
    (`~/Library/LaunchAgents/lab.mochi.lab.plist`). Its connections stay, and this app serves them.
 3. Installs this build once into `~/Library/Application Support/lab.mochi.lab/app/<stamp>/mochi-lab/`,
@@ -91,15 +94,28 @@ At launch the app (`src-tauri/src/main.rs`, `lab.rs`):
 5. Runs `node lab.mjs` from there, its output in `logs/lab.log`, and starts it again 30 s after
    it exits. Quitting sends it SIGTERM, which stops every connection, and SIGKILL after 60 s.
 
-6. Opens the site in the browser, as it has no window of its own: whenever the member opens it,
-   and opened again while it runs; at login, only while no member is connected. A launch for a
-   connect link does not.
-
 A failure in steps 2 to 4 says why in a dialog, and the app quits.
+
+## Signing in the window
+
+GitHub's sign-in asks for passkeys, which a WebKit window gives only to an app signed by an Apple
+developer, so the window signs in through the member's browser, where they are signed in already
+or sign in as they always do (`src/server/routes/lab.js`):
+
+1. In the window, **Continue with GitHub** (`AuthScreen.js`) goes to `rushlab://sign-in`, which the
+   app follows instead of the page. It opens `GET /api/lab/sign-in?state=<random>` in the browser.
+2. Signed in there, Mochi redirects to `rushlab://sign-in?site=&state=&token=<t>`; signed out, to
+   the sign-in page first, which comes back. The browser asks to open RUSH Lab.
+3. The app takes back only the state it asked for, once, so no other page can sign its window in
+   as someone else. It opens `GET /api/lab/window-sign-in?token=<t>` in the window, which sets
+   the session cookie of a new session for the token's member, and opens the site.
 
 ## Connecting a member
 
-`src/server/routes/lab.js`:
+In the window, `LabScreen.js` hands the app the member's connect link by itself, and the app
+connects them at once: the link came from the site the window shows, where they are signed in. A
+link from anywhere else, such as Connect on the site in a browser, connects them only once they
+confirm it. `src/server/routes/lab.js`:
 
 - `GET /api/lab/connect` (signed in) answers `{link}`: `rushlab://connect?site=<SITE_URL>&token=<t>`.
   The token is the member's for an hour, `<user id, base64url>.<expiry, unix seconds>.<HMAC-SHA256, base64url>`,
@@ -117,8 +133,8 @@ running app; a second launch quits (`tauri-plugin-single-instance`). For a link,
    development checkout's on this computer (`http://localhost`, `127.0.0.1` or `[::1]`, any port;
    `connectableSite`), so no web page can connect this computer to a site of its own. Then whose
    the link is (`GET /api/lab/session`).
-2. The app asks: "Connect this computer to <host> as @<login>?" A link for someone else's account,
-   which a page could open, is refused here.
+2. For a link from outside the window, the app asks: "Connect this computer to <host> as
+   @<login>?" A link for someone else's account, which a page could open, is refused here.
 3. `lab.mjs connect <data> <site>`: a session (`POST /api/lab/session`), kept as that member's
    connection (`addConnection`). Connecting a member again rewrites only their connection.
 

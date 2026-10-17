@@ -1,4 +1,4 @@
-//! What runs behind RUSH Lab's menu-bar icon: src/runner/lab.mjs, which serves every connection
+//! What runs behind RUSH Lab's window and menu-bar icon: src/runner/lab.mjs, which serves every connection
 //! on this computer (a NanoAgent and a relay for each member connected here).
 //!
 //! The app bundles lab.mjs with the relay, NanoAgent compiled, Node and uv (scripts/stage.mjs).
@@ -30,7 +30,6 @@ struct Config {
 }
 
 pub struct Lab {
-    pub site_url: String,
     /// ~/Library/Application Support/<label>/: lab.mjs's data folder.
     pub data: PathBuf,
     /// This build's files, installed: app/<stamp>/mochi-lab/.
@@ -39,14 +38,25 @@ pub struct Lab {
     stopping: AtomicBool,
 }
 
+/// config.json, as this build bundles it.
+fn config(app: &AppHandle) -> Result<Config, String> {
+    let resources = app.path().resource_dir().map_err(|error| error.to_string())?;
+    let config_file = resources.join("config.json");
+    let text = fs::read_to_string(&config_file).map_err(|error| format!("{}: {error}", config_file.display()))?;
+    serde_json::from_str(&text).map_err(|error| format!("{}: {error}", config_file.display()))
+}
+
+/// The Mochi this app serves, which its window shows.
+pub fn site_url(app: &AppHandle) -> Result<String, String> {
+    Ok(config(app)?.site_url)
+}
+
 impl Lab {
     /// Install this build, once, removing the others; before that, stop and remove the RUSH Lab the
     /// one-line install had launchd run, whose connections this one serves from now.
     pub fn install(app: &AppHandle) -> Result<Self, String> {
         let resources = app.path().resource_dir().map_err(|error| error.to_string())?;
-        let config_file = resources.join("config.json");
-        let text = fs::read_to_string(&config_file).map_err(|error| format!("{}: {error}", config_file.display()))?;
-        let config: Config = serde_json::from_str(&text).map_err(|error| format!("{}: {error}", config_file.display()))?;
+        let config = config(app)?;
         let data = app.path().data_dir().map_err(|error| error.to_string())?.join(&config.label);
         remove_launch_agent(app, &config.label)?;
         let stamp_file = resources.join("stamp");
@@ -81,7 +91,6 @@ impl Lab {
         }
         fs::create_dir_all(data.join("logs")).map_err(|error| error.to_string())?;
         Ok(Self {
-            site_url: config.site_url,
             root: installed.join("mochi-lab"),
             data,
             child: Mutex::new(None),
@@ -155,13 +164,6 @@ impl Lab {
         }
         let _ = child.kill();
         let _ = child.wait();
-    }
-
-    /// Whether any member is connected on this computer.
-    pub fn has_connections(&self) -> bool {
-        fs::read_dir(self.data.join("connections"))
-            .map(|entries| entries.flatten().any(|entry| entry.path().join("installed").exists()))
-            .unwrap_or(false)
     }
 
     /// Ask lab.mjs `args` about a connect link whose token is `token`: what it prints, or why it failed.

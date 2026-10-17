@@ -16,6 +16,7 @@ const {
 } = require('./server-utils');
 
 const {PROJECT_ROOT, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
+const {makeSignature} = require('better-auth/crypto');
 const {auth, AUTH_SECRET, SITE_URL, tenancy, githubUsers, resolveIdentity, isPublicPath, productionAuthError} = require('./auth');
 const {asksForSession, redirectFor} = require('../utils/signIn');
 const {createAiMeter} = require('./ai-metering');
@@ -577,6 +578,17 @@ const ctx = {
       const user = await internalAdapter.findUserById(userId);
       if (!user) return null;
       return {token: (await internalAdapter.createSession(userId)).token, login: user.githubLogin};
+    },
+    // The Set-Cookie header that signs a browser in with the session `token`, as Better Auth's
+    // own sign-in sets it.
+    sessionCookie: async token => {
+      const context = await auth.$context;
+      const {name, attributes} = context.authCookies.sessionToken;
+      const signed = `${token}.${await makeSignature(token, context.secret)}`;
+      return [
+        `${name}=${encodeURIComponent(signed)}`, `Path=${attributes.path ?? '/'}`, `Max-Age=${attributes.maxAge}`,
+        'HttpOnly', `SameSite=${attributes.sameSite ?? 'Lax'}`, ...(attributes.secure ? ['Secure'] : []),
+      ].join('; ');
     },
   },
   // What members submit to their workspace; PostgreSQL only.

@@ -49,7 +49,7 @@ function isGlobalApiPath(pathname) {
     || /^\/api\/apps\/[^/]+\/ui\/.+$/.test(value)
     || /^\/api\/market(?:\/[^/]+(?:\/package)?)?$/.test(value)
     // RUSH Lab's downloads and connect link (routes/lab.js).
-    || /^\/api\/lab\/(?:connect|session|bundles\/[^/]+)$/.test(value)
+    || /^\/api\/lab\/(?:connect|session|sign-in|window-sign-in|bundles\/[^/]+)$/.test(value)
     || /^\/api\/users\/[^/]+\/role$/.test(value);
 }
 
