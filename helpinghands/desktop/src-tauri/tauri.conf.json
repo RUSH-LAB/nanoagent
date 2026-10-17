@@ -4,13 +4,13 @@
   "version": "0.0.0",
   "identifier": "lab.mochi.lab",
   "build": {
-    "frontendDist": "../splash",
+    "frontendDist": "../dist",
     "beforeBuildCommand": "node scripts/stage.mjs"
   },
   "app": {
     "windows": [],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
     }
   },
   "bundle": {
@@ -25,6 +25,7 @@
     ],
     "resources": {
       "resources/runner/": "runner/",
+      "resources/terminal/": "terminal/",
       "resources/nanoagent/": "nanoagent/",
       "resources/config.json": "config.json",
       "resources/stamp": "stamp"

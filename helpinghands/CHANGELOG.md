@@ -4,6 +4,8 @@ What each Mochi release changes, one sentence each.
 
 ## Unreleased
 
+- RUSH Lab has a terminal (menu bar → New Terminal, or Terminal in the navbar), a window of the app's own running your login shell, where New plugin… starts a plugin project in ~/rushlab-plugins/ with the publish-plugin skill as its AGENTS.md, CLAUDE.md and GEMINI.md, so any AI CLI on your computer (claude, codex, gemini, ...) designs a NanoAgent plugin with you, with no OpenRouter key.
+- `rushlab preview .` in the terminal installs the plugin in that folder on your RUSH Lab as a draft, for the one account connected there or the one `--to` names, which Plugins lists under Drafts on this computer and opens as it would once published, with sessions of its own (migration 0043), and `rushlab preview --stop <id>` removes it.
 - In a narrow window the navbar's menu lists the workspace's Plugins and Workspace above your account, spaced alike, and its header is no longer under the local site's banner.
 - The navbar no longer shows a search bar, nor does `/` open search, until search has a real engine behind it (FUTURE.md).
 - A marketplace plugin keeps its latest version and each version a member stays on, refusing a version not newer (PEP 440) than its latest; each member's install updates itself unless they turn off Auto-update in Settings → Plugins, the plugin's Dashboard shows its version, a link to its source on GitHub, and What's new and Update when a newer one is out, each answer in a session says the version it ran on, and the marketplace tells a plugin's author when GitHub has changes its latest version lacks.

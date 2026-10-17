@@ -29,6 +29,8 @@ const POLL: Duration = Duration::from_millis(250);
 struct Config {
     site_url: String,
     label: String,
+    /// The terminal's plugin projects, ~/<projects_folder>/<id>/ (terminal.rs).
+    projects_folder: String,
     /// A release's target, which it updates itself as (update.rs); None for any other build.
     update_target: Option<String>,
 }
@@ -53,6 +55,11 @@ fn config(app: &AppHandle) -> Result<Config, String> {
 /// The Mochi this app serves, which its window shows.
 pub fn site_url(app: &AppHandle) -> Result<String, String> {
     Ok(config(app)?.site_url)
+}
+
+/// The folder the terminal's plugin projects are in, ~/<projects_folder>/.
+pub fn projects_folder(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().home_dir().map_err(|error| error.to_string())?.join(config(app)?.projects_folder))
 }
 
 /// The target a release updates itself as; None for any other build.
@@ -107,6 +114,11 @@ impl Lab {
             child: Mutex::new(None),
             stopping: AtomicBool::new(false),
         })
+    }
+
+    /// This build's files, installed: app/<stamp>/mochi-lab/.
+    pub fn root(&self) -> &Path {
+        &self.root
     }
 
     fn node(&self) -> Command {

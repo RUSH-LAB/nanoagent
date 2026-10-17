@@ -29,6 +29,14 @@
  * relay has a request of Mochi's going, a held run included: the app updates itself only while it
  * is not (desktop/src-tauri/src/update.rs). SIGTERM stops every connection, cleanly.
  *
+ * A plugin the member is making on this computer is a draft: `rushlab preview` (the terminal's
+ * launcher, from the plugin's folder) packs it into the data folder's drafts/<id>/ (writeDraft), for
+ * one connection, the only one or the one it names (previewConnection), whose NanoAgent installs it
+ * from there, one draft at a time (draftSupervisor), the relay telling Mochi which drafts it has
+ * (its hello's `drafts`), so the member opens it on the Plugins page before publishing it.
+ * drafts/<id>/status.json says how the install stands, for `rushlab preview` to wait on; a draft
+ * whose folder is gone is removed.
+ *
  * It runs on macOS, where plugins run in seatbelt, and on Windows, in an AppContainer (PLATFORMS).
  * Node's own modules are all it loads.
  */
@@ -48,6 +56,12 @@ const POLL_MS = 250;
 const WATCH_MS = 2_000;
 const RESTART_MS = 30_000;
 const LOG_TAIL_LINES = 30;
+// How long a draft's install may take: NanoAgent's two syncs of up to 600 s each, and its inspection.
+const DRAFT_INSTALL_MS = 25 * 60_000;
+// How often `rushlab preview` looks at its draft's status, and how long it waits for RUSH Lab to give one.
+const DRAFT_POLL_MS = 500;
+const DRAFT_STATUS_MS = 10_000;
+const PLUGIN_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 // The API keys Mochi Lab holds, by the name NanoAgent's PI runner (pi-ai) reads each from, and
 // whose models they reach. NanoAgent gets these and nothing else of the settings.
 export const PROVIDER_KEYS = [
@@ -84,6 +98,8 @@ const exe = name => (WINDOWS ? `${name}.exe` : name);
 // The hosts a development checkout's site runs on, which a connect link may name besides the app's own site.
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const sha256Of = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+const venvPython = nanoagent => (WINDOWS ? path.join(nanoagent, '.venv', 'Scripts', 'python.exe') : path.join(nanoagent, '.venv', 'bin', 'python'));
 
 /**
  * The folder in the home folder a connection to `site` keeps its member's files under, one folder
@@ -293,7 +309,7 @@ export function systemEnv(env, bin, data) {
  * connection's, the uv cache the install's, with the member's `keys` and its bearer `token`.
  */
 export function nanoagentCommand({nanoagent, data, connection, port, sandbox, system, keys, token}) {
-  const python = WINDOWS ? path.join(nanoagent, '.venv', 'Scripts', 'python.exe') : path.join(nanoagent, '.venv', 'bin', 'python');
+  const python = venvPython(nanoagent);
   return {
     program: python,
     args: [
@@ -355,14 +371,17 @@ function freePort() {
   });
 }
 
-/** `method path` on NanoAgent with its bearer `token`: the status and body, or null when nothing answers. */
-async function nanoagentRequest(port, method, route, token, body) {
+/**
+ * `method path` on NanoAgent with its bearer `token`, a body of `contentType` taking at most
+ * `timeoutMs`: the status and body, or null when nothing answers.
+ */
+async function nanoagentRequest(port, method, route, token, body, {contentType = 'application/json', timeoutMs = 5000} = {}) {
   try {
     const response = await fetch(`http://127.0.0.1:${port}${route}`, {
       method,
-      headers: {Authorization: `Bearer ${token}`, ...(body ? {'Content-Type': 'application/json'} : {})},
+      headers: {Authorization: `Bearer ${token}`, ...(body ? {'Content-Type': contentType} : {})},
       body,
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     return {status: response.status, body: await response.text()};
   } catch {
@@ -389,6 +408,178 @@ async function nanoagentReady(port, token) {
   return true;
 }
 
+const draftFolder = (data, id) => path.join(data, 'drafts', id);
+
+/** Write `file` whole or not at all: through a `.partial` beside it, renamed into place. */
+function writeWhole(file, contents) {
+  fs.writeFileSync(`${file}.partial`, contents);
+  fs.renameSync(`${file}.partial`, file);
+}
+
+/**
+ * Keep the package `bytes` of `draft` ({id, name, version, folder, sha256, connection}, the
+ * connection it is for) as the draft of its id: its package.tar.gz, then its draft.json, which the
+ * supervisor looks for, last. The status of the draft's last preview goes, so a package that failed
+ * to install is tried again.
+ */
+export function writeDraft(data, draft, bytes) {
+  const folder = draftFolder(data, draft.id);
+  fs.mkdirSync(folder, {recursive: true, mode: 0o700});
+  fs.rmSync(path.join(folder, 'status.json'), {force: true});
+  writeWhole(path.join(folder, 'package.tar.gz'), bytes);
+  writeWhole(path.join(folder, 'draft.json'), `${JSON.stringify(draft)}\n`);
+}
+
+/** The drafts on this computer, each its draft.json; a draft whose folder is gone is removed. */
+export function readDrafts(data) {
+  const drafts = [];
+  const all = path.join(data, 'drafts');
+  for (const id of fs.existsSync(all) ? fs.readdirSync(all) : []) {
+    const file = path.join(draftFolder(data, id), 'draft.json');
+    // Not written yet: `rushlab preview` writes it last.
+    if (!fs.existsSync(file)) continue;
+    const draft = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (fs.existsSync(draft.folder)) drafts.push(draft);
+    else fs.rmSync(draftFolder(data, id), {recursive: true, force: true});
+  }
+  return drafts;
+}
+
+/** Remove the draft `id`, refusing an id no plugin has and one this computer has no draft of. */
+export function removeDraft(data, id) {
+  if (!PLUGIN_ID.test(id)) throw new Error(`${id} is not a plugin id`);
+  if (!fs.existsSync(draftFolder(data, id))) throw new Error(`No draft named ${id} is on this computer`);
+  fs.rmSync(draftFolder(data, id), {recursive: true, force: true});
+}
+
+/** Of `drafts`, those NanoAgent has no install of as they are now: `installed` is Map<id, {sha256}>. */
+export const draftsToInstall = (installed, drafts) => drafts.filter(draft => installed.get(draft.id)?.sha256 !== draft.sha256);
+
+/**
+ * What a draft's `status` (its status.json, or null) says of the package `sha256`: `done` once it
+ * is installed or failed, `ok` when it is installed, and `state`, how it stands. Another package's
+ * status says nothing yet.
+ */
+export function previewOutcome(status, sha256) {
+  if (status?.sha256 !== sha256) return {done: false, ok: false, state: null};
+  return {done: status.state !== 'installing', ok: status.state === 'installed', state: status.error ? `${status.state}: ${status.error}` : status.state};
+}
+
+/**
+ * The supervisor's drafts (main): the NanoAgent of each draft's connection installs it, one draft
+ * at a time, through `install(connection, sha256, bytes)`, NanoAgent's answer ({status, body}, or
+ * null when nothing answers); the connection's relay is told which drafts it has (`tellRelay`),
+ * `markBusy()` that a connection's `installing` changed, and each draft's status.json says how it
+ * stands: {sha256, state, error}, `state` installing, installed or failed. `connections` are the
+ * supervisor's, by id, each started one with `drafts`, those its NanoAgent installed,
+ * Map<id, {sha256, name, version}>, `failedDrafts`, those it could not, Map<id, {sha256, error}>,
+ * and `installing`, the draft it installs now, or null: a connection started again has new ones,
+ * and keeps nothing of an install begun before. `sync()` reads the drafts again, and resolves once
+ * the installs it began end.
+ */
+export function draftSupervisor({data, connections, install, tellRelay, markBusy}) {
+  let drafts = [];
+  // Each draft's status.json as last written, by id.
+  const statuses = new Map();
+  const statusFile = id => path.join(draftFolder(data, id), 'status.json');
+
+  /** Have each running connection install its drafts it has no install of, forgetting those removed. */
+  function syncDrafts() {
+    // A draft previewed again, its status gone, is tried again where it failed.
+    for (const draft of drafts) {
+      if (!statuses.has(draft.id) || fs.existsSync(statusFile(draft.id))) continue;
+      statuses.delete(draft.id);
+      connections.get(draft.connection)?.failedDrafts?.delete(draft.id);
+    }
+    const begun = [];
+    for (const connection of connections.values()) {
+      if (connection.state !== 'running' || !connection.token) continue;
+      const mine = drafts.filter(draft => draft.connection === connection.id);
+      const gone = [...connection.drafts.keys()].filter(id => !mine.some(draft => draft.id === id));
+      for (const id of gone) connection.drafts.delete(id);
+      if (gone.length) tellDrafts(connection);
+      if (connection.installing) continue;
+      // A package that failed is not tried again until it changes, or the connection starts again.
+      const next = draftsToInstall(connection.drafts, mine).find(draft => connection.failedDrafts.get(draft.id)?.sha256 !== draft.sha256);
+      if (next) begun.push(installDraft(connection, next).catch(error => log(`could not install the draft ${next.id}: ${error.message}`, connection.id)));
+    }
+    writeStatuses();
+    return Promise.all(begun);
+  }
+
+  async function installDraft(connection, draft) {
+    const {drafts: installed, failedDrafts: failed} = connection;
+    connection.installing = draft;
+    markBusy();
+    writeStatuses();
+    log(`Installing the draft ${draft.id} v${draft.version} from ${draft.folder}…`, connection.id);
+    let error = null;
+    let current = true;
+    try {
+      const bytes = fs.readFileSync(path.join(draftFolder(data, draft.id), 'package.tar.gz'));
+      // A newer preview replaced the package since its draft.json was read: the next look installs that one.
+      current = sha256Of(bytes) === draft.sha256;
+      if (current) {
+        const answer = await install(connection, draft.sha256, bytes);
+        if (!answer) error = 'NanoAgent did not answer';
+        else if (answer.status !== 200) error = `NanoAgent refused the draft (${answer.status}): ${answer.body}`;
+      }
+    } catch (problem) {
+      error = problem.message;
+    }
+    if (connection.drafts !== installed) return;
+    connection.installing = null;
+    markBusy();
+    if (!current) return;
+    if (error) {
+      failed.set(draft.id, {sha256: draft.sha256, error});
+      log(`Could not install the draft ${draft.id}: ${error}`, connection.id);
+    } else {
+      installed.set(draft.id, {sha256: draft.sha256, name: draft.name, version: draft.version});
+      log(`Installed the draft ${draft.id} v${draft.version}`, connection.id);
+      tellDrafts(connection);
+    }
+    await syncDrafts();
+  }
+
+  /** Tell the connection's relay which drafts its NanoAgent has, for Mochi. */
+  function tellDrafts(connection) {
+    tellRelay(connection, {drafts: [...connection.drafts].map(([id, {sha256, name, version}]) => ({id, name, version, sha256}))});
+  }
+
+  /** How `draft` stands on its connection, for its status.json. */
+  function draftState(draft) {
+    const connection = connections.get(draft.connection);
+    if (connection?.state !== 'running' && connection?.state !== 'starting') {
+      return {state: 'failed', error: 'RUSH Lab is not connected to this account: open RUSH Lab and sign in'};
+    }
+    if (connection.drafts?.get(draft.id)?.sha256 === draft.sha256) return {state: 'installed', error: null};
+    const failed = connection.failedDrafts?.get(draft.id);
+    if (failed?.sha256 === draft.sha256) return {state: 'failed', error: failed.error};
+    return {state: 'installing', error: null};
+  }
+
+  /** Each draft's status.json, when it changed. */
+  function writeStatuses() {
+    for (const id of statuses.keys()) {
+      if (!drafts.some(draft => draft.id === id)) statuses.delete(id);
+    }
+    for (const draft of drafts) {
+      const text = JSON.stringify({sha256: draft.sha256, ...draftState(draft)});
+      if (statuses.get(draft.id) === text || !fs.existsSync(draftFolder(data, draft.id))) continue;
+      statuses.set(draft.id, text);
+      writeWhole(statusFile(draft.id), `${text}\n`);
+    }
+  }
+
+  return Object.freeze({
+    sync() {
+      drafts = readDrafts(data);
+      return syncDrafts();
+    },
+  });
+}
+
 /** Kill `pid` and every process it started: Windows has no signals, and a venv's python.exe starts the interpreter as its child. */
 const killTree = pid => new Promise(resolve => {
   spawn('taskkill', ['/PID', String(pid), '/T', '/F'], {stdio: 'ignore', windowsHide: true}).on('close', resolve).on('error', resolve);
@@ -396,18 +587,23 @@ const killTree = pid => new Promise(resolve => {
 
 const describeExit = ({code, signal}) => (signal ? `signal: ${signal}` : `exit status: ${code}`);
 
+/** This build's folder (mochi-lab/), its config.json, and the data folder: the app installs its files into <data>/app/<stamp>/. */
+function installation() {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const config = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8'));
+  const data = path.resolve(root, '..', '..', '..');
+  if (path.basename(data) !== config.label) throw new Error(`RUSH Lab is installed as ${config.label}, not in ${data}`);
+  return {root, config, data};
+}
+
 async function main() {
   const platform = PLATFORMS[process.platform];
   if (!platform) {
     throw new Error(`RUSH Lab runs on macOS and Windows, where plugins run in a sandbox; this is ${process.platform}.`);
   }
-  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const config = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8'));
+  const {root, config, data} = installation();
   const bin = path.join(root, 'bin');
   const nanoagent = path.join(root, 'nanoagent');
-  // The app installs its files into <data>/app/<stamp>/.
-  const data = path.resolve(root, '..', '..', '..');
-  if (path.basename(data) !== config.label) throw new Error(`RUSH Lab is installed as ${config.label}, not in ${data}`);
   const connectionsFolder = path.join(data, 'connections');
   /** Open `page` in the member's browser; when that cannot be done, the log has the page. */
   const openPage = page => {
@@ -416,15 +612,25 @@ async function main() {
   };
   // Every service this has running, of every connection: one `pid<TAB>program` line each.
   const pidFile = path.join(data, 'services.pid');
-  // There while any connection's relay has a request going.
+  // There while any connection's relay has a request going, or a draft installs.
   const busyFile = path.join(data, 'busy');
   // What this is doing to set the computer up, which the app's window shows (desktop/src-tauri/src/setup.rs):
   // {stage, error}, `stage` python, nanoagent or connect, `error` why it stopped there, or null.
   const setupFile = path.join(data, 'setup.json');
   const setupStage = (stage, error = null) => fs.writeFileSync(setupFile, JSON.stringify({stage, error}));
   const system = systemEnv(process.env, bin, data);
-  // The connections, by id: {id, folder, site, installed, services, state, stage, restartAt, relayStdin, token, port, requests}.
+  // The connections, by id: {id, folder, site, login, installed, services, state, stage, restartAt, relayStdin, token, port, requests,
+  // drafts, failedDrafts, installing}, the last three draftSupervisor's.
   const connections = new Map();
+  const drafts = draftSupervisor({
+    data,
+    connections,
+    install: (connection, sha256, bytes) => nanoagentRequest(connection.port, 'PUT', `/v1/installs/${sha256}`, connection.token, bytes, {
+      contentType: 'application/gzip', timeoutMs: DRAFT_INSTALL_MS,
+    }),
+    tellRelay,
+    markBusy,
+  });
   let stopping = false;
 
   /** Stop the services a previous run left behind: each recorded process still running the program it was started with. */
@@ -604,6 +810,8 @@ async function main() {
         startConnection(connection).catch(error => log(`could not start: ${error.message}`, id));
       }
     }
+    // Not awaited: a draft's install takes minutes, and watching goes on.
+    drafts.sync();
   }
 
   async function stopConnection(connection) {
@@ -614,10 +822,15 @@ async function main() {
     countRequests(connection, 0);
   }
 
-  /** The connection's relay has `count` requests going: `busy` is there while any relay has one. */
+  /** The connection's relay has `count` requests going. */
   function countRequests(connection, count) {
     connection.requests = count;
-    if ([...connections.values()].some(each => each.requests > 0)) fs.writeFileSync(busyFile, '');
+    markBusy();
+  }
+
+  /** `busy` is there while any relay has a request going, or any draft installs. */
+  function markBusy() {
+    if ([...connections.values()].some(each => each.requests > 0 || each.installing)) fs.writeFileSync(busyFile, '');
     else fs.rmSync(busyFile, {force: true});
   }
 
@@ -646,7 +859,8 @@ async function main() {
       fs.mkdirSync(logs, {recursive: true});
       const settingsFile = path.join(folder, 'settings.env');
       const settings = readSettings(settingsFile);
-      Object.assign(connection, {site, settingsFile, port: await freePort()});
+      // A NanoAgent started again has no draft installed until it is sent each again.
+      Object.assign(connection, {site, login: member.login, settingsFile, port: await freePort(), drafts: new Map(), failedDrafts: new Map(), installing: null});
       log(`Starting NanoAgent for @${member.login} on ${site}…`, id);
       connection.stage = 'nanoagent';
       setupStage(connection.stage);
@@ -747,23 +961,153 @@ async function main() {
   }
 }
 
+const RUSHLAB_USAGE = `usage:
+  rushlab preview [folder] [--to <connection>]   open the plugin in folder (. by default) in RUSH Lab, as a draft
+                                                 of the account connected as <connection>, which only more than one needs
+  rushlab preview --stop <id>                    remove the draft <id>`;
+
+/** `rushlab`'s arguments (RUSHLAB_USAGE): {stop: id}, or {folder, to}, `to` null when none is named; null for anything else. */
+export function rushlabCommand(args) {
+  if (args[0] !== 'preview') return null;
+  if (args[1] === '--stop') return args.length === 3 ? {stop: args[2]} : null;
+  let folder = null;
+  let to = null;
+  for (let at = 1; at < args.length; at += 1) {
+    if (args[at] === '--to' && to === null && at + 1 < args.length) to = args[++at];
+    else if (!args[at].startsWith('--') && folder === null) folder = args[at];
+    else return null;
+  }
+  return {folder: folder ?? '.', to};
+}
+
+/**
+ * The connection a preview's draft is for, {id, login, site}: the one named `to`, or with none
+ * named the only one on this computer. Only its NanoAgent installs the draft, and only its site
+ * hears of it.
+ */
+export function previewConnection(data, to) {
+  const folder = path.join(data, 'connections');
+  const all = (fs.existsSync(folder) ? fs.readdirSync(folder) : [])
+    .filter(id => fs.existsSync(path.join(folder, id, 'installed')))
+    .map(id => ({
+      id,
+      login: JSON.parse(fs.readFileSync(path.join(folder, id, 'member.json'), 'utf8')).login,
+      site: fs.readFileSync(path.join(folder, id, 'site'), 'utf8').trim(),
+    }));
+  const list = all.map(({id, login, site}) => `\n  ${id}  @${login} on ${site}`).join('');
+  if (to !== null) {
+    const named = all.find(connection => connection.id === to);
+    if (!named) throw new Error(`No connection ${to} is on this computer. Its connections:${list || ' none'}`);
+    return named;
+  }
+  if (!all.length) throw new Error('No account is connected on this computer: open RUSH Lab and sign in');
+  if (all.length > 1) throw new Error(`More than one account is connected on this computer: name the draft's with --to <connection>:${list}`);
+  return all[0];
+}
+
+/** Run `python args`: its exit code and what it printed. */
+function runPython(python, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(python, args, {stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true});
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', chunk => { stdout += chunk; });
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    child.once('error', reject);
+    child.once('close', code => resolve({code, stdout, stderr}));
+  });
+}
+
+/**
+ * `rushlab preview [folder]`: pack the plugin in `folder` with NanoAgent, which checks it against
+ * every plugin rule, read its id, name and version (`plugin inspect`), keep it as a draft of its
+ * connection's, and wait for RUSH Lab to install it there, saying how it stands. Its exit code: 0
+ * once it is installed, 1 when it is not, 2 for a command it does not know.
+ */
+export async function rushlab(args) {
+  const command = rushlabCommand(args);
+  if (!command) {
+    console.error(RUSHLAB_USAGE);
+    return 2;
+  }
+  const {root, data} = installation();
+  if ('stop' in command) {
+    removeDraft(data, command.stop);
+    console.log(`Removed the draft ${command.stop}`);
+    return 0;
+  }
+  const connection = previewConnection(data, command.to);
+  const folder = path.resolve(command.folder);
+  const python = venvPython(path.join(root, 'nanoagent'));
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'rushlab-preview-'));
+  let bytes;
+  let plugin;
+  try {
+    const packed = await runPython(python, ['-I', '-m', 'nanoagent', 'plugin', 'pack', folder, path.join(scratch, 'package.tar.gz')]);
+    // Every rule the plugin breaks, for whoever is making it to fix.
+    if (packed.code !== 0) {
+      process.stderr.write(packed.stderr);
+      return 1;
+    }
+    const inspected = await runPython(python, ['-I', '-m', 'nanoagent', 'plugin', 'inspect', folder]);
+    if (inspected.code !== 0) {
+      process.stderr.write(inspected.stderr);
+      return 1;
+    }
+    plugin = JSON.parse(inspected.stdout);
+    bytes = fs.readFileSync(path.join(scratch, 'package.tar.gz'));
+  } finally {
+    fs.rmSync(scratch, {recursive: true, force: true});
+  }
+  const sha256 = sha256Of(bytes);
+  writeDraft(data, {id: plugin.id, name: plugin.name, version: plugin.version, folder, sha256, connection: connection.id}, bytes);
+  console.log(`Installing ${plugin.name} v${plugin.version} in RUSH Lab for @${connection.login} on ${connection.site}…`);
+  const statusFile = path.join(draftFolder(data, plugin.id), 'status.json');
+  const started = Date.now();
+  let said = null;
+  for (;;) {
+    const outcome = previewOutcome(fs.existsSync(statusFile) ? JSON.parse(fs.readFileSync(statusFile, 'utf8')) : null, sha256);
+    if (outcome.state !== said) {
+      said = outcome.state;
+      (outcome.done && !outcome.ok ? console.error : console.log)(said);
+    }
+    if (outcome.done) {
+      if (outcome.ok) console.log(`Open RUSH Lab → Plugins → Drafts → ${plugin.name}`);
+      return outcome.ok ? 0 : 1;
+    }
+    if (said === null && Date.now() - started > DRAFT_STATUS_MS) throw new Error('RUSH Lab is not running: open it, then run rushlab preview again');
+    if (Date.now() - started > DRAFT_INSTALL_MS) throw new Error(`RUSH Lab did not install ${plugin.name} within ${DRAFT_INSTALL_MS / 60_000} minutes`);
+    await sleep(DRAFT_POLL_MS);
+  }
+}
+
 // As a URL the path is escaped ("Application Support" is Application%20Support), so compare paths.
 // The app asks it, with a connect link's token in LAB_TOKEN:
 //   lab.mjs member <site>              the member the link is for, as JSON, and the site it names
 //   lab.mjs connect <data> <site>      keep a session for them as their connection, and print its id
+// and the terminal's `rushlab` launcher, from the member's shell:
+//   lab.mjs rushlab <args>             rushlab (RUSHLAB_USAGE)
 if (process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(process.argv[1])) {
   const config = () => JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'config.json'), 'utf8'));
   const token = process.env.LAB_TOKEN ?? '';
   const [command, ...args] = process.argv.slice(2);
-  const run = command === 'member' ? async () => {
-    const site = connectableSite(config(), args[0]);
-    console.log(JSON.stringify({site, member: await linkMember(site, token)}));
-  } : command === 'connect' ? async () => {
-    const site = connectableSite(config(), args[1]);
-    console.log(await addConnection(args[0], site, await linkSession(site, token)));
-  } : main;
-  run().catch(error => {
-    console.error(`${new Date().toISOString()} ${error.message}`);
-    process.exitCode = 1;
-  });
+  if (command === 'rushlab') {
+    // A member reads it in their terminal: what went wrong, without the log's time.
+    rushlab(args).then(code => { process.exitCode = code; }, error => {
+      console.error(error.message);
+      process.exitCode = 1;
+    });
+  } else {
+    const run = command === 'member' ? async () => {
+      const site = connectableSite(config(), args[0]);
+      console.log(JSON.stringify({site, member: await linkMember(site, token)}));
+    } : command === 'connect' ? async () => {
+      const site = connectableSite(config(), args[1]);
+      console.log(await addConnection(args[0], site, await linkSession(site, token)));
+    } : main;
+    run().catch(error => {
+      console.error(`${new Date().toISOString()} ${error.message}`);
+      process.exitCode = 1;
+    });
+  }
 }

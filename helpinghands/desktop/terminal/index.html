@@ -1,0 +1,27 @@
+<!doctype html>
+<!-- RUSH Lab's terminal window (src-tauri/src/terminal.rs): the app's own page, never the site's. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Terminal — RUSH Lab</title>
+  <link rel="stylesheet" href="xterm.css">
+  <link rel="stylesheet" href="terminal.css">
+  <script type="module" src="terminal.js"></script>
+</head>
+<body>
+  <header class="toolbar">
+    <button id="new-plugin" type="button">New plugin…</button>
+    <form id="new-form" hidden>
+      <input id="new-id" placeholder="plugin-id" autocomplete="off" spellcheck="false" required>
+      <button type="submit">Create</button>
+      <button id="new-cancel" type="button">Cancel</button>
+    </form>
+    <select id="open-project" aria-label="Open project">
+      <option value="">Open project</option>
+    </select>
+    <span id="status"></span>
+  </header>
+  <div id="error" class="error" role="alert" hidden></div>
+  <main id="terminal"></main>
+</body>
+</html>

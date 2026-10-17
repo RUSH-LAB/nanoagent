@@ -370,7 +370,7 @@ const CATEGORIES = [
         response: 'event: delta\ndata: {"text":"..."}\n\nevent: done\ndata: {"text":"...complete text..."}',
       },
       {
-        method: 'POST', path: '/api/ai/stream', description: 'Stream an assistant answer as server-sent events. With appId, the prompt runs on that NanoAgent app\'s own agent, which acts through the app\'s tools (owners and editors only); tool calls arrive as agent events.',
+        method: 'POST', path: '/api/ai/stream', description: 'Stream an assistant answer as server-sent events. With appId, the prompt runs on that NanoAgent app\'s own agent, which acts through the app\'s tools (owners and editors only); tool calls arrive as agent events. With draft: true too, it runs on the draft of that id on your computer (/api/app-drafts).',
         request: '{ "prompt": "Download the source of arXiv 1706.03762", "appId": "arxiv-source" }',
         response: 'event: agent\ndata: {"type":"tool.completed","call":{"name":"download_source"}}\n\nevent: delta\ndata: {"text":"..."}\n\nevent: done\ndata: {"text":"...complete answer..."}',
       },
@@ -430,6 +430,14 @@ const CATEGORIES = [
       {
         method: 'POST', path: '/api/app-installs', description: 'Install every ready app you installed on your computer, so opening one does not wait; 503 while Mochi Lab is not connected. Answers at once; the installs continue in the background. Mochi calls it when you enter a workspace and after you install a plugin.',
         response: '{ "preparing": true }',
+      },
+      {
+        method: 'GET', path: '/api/app-drafts', description: 'The drafts on your computer: plugins you are making there, which `rushlab preview` in RUSH Lab\'s terminal installed on the NanoAgent of the account it was for; 503 while Mochi Lab is not connected.',
+        response: '{ "drafts": [{ "id": "my-plugin", "name": "My Plugin", "version": "0.1.0", "sha256": "..." }] }',
+      },
+      {
+        method: 'GET', path: '/api/app-drafts/:id', description: 'Open the draft id on your computer, as its NanoAgent installed it, with the `computer` page id its page is served by (as GET /api/apps/:id); 404 when your computer has no such draft, or has not installed it.',
+        response: '{ "app": { "id": "my-plugin", "name": "My Plugin", "version": "0.1.0", "sha256": "...", "uiVersion": "...", "source": "draft", "computer": "..." } }',
       },
       {
         method: 'GET', path: '/api/agents', description: 'List the reusable AI agents defined for this workspace.',

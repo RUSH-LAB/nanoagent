@@ -9,6 +9,7 @@ import PluginFrame from '@site/src/components/PluginFrame';
 import PluginSidebar, {pluginNavigation} from '@site/src/components/PluginSidebar';
 import TwoColumnLayout from '@site/src/components/TwoColumnLayout';
 import useWorkspaceApps, {forgetWorkspaceApps, prepareWorkspaceApps} from '@site/src/hooks/useWorkspaceApps';
+import useWorkspaceDrafts from '@site/src/hooks/useWorkspaceDrafts';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 import styles from './styles.module.css';
 
@@ -22,6 +23,10 @@ import styles from './styles.module.css';
  * bridge the page prompts the app's NanoAgent agent; what the apps save lands
  * in the caller's own workspace (src/pages/workspace). NanoAgent owns the
  * agent's model, instructions and the checks on every tool call.
+ *
+ * Beside them are the drafts on the member's computer: plugins they are making
+ * there, which `rushlab preview` had its RUSH Lab install, opened the same way
+ * before they are published.
  */
 
 /** A plugin still being built: what it is, and that it cannot be used yet. */
@@ -88,16 +93,43 @@ function AppDetail({app, workspace}) {
   return <PluginFrame app={opened.app} workspace={workspace} onVersion={onVersion} />;
 }
 
+/** A draft, opened as its computer's NanoAgent installed it; each preview of it opens again (its key). */
+function DraftDetail({draft, workspace}) {
+  const [opened, setOpened] = React.useState({app: null, error: null});
+  React.useEffect(() => {
+    let cancelled = false;
+    apiJson(`${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/app-drafts/${encodeURIComponent(draft.id)}`, {fresh: true}).then(
+      result => !cancelled && setOpened(result.ok
+        ? {app: result.data.app, error: null}
+        : {app: null, error: result.data.error || `Could not open ${draft.name} (${result.status})`}),
+      () => !cancelled && setOpened({app: null, error: 'Could not reach the API server'}),
+    );
+    return () => { cancelled = true; };
+  }, [workspace.id, draft.id, draft.name]);
+  if (opened.error) return <div className={styles.error}>{opened.error}</div>;
+  if (!opened.app) return <p className={styles.muted}>Opening {draft.name}…</p>;
+  return <PluginFrame app={opened.app} workspace={workspace} />;
+}
+
 function AppsColumns() {
   const location = useLocation();
   const {slug, workspace} = useWorkspaceSite();
   const {apps, error} = useWorkspaceApps(workspace);
-  const navigation = pluginNavigation(apps ?? [], location.search, `/w/${encodeURIComponent(slug)}/apps`);
+  const {drafts, error: draftsError, offline} = useWorkspaceDrafts(workspace);
+  const navigation = pluginNavigation(apps ?? [], drafts ?? [], location.search, `/w/${encodeURIComponent(slug)}/apps`);
+  // Whether the computer said which drafts it has, or could not.
+  const draftsKnown = drafts !== null || offline || Boolean(draftsError);
 
   let content = null;
   if (!slug) content = <p className={styles.muted}>Open Plugins from a workspace.</p>;
   else if (error) content = <div className={styles.error}>{error}</div>;
-  else if (apps && !apps.length) {
+  else if (navigation.draft) {
+    content = <DraftDetail key={`${navigation.draft.id}:${navigation.draft.sha256}`} draft={navigation.draft} workspace={workspace} />;
+  } else if (navigation.requestedDraft) {
+    if (draftsError) content = <div className={styles.error}>{draftsError}</div>;
+    else if (offline) content = <div className={styles.error}>RUSH Lab on your computer is not connected, so its drafts can&apos;t open.</div>;
+    else if (drafts) content = <div className={styles.error}>No draft named {navigation.requestedDraft} on this computer.</div>;
+  } else if (apps && !apps.length && draftsKnown) {
     content = (
       <p className={styles.muted}>
         You have no plugins yet. <Link to={`/w/${encodeURIComponent(slug)}/marketplace`}>Browse the marketplace</Link> to install some.
@@ -120,6 +152,8 @@ function AppsColumns() {
         <PluginSidebar
           navigation={navigation}
           marketplaceHref={slug ? `/w/${encodeURIComponent(slug)}/marketplace` : '/marketplace'}
+          showDrafts={drafts !== null || Boolean(draftsError)}
+          draftsError={draftsError}
           collapsed={collapsed}
           onCollapse={onCollapse}
         />

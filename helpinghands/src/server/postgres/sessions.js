@@ -24,7 +24,8 @@ class SessionError extends Error {
  * archived (migration 0025) is listed as archived until they restore it or
  * chat in it again. A session answers one message at a time, its run kept
  * (migration 0028) from its message until its turn, answered or not, is in the
- * chat (app-runs.js).
+ * chat (app-runs.js). A session with a member's draft of a plugin, `draft`,
+ * is apart from those with the plugin they installed (migration 0043).
  * Row-level security keeps every session to its own member and workspace.
  */
 function createPostgresSessions({pool}) {
@@ -59,37 +60,37 @@ function createPostgresSessions({pool}) {
     startedAt: row.started_at,
   });
 
-  async function owned(client, pluginId, id) {
+  async function owned(client, pluginId, draft, id) {
     const row = (await client.query(
-      `select ${SUMMARY} where s.id = $1 and s.plugin_id = $2 group by s.id`, [id, pluginId],
+      `select ${SUMMARY} where s.id = $1 and s.plugin_id = $2 and s.draft = $3 group by s.id`, [id, pluginId, draft],
     )).rows[0];
-    if (!row) throw new SessionError(404, `No session ${id} for ${pluginId}`);
+    if (!row) throw new SessionError(404, `No session ${id} for ${draft ? 'the draft ' : ''}${pluginId}`);
     return row;
   }
 
   return Object.freeze({
-    /** The caller's sessions with `pluginId`, the latest first. */
-    async list(context, pluginId) {
+    /** The caller's sessions with `pluginId`, or with `draft` their draft of it, the latest first. */
+    async list(context, pluginId, draft) {
       return run(context, async client => (await client.query(
-        `select ${SUMMARY} where s.plugin_id = $1 group by s.id order by s.updated_at desc`, [pluginId],
+        `select ${SUMMARY} where s.plugin_id = $1 and s.draft = $2 group by s.id order by s.updated_at desc`, [pluginId, draft],
       )).rows.map(session));
     },
 
-    async create(context, pluginId) {
+    async create(context, pluginId, draft) {
       return run(context, async client => {
         const id = crypto.randomUUID();
         await client.query(
-          'insert into plugin_session(id, workspace_id, user_id, plugin_id) values ($1, $2, $3, $4)',
-          [id, context.workspaceId, context.userId, pluginId],
+          'insert into plugin_session(id, workspace_id, user_id, plugin_id, draft) values ($1, $2, $3, $4, $5)',
+          [id, context.workspaceId, context.userId, pluginId, draft],
         );
-        return {...session(await owned(client, pluginId, id)), chat: [], running: null};
+        return {...session(await owned(client, pluginId, draft, id)), chat: [], running: null};
       });
     },
 
     /** One session with its conversation, the message it is still answering, `{prompt}` or null, and every call it made. */
-    async get(context, pluginId, id) {
+    async get(context, pluginId, draft, id) {
       return run(context, async client => {
-        const summary = session(await owned(client, pluginId, id));
+        const summary = session(await owned(client, pluginId, draft, id));
         const {chat} = (await client.query('select chat from plugin_session where id = $1', [id])).rows[0];
         const going = (await client.query('select prompt from plugin_run where session_id = $1', [id])).rows[0];
         const calls = (await client.query(
@@ -117,30 +118,31 @@ function createPostgresSessions({pool}) {
       });
     },
 
-    /** Archive the caller's session `id` with `pluginId`, or with `archived` false restore it. */
-    async archive(context, pluginId, id, archived) {
+    /** Archive the caller's session `id` with `pluginId` (`draft`, their draft of it), or with `archived` false restore it. */
+    async archive(context, pluginId, draft, id, archived) {
       return run(context, async client => {
-        await owned(client, pluginId, id);
+        await owned(client, pluginId, draft, id);
         await client.query(
           `update plugin_session set archived_at = case when $2 then coalesce(archived_at, now()) end where id = $1`,
           [id, archived],
         );
-        return session(await owned(client, pluginId, id));
+        return session(await owned(client, pluginId, draft, id));
       });
     },
 
-    /** Throws unless `id` is the caller's session with `pluginId`. */
-    async assertOwned(context, pluginId, id) {
-      await run(context, client => owned(client, pluginId, id));
+    /** Throws unless `id` is the caller's session with `pluginId`, or with `draft` their draft of it. */
+    async assertOwned(context, pluginId, draft, id) {
+      await run(context, client => owned(client, pluginId, draft, id));
     },
 
     /**
-     * Start the run `id` of the caller's session `id` with `pluginId`, its message
-     * `prompt`, on the install `install`; refuses a session already answering one.
+     * Start the run `id` of the caller's session `id` with `pluginId` (`draft`, their
+     * draft of it), its message `prompt`, on the install `install`; refuses a session
+     * already answering one.
      */
-    async startRun(context, pluginId, sessionId, {id, prompt, install}) {
+    async startRun(context, pluginId, draft, sessionId, {id, prompt, install}) {
       return run(context, async client => {
-        await owned(client, pluginId, sessionId);
+        await owned(client, pluginId, draft, sessionId);
         try {
           await client.query(
             `insert into plugin_run(id, workspace_id, user_id, session_id, plugin_id, prompt, install)

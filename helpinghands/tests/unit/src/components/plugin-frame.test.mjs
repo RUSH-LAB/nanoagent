@@ -18,13 +18,13 @@ const sessionWith = (chat = []) => ({id: SESSION, pluginId: 'arxiv-source', titl
  * session already started (with `chat` as its conversation); every message
  * posted and every request made after that is in `posted` and `calls`.
  */
-async function hostWith(request, {chat = [], started = true, onVersion = () => {}} = {}) {
+async function hostWith(request, {chat = [], started = true, onVersion = () => {}, plugin = PLUGIN} = {}) {
   const posted = [];
   const frame = {postMessage: (message, origin) => posted.push({message, origin})};
   const calls = [];
   const host = createBridgeHost({
     frameWindow: () => frame,
-    plugin: PLUGIN,
+    plugin,
     workspaceId: 'ws-1',
     theme: 'light',
     request: async (path, init = {}) => {
@@ -354,6 +354,30 @@ describe('the bridge host', () => {
     ]);
     assert.deepEqual(messages(posted), [{protocol: PROTOCOL, id: 'v', result: {version: '1.2.0', latest: '1.2.0', repository, latestRepository: repository}}]);
     assert.deepEqual(moved, [app]);
+  });
+
+  it('runs a draft\'s prompts on the draft, in its own sessions, and has no version to move it to', async () => {
+    const draft = {...PLUGIN, source: 'draft'};
+    const answer = path => {
+      if (path.endsWith('/sessions')) return Response.json({sessions: []});
+      if (path.endsWith(SESSION)) return Response.json({session: sessionWith()});
+      return eventStream(sse('done', {text: 'Saved it.'}));
+    };
+    const {posted, calls, send} = await hostWith(answer, {plugin: draft, started: false});
+    send('s', 'sessions.list');
+    send('start', 'session.resume', {id: SESSION});
+    await until(() => messages(posted).some(message => message.id === 'start'));
+    assert.deepEqual(calls.map(call => call.path), ['/api/app-drafts/arxiv-source/sessions', `/api/app-drafts/arxiv-source/sessions/${SESSION}`]);
+    calls.length = 0;
+    posted.length = 0;
+    send('p1', 'prompt', {text: 'Save 1706.03762'});
+    await until(() => messages(posted).some(message => message.event === 'chat.done'));
+    assert.deepEqual(JSON.parse(calls[0].init.body), {prompt: 'Save 1706.03762', messages: [], appId: 'arxiv-source', sessionId: SESSION, draft: true});
+    posted.length = 0;
+    send('v', 'plugin.version', {version: '1.2.0'});
+    await until(() => posted.length);
+    assert.deepEqual(messages(posted), [{protocol: PROTOCOL, id: 'v', error: {message: 'A draft runs from its folder: run rushlab preview again'}}]);
+    assert.equal(calls.length, 1);
   });
 
   it('tells the page the site\'s theme', async () => {

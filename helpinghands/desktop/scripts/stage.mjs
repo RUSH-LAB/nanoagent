@@ -3,7 +3,9 @@
  * Stages everything the desktop app bundles, for the target Tauri is building
  * (TAURI_ENV_TARGET_TRIPLE, which Tauri sets for beforeBuildCommand):
  *
+ *   dist/                           the app's own pages: index.html (splash/), and terminal/, the terminal window's
  *   src-tauri/resources/runner/     the relay that lends this computer's NanoAgent to Mochi
+ *   src-tauri/resources/terminal/   what the terminal writes into a plugin project: project.md and the publish-plugin skill
  *   src-tauri/resources/nanoagent/  NanoAgent's source (site/), its uv.lock, the PI runner's bundle, and the config the app runs
  *   src-tauri/resources/config.json this folder's config.yaml, as JSON: lab.mjs loads only Node's own modules;
  *                                   with --release (npm run build:release), the target it updates itself as
@@ -17,10 +19,13 @@ import path from 'node:path';
 import process from 'node:process';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {build} from 'esbuild';
 import YAML from 'yaml';
 
 const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const mochiRoot = path.dirname(desktop);
+const repoRoot = path.dirname(mochiRoot);
+const dist = path.join(desktop, 'dist');
 const nanoagentRoot = path.resolve(mochiRoot, '..', 'nanoagent');
 const resources = path.join(desktop, 'src-tauri', 'resources');
 const binaries = path.join(desktop, 'src-tauri', 'binaries');
@@ -121,6 +126,33 @@ async function stageGit() {
   fs.copyFileSync(busybox, path.join(git, 'usr', 'bin', 'sh.exe'));
 }
 
+/**
+ * The terminal window's page (src-tauri/src/terminal.rs), bundled with xterm.js and Tauri's API so
+ * it loads nothing from anywhere else, beside the splash page Tauri builds from.
+ */
+async function stageTerminal() {
+  fs.rmSync(dist, {recursive: true, force: true});
+  const out = path.join(dist, 'terminal');
+  await build({
+    entryPoints: [path.join(desktop, 'terminal', 'terminal.js')],
+    bundle: true,
+    format: 'esm',
+    minify: true,
+    outfile: path.join(out, 'terminal.js'),
+  });
+  for (const file of ['index.html', 'terminal.css']) fs.copyFileSync(path.join(desktop, 'terminal', file), path.join(out, file));
+  fs.copyFileSync(path.join(desktop, 'node_modules', '@xterm', 'xterm', 'css', 'xterm.css'), path.join(out, 'xterm.css'));
+  fs.copyFileSync(path.join(desktop, 'splash', 'index.html'), path.join(dist, 'index.html'));
+}
+
+// What New plugin… writes into a project: the preface, then the publish-plugin skill.
+function stageSkill() {
+  const out = path.join(resources, 'terminal');
+  fs.mkdirSync(out, {recursive: true});
+  fs.copyFileSync(path.join(desktop, 'terminal', 'project.md'), path.join(out, 'project.md'));
+  fs.copyFileSync(path.join(repoRoot, 'docs', 'instructions', 'skills', 'publish-plugin', 'SKILL.md'), path.join(out, 'SKILL.md'));
+}
+
 // lab.mjs, the relay and the protocol it shares with Mochi's server; Node's own modules are all they load.
 function stageRunner() {
   copy(path.join(mochiRoot, 'src', 'runner'), path.join(resources, 'runner'));
@@ -170,12 +202,14 @@ async function main() {
   }
   fs.rmSync(resources, {recursive: true, force: true});
   // Tauri copies resources into its target folder and never removes a file a later build dropped.
-  for (const part of ['runner', 'nanoagent', 'git']) fs.rmSync(path.join(desktop, 'src-tauri', 'target', 'release', part), {recursive: true, force: true});
+  for (const part of ['runner', 'terminal', 'nanoagent', 'git']) fs.rmSync(path.join(desktop, 'src-tauri', 'target', 'release', part), {recursive: true, force: true});
   fs.mkdirSync(resources, {recursive: true});
   fs.mkdirSync(binaries, {recursive: true});
   await stageNode(target, platform);
   await stageUv(target, platform);
+  await stageTerminal();
   stageRunner();
+  stageSkill();
   if (platform.exe) await stageGit();
   await stageNanoAgent(path.join(binaries, `uv-${target}${platform.exe}`));
   // A release updates itself from its site (src-tauri/src/update.rs); any other build stays as built.

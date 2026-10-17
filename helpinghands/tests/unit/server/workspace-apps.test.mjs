@@ -147,6 +147,20 @@ describe('a member\'s apps', () => {
     assert.deepEqual((await apps.list(as('bob'))).value[1].tags, ['Writing', 'Daily']);
   });
 
+  it('opens a draft on the member\'s computer as its NanoAgent installed it, and says when it has not', async () => {
+    const draft = {id: 'my-draft', name: 'My Draft', version: '0.2.0', sha256: 'e'.repeat(64)};
+    installs.set(draft.sha256, {id: 'my-draft', name: 'My Draft', version: '0.2.0', sha256: draft.sha256, uiVersion: 'fedcba9876543210'});
+    const opened = await apps.openDraft(as('bob'), 'my-draft', computer, [draft]);
+    assert.deepEqual(opened.value, {
+      id: 'my-draft', name: 'My Draft', version: '0.2.0', sha256: draft.sha256, uiVersion: 'fedcba9876543210', source: 'draft',
+    });
+    assert.deepEqual(await apps.openDraft(as('bob'), 'other', computer, [draft]), {error: 'No draft named other on your RUSH Lab', status: 404});
+    installs.delete(draft.sha256);
+    assert.deepEqual(await apps.openDraft(as('bob'), 'my-draft', computer, [draft]), {error: 'RUSH Lab has not installed this draft; run rushlab preview again', status: 404});
+    // Nothing was sent: Mochi has no package of a draft.
+    assert.equal(sent.some(([sha256]) => sha256 === draft.sha256), false);
+  });
+
   it('loses an upload its uploader removes, and a member uninstalls the rest', async () => {
     await market.remove('alice', 'notes');
     assert.deepEqual((await apps.list(as('bob'))).value.map(app => app.id), ['bibtex-check']);

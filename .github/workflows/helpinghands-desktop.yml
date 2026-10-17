@@ -20,6 +20,7 @@ on:
       - '.github/workflows/helpinghands-desktop.yml'
       - 'helpinghands/desktop/**'
       - 'helpinghands/src/runner/**'
+      - 'docs/instructions/skills/publish-plugin/SKILL.md'
       - 'nanoagent/pyproject.toml'
       - 'nanoagent/README.md'
       - 'nanoagent/LICENSE'

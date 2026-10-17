@@ -65,6 +65,9 @@ export function visitorSystem() {
 /** Whether this page is in the RUSH Lab app's own window, which says so (desktop/src-tauri/src/main.rs). */
 export const inLabApp = () => typeof window !== 'undefined' && window.__RUSH_LAB_APP__ === true;
 
+/** Whether the app's window opens rushlab://terminal, a terminal window of the app's (desktop/src-tauri/src/terminal.rs). */
+export const labAppHasTerminal = () => typeof window !== 'undefined' && window.__RUSH_LAB_TERMINAL__ === true;
+
 /** Whether the app signs its window in itself (macOS), rather than the page signing in as on the site (Windows). */
 export const labAppSignsIn = () => typeof window !== 'undefined' && window.__RUSH_LAB_SIGNS_IN__ === true;
 

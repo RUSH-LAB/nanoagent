@@ -72,6 +72,7 @@ RUSH Lab.app
 ├── MacOS/node, MacOS/uv          bundled runtimes (sidecars)
 └── Resources/
     ├── runner/                   src/runner/: lab.mjs, the relay and what they load
+    ├── terminal/                 what the terminal writes into a plugin project: project.md and the publish-plugin skill
     ├── nanoagent/                NanoAgent's source (site/), its uv.lock, the PI runner's bundle, its config
     ├── config.json               config.yaml: the Mochi it serves, its label, the files folders, runtime versions
     └── stamp                     names this build
@@ -86,7 +87,7 @@ At launch the app (`src-tauri/src/main.rs`, `lab.rs`):
 
 1. Opens its window on `site_url`, or on the site on this computer `--site` names (`npm run
    desktop:dev`, with the site in the window's title). Hidden when the login item opened it (`--login`). And its
-   menu-bar icon: Open RUSH Lab (the window), Show Logs, Quit RUSH Lab. The Dock icon, or opening
+   menu-bar icon: Open RUSH Lab (the window), New Terminal (below), Show Logs, Quit RUSH Lab. The Dock icon, or opening
    the app again, shows the window too; closing it hides it, and the Dock icon with it. The
    window's pages see `window.__RUSH_LAB_APP__`. Links that ask for a new window open in the
    browser.
@@ -189,6 +190,76 @@ when `uv sync` fails.
 To remove one member's connection from this computer, remove its folder, which lab.mjs then stops.
 To uninstall RUSH Lab, quit it, remove it from Applications and from System Settings → General →
 Login Items, and remove the data folder.
+
+## Terminal
+
+A member designs a plugin with any AI CLI on their computer (`claude`, `codex`, `gemini`, ...) in
+RUSH Lab's terminal, with no NanoAgent harness or OpenRouter key in that chat
+(`src-tauri/src/terminal.rs`, the page `terminal/`):
+
+- **New Terminal** in the menu-bar menu, or `rushlab://terminal` (the site's navbar shows
+  **Terminal** in the app's window, `labAppHasTerminal()`; from anywhere else the deep link), opens
+  a window of its own, `terminal-<n>`. It loads the page the app bundles (`dist/terminal/`, built
+  by `scripts/stage.mjs` with xterm.js), never the site: only that page reaches the terminal's
+  commands (`capabilities/terminal.json`, no remote), and each refuses another window and another
+  window's shell.
+- Each window runs the member's login shell (their passwd entry's: zsh, bash or fish, any other
+  refused; on Windows `powershell.exe -NoLogo` through ConPTY) in a PTY (`portable-pty`), so their
+  profile's PATH finds their CLIs. It has the app's environment, `TERM=xterm-256color`,
+  `COLORTERM=truecolor`, `TERM_PROGRAM=RUSH-Lab`, `LANG=en_US.UTF-8` when unset, as Terminal
+  sets one, and no API key; `<data>/terminal/bin/` goes first on PATH once the member's profile
+  has run, as macOS's `path_helper` and their own files reorder it: zsh reads their files through
+  `ZDOTDIR=<data>/terminal/shell/`, whose `.zlogin`, read last, prepends it; bash reads what a
+  login bash reads from `--rcfile <data>/terminal/shell/bashrc`, then prepends it; fish prepends
+  it with `-C`. Its bytes go only between the app and the page, never through Mochi or the
+  relay; what is typed is written by a thread of the shell's own, so a shell reading nothing
+  never holds up the app.
+- `<data>/terminal/bin/` is written again for the installed build each time a window opens:
+  `nanoagent` (NanoAgent's `.venv` Python, with the bundled `bin/` first on its own PATH), `uv`
+  and `rushlab` (`node runner/lab.mjs rushlab`). The bundled `bin/` itself stays off the shell's
+  PATH, as its `node` would shadow the member's. Before lab.mjs has made NanoAgent's `.venv`, each
+  says RUSH Lab is still setting up, and exits 1.
+- A window opens on the projects folder, `~/rushlab-plugins/` (`projects_folder` in
+  `config.yaml`), outside the member's synced files, so a project's `.venv` and `.git` never sync.
+  Its toolbar's **New plugin…** runs `nanoagent plugin new ~/rushlab-plugins/<id>` and writes the
+  skill into the project as `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` (`terminal/project.md`, then
+  `docs/instructions/skills/publish-plugin/SKILL.md`), which NanoAgent allows and never packs; it
+  says what `plugin new` printed when it fails, and leaves nothing behind. **Open project** lists
+  the projects. Each opens the project in a new window, titled `<id> — RUSH Lab`.
+- Closing a window sends its shell's process group SIGHUP (on Windows the shell is killed);
+  quitting RUSH Lab ends every shell. RUSH Lab stays in the Dock while a terminal window is open,
+  and an update waits until none is.
+
+## Drafts
+
+A plugin a member makes in the terminal opens in RUSH Lab before it is published, as a draft
+(`src/runner/lab.mjs`):
+
+- `rushlab preview [folder] [--to <connection>]` (`.` by default) is for one connection: the one
+  `--to` names, or the only one on this computer (with several and no `--to`, it lists them and
+  exits 1). It packs the folder with NanoAgent (`nanoagent plugin pack`), printing every rule the
+  plugin breaks and exiting 1, reads its id, name and version (`nanoagent plugin inspect`), then
+  keeps it as `<data>/drafts/<id>/`: `package.tar.gz`, then `draft.json` `{id, name, version,
+  folder, sha256, connection}`. It waits for that sha256 in the draft's `status.json`, printing
+  how it stands, and exits 0 once it is installed, 1 when it failed, its connection is not
+  running, or RUSH Lab gave no status within 10 s (it is not running). `rushlab preview --stop
+  <id>` removes the draft.
+- lab.mjs reads `drafts/` with `connections/`, every 2 s (`draftSupervisor`). The NanoAgent of a
+  draft's connection installs it when it has no install of it as it is now, one draft at a time
+  (`PUT /v1/installs/<sha256>`, up to 25 min for its two syncs); a package that failed is tried
+  again only once it is previewed again. `status.json` says `installing`, `installed` or
+  `failed`, with why (NanoAgent's status and answer when it refused). A NanoAgent started again
+  gets its drafts again, and a draft whose folder is gone is removed. The app waits to update
+  while one installs (`busy`).
+- After each change the relay is told the drafts its NanoAgent has, without their folders, and
+  says `hello` again with them (`drafts`, `src/runner/protocol.js`). Mochi keeps them for that
+  member alone (`runners.drafts`): `GET /api/app-drafts` lists them and `GET /api/app-drafts/<id>`
+  opens one through the install routes NanoAgent already has, so Plugins shows **Drafts on this
+  computer**, read again when the window comes back into view, or why they could not be read. A
+  draft's Dashboard says "Draft v<version>", with no Update, and its sessions are its own
+  (`/api/app-drafts/<id>/sessions`, migration 0043), apart from those with a plugin of its id the
+  member installed.
+- Publishing stays a public GitHub repository, imported with Marketplace → Publish a plugin.
 
 ## Downloads
 

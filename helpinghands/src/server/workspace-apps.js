@@ -12,6 +12,9 @@
  * NanoAgent installs a package by its sha256 and keeps it until
  * it restarts; opening an app sends the package when NanoAgent has no install
  * of it, which takes as long as building the plugin's environment, once.
+ *
+ * A draft is a plugin the member is making on their computer, which its RUSH
+ * Lab installed there itself (runner/lab.mjs): Mochi only opens that install.
  */
 function createWorkspaceApps({ai, market, plugins}) {
   /** Every plugin a member may install, by id: `{value: Map<id, {source, entry}>}` or `{error, status}`. */
@@ -137,6 +140,20 @@ function createWorkspaceApps({ai, market, plugins}) {
       const result = await installed(on, context.userId, added.source, entry);
       if (result.error) return result;
       return {value: {...result.value, source: added.source, ...(added.source === 'upload' ? versionOf(added) : {})}};
+    },
+
+    /**
+     * The draft `id` of the caller's computer's `drafts` (runners.drafts), as its
+     * NanoAgent `on` installed it; or `{error, status}`, 404 for a draft it does
+     * not have.
+     */
+    async openDraft(context, id, on, drafts) {
+      const draft = drafts.find(found => found.id === id);
+      if (!draft) return {error: `No draft named ${id} on your RUSH Lab`, status: 404};
+      const found = await on.install(draft.sha256);
+      if (found.status === 404) return {error: 'RUSH Lab has not installed this draft; run rushlab preview again', status: 404};
+      if (found.error) return found;
+      return {value: {...found.value.plugin, source: 'draft'}};
     },
   });
 }

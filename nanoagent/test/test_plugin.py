@@ -930,6 +930,32 @@ def test_allows_tool_artifacts_but_refuses_extra_files(tmp_path: Path) -> None:
     ]
 
 
+# What RUSH Lab writes into a plugin project for the coding agents there.
+AGENT_INSTRUCTIONS = ("AGENTS.md", "CLAUDE.md", "GEMINI.md")
+
+
+def test_a_plugin_may_hold_coding_agent_instructions_which_are_never_packed(tmp_path: Path) -> None:
+    import shutil
+
+    from nanoagent.plugin.package import pack, pack_source
+
+    plugin = tmp_path / "echo"
+    write_plugin(plugin)
+    plain = pack(plugin)
+    for name in AGENT_INSTRUCTIONS:
+        (plugin / name).write_text("# Instructions\n", encoding="utf-8")
+    assert load_manifest(plugin).id == "echo"
+    assert pack(plugin) == plain
+    repo = tmp_path / "repo"
+    shutil.copytree(plugin, repo)
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run([*git, "add", "-A"], check=True)
+    subprocess.run([*git, "commit", "-qm", "plugin"], check=True)
+    source = subprocess.run([*git, "archive", "--format=tar.gz", "--prefix=echo-0abc/", "HEAD"], check=True, capture_output=True).stdout
+    assert pack_source(source, "")[1] == plain
+
+
 # NanoAgent's fixture plugins, each one following every plugin rule.
 PLUGINS = Path(__file__).with_name("plugins")
 
@@ -946,15 +972,25 @@ def test_every_fixture_plugin_follows_every_rule(plugin: str) -> None:
 
 
 def test_plugin_new_creates_a_plugin_with_the_standard_layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from nanoagent.cli.plugin import main
-    from nanoagent.plugin.manifest import REQUIRED_FILES, REQUIRED_FOLDERS
+    import shutil
 
+    from nanoagent.cli.plugin import main
+    from nanoagent.plugin import scaffold
+    from nanoagent.plugin.manifest import REQUIRED_FILES, REQUIRED_FOLDERS, TEMPLATE
+
+    # A template holding coding-agent instructions: plugin new copies none of them.
+    template = tmp_path / "template"
+    shutil.copytree(TEMPLATE, template)
+    for name in AGENT_INSTRUCTIONS:
+        (template / name).write_text("# Instructions\n", encoding="utf-8")
+    monkeypatch.setattr(scaffold, "TEMPLATE", template)
     (tmp_path / "gitconfig").write_text("[user]\n\tname = Ada Lovelace\n")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
     assert main(["new", str(tmp_path / "my-notes")]) == 0
     manifest = load_manifest(tmp_path / "my-notes")
     assert (manifest.id, manifest.name) == ("my-notes", "My Notes")
     assert _layout(tmp_path / "my-notes") == {*REQUIRED_FILES, *REQUIRED_FOLDERS}
+    assert not any((tmp_path / "my-notes" / name).exists() for name in AGENT_INSTRUCTIONS)
     license_text = (tmp_path / "my-notes" / "LICENSE").read_text()
     assert "{{" not in license_text and "Ada Lovelace" in license_text
     assert main(["new", str(tmp_path / "my-notes")]) == 1

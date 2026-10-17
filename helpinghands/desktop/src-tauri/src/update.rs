@@ -2,8 +2,8 @@
 //! server/routes/lab.js). Every CHECK_EVERY it asks for that build; one with a newer version (a
 //! release's is its build's time, scripts/release.mjs) is downloaded, checked against the update
 //! key (plugins.updater.pubkey in tauri.conf.json) and the version it was signed for, and installed
-//! over this app. The app opens it once nothing runs here and its window is closed, so an update
-//! never stops a run or a page a member is on. Only a release (npm run build:release) updates itself.
+//! over this app. The app opens it once nothing runs here and its windows are closed, a terminal's
+//! too, so an update never stops a run, a page a member is on, or their shell. Only a release (npm run build:release) updates itself.
 
 use std::sync::Arc;
 use std::thread;
@@ -53,6 +53,8 @@ async fn install(app: &AppHandle, lab: &Lab, site: &Url, target: &str) -> Result
     Ok(true)
 }
 
+/// Whether the main window is hidden and no terminal window is open.
 fn window_closed(app: &AppHandle) -> bool {
-    app.get_webview_window("main").is_none_or(|window| window.is_visible().is_ok_and(|visible| !visible))
+    !crate::terminal::running(app)
+        && app.get_webview_window("main").is_none_or(|window| window.is_visible().is_ok_and(|visible| !visible))
 }

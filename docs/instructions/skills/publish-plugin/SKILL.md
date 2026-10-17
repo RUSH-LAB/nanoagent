@@ -201,15 +201,31 @@ Then walk this list by hand:
 
 - [ ] The top level holds only `nanoagent.yaml`, `contract.py`, `README.md`,
       `LICENSE`, `pyproject.toml`, `uv.lock`, `.gitignore`, `.env`,
-      `src/`, `tests/`, `verifier/`, `ui/` and `product/`. No reports, run
-      outputs or notes.
+      `src/`, `tests/`, `verifier/`, `ui/` and `product/`, and a coding
+      agent's instructions, `AGENTS.md`, `CLAUDE.md` and `GEMINI.md`, which
+      are never packed. No reports, run outputs or notes.
 - [ ] The `id`, README title, `nanoagent-<id>` project name and LICENSE
       holder are all renamed. `version` matches in both files.
 - [ ] Every `Tool` and `Task` appears in `nanoagent.yaml`, the README, the
       `IMPLEMENTATIONS` table and the verifier's tables.
 - [ ] No model is used anywhere in `verifier/`.
 
-## 9. Publish
+## 9. See it in RUSH Lab
+
+In a terminal of the RUSH Lab app (menu bar → New Terminal), run this from
+the plugin folder:
+
+```bash
+rushlab preview .
+```
+
+It prints every rule the plugin breaks and exits 1, or installs the plugin
+on this computer's RUSH Lab and exits 0. Fix each rule it prints and run it
+again. Once it passes, open RUSH Lab → **Plugins** → **Drafts**, open the
+plugin, ask its chat for a task, and check the verdict on the result card.
+Nothing is published yet.
+
+## 10. Publish
 
 1. With the person's go-ahead, create a **public** GitHub repository and
    push to it, for example with

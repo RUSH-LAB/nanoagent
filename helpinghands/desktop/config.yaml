@@ -7,6 +7,9 @@ site_url: https://rush-lab.org
 # The member's own files in each workspace they are in, <home>/<files_folder>/<login>/, kept in
 # sync both ways with their home there by the relay (src/runner/files.mjs).
 files_folder: rushlab
+# The terminal's plugin projects (menu bar → New Terminal), ~/<projects_folder>/<id>/: outside the
+# member's files, so a project's .venv and .git never sync to Mochi.
+projects_folder: rushlab-plugins
 
 # RUSH Lab is installed once per account on a computer, under `label`: its data folder in
 # ~/Library/Application Support/, on Windows %LOCALAPPDATA%. It serves a connection for each

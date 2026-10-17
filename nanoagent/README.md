@@ -36,7 +36,8 @@ product/         # the product page: product.yaml and icon.svg
 
 Nothing else may sit at the top level. The only exceptions are what tools create in a
 checkout: `.git`, `.venv`, `__pycache__`, `.pytest_cache`, `.ruff_cache`, `.mypy_cache`,
-`.DS_Store` (`TOOL_ARTIFACTS`).
+`.DS_Store`, and the coding agents' instructions: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`
+(`TOOL_ARTIFACTS`). None of them is ever packed.
 
 The rules a plugin must follow are listed in one place, the docstring of
 `nanoagent.plugin.manifest`. These are the layout above, a `.env` holding
