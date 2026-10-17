@@ -19,9 +19,10 @@ const SIGN_IN_PATH = '/signin';
  * The sign-in page itself, and /join: an invitation link is followed by
  * somebody who has no account yet, and /join is written for exactly that
  * visitor, reading the invitation without a session and saying which
- * workspace, who sent it, and which address it names.
+ * workspace, who sent it, and which address it names. And /download, where
+ * anyone gets the RUSH Lab app, in which members sign in.
  */
-const OPEN = [SIGN_IN_PATH, '/join'];
+const OPEN = [SIGN_IN_PATH, '/join', '/download'];
 
 /**
  * A workspace's documents, which a visitor who is signed out may read when the

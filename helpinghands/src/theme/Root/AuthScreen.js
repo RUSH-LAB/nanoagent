@@ -4,7 +4,7 @@ import {authClient} from '@site/src/utils/authClient';
 import API_BASE from '@site/src/utils/api';
 import {clientPlatform} from '@site/src/platform/client';
 import {isSignInPage, nextFrom} from '@site/src/utils/signIn';
-import {labAppSignsIn} from '@site/src/utils/labApp';
+import {inLabApp, labAppSignsIn} from '@site/src/utils/labApp';
 import styles from './authScreen.module.css';
 
 /**
@@ -86,6 +86,8 @@ export default function AuthScreen({ unreachable = null }) {
             </span>
           </p>
         )}
+
+        {!inLabApp() && <a className={styles.switch} href="/download">Get the RUSH Lab app</a>}
       </div>
     </div>
   );

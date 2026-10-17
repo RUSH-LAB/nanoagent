@@ -1,6 +1,7 @@
 import {after, before, describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import {execFileSync} from 'node:child_process';
 import {createRequire} from 'node:module';
 import {loadRoute, makeCtx, invoke} from '../../_harness.mjs';
 import {migratedDatabase} from '../fs/_pglite.mjs';
@@ -9,6 +10,7 @@ const require = createRequire(import.meta.url);
 const {createPostgresLab, CHUNK_BYTES} = require('../../../../src/server/postgres/lab.js');
 const {signDownloadToken, verifyDownloadToken, TOKEN_MS} = require('../../../../src/server/lab-tokens.js');
 const {isGlobalApiPath} = require('../../../../src/server/workspace-context.js');
+const {installScript} = require('../../../../src/server/lab-install.js');
 
 const routes = loadRoute('lab');
 const SECRET = 'a-test-secret-of-at-least-thirty-two-characters';
@@ -150,7 +152,7 @@ describe('RUSH Lab\'s download and connect link', () => {
     assert.equal((await upload(ARM, Buffer.alloc(0))).status, 400);
     assert.equal((await upload(ARM, BUNDLE, 'stamp-1', {'content-length': String(200 * 1024 * 1024 + 1)})).status, 413);
     await assert.rejects(ctx.lab.bundles.replace(ARM, 'big', piecesOf(BUNDLE), BUNDLE.length - 1), error => error.status === 413);
-    assert.equal(await ctx.lab.bundles.bundle('alice', ARM), null);
+    assert.equal(await ctx.lab.bundles.bundle(ARM), null);
   });
 
   it('stores an upload in chunks and sends it back byte for byte', async () => {
@@ -160,7 +162,8 @@ describe('RUSH Lab\'s download and connect link', () => {
     const chunks = (await db.query('select seq, length(data) as bytes from lab_bundle_chunk order by seq')).rows;
     assert.deepEqual(chunks.map(row => row.bytes), [CHUNK_BYTES, CHUNK_BYTES, 12345]);
 
-    const {written, sent} = await call({path: `/api/lab/bundles/${ARM}`, auth: as('bob')});
+    // Anyone downloads it: a member signs in in the app.
+    const {written, sent} = await call({path: `/api/lab/bundles/${ARM}`});
     assert.equal(written.status, 200);
     assert.equal(written.headers['Content-Type'], 'application/x-apple-diskimage');
     assert.equal(written.headers['Content-Disposition'], 'attachment; filename="RUSH-Lab-Apple-silicon.dmg"');
@@ -168,8 +171,6 @@ describe('RUSH Lab\'s download and connect link', () => {
     assert.equal(written.headers['X-Lab-Stamp'], 'stamp-1');
     assert.equal(written.headers['X-Lab-Sha256'], sha256(BUNDLE));
     assert.ok(sent.equals(BUNDLE));
-    // A connect link's token is no download link.
-    assert.equal((await call({path: `/api/lab/bundles/${ARM}`, query: {token: signDownloadToken(SECRET, 'bob')}})).status, 401);
   });
 
   it('keeps only the newest bundle for a target', async () => {
@@ -191,10 +192,20 @@ describe('RUSH Lab\'s download and connect link', () => {
     }
   });
 
-  it('answers 404 for a target with no bundle, and 401 without a member', async () => {
-    assert.equal((await call({path: `/api/lab/bundles/${INTEL}`, auth: as('bob')})).status, 404);
-    assert.equal((await call({path: '/api/lab/bundles/wasm32-unknown', auth: as('bob')})).status, 404);
-    assert.equal((await call({path: `/api/lab/bundles/${ARM}`})).status, 401);
+  it('answers 404 for a target with no bundle', async () => {
+    assert.equal((await call({path: `/api/lab/bundles/${INTEL}`})).status, 404);
+    assert.equal((await call({path: '/api/lab/bundles/wasm32-unknown'})).status, 404);
+  });
+
+  it('serves anyone the script that installs the app from this site, which sh reads', async () => {
+    const {written} = await call({path: '/install.sh'});
+    assert.equal(written.status, 200);
+    assert.match(written.headers['Content-Type'], /^text\/x-shellscript/);
+    const script = String(written.body);
+    assert.match(script, new RegExp(`^SITE='${SITE}'$`, 'm'));
+    assert.match(script, /"\$SITE\/api\/lab\/bundles\/\$TARGET"/);
+    execFileSync('sh', ['-n'], {input: script});
+    assert.throws(() => installScript("https://x.org'; rm -rf ~"), /not a site/);
   });
 
   it('cuts a download short when an upload replaces the bundle it is sending', async () => {
@@ -203,9 +214,9 @@ describe('RUSH Lab\'s download and connect link', () => {
     // The replacing upload lands once the first chunk is sent.
     const bundles = {
       ...real,
-      async* chunks(userId, bundle) {
+      async* chunks(bundle) {
         let first = true;
-        for await (const data of real.chunks(userId, bundle)) {
+        for await (const data of real.chunks(bundle)) {
           yield data;
           if (first) await real.replace(INTEL, 'stamp-2', [Buffer.from('new')], 1024);
           first = false;
@@ -218,7 +229,8 @@ describe('RUSH Lab\'s download and connect link', () => {
       assert.equal(written.status, 200);
       assert.equal(res.destroyed, true);
       assert.equal(res.writableEnded, true);
-      assert.equal(sent.length, CHUNK_BYTES);
+      // Cut short: what was sent is whole chunks, the one read ahead with them, never the rest.
+      assert.ok(sent.length < BUNDLE.length && sent.length % CHUNK_BYTES === 0, String(sent.length));
     } finally {
       ctx.lab.bundles = real;
     }
@@ -233,8 +245,8 @@ describe('RUSH Lab\'s download and connect link', () => {
       await db.exec("begin; select set_config('app.user_id', 'alice', true)");
       assert.deepEqual((await db.query('delete from lab_bundle returning target')).rows, []);
       await db.exec('rollback');
-      // No one signed in reads nothing.
-      assert.deepEqual((await db.query('select target from lab_bundle')).rows, []);
+      // Anyone reads them, signed in or not (migration 0039).
+      assert.deepEqual((await db.query('select target from lab_bundle order by target')).rows.map(row => row.target), [ARM, INTEL]);
     } finally {
       await db.exec('reset role');
     }

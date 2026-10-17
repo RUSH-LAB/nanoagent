@@ -6,7 +6,9 @@
  *
  *   PUT /api/lab/bundles/{target}      the release job uploads a target's app, its dmg, with
  *                                      header X-Lab-Stamp and Authorization: Bearer LAB_UPLOAD_TOKEN
- *   GET /api/lab/bundles/{target}      signed in: the target's newest dmg, with X-Lab-Stamp and X-Lab-Sha256
+ *   GET /api/lab/bundles/{target}      anyone: the target's newest dmg, with X-Lab-Stamp and X-Lab-Sha256
+ *   GET /install.sh                    anyone: the script that installs the app on a Mac (lab-install.js),
+ *                                      curl -fsSL <SITE_URL>/install.sh | sh
  *   GET /api/lab/connect               signed in: {link}, which the browser hands the app
  *   GET /api/lab/session?token=        {member: {id, login}}: whose the link is, which the app asks
  *                                      the member to confirm
@@ -32,6 +34,7 @@
 const crypto = require('crypto');
 const {signDownloadToken, verifyDownloadToken} = require('../lab-tokens');
 const {signInUrl} = require('../../utils/signIn');
+const {INSTALL_PATH, installScript} = require('../lab-install');
 
 const TARGETS = new Set(['aarch64-apple-darwin', 'x86_64-apple-darwin']);
 // What the download is called on the member's computer, by target.
@@ -49,7 +52,7 @@ function bearerIs(header, token) {
 }
 
 /** Write `bundle` to `res` a chunk at a time, waiting while the caller is slow; stop if they go. */
-async function sendBundle(res, bundles, userId, bundle) {
+async function sendBundle(res, bundles, bundle) {
   res.writeHead(200, {
     'Content-Type': 'application/x-apple-diskimage',
     'Content-Length': bundle.size,
@@ -60,7 +63,7 @@ async function sendBundle(res, bundles, userId, bundle) {
     'X-Content-Type-Options': 'nosniff',
   });
   try {
-    for await (const data of bundles.chunks(userId, bundle)) {
+    for await (const data of bundles.chunks(bundle)) {
       if (res.destroyed) break;
       if (!res.write(data)) {
         await new Promise(resolve => {
@@ -79,9 +82,14 @@ async function sendBundle(res, bundles, userId, bundle) {
 }
 
 module.exports = async function lab(req, res, url, pathname, ctx) {
+  const {json, lab: {bundles, secret, siteUrl, uploadToken, findMember, createSession, sessionCookie}} = ctx;
+  if (pathname === INSTALL_PATH) {
+    if (req.method !== 'GET') return json(res, 405, {error: 'Method not allowed'});
+    res.writeHead(200, {'Content-Type': 'text/x-shellscript; charset=utf-8', 'Cache-Control': 'no-cache'});
+    return res.end(installScript(siteUrl));
+  }
   const match = ROUTE.exec(pathname);
   if (!match) return;
-  const {json, lab: {bundles, secret, siteUrl, uploadToken, findMember, createSession, sessionCookie}} = ctx;
   const [, connect, session, signIn, windowSignIn, target] = match;
 
   if (signIn) {
@@ -148,12 +156,10 @@ module.exports = async function lab(req, res, url, pathname, ctx) {
   }
 
   if (req.method === 'GET') {
-    const userId = req.auth?.userId;
-    if (!userId) return json(res, 401, {error: 'Sign in to download RUSH Lab'});
     if (!bundles) return json(res, 503, {error: 'RUSH Lab bundles need PostgreSQL (DATABASE_URL)'});
-    const bundle = TARGETS.has(target) ? await bundles.bundle(userId, target) : null;
+    const bundle = TARGETS.has(target) ? await bundles.bundle(target) : null;
     if (!bundle) return json(res, 404, {error: `No RUSH Lab app for ${target} yet`});
-    return sendBundle(res, bundles, userId, bundle);
+    return sendBundle(res, bundles, bundle);
   }
 
   return json(res, 405, {error: 'Method not allowed'});

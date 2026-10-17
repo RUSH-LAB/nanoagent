@@ -1,6 +1,5 @@
 'use strict';
 const crypto = require('crypto');
-const {withRequestContext} = require('./client');
 
 // What one chunk row holds: a bundle goes in and out this much at a time.
 const CHUNK_BYTES = 4 * 1024 * 1024;
@@ -8,30 +7,34 @@ const CHUNK_BYTES = 4 * 1024 * 1024;
 const refusal = (status, message) => Object.assign(new Error(message), {status});
 
 /**
- * Mochi Lab's bundles (migration 0034): the newest gzip tarball for each
- * target, which any signed-in user may download and only the upload path
- * writes. Neither direction holds a whole bundle: an upload is written chunk
- * by chunk as its body arrives, and a download reads one chunk at a time.
+ * RUSH Lab's bundles (migrations 0034, 0039): the newest dmg for each target,
+ * which anyone may download and only the upload path writes. Neither
+ * direction holds a whole bundle: an upload is written chunk by chunk as its
+ * body arrives, and a download reads one chunk at a time.
  */
 function createPostgresLab({pool}) {
-  const read = (userId, operation) => withRequestContext(pool, {userId, workspaceId: null}, operation);
+  // Its first row, as the runtime role: anyone reads the bundles (migration 0039).
+  const first = async (sql, params) => {
+    const client = await pool.connect();
+    try {
+      return (await client.query(sql, params)).rows[0];
+    } finally {
+      client.release();
+    }
+  };
 
   return Object.freeze({
     /** The target's bundle, without its bytes, or null. */
-    async bundle(userId, target) {
-      const row = await read(userId, async client => (await client.query(
-        'select target, upload_id, stamp, sha256, size from lab_bundle where target = $1', [target],
-      )).rows[0]);
+    async bundle(target) {
+      const row = await first('select target, upload_id, stamp, sha256, size from lab_bundle where target = $1', [target]);
       return row ? {target: row.target, uploadId: row.upload_id, stamp: row.stamp, sha256: row.sha256, size: Number(row.size)} : null;
     },
     /**
      * The bytes of `bundle`, one chunk at a time. An upload that replaces it
      * meanwhile takes its chunks, so the rest is missing, which throws.
      */
-    async* chunks(userId, bundle) {
-      const fetch = seq => read(userId, async client => (await client.query(
-        'select data from lab_bundle_chunk where upload_id = $1 and seq = $2', [bundle.uploadId, seq],
-      )).rows[0]);
+    async* chunks(bundle) {
+      const fetch = seq => first('select data from lab_bundle_chunk where upload_id = $1 and seq = $2', [bundle.uploadId, seq]);
       const count = Math.ceil(bundle.size / CHUNK_BYTES);
       // The next chunk is read while this one is sent, so the database's round trip is not added to each.
       let next = count > 0 ? fetch(0) : null;

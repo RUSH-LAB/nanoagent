@@ -125,7 +125,8 @@ const config = {
         devServer: {
           compress: false,
           // `ws`: Mochi Lab's relay connects to /api/runner as a WebSocket (src/server/runner.js).
-          proxy: [{context: ['/api'], target: apiOrigin, ws: true}],
+          // /install.sh is RUSH Lab's install script, which the API server writes (routes/lab.js).
+          proxy: [{context: ['/api', '/install.sh'], target: apiOrigin, ws: true}],
           // Docusaurus has its own setupMiddlewares, and the two are composed by
           // concatenating what each returns, so this one returns nothing and
           // mounts the gate on the app directly, ahead of everything the

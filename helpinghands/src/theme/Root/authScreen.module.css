@@ -249,6 +249,43 @@
   line-height: 1.45;
 }
 
+/* The command that installs RUSH Lab (LabInstall.js), with its copy button. */
+.command {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.5rem 0.5rem 0.7rem;
+  border: 1px solid #e5e9f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.command code {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #0f172a;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.copy {
+  flex: none;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.copy:hover {
+  background: #f1f5f9;
+}
+
 /* The code a command-line client shows in its terminal (pages/device), to compare. */
 .userCode {
   align-self: center;
@@ -327,6 +364,9 @@
 :global([data-theme='dark']) .field input { border-color: #334155; background: #0f172a; color: #f1f5f9; }
 :global([data-theme='dark']) .userCode { border-color: #334155; background: #0f172a; color: #f1f5f9; }
 :global([data-theme='dark']) .steps { color: #94a3b8; }
+:global([data-theme='dark']) .command { border-color: #334155; background: #0f172a; }
+:global([data-theme='dark']) .command code { color: #f1f5f9; }
+:global([data-theme='dark']) .copy { border-color: #334155; background: #1e293b; color: #f1f5f9; }
 :global([data-theme='dark']) .error { background: rgba(239, 68, 68, 0.12); color: #fca5a5; }
 :global([data-theme='dark']) .switch { color: #93b4f5; }
 

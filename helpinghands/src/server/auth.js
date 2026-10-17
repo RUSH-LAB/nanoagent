@@ -352,6 +352,8 @@ const PUBLIC_PATHS = new Set([
   '/api/health',
   // Whether the sign-in screen offers sign-up.
   '/api/signup-policy',
+  // The script that installs RUSH Lab (routes/lab.js).
+  '/install.sh',
 ]);
 
 /**
@@ -368,10 +370,10 @@ const PUBLIC_PATHS = new Set([
  * origin, whose requests carry no cookies, and the files are the plugin's
  * published assets (routes/apps.js).
  *
- * RUSH Lab's sign-in, session and uploads: the app's window signs in, and the
- * app asks for a session, with a token in place of a session; its browser
- * sign-in sends a visitor without a session to the sign-in page itself; and the
- * release job uploads with the upload token (routes/lab.js).
+ * RUSH Lab's download, sign-in, session and uploads: anyone downloads the app;
+ * its window signs in, and the app asks for a session, with a token in place of
+ * a session; its sign-in sends a visitor without a session to the sign-in page
+ * itself; and the release job uploads with the upload token (routes/lab.js).
  */
 const PUBLIC_PATTERNS = [/^\/api\/invite\/[^/]+$/, /^\/api\/apps\/[^/]+\/ui\/.+$/, /^\/api\/lab\/(?:session|sign-in|window-sign-in|bundles\/[^/]+)$/];
 
