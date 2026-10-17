@@ -42,6 +42,7 @@ const crypto = require('crypto');
 const {signDownloadToken, verifyDownloadToken} = require('../lab-tokens');
 const {signInUrl} = require('../../utils/signIn');
 const {INSTALL_PATH, installScript} = require('../lab-install');
+const {LAB_ROUTE: ROUTE} = require('./paths');
 
 const TARGETS = new Set(['aarch64-apple-darwin', 'x86_64-apple-darwin']);
 // What the download is called on the member's computer, by target.
@@ -50,7 +51,6 @@ const MAX_BUNDLE_BYTES = 200 * 1024 * 1024;
 const STAMP = /^[A-Za-z0-9._-]{1,128}$/;
 // What `tauri signer sign` writes to a .sig: base64.
 const SIGNATURE = /^[A-Za-z0-9+/]{1,4096}={0,2}$/;
-const ROUTE = /^\/api\/lab\/(?:(connect)|(session)|(sign-in)|(window-sign-in)|bundles\/([^/]+)|updates\/([^/]+)(\/app\.tar\.gz)?)$/;
 // How each kind of bundle is downloaded, by target.
 const DOWNLOADS = {
   dmg: {type: 'application/x-apple-diskimage', name: target => FILE_NAMES[target]},

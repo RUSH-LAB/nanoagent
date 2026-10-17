@@ -7,6 +7,8 @@
  * do not meet. In particular, activeOrganizationId is deliberately absent:
  * changing a preference in one tab must not change what another tab may read.
  */
+const {APP_UI_ROUTE, LAB_ROUTE, MARKET_ROUTE} = require('./routes/paths');
+
 const WORKSPACE_ROLES = Object.freeze(['owner', 'editor', 'viewer']);
 
 // Existing Better Auth rows use its default vocabulary. Reads normalize them
@@ -46,10 +48,10 @@ function isGlobalApiPath(pathname) {
     || value.startsWith('/api/auth/')
     || value.startsWith('/api/public/')
     || /^\/api\/invite\/[^/]+(?:\/accept)?$/.test(value)
-    || /^\/api\/apps\/[^/]+\/ui\/.+$/.test(value)
-    || /^\/api\/market(?:\/[^/]+(?:\/(?:package|source))?)?$/.test(value)
-    // RUSH Lab's downloads, updates and connect link (routes/lab.js).
-    || /^\/api\/lab\/(?:connect|session|sign-in|window-sign-in|bundles\/[^/]+|updates\/[^/]+(?:\/app\.tar\.gz)?)$/.test(value)
+    // The routes that serve them match with the same patterns (routes/paths.js).
+    || APP_UI_ROUTE.test(value)
+    || MARKET_ROUTE.test(value)
+    || LAB_ROUTE.test(value)
     || /^\/api\/users\/[^/]+\/role$/.test(value);
 }
 

@@ -98,6 +98,15 @@ describe('global API allowlist', () => {
     }
   });
 
+  it('lets through every request the marketplace, RUSH Lab and plugin page routes serve, and only those', () => {
+    for (const path of ['/api/lab/connect', '/api/lab/bundles/aarch64-apple-darwin', '/api/lab/updates/x86_64-apple-darwin/app.tar.gz', '/api/apps/abc/ui/main/0123456789abcdef/index.html']) {
+      assert.equal(isGlobalApiPath(path), true, path);
+    }
+    for (const path of ['/api/market/p1/other', '/api/lab/other', '/api/apps/abc/sessions']) {
+      assert.equal(isGlobalApiPath(path), false, path);
+    }
+  });
+
   it('requires explicit workspace ids for business and content APIs', () => {
     for (const path of ['/api/file', '/api/graph', '/api/feed/rss', '/api/chat/channels', '/api/references', '/api/org/members']) {
       assert.equal(isGlobalApiPath(path), false, path);
