@@ -249,6 +249,15 @@
   line-height: 1.45;
 }
 
+/* RUSH Lab cloud, offered before the app (LabScreen): its button, and its note in the steps' voice. */
+.choice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
 /* The code a command-line client shows in its terminal (pages/device), to compare. */
 .userCode {
   align-self: center;

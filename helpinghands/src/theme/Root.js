@@ -5,6 +5,7 @@ import { useLocation } from '@docusaurus/router';
 import PageTracker from '@site/src/components/Analytics/PageTracker';
 import {clientPlatform} from '@site/src/platform/client';
 import {isOpenPage, signInUrl} from '@site/src/utils/signIn';
+import {admits} from '@site/src/utils/runner';
 import {AccountProvider} from '@site/src/utils/account';
 import {apiRequest} from '@site/src/utils/api';
 
@@ -57,13 +58,16 @@ function IdleCommandBar() {
  * An empty workspace answer sends the user to OnboardingScreen to open an
  * invitation.
  *
- * Nor is a workspace. Every AI run goes to RUSH Lab on the member's own
- * computer (server/runner.js), so a member whose computer is not connected is
- * held at LabScreen, which offers the app and the link that connects it, and lets them in
- * once it connects. It is asked once, beside the workspaces: a computer that
- * leaves later (asleep, offline) does not throw the member out of the page they
- * are on, and the runs say it is not connected. The page that approves a
- * computer (/device) is not held, as it is how one connects.
+ * Nor is a workspace. Every AI run goes where the member chose
+ * (server/cloud-runs.js): to RUSH Lab cloud, where a site offers it, or to
+ * RUSH Lab on their own computer (server/runner.js). A member who runs on
+ * their computer while it is not connected is held at LabScreen, which offers
+ * the app and the link that connects it, and RUSH Lab cloud instead where the
+ * site offers it, and lets them in once either holds (utils/runner.js admits).
+ * It is asked once, beside the workspaces: a computer that leaves later
+ * (asleep, offline) does not throw the member out of the page they are on, and
+ * the runs say it is not connected. The page that approves a computer (/device)
+ * is not held, as it is how one connects.
  *
  * A visitor without a session never gets here on a page that needs one: the
  * server that sends the page redirects them to the sign-in page first
@@ -101,9 +105,12 @@ function AuthGate({ children }) {
   const [status, setStatus] = useState(CHECKING);
   const [detail, setDetail] = useState(null);
   const [data, setData] = useState(null);
-  // Whether RUSH Lab on the member's computer was connected on arriving, then once it connects.
+  // Whether the member's runs had somewhere to go on arriving (utils/runner.js admits), then once
+  // they do: RUSH Lab cloud, or their computer connected.
   const [lab, setLab] = useState(false);
   const labConnected = useCallback(() => setLab(true), []);
+  // Whether this site offers RUSH Lab cloud, which LabScreen then offers instead of the app.
+  const [cloud, setCloud] = useState(false);
 
   // Asks the server again and keeps the answer, for a page that changed it.
   const refresh = useCallback(async () => {
@@ -122,7 +129,8 @@ function AuthGate({ children }) {
       .then(([workspaceData, computer]) => {
         if (cancelled) return;
         setData(workspaceData);
-        setLab(computer.connected);
+        setLab(admits(computer));
+        setCloud(computer.cloud === true);
         setStatus(SIGNED_IN);
       })
       .catch((err) => {
@@ -177,6 +185,7 @@ function AuthGate({ children }) {
       return (
         <Deferred>
           <LabScreen
+            cloud={cloud}
             onConnected={labConnected}
             onSignOut={() => import('@site/src/utils/authClient')
               .then(({signOutAndForget}) => signOutAndForget())

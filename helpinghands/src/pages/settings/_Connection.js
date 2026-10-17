@@ -45,9 +45,55 @@ function InstallLab() {
 }
 
 /**
- * Settings → Connection: whether RUSH Lab on the member's computer, where their AI
- * and plugins run, is connected to their account (server/runner.js), and the app
- * to install and connect while it is not.
+ * Where the member's plugins run, on a site that offers RUSH Lab cloud
+ * (server/cloud-runs.js): there, or on their own computer. `onChosen` gets the
+ * status the choice answers with.
+ */
+function RunnerChoice({status, onChosen}) {
+  const [state, setState] = useState(null);
+  const choose = runner => {
+    setState({saving: runner});
+    apiRequest('/api/runner/target', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({runner})})
+      .then(next => {
+        onChosen(next);
+        setState(null);
+      })
+      .catch(err => setState({error: err.message}));
+  };
+  const option = (runner, title, note) => (
+    <div className={styles.row}>
+      <div className={styles.rowLabel}>
+        <strong>{title}</strong>
+        <span>{note}</span>
+      </div>
+      <div className={styles.rowControl}>
+        {status.runner === runner
+          ? <span className={ai.online}>In use</span>
+          : (
+            <button type="button" className={styles.secondaryButton} disabled={Boolean(state?.saving)} onClick={() => choose(runner)}>
+              {state?.saving === runner ? 'Switching…' : 'Use this'}
+            </button>
+          )}
+      </div>
+    </div>
+  );
+  return (
+    <section className={styles.group}>
+      <div className={styles.groupHead}>
+        <h4 className={styles.groupTitle}>Where your plugins run</h4>
+      </div>
+      {option('cloud', 'RUSH Lab cloud', 'Nothing to install. Your plugins run on RUSH Lab\'s servers, within your workspace\'s AI budget.')}
+      {option('computer', 'Your computer', 'In the RUSH Lab app on your Mac, with your own OpenRouter key.')}
+      {state?.error && <p className={styles.error} role="alert">{state.error}</p>}
+    </section>
+  );
+}
+
+/**
+ * Settings → Connection: where the member's plugins run (RunnerChoice, where the
+ * site offers RUSH Lab cloud), whether RUSH Lab on their computer is connected to
+ * their account (server/runner.js), and the app to install and connect while
+ * their plugins run there and it is not.
  */
 export default function Connection() {
   const [computer, setComputer] = useState(null);
@@ -70,25 +116,31 @@ export default function Connection() {
       </>
     );
   }
+  const onComputer = computer.runner !== 'cloud';
   return (
     <>
       {heading}
-      <section className={styles.group}>
-        <div className={styles.groupHead}>
-          <h4 className={styles.groupTitle}>RUSH Lab on your computer</h4>
-        </div>
-        <Fact label="Status">
-          {computer.connected
-            ? <span className={ai.online}>Connected</span>
-            : <span className={ai.offline}>Not connected</span>}
-        </Fact>
-        {computer.connected && <Fact label="Connected at">{CENTRAL.format(new Date(computer.since))}</Fact>}
-        <p className={ai.connectionNote}>
-          Your AI and plugins run here. RUSH Lab opens at every login, in the menu bar, and stays
-          connected while this computer is on, whether or not you are signed in to this site.
-        </p>
-      </section>
-      {!computer.connected && <InstallLab />}
+      {computer.cloud && <RunnerChoice status={computer} onChosen={setComputer} />}
+      {(onComputer || computer.connected) && (
+        <section className={styles.group}>
+          <div className={styles.groupHead}>
+            <h4 className={styles.groupTitle}>RUSH Lab on your computer</h4>
+          </div>
+          <Fact label="Status">
+            {computer.connected
+              ? <span className={ai.online}>Connected</span>
+              : <span className={ai.offline}>Not connected</span>}
+          </Fact>
+          {computer.connected && <Fact label="Connected at">{CENTRAL.format(new Date(computer.since))}</Fact>}
+          {onComputer && (
+            <p className={ai.connectionNote}>
+              Your AI and plugins run here. RUSH Lab opens at every login, in the menu bar, and stays
+              connected while this computer is on, whether or not you are signed in to this site.
+            </p>
+          )}
+        </section>
+      )}
+      {onComputer && !computer.connected && <InstallLab />}
     </>
   );
 }

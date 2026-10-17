@@ -47,8 +47,10 @@ export default function ApiKeys({computer, onSaved}) {
   const connected = Boolean(computer?.connected);
   const busy = state?.saving;
   const editing = connected && (!saved || replacing);
-  // Under the row's name: what is happening to the key; nothing once it is saved.
-  const note = !connected ? 'Install RUSH Lab on your computer to add it.'
+  // Under the row's name: what is happening to the key; nothing once it is saved. A member whose
+  // plugins run in RUSH Lab cloud runs them on the lab's key (server/cloud-runs.js).
+  const note = !connected && computer?.runner === 'cloud' ? 'Your plugins run in RUSH Lab cloud, on the lab\'s own key, within your workspace\'s AI budget.'
+    : !connected ? 'Install RUSH Lab on your computer to add it.'
     : state?.error ? <span className={styles.error} role="alert">{state.error}</span>
       : busy ? 'Saving…'
         : saved ? null
