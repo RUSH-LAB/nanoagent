@@ -16,6 +16,7 @@
  *   {"event": "sign-in", "url", "code"}   open url in a browser and approve code
  *   {"event": "connected"}                runs may come
  *   {"event": "disconnected", "reason"}   reconnecting
+ *   {"event": "requests", "count"}        how many of Mochi's requests are going here, held runs included
  *   {"event": "keys", "id", "changes"}    apply these keys: answer {"id", "error"} on stdin,
  *                                         error null once NanoAgent has them
  * and writes {"keys": [{env, label, set}]} on stdin whenever which keys are set changes.
@@ -124,16 +125,17 @@ function drop(held, id) {
  * `keys` is which API keys this computer holds, `saveKeys(changes)` applies new
  * ones, and `onKeys(listener)` hears which are set whenever that changes, to
  * tell Mochi again. `onRelease` hears that Mochi has kept what a held request did.
+ * `running`, the requests going that are not held, is shared by a relay's connections like `held`.
  */
-export function connect({site, nanoagent, nanoagentToken, token, device, keys = [], saveKeys, onKeys, onRelease, held = new Map(), onEvent = say}) {
+export function connect({site, nanoagent, nanoagentToken, token, device, keys = [], saveKeys, onKeys, onRelease, held = new Map(), running = new Map(), onEvent = say}) {
   return new Promise(resolve => {
     const url = new URL(PATH, site);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
     const socket = new WebSocket(url, {headers: {Authorization: `Bearer ${token}`}});
-    const running = new Map();
     const send = message => socket.readyState === WebSocket.OPEN && socket.send(JSON.stringify(message));
     let current = keys;
     const hello = () => send({type: 'hello', device, keys: current, runs: [...held.keys()]});
+    const report = () => onEvent({event: 'requests', count: running.size + held.size});
     const unlisten = onKeys?.(list => {
       current = list;
       hello();
@@ -149,10 +151,13 @@ export function connect({site, nanoagent, nanoagentToken, token, device, keys = 
       } catch {
         return;
       }
-      if (frame.type === 'request') relay(frame, {send, nanoagent, nanoagentToken, running, held});
-      else if (frame.type === 'abort') {
+      if (frame.type === 'request') {
+        relay(frame, {send, nanoagent, nanoagentToken, running, held}).then(report);
+        report();
+      } else if (frame.type === 'abort') {
         running.get(frame.id)?.abort();
         drop(held, frame.id);
+        report();
       } else if (frame.type === 'resume') {
         const run = held.get(frame.id);
         if (!run) return send({type: 'error', id: frame.id, message: 'Mochi Lab is not running that any more'});
@@ -161,6 +166,7 @@ export function connect({site, nanoagent, nanoagentToken, token, device, keys = 
         for (const message of run.frames.slice(frame.from)) send(message);
       } else if (frame.type === 'release') {
         drop(held, frame.id);
+        report();
         onRelease?.();
       } else if (frame.type === 'keys') {
         saveKeys(frame.changes).then(
@@ -179,7 +185,10 @@ export function connect({site, nanoagent, nanoagentToken, token, device, keys = 
       for (const [id, run] of held) {
         if (run.send !== send) continue;
         run.send = null;
-        run.timer = setTimeout(() => drop(held, id), HOLD_MS);
+        run.timer = setTimeout(() => {
+          drop(held, id);
+          report();
+        }, HOLD_MS);
         run.timer.unref();
       }
       resolve(result);
@@ -250,8 +259,9 @@ async function main(env) {
     nanoagentToken: env.NANOAGENT_API_TOKEN,
     device: env.RUNNER_DEVICE || os.hostname(),
     ...supervisorKeys(),
-    // The held requests, which outlive each connection.
+    // The held requests, which outlive each connection, and the others going.
     held: new Map(),
+    running: new Map(),
   };
   // Which keys are set, for each connection's hello, kept as the supervisor says it changes.
   let keys = JSON.parse(env.RUNNER_KEYS);

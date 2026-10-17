@@ -234,6 +234,25 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     await until(() => !held.has('run-1'));
   });
 
+  it('says how many requests are going, a held run until Mochi releases it, so the app updates only once none is', async () => {
+    const counts = [];
+    await dialIn('member-token', {onEvent: event => event.event === 'requests' && counts.push(event.count)});
+    const ai = await runners.aiFor('u1');
+    await ai.stream({input: 'hi'});
+    await until(() => counts.at(-1) === 0);
+    assert.deepEqual(counts, [1, 0]);
+    counts.length = 0;
+    const deltas = [];
+    const running = ai.stream({input: 'slow', run: {id: 'run-1'}, onDelta: text => deltas.push(text)});
+    await until(() => deltas.length === 1);
+    nano.finishers[0]();
+    await running;
+    // Finished, but still the computer's until Mochi has kept it.
+    assert.equal(counts.at(-1), 1);
+    runners.release('u1', 'run-1');
+    await until(() => counts.at(-1) === 0);
+  });
+
   it('hands a held run its computer still has to a server started since, from its first frame', async () => {
     const held = new Map();
     const {closed} = await dialIn('member-token', {held});

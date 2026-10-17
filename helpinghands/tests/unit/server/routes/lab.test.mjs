@@ -21,6 +21,9 @@ const INTEL = 'x86_64-apple-darwin';
 // More than two chunks, fed in pieces that do not line up with them.
 const BUNDLE = crypto.randomBytes(2 * CHUNK_BYTES + 12345);
 const sha256 = data => crypto.createHash('sha256').update(data).digest('hex');
+// What the bundler writes to an update's .sig, for its version.
+const signatureFor = version => Buffer.from(`untrusted comment: signature from tauri secret key\nRUQN...\ntrusted comment: timestamp:1792261939\tfile:RUSH Lab.app.tar.gz\tversion:${version}\nPK3E...\n`).toString('base64');
+const SIGNATURE = signatureFor('0.20261017.183202');
 const piecesOf = (data, size = 1024 * 1024 + 7) => Array.from({length: Math.ceil(data.length / size)}, (_, i) => data.subarray(i * size, (i + 1) * size));
 
 describe('RUSH Lab\'s download and connect link', () => {
@@ -41,10 +44,11 @@ describe('RUSH Lab\'s download and connect link', () => {
       },
     }).then(result => ({...result, sent: Buffer.concat(sent)}));
   };
-  const upload = (target, body, stamp = 'stamp-1', headers = {}) => call({
-    method: 'PUT', path: `/api/lab/bundles/${target}`, body,
+  const upload = (target, body, stamp = 'stamp-1', headers = {}, collection = 'bundles') => call({
+    method: 'PUT', path: `/api/lab/${collection}/${target}`, body,
     headers: {authorization: `Bearer ${UPLOAD}`, 'x-lab-stamp': stamp, ...headers},
   });
+  const uploadUpdate = (target, body, stamp, signature = SIGNATURE) => upload(target, body, stamp, signature ? {'x-lab-signature': signature} : {}, 'updates');
 
   before(async () => {
     const database = await migratedDatabase();
@@ -59,7 +63,9 @@ describe('RUSH Lab\'s download and connect link', () => {
   after(() => db?.close());
 
   it('belongs to no workspace', () => {
-    for (const pathname of ['/api/lab/connect', '/api/lab/session', '/api/lab/sign-in', '/api/lab/window-sign-in', `/api/lab/bundles/${ARM}`]) assert.equal(isGlobalApiPath(pathname), true, pathname);
+    for (const pathname of ['/api/lab/connect', '/api/lab/session', '/api/lab/sign-in', '/api/lab/window-sign-in', `/api/lab/bundles/${ARM}`, `/api/lab/updates/${ARM}`, `/api/lab/updates/${ARM}/app.tar.gz`]) {
+      assert.equal(isGlobalApiPath(pathname), true, pathname);
+    }
     assert.equal(isGlobalApiPath('/api/lab/bundles'), false);
   });
 
@@ -151,8 +157,8 @@ describe('RUSH Lab\'s download and connect link', () => {
     assert.equal((await upload(ARM, BUNDLE, 'has space')).status, 400);
     assert.equal((await upload(ARM, Buffer.alloc(0))).status, 400);
     assert.equal((await upload(ARM, BUNDLE, 'stamp-1', {'content-length': String(200 * 1024 * 1024 + 1)})).status, 413);
-    await assert.rejects(ctx.lab.bundles.replace(ARM, 'big', piecesOf(BUNDLE), BUNDLE.length - 1), error => error.status === 413);
-    assert.equal(await ctx.lab.bundles.bundle(ARM), null);
+    await assert.rejects(ctx.lab.bundles.replace({target: ARM, kind: 'dmg', stamp: 'big'}, piecesOf(BUNDLE), BUNDLE.length - 1), error => error.status === 413);
+    assert.equal(await ctx.lab.bundles.bundle(ARM, 'dmg'), null);
   });
 
   it('stores an upload in chunks and sends it back byte for byte', async () => {
@@ -186,7 +192,45 @@ describe('RUSH Lab\'s download and connect link', () => {
     assert.equal((await upload('x86_64-unknown-linux-gnu', Buffer.from('linux bundle'))).status, 400);
     await db.exec("begin; select set_config('app.lab_upload', 'on', true)");
     try {
-      await assert.rejects(db.query("insert into lab_bundle(target, upload_id, stamp, sha256, size) values ('x86_64-unknown-linux-gnu', gen_random_uuid(), 's', repeat('a', 64), 1)"), /lab_bundle_target_check/);
+      await assert.rejects(db.query("insert into lab_bundle(target, kind, upload_id, stamp, sha256, size) values ('x86_64-unknown-linux-gnu', 'dmg', gen_random_uuid(), 's', repeat('a', 64), 1)"), /lab_bundle_target_check/);
+    } finally {
+      await db.exec('rollback');
+    }
+  });
+
+  it('tells the app\'s updater of the build it serves, with its signature, and serves its archive, beside the dmg', async () => {
+    assert.equal((await call({path: `/api/lab/updates/${ARM}`})).written.status, 204);
+    assert.equal((await call({path: `/api/lab/updates/${ARM}/app.tar.gz`})).status, 404);
+    const archive = crypto.randomBytes(CHUNK_BYTES + 99);
+    const stored = await uploadUpdate(ARM, archive, '2026-10-17T18-32-02-143Z-8a85c43d');
+    assert.equal(stored.status, 200);
+    assert.equal(stored.payload.sha256, sha256(archive));
+
+    const asked = await call({path: `/api/lab/updates/${ARM}`});
+    assert.equal(asked.status, 200);
+    // The version its signature was made for, which the updater checks it against.
+    assert.deepEqual(asked.payload, {version: '0.20261017.183202', url: `${SITE}/api/lab/updates/${ARM}/app.tar.gz`, signature: SIGNATURE});
+    const {written, sent} = await call({path: `/api/lab/updates/${ARM}/app.tar.gz`});
+    assert.equal(written.status, 200);
+    assert.equal(written.headers['Content-Type'], 'application/gzip');
+    assert.equal(written.headers['Content-Disposition'], `attachment; filename="RUSH-Lab-${ARM}.app.tar.gz"`);
+    assert.ok(sent.equals(archive));
+    // The dmg stays the dmg.
+    assert.equal((await call({path: `/api/lab/bundles/${ARM}`})).written.headers['X-Lab-Stamp'], 'stamp-2');
+    assert.equal((await call({path: `/api/lab/bundles/${ARM}/app.tar.gz`})).status, undefined);
+  });
+
+  it('refuses an update without its signature, or one that names no version', async () => {
+    assert.equal((await uploadUpdate(INTEL, BUNDLE, 'stamp-1', null)).status, 400);
+    assert.equal((await uploadUpdate(INTEL, BUNDLE, 'stamp-1', 'not base64!')).status, 400);
+    assert.equal((await uploadUpdate(INTEL, BUNDLE, 'stamp-1', Buffer.from('untrusted comment: x\nRUQN\ntrusted comment: timestamp:1\tfile:a\nPK\n').toString('base64'))).status, 400);
+    assert.equal((await uploadUpdate(INTEL, BUNDLE, 'stamp-1', signatureFor('0.0.0+build'))).status, 400);
+    assert.equal((await call({method: 'PUT', path: `/api/lab/updates/${INTEL}/app.tar.gz`, headers: {authorization: `Bearer ${UPLOAD}`}})).status, 405);
+    assert.equal((await call({path: '/api/lab/updates/wasm32-unknown'})).status, 404);
+    assert.equal(await ctx.lab.bundles.bundle(INTEL, 'update'), null);
+    await db.exec("begin; select set_config('app.lab_upload', 'on', true)");
+    try {
+      await assert.rejects(db.query("insert into lab_bundle(target, kind, upload_id, stamp, sha256, size) values ($1, 'update', gen_random_uuid(), 's', repeat('a', 64), 1)", [INTEL]), /lab_bundle_signature_check/);
     } finally {
       await db.exec('rollback');
     }
@@ -218,7 +262,7 @@ describe('RUSH Lab\'s download and connect link', () => {
         let first = true;
         for await (const data of real.chunks(bundle)) {
           yield data;
-          if (first) await real.replace(INTEL, 'stamp-2', [Buffer.from('new')], 1024);
+          if (first) await real.replace({target: INTEL, kind: 'dmg', stamp: 'stamp-2'}, [Buffer.from('new')], 1024);
           first = false;
         }
       },
@@ -240,13 +284,13 @@ describe('RUSH Lab\'s download and connect link', () => {
     await db.exec('set role mochi_runtime');
     try {
       await db.exec("begin; select set_config('app.user_id', 'alice', true)");
-      await assert.rejects(db.query("insert into lab_bundle(target, upload_id, stamp, sha256, size) values ($1, gen_random_uuid(), 's', $2, 1)", [INTEL, 'a'.repeat(64)]));
+      await assert.rejects(db.query("insert into lab_bundle(target, kind, upload_id, stamp, sha256, size) values ($1, 'dmg', gen_random_uuid(), 's', $2, 1)", [INTEL, 'a'.repeat(64)]));
       await db.exec('rollback');
       await db.exec("begin; select set_config('app.user_id', 'alice', true)");
       assert.deepEqual((await db.query('delete from lab_bundle returning target')).rows, []);
       await db.exec('rollback');
       // Anyone reads them, signed in or not (migration 0039).
-      assert.deepEqual((await db.query('select target from lab_bundle order by target')).rows.map(row => row.target), [ARM, INTEL]);
+      assert.deepEqual((await db.query('select target, kind from lab_bundle order by target, kind')).rows.map(row => `${row.target} ${row.kind}`), [`${ARM} dmg`, `${ARM} update`, `${INTEL} dmg`]);
     } finally {
       await db.exec('reset role');
     }

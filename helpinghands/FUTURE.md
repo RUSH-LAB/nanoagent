@@ -56,14 +56,9 @@ To decide:
 
 - The window signs in through the member's browser, which needs rushlab:// to reach the running
   app on Windows too, and a random state without `/dev/urandom` (`main.rs`).
-- CI builds no installer, and it is unsigned: SmartScreen warns on a downloaded one.
+- CI builds no installer, and it is unsigned: SmartScreen warns on a downloaded one. Nor does it
+  update itself: the site serves updates for the Macs only (`routes/lab.js`).
 - Quitting kills lab.mjs and its services at once (`taskkill /T`), as Windows has no SIGTERM.
-
-## RUSH Lab updates
-
-The app does not update itself: a member downloads a new dmg from the site. `tauri-plugin-updater`
-could fetch a `latest.json` and signed update from Mochi, which already serves the dmgs
-(`routes/lab.js`), with a member's session.
 
 ## Chat in RUSH Lab
 

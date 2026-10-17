@@ -29,9 +29,13 @@ Needs Node 22, Rust, a C compiler (Xcode's command line tools), and NanoAgent's 
 `helpinghands/`. The app needs nothing installed where it runs. Opening the build takes over this
 computer's RUSH Lab, as a member's install does.
 
-`.github/workflows/helpinghands-desktop.yml` builds a dmg for each kind of Mac on its own runner,
-since Nuitka compiles NanoAgent for the machine it runs on. On a push to production it uploads each
-one to rush-lab.org, retrying for 15 minutes while the site deploys.
+`.github/workflows/helpinghands-desktop.yml` builds a release (`npm run build:release`,
+`scripts/release.mjs`) for each kind of Mac on its own runner, since each bundles that Mac's
+runtimes. A release's version is its build's time, `0.<yyyymmdd>.<hhmmss>` in UTC; it
+has its dmg, and its update, `RUSH Lab.app.tar.gz` signed for that version with the app's update key (the secret
+`TAURI_SIGNING_PRIVATE_KEY`, which has no password; its public key is
+`plugins.updater.pubkey` in `tauri.conf.json`). On a push to production it uploads both to
+rush-lab.org, retrying for 15 minutes while the site deploys. Only a release updates itself.
 
 ## How a run reaches this computer
 
@@ -96,6 +100,12 @@ At launch the app (`src-tauri/src/main.rs`, `lab.rs`):
    which passes `--login`).
 5. Runs `node lab.mjs` from there, its output in `logs/lab.log`, and starts it again 30 s after
    it exits. Quitting sends it SIGTERM, which stops every connection, and SIGKILL after 60 s.
+6. A release keeps itself the build its window's site serves (`src-tauri/src/update.rs`): at launch
+   and every hour it asks `GET /api/lab/updates/<target>`, and a newer version is downloaded,
+   checked against the update key and the version it was signed for, and installed over the app. It opens that build,
+   its window hidden, once nothing runs here and its window is closed: lab.mjs keeps the data
+   folder's `busy` while any relay has a request of Mochi's going, a held run until Mochi
+   releases it. Its log is `logs/lab.log`.
 
 A failure in steps 2 to 4 says why in a dialog, and the app quits.
 
@@ -189,9 +199,14 @@ Login Items, and remove the data folder.
   `{target, stamp, sha256, size}`. Without `LAB_UPLOAD_TOKEN` set, it answers 503.
 - `GET /api/lab/bundles/<target>`, signed in, streams it, with `X-Lab-Stamp`, `X-Lab-Sha256` and
   `Content-Length`; 404 while there is none.
+- `PUT /api/lab/updates/<target>`, as a dmg is uploaded, with `X-Lab-Signature` (its `.sig`), is how
+  a release uploads its update.
+- `GET /api/lab/updates/<target>`, for anyone, is what the app's updater asks: `{version, url,
+  signature}`, the version the signature names, or 204 while there is none.
+  `GET /api/lab/updates/<target>/app.tar.gz` streams the update.
 
-The targets are `aarch64-apple-darwin` and `x86_64-apple-darwin`. Each keeps only its newest dmg,
-in PostgreSQL (migrations 0034, 0035 and 0038, `src/server/postgres/lab.js`) as rows of 4 MiB, so
+The targets are `aarch64-apple-darwin` and `x86_64-apple-darwin`. Each keeps only its newest dmg
+and update, in PostgreSQL (migrations 0034, 0035, 0038 and 0040, `src/server/postgres/lab.js`) as rows of 4 MiB, so
 neither an upload nor a download holds a whole dmg in memory. An upload replaces the previous one
 in a single transaction. Any signed-in member may read them; row-level security lets only the
 upload path write them. A download that an upload overtakes is cut off rather than finished with
@@ -203,7 +218,6 @@ this computer, as rush-lab.org does. To try a change to the runner or NanoAgent,
 
 ## Known gaps
 
-- **Updates.** The app does not update itself; a member downloads a new dmg (FUTURE.md).
 - **Signing out** of the site does not disconnect the relay. Its session is its own.
 - **Windows** (FUTURE.md). An installer builds, but CI does not build or ship one.
 - **One Mochi process.** Mochi keeps the connected computers in memory, as it does every other

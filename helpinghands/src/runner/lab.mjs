@@ -25,7 +25,9 @@
  * connected again. When a relay needs signing in, the device page opens in the browser; once it is
  * connected after that, the site does, at Settings → AI while there is no key. Keys come only from
  * Mochi, through the relay: kept in the connection's settings.env, handed to its NanoAgent
- * (PUT /v1/keys), and the relay is told which are set. SIGTERM stops every connection, cleanly.
+ * (PUT /v1/keys), and the relay is told which are set. The data folder's `busy` is there while any
+ * relay has a request of Mochi's going, a held run included: the app updates itself only while it
+ * is not (desktop/src-tauri/src/update.rs). SIGTERM stops every connection, cleanly.
  *
  * It runs on macOS, where plugins run in seatbelt, and on Windows, in an AppContainer (PLATFORMS).
  * Node's own modules are all it loads.
@@ -415,8 +417,10 @@ async function main() {
   };
   // Every service this has running, of every connection: one `pid<TAB>program` line each.
   const pidFile = path.join(data, 'services.pid');
+  // There while any connection's relay has a request going.
+  const busyFile = path.join(data, 'busy');
   const system = systemEnv(process.env, bin, data);
-  // The connections, by id: {id, folder, site, installed, services, state, restartAt, relayStdin, token, port}.
+  // The connections, by id: {id, folder, site, installed, services, state, restartAt, relayStdin, token, port, requests}.
   const connections = new Map();
   let stopping = false;
 
@@ -515,6 +519,7 @@ async function main() {
     if (message) console.error(`${new Date().toISOString()} ${message}`);
     await Promise.all([...connections.values()].map(connection => stopConnection(connection)));
     fs.rmSync(pidFile, {force: true});
+    fs.rmSync(busyFile, {force: true});
     process.exit(code);
   }
 
@@ -539,6 +544,7 @@ async function main() {
     fs.mkdirSync(connectionsFolder, {recursive: true, mode: 0o700});
     fs.mkdirSync(path.join(data, 'logs'), {recursive: true});
     await stopLeftovers();
+    fs.rmSync(busyFile, {force: true});
     log('Preparing NanoAgent\'s Python environment (the first start downloads Python)…');
     // Only NanoAgent's dependencies, as the bundled uv.lock pins them: NanoAgent itself is the
     // compiled module in site/, with no source to check the lock against.
@@ -597,6 +603,14 @@ async function main() {
     connection.relayStdin = null;
     connection.token = null;
     await stopServices(connection.services);
+    countRequests(connection, 0);
+  }
+
+  /** The connection's relay has `count` requests going: `busy` is there while any relay has one. */
+  function countRequests(connection, count) {
+    connection.requests = count;
+    if ([...connections.values()].some(each => each.requests > 0)) fs.writeFileSync(busyFile, '');
+    else fs.rmSync(busyFile, {force: true});
   }
 
   /**
@@ -611,6 +625,7 @@ async function main() {
     connection.relayStdin = null;
     connection.token = null;
     await stopServices(connection.services);
+    countRequests(connection, 0);
   }
 
   async function startConnection(connection) {
@@ -692,6 +707,7 @@ async function main() {
       try {
         event = JSON.parse(line);
       } catch {}
+      if (event.event === 'requests') return countRequests(connection, event.count);
       if (event.event !== 'keys') fs.appendFileSync(relay.fd, `${line}\n`);
       if (event.event === 'sign-in') {
         signingIn = true;

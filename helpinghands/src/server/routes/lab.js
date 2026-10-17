@@ -7,6 +7,12 @@
  *   PUT /api/lab/bundles/{target}      the release job uploads a target's app, its dmg, with
  *                                      header X-Lab-Stamp and Authorization: Bearer LAB_UPLOAD_TOKEN
  *   GET /api/lab/bundles/{target}      anyone: the target's newest dmg, with X-Lab-Stamp and X-Lab-Sha256
+ *   PUT /api/lab/updates/{target}      the release job uploads a target's update, the updater's archive
+ *                                      (RUSH Lab.app.tar.gz), with X-Lab-Stamp, X-Lab-Signature (its .sig)
+ *                                      and Authorization: Bearer LAB_UPLOAD_TOKEN
+ *   GET /api/lab/updates/{target}      anyone: what the app's updater asks (desktop/src-tauri/src/update.rs),
+ *                                      {version, url, signature}, 204 while there is none
+ *   GET /api/lab/updates/{target}/app.tar.gz   anyone: that update's archive
  *   GET /install.sh                    anyone: the script that installs the app on a Mac (lab-install.js),
  *                                      curl -fsSL <SITE_URL>/install.sh | sh
  *   GET /api/lab/connect               signed in: {link}, which the browser hands the app
@@ -28,8 +34,9 @@
  * The link is `rushlab://connect?site=<SITE_URL>&token=<t>`. `t` is a token for the member that
  * lasts an hour (lab-tokens.js), signed with the session secret, so the app needs no session to
  * use it. Targets are aarch64-apple-darwin and x86_64-apple-darwin. Each keeps its newest dmg
- * only, in PostgreSQL (postgres/lab.js), sent on a chunk at a time. Without LAB_UPLOAD_TOKEN set,
- * uploads answer 503.
+ * and update only, in PostgreSQL (postgres/lab.js), sent on a chunk at a time. An update's version
+ * is the one its signature was made for, which the updater checks it against. Without
+ * LAB_UPLOAD_TOKEN set, uploads answer 503.
  */
 const crypto = require('crypto');
 const {signDownloadToken, verifyDownloadToken} = require('../lab-tokens');
@@ -41,9 +48,21 @@ const TARGETS = new Set(['aarch64-apple-darwin', 'x86_64-apple-darwin']);
 const FILE_NAMES = {'aarch64-apple-darwin': 'RUSH-Lab-Apple-silicon.dmg', 'x86_64-apple-darwin': 'RUSH-Lab-Intel.dmg'};
 const MAX_BUNDLE_BYTES = 200 * 1024 * 1024;
 const STAMP = /^[A-Za-z0-9._-]{1,128}$/;
-const ROUTE = /^\/api\/lab\/(?:(connect)|(session)|(sign-in)|(window-sign-in)|bundles\/([^/]+))$/;
+// What `tauri signer sign` writes to a .sig: base64.
+const SIGNATURE = /^[A-Za-z0-9+/]{1,4096}={0,2}$/;
+const ROUTE = /^\/api\/lab\/(?:(connect)|(session)|(sign-in)|(window-sign-in)|bundles\/([^/]+)|updates\/([^/]+)(\/app\.tar\.gz)?)$/;
+// How each kind of bundle is downloaded, by target.
+const DOWNLOADS = {
+  dmg: {type: 'application/x-apple-diskimage', name: target => FILE_NAMES[target]},
+  update: {type: 'application/gzip', name: target => `RUSH-Lab-${target}.app.tar.gz`},
+};
 // The app's sign-in state: random, which it names its sign-in by.
 const STATE = /^[A-Za-z0-9_-]{16,128}$/;
+
+/** The version an update's signature (its .sig) was made for, which its trusted comment names, or null. */
+function signedVersion(signature) {
+  return /^trusted comment: .*\tversion:(\d+\.\d+\.\d+)$/m.exec(Buffer.from(signature, 'base64').toString('utf8'))?.[1] ?? null;
+}
 
 /** Whether `header` is `Bearer <token>`, compared in constant time. */
 function bearerIs(header, token) {
@@ -54,9 +73,9 @@ function bearerIs(header, token) {
 /** Write `bundle` to `res` a chunk at a time, waiting while the caller is slow; stop if they go. */
 async function sendBundle(res, bundles, bundle) {
   res.writeHead(200, {
-    'Content-Type': 'application/x-apple-diskimage',
+    'Content-Type': DOWNLOADS[bundle.kind].type,
     'Content-Length': bundle.size,
-    'Content-Disposition': `attachment; filename="${FILE_NAMES[bundle.target]}"`,
+    'Content-Disposition': `attachment; filename="${DOWNLOADS[bundle.kind].name(bundle.target)}"`,
     'X-Lab-Stamp': bundle.stamp,
     'X-Lab-Sha256': bundle.sha256,
     'Cache-Control': 'private, no-cache',
@@ -90,7 +109,9 @@ module.exports = async function lab(req, res, url, pathname, ctx) {
   }
   const match = ROUTE.exec(pathname);
   if (!match) return;
-  const [, connect, session, signIn, windowSignIn, target] = match;
+  const [, connect, session, signIn, windowSignIn, dmgTarget, updateTarget, archive] = match;
+  const kind = updateTarget ? 'update' : 'dmg';
+  const target = dmgTarget ?? updateTarget;
 
   if (signIn) {
     if (req.method !== 'GET') return json(res, 405, {error: 'Method not allowed'});
@@ -137,6 +158,8 @@ module.exports = async function lab(req, res, url, pathname, ctx) {
     return res.end(JSON.stringify({session: created.token, member: {id: userId, login: created.login}}));
   }
 
+  if (archive && req.method !== 'GET') return json(res, 405, {error: 'Method not allowed'});
+
   if (req.method === 'PUT') {
     if (!uploadToken) return json(res, 503, {error: 'Uploading RUSH Lab is not configured: set LAB_UPLOAD_TOKEN'});
     if (!bearerIs(req.headers.authorization, uploadToken)) return json(res, 401, {error: 'Uploading RUSH Lab takes Authorization: Bearer LAB_UPLOAD_TOKEN'});
@@ -144,11 +167,15 @@ module.exports = async function lab(req, res, url, pathname, ctx) {
     if (!TARGETS.has(target)) return json(res, 400, {error: `The target is one of ${[...TARGETS].join(', ')}`});
     const stamp = req.headers['x-lab-stamp'];
     if (!STAMP.test(stamp ?? '')) return json(res, 400, {error: 'Name the bundle in X-Lab-Stamp: letters, digits, ".", "_" and "-"'});
+    const signature = kind === 'update' ? req.headers['x-lab-signature'] : null;
+    if (kind === 'update' && !(SIGNATURE.test(signature ?? '') && signedVersion(signature))) {
+      return json(res, 400, {error: 'Send the update\'s signature, its .sig, which names its version, in X-Lab-Signature'});
+    }
     if (Number(req.headers['content-length']) > MAX_BUNDLE_BYTES) {
       return json(res, 413, {error: `A bundle may be ${MAX_BUNDLE_BYTES / 1024 / 1024} MB at most`});
     }
     try {
-      return json(res, 200, await bundles.replace(target, stamp, req, MAX_BUNDLE_BYTES));
+      return json(res, 200, await bundles.replace({target, kind, stamp, signature}, req, MAX_BUNDLE_BYTES));
     } catch (error) {
       if (!error.status) throw error;
       return json(res, error.status, {error: error.message});
@@ -157,8 +184,16 @@ module.exports = async function lab(req, res, url, pathname, ctx) {
 
   if (req.method === 'GET') {
     if (!bundles) return json(res, 503, {error: 'RUSH Lab bundles need PostgreSQL (DATABASE_URL)'});
-    const bundle = TARGETS.has(target) ? await bundles.bundle(target) : null;
-    if (!bundle) return json(res, 404, {error: `No RUSH Lab app for ${target} yet`});
+    const bundle = TARGETS.has(target) ? await bundles.bundle(target, kind) : null;
+    // The updater's question: the build this site serves, or 204 for none.
+    if (kind === 'update' && !archive && TARGETS.has(target)) {
+      if (!bundle) {
+        res.writeHead(204, {'Cache-Control': 'no-cache'});
+        return res.end();
+      }
+      return json(res, 200, {version: signedVersion(bundle.signature), url: `${siteUrl}/api/lab/updates/${target}/app.tar.gz`, signature: bundle.signature});
+    }
+    if (!bundle) return json(res, 404, {error: `No RUSH Lab ${kind === 'update' ? 'update' : 'app'} for ${target} yet`});
     return sendBundle(res, bundles, bundle);
   }
 

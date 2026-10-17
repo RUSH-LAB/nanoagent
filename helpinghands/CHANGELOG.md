@@ -4,6 +4,7 @@ What each Mochi release changes, one sentence each.
 
 ## Unreleased
 
+- RUSH Lab updates itself to the build its site serves, opening it once nothing is running on the computer and its window is closed.
 - Opening a link to a workspace you are not in no longer says the API server cannot be reached.
 - A plugin install that RUSH Lab moved into a member's connection is built again where it is now, instead of failing with "Connection closed".
 - New accounts start with arxiv-source and weather-alert installed (src/server/preinstalled-plugins.yaml).

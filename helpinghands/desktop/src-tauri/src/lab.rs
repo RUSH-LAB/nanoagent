@@ -29,6 +29,8 @@ const POLL: Duration = Duration::from_millis(250);
 struct Config {
     site_url: String,
     label: String,
+    /// A release's target, which it updates itself as (update.rs); None for any other build.
+    update_target: Option<String>,
 }
 
 pub struct Lab {
@@ -51,6 +53,11 @@ fn config(app: &AppHandle) -> Result<Config, String> {
 /// The Mochi this app serves, which its window shows.
 pub fn site_url(app: &AppHandle) -> Result<String, String> {
     Ok(config(app)?.site_url)
+}
+
+/// The target a release updates itself as; None for any other build.
+pub fn update_target(app: &AppHandle) -> Result<Option<String>, String> {
+    Ok(config(app)?.update_target)
 }
 
 impl Lab {
@@ -180,6 +187,17 @@ impl Lab {
         }
         let _ = child.kill();
         let _ = child.wait();
+    }
+
+    /// Whether nothing runs here: lab.mjs keeps the data folder's `busy` while any connection's relay
+    /// has a request of Mochi's going, a held run included.
+    pub fn idle(&self) -> bool {
+        !self.data.join("busy").exists()
+    }
+
+    /// One line in logs/lab.log.
+    pub fn log(&self, line: &str) {
+        append(&self.data.join("logs/lab.log"), line);
     }
 
     /// Ask lab.mjs `args` about a connect link whose token is `token`: what it prints, or why it failed.

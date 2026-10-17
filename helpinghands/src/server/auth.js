@@ -370,12 +370,12 @@ const PUBLIC_PATHS = new Set([
  * origin, whose requests carry no cookies, and the files are the plugin's
  * published assets (routes/apps.js).
  *
- * RUSH Lab's download, sign-in, session and uploads: anyone downloads the app;
+ * RUSH Lab's download, updates, sign-in, session and uploads: anyone downloads the app and its updates;
  * its window signs in, and the app asks for a session, with a token in place of
  * a session; its sign-in sends a visitor without a session to the sign-in page
  * itself; and the release job uploads with the upload token (routes/lab.js).
  */
-const PUBLIC_PATTERNS = [/^\/api\/invite\/[^/]+$/, /^\/api\/apps\/[^/]+\/ui\/.+$/, /^\/api\/lab\/(?:session|sign-in|window-sign-in|bundles\/[^/]+)$/];
+const PUBLIC_PATTERNS = [/^\/api\/invite\/[^/]+$/, /^\/api\/apps\/[^/]+\/ui\/.+$/, /^\/api\/lab\/(?:session|sign-in|window-sign-in|bundles\/[^/]+|updates\/[^/]+(?:\/app\.tar\.gz)?)$/];
 
 /** Whether `pathname` may be served without a session. */
 function isPublicPath(pathname) {

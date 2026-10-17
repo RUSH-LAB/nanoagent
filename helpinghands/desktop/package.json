@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tauri build",
     "build:windows": "tauri build --bundles nsis",
+    "build:release": "node scripts/release.mjs",
     "bundle:lab": "node scripts/bundle-lab.mjs"
   },
   "devDependencies": {

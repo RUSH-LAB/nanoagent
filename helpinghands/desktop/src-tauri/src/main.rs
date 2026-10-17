@@ -6,11 +6,13 @@
 //! signed in in the window is connected as soon as the site hands the window their connect link
 //! (rushlab://connect?site=&token=, server/routes/lab.js); a link from anywhere else connects them
 //! only once they confirm it is theirs. `npm run desktop:dev` opens it on this checkout's local site
-//! instead (--site); opened any other way, its window is always its own site's.
+//! instead (--site); opened any other way, its window is always its own site's. A release keeps
+//! itself the build its site serves (update.rs).
 
 mod lab;
 #[cfg(target_os = "macos")]
 mod sign_in;
+mod update;
 
 use std::sync::Arc;
 use std::thread;
@@ -26,7 +28,7 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
 
-// What the login item opens RUSH Lab with: then its window starts hidden.
+// What the login item opens RUSH Lab with, and an update the build it installed: then its window starts hidden.
 const AT_LOGIN: &str = "--login";
 // What `npm run desktop:dev` opens RUSH Lab with, before a site on this computer: its window shows that site.
 const DEV_SITE: &str = "--site";
@@ -180,6 +182,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![AT_LOGIN])))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let at_login = std::env::args().any(|arg| arg == AT_LOGIN);
             #[cfg(target_os = "macos")]
@@ -193,6 +196,7 @@ fn main() {
             };
             #[cfg(target_os = "macos")]
             app.manage(Site(site.clone()));
+            let update_site = site.clone();
             let handle = app.handle().clone();
             let opener = app.handle().clone();
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(site))
@@ -278,6 +282,11 @@ fn main() {
                     fail(&handle, format!("RUSH Lab could not set itself to open at login: {error}"));
                 }
                 lab.start();
+                match lab::update_target(&handle) {
+                    Ok(Some(target)) => update::keep_updated(handle.clone(), lab.clone(), update_site, target),
+                    Ok(None) => {}
+                    Err(message) => fail(&handle, message),
+                }
                 handle.manage(lab);
             });
 
@@ -305,6 +314,14 @@ fn main() {
         tauri::RunEvent::Exit => {
             if let Some(lab) = app.try_state::<Arc<Lab>>() {
                 lab.stop();
+            }
+            // An update opens the build it installed, on the same site, its window hidden as this one's was.
+            if app.try_state::<update::Installed>().is_some() {
+                let mut env = app.env();
+                env.args_os.retain(|arg| arg != AT_LOGIN);
+                env.args_os.insert(1, AT_LOGIN.into());
+                app.cleanup_before_exit();
+                tauri::process::restart(&env);
             }
         }
         _ => {}

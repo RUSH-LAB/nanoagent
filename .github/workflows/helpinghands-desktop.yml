@@ -6,7 +6,9 @@ name: Helping Hands desktop app
 #
 # The app is ad-hoc signed (signingIdentity "-" in tauri.conf.json), not notarized: the first time
 # it opens on a member's Mac, macOS blocks it until they click Open Anyway in System Settings ->
-# Privacy & Security.
+# Privacy & Security. It is a release (npm run build:release): it updates itself from the site it
+# serves (src-tauri/src/update.rs), with the update this job signs with the app's update key
+# (TAURI_SIGNING_PRIVATE_KEY) and uploads beside each dmg.
 
 # A push to production rebuilds the app only when something it is built from changed: desktop/
 # (the app, its scripts and config.yaml), the runner, and the NanoAgent that stage.mjs compiles.
@@ -30,9 +32,9 @@ defaults:
     working-directory: helpinghands
 
 jobs:
-  # Each dmg, uploaded on a push to production to the Mochi it deploys, which serves it to members
-  # (routes/lab.js). That Mochi may still be deploying the commit that serves the upload, so it is
-  # tried for 15 minutes; a run by hand only builds, and keeps the dmg as a workflow artifact.
+  # Each dmg and update, uploaded on a push to production to the Mochi it deploys, which serves them
+  # to members (routes/lab.js). That Mochi may still be deploying the commit that serves the upload,
+  # so each is tried for 15 minutes; a run by hand only builds, and keeps them as a workflow artifact.
   app:
     strategy:
       fail-fast: false
@@ -54,12 +56,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
         working-directory: helpinghands/desktop
-      - run: npm run build -- --target ${{ matrix.target }}
+      - run: npm run build:release -- --target ${{ matrix.target }}
         working-directory: helpinghands/desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       - uses: actions/upload-artifact@v4
         with:
           name: rush-lab-${{ matrix.target }}
-          path: helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          path: |
+            helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
+            helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz.sig
           if-no-files-found: error
       - name: Upload to Mochi
         if: github.event_name == 'push'
@@ -71,16 +78,23 @@ jobs:
             echo "The LAB_UPLOAD_TOKEN secret is not set" >&2
             exit 1
           fi
-          set -- src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
-          [ "$#" -eq 1 ] || { echo "Expected one dmg, found $#" >&2; exit 1; }
+          bundle=src-tauri/target/${{ matrix.target }}/release/bundle
           stamp=$(cat src-tauri/resources/stamp)
-          deadline=$(( $(date +%s) + 900 ))
-          until curl -fsS -X PUT --data-binary @"$1" \
-              -H "Authorization: Bearer $LAB_UPLOAD_TOKEN" -H "X-Lab-Stamp: $stamp" \
-              https://rush-lab.org/api/lab/bundles/${{ matrix.target }}; do
-            if [ "$(date +%s)" -ge "$deadline" ]; then
-              echo "Mochi did not take the app within 15 minutes" >&2
-              exit 1
-            fi
-            sleep 30
-          done
+          # put <file> <route> [header]: PUT the file to rush-lab.org's route, for 15 minutes.
+          put() {
+            deadline=$(( $(date +%s) + 900 ))
+            until curl -fsS -X PUT --data-binary @"$1" \
+                -H "Authorization: Bearer $LAB_UPLOAD_TOKEN" -H "X-Lab-Stamp: $stamp" ${3:+-H "$3"} \
+                "https://rush-lab.org$2"; do
+              if [ "$(date +%s)" -ge "$deadline" ]; then
+                echo "Mochi did not take $1 within 15 minutes" >&2
+                exit 1
+              fi
+              sleep 30
+            done
+          }
+          set -- "$bundle"/dmg/*.dmg
+          [ "$#" -eq 1 ] || { echo "Expected one dmg, found $#" >&2; exit 1; }
+          put "$1" /api/lab/bundles/${{ matrix.target }}
+          update="$bundle/macos/RUSH Lab.app.tar.gz"
+          put "$update" /api/lab/updates/${{ matrix.target }} "X-Lab-Signature: $(cat "$update.sig")"
