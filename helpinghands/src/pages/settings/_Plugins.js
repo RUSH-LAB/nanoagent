@@ -42,7 +42,7 @@ export default function Plugins({workspace}) {
   }
 
   async function remove(app) {
-    if (!clientPlatform.dialogs.confirm(`Uninstall ${app.name}? Your files from it stay in your folder.`)) return;
+    if (!(await clientPlatform.dialogs.confirm(`Uninstall ${app.name}? Your files from it stay in your folder.`))) return;
     setState({busy: app.id, error: null});
     try {
       await apiRequest(`/api/workspaces/${encodeURIComponent(workspace.id)}/apps/${encodeURIComponent(app.id)}`, {method: 'DELETE'});

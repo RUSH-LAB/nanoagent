@@ -43,7 +43,7 @@ describe('client platform facade', () => {
         keys: () => [],
       },
       clipboard: {writeText: text => writes.push(['clipboard', text])},
-      dialogs: {confirm: () => true, prompt: () => 'answer'},
+      dialogs: {alert: () => {}, confirm: async () => true, prompt: () => 'answer'},
     }));
 
     assert.equal(clientPlatform.kind, 'desktop');
@@ -54,8 +54,9 @@ describe('client platform facade', () => {
     clientPlatform.storage.setItem('key', 'value');
     await clientPlatform.clipboard.writeText('copied');
     clientPlatform.location.assign('/next');
-    assert.equal(clientPlatform.dialogs.confirm('Continue?'), true);
-    assert.equal(clientPlatform.dialogs.prompt('Name?'), 'answer');
+    assert.equal(await clientPlatform.dialogs.confirm('Continue?'), true);
+    assert.equal(await clientPlatform.dialogs.prompt('Name?'), 'answer');
+    assert.equal(await clientPlatform.dialogs.alert('Done'), undefined);
     assert.deepEqual(writes, [['key', 'value'], ['clipboard', 'copied']]);
     assert.deepEqual(visits, ['/next']);
   });
@@ -63,10 +64,15 @@ describe('client platform facade', () => {
   it('makes unavailable optional capabilities safe', async () => {
     installClientPlatform(adapter());
     assert.equal(clientPlatform.storage.getItem('missing'), null);
-    assert.equal(clientPlatform.dialogs.confirm('Continue?'), false);
-    assert.equal(clientPlatform.dialogs.prompt('Name?'), null);
     assert.equal(clientPlatform.notifications.permission(), 'unsupported');
     await assert.rejects(clientPlatform.clipboard.writeText('copy'), /unavailable/);
+  });
+
+  it('refuses a dialog a platform cannot show, rather than answering for the member', async () => {
+    installClientPlatform(adapter());
+    await assert.rejects(clientPlatform.dialogs.confirm('Continue?'), /no confirm dialog/);
+    await assert.rejects(clientPlatform.dialogs.prompt('Name?'), /no prompt dialog/);
+    await assert.rejects(clientPlatform.dialogs.alert('Done'), /no alert dialog/);
   });
 
   it('removes only storage keys selected by the caller', () => {

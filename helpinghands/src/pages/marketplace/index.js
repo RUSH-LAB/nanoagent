@@ -8,6 +8,7 @@ import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 import {forgetWorkspaceApps, prepareWorkspaceApps, workspaceAppsUrl} from '@site/src/hooks/useWorkspaceApps';
 import {useClickOutside} from '@site/src/hooks/useClickOutside';
+import {clientPlatform} from '@site/src/platform/client';
 import API_BASE, {apiFetch, apiJson} from '@site/src/utils/api';
 import styles from './styles.module.css';
 
@@ -186,8 +187,8 @@ function Detail({plugin, added, workspace, slug, onBack, onChanged, onAdded}) {
     return after(result.data);
   };
   const add = () => act(() => send(`/api/apps/${plugin.id}`, {method: 'PUT'}), data => onAdded(data.app));
-  const uninstall = () => {
-    if (!window.confirm(`Uninstall ${plugin.name}? Your files from it stay in your folder.`)) return;
+  const uninstall = async () => {
+    if (!(await clientPlatform.dialogs.confirm(`Uninstall ${plugin.name}? Your files from it stay in your folder.`))) return;
     act(() => send(`/api/apps/${plugin.id}`, {method: 'DELETE'}), () => onAdded(null));
   };
   const update = () => act(() => publish(publishUrl(plugin.repository)), data => onChanged(data.plugin.id));
@@ -197,8 +198,8 @@ function Detail({plugin, added, workspace, slug, onBack, onChanged, onAdded}) {
     }),
     data => onAdded(data.app),
   );
-  const remove = () => {
-    if (!window.confirm(`Remove ${plugin.name} from the Marketplace? People can no longer download it, and it is uninstalled for everyone.`)) return;
+  const remove = async () => {
+    if (!(await clientPlatform.dialogs.confirm(`Remove ${plugin.name} from the Marketplace? People can no longer download it, and it is uninstalled for everyone.`))) return;
     act(() => send(`/api/market/${plugin.id}`, {method: 'DELETE'}), () => onChanged(null));
   };
 
