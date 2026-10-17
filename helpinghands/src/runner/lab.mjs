@@ -289,8 +289,19 @@ export function systemEnv(env, bin, data) {
 }
 
 /**
+ * Where a connection's plugins are installed. Windows opens no path of 260 characters or more, and a
+ * plugin's environment holds files 120 deep (jsonschema_specifications' vocabularies), which the
+ * connection's folder name alone leaves no room for: there they are in a short folder of their own.
+ */
+export function installsFolder(data, connection, windows = WINDOWS) {
+  if (!windows) return path.join(connection, 'nanoagent-installs');
+  return path.join(data, 'installs', crypto.createHash('sha256').update(path.basename(connection)).digest('hex').slice(0, 12));
+}
+
+/**
  * How NanoAgent starts for a connection, in the bundle's `nanoagent` folder: its own folders in the
- * connection's, the uv cache the install's, with the member's `keys` and its bearer `token`.
+ * connection's (its plugins' installs aside, installsFolder), the uv cache the install's, with the
+ * member's `keys` and its bearer `token`.
  */
 export function nanoagentCommand({nanoagent, data, connection, port, sandbox, system, keys, token}) {
   const python = WINDOWS ? path.join(nanoagent, '.venv', 'Scripts', 'python.exe') : path.join(nanoagent, '.venv', 'bin', 'python');
@@ -308,7 +319,7 @@ export function nanoagentCommand({nanoagent, data, connection, port, sandbox, sy
       // The member watches their own runs think, on their own keys.
       'include_reasoning=true',
       `workspaces=${JSON.stringify(path.join(connection, 'agent-workspaces'))}`,
-      `installs=${JSON.stringify(path.join(connection, 'nanoagent-installs'))}`,
+      `installs=${JSON.stringify(installsFolder(data, connection))}`,
       `uv_cache=${JSON.stringify(path.join(data, 'nanoagent-uv-cache'))}`,
       // Plugins run on the Python NanoAgent runs on; its environment holds no PATH to find `python` on.
       `plugin_python=${JSON.stringify(python)}`,

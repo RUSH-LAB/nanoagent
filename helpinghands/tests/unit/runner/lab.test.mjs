@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
 import {
-  addConnection, adoptLegacy, connectableSite, connectionId, filesFolderFor, linkMember, linkSession, keyHint, keyStatus, nanoagentCommand, parseEnv, providerKeys, relayEnv, systemEnv, writeKeys,
+  addConnection, adoptLegacy, connectableSite, connectionId, filesFolderFor, linkMember, linkSession, keyHint, installsFolder, keyStatus, nanoagentCommand, parseEnv, providerKeys, relayEnv, systemEnv, writeKeys,
 } from '../../../src/runner/lab.mjs';
 
 test('installs once, keeping its own site\'s files apart from any other\'s', () => {
@@ -175,6 +175,16 @@ test('starts a connection\'s NanoAgent sandboxed, in its own folders, with its k
     'plugin_python="/app/nanoagent/.venv/bin/python"',
   ]);
   assert.deepEqual(command.env, {HOME: '/Users/m', PATH: '/app/bin', OPENROUTER_API_KEY: 'k', NANOAGENT_API_TOKEN: 't'});
+});
+
+test('installs a connection\'s plugins in its folder, or on Windows in a short folder of their own', () => {
+  const data = path.join(os.tmpdir(), 'lab.mochi.lab');
+  const connection = path.join(data, 'connections', 'rush-lab.org-alice');
+  assert.equal(installsFolder(data, connection, false), path.join(connection, 'nanoagent-installs'));
+  const windows = installsFolder(data, connection, true);
+  assert.equal(path.dirname(windows), path.join(data, 'installs'));
+  assert.match(path.basename(windows), /^[0-9a-f]{12}$/);
+  assert.notEqual(windows, installsFolder(data, path.join(data, 'connections', 'rush-lab.org-bob'), true));
 });
 
 test('tells a connection\'s relay where Mochi, NanoAgent and its files are', () => {

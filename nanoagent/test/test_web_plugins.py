@@ -13,6 +13,7 @@ from starlette.testclient import TestClient
 from nanoagent.core.agent import Reply, ToolCall
 from nanoagent.inference.types import Answer
 from nanoagent.plugin import install
+from nanoagent.plugin.install import FOLDER_HEX
 from nanoagent.plugin.package import pack
 from nanoagent.plugin.python import plugin_python
 from nanoagent.runtime.config import load_config_args
@@ -120,7 +121,7 @@ def test_refuses_a_failed_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     response = client.put(f"/v1/installs/{sha}", content=data)
     assert response.status_code == 502 and "uv sync failed" in response.json()["error"]
     assert client.get(f"/v1/installs/{sha}").status_code == 404
-    assert not (tmp_path / "installs" / sha).exists()
+    assert not (tmp_path / "installs" / sha[:FOLDER_HEX]).exists()
 
 
 def test_keeps_a_finished_install_for_the_next_process(
@@ -131,7 +132,7 @@ def test_keeps_a_finished_install_for_the_next_process(
     data = pack(tmp_path / "echo")
     assert restarted.put(f"/v1/installs/{client.sha}", content=data).status_code == 200
     # An install built on another Python is built again.
-    (tmp_path / "installs" / client.sha / install.INSTALLED).write_text("another python\n", encoding="utf-8")
+    (tmp_path / "installs" / client.sha[:FOLDER_HEX] / install.INSTALLED).write_text("another python\n", encoding="utf-8")
     again = _app(tmp_path, monkeypatch, model, workspaces)
     monkeypatch.setattr(install, "SYNC", ("false",))
     response = again.put(f"/v1/installs/{client.sha}", content=data)

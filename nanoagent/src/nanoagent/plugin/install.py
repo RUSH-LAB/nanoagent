@@ -65,6 +65,10 @@ SYNC_TIMEOUT = 600.0
 # plugin's .venv holds absolute paths, so a kept install built on another Python, or in another
 # folder (moved since), is redone.
 INSTALLED = "installed"
+# An install's folder is named by the first FOLDER_HEX hex digits of its sha256 (128 bits, which an author
+# cannot match with another package): Windows opens no path of 260 characters or more, and the full 64
+# put a plugin's editable-install .pth beyond it, so Python never found the plugin's own code.
+FOLDER_HEX = 32
 
 
 class InstallError(RuntimeError):
@@ -146,7 +150,7 @@ class Installs:
             raise PackageError(["the package's sha256 is not the one it was sent as"])
         with self._guard:
             lock = self._locks[sha256]
-        folder = self.root / sha256
+        folder = self.root / sha256[:FOLDER_HEX]
         with lock:
             if sha256 in self._installed:
                 (folder / INSTALLED).touch()
