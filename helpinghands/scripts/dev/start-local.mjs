@@ -135,7 +135,8 @@ export async function waitForNanoAgent(env, child = null, {
 
 function run(command, args, options) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, options);
+    // On Windows npm is npm.cmd, which Node runs only through a shell.
+    const child = spawn(command, args, command === 'npm' && process.platform === 'win32' ? {...options, shell: true} : options);
     child.once('error', reject);
     child.once('exit', (code, signal) => {
       if (code === 0) resolve();
@@ -285,7 +286,7 @@ export async function startLocal(argv = process.argv.slice(2)) {
   const api = spawn(process.execPath, ['src/server/index.js'], options(root));
   processes.push(
     {name: 'API', child: api},
-    {name: 'site', child: spawn(process.execPath, [docusaurusCli, 'start', '--no-open', '--port', String(sitePort)], options(root))},
+    {name: 'site', child: spawn(process.execPath, [docusaurusCli, 'start', '--no-open', '--host', '127.0.0.1', '--port', String(sitePort)], options(root))},
   );
   let stopping = false;
 

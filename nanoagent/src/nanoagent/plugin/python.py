@@ -26,7 +26,7 @@ print(json.dumps({
     "prefix": os.path.realpath(sys.base_prefix),
     "version": sys.version,
     "version_info": list(sys.version_info[:2]),
-    "abiflags": sys.abiflags,
+    "abiflags": getattr(sys, "abiflags", ""),
 }))
 """
 

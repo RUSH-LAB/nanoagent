@@ -61,7 +61,7 @@ platform's sandbox (`nanoagent.plugin.sandbox`):
   write only its run's folder, and can reach the network only through its own egress proxy port.
   It cannot see other processes, or their environments.
 - Linux: `bwrap`.
-- Windows: no sandbox exists yet, so the app refuses to start there.
+- Windows: `appcontainer` (nanoagent/docs/plans/windows-sandbox.md). Build the installer with `npm run build:windows` (needs Rust and Visual Studio Build Tools); it installs per user into `%LOCALAPPDATA%\Mochi Lab`, and the app's data is in `%LOCALAPPDATA%\lab.mochi.desktop`.
 
 ## Architecture
 
@@ -220,7 +220,7 @@ production's; run it again to try a change to the runner or NanoAgent.
   private. It needs a public release location first.
 - **Signing.** The macOS app is ad-hoc signed, not notarized (no Apple Developer ID). Built on the
   Mac it runs on, it opens as is; downloaded, it opens after right-click → Open.
-- **Windows.** There is no plugin sandbox, and NanoAgent runs each plugin's `run.sh` with `bash`.
+- **Windows.** Unsigned: SmartScreen warns on a downloaded installer.
 - **One Mochi process.** Mochi keeps the connected computers in memory, as it does every other
   live connection (`src/server/fs/events.js`). Running several Mochi processes would need them
   relayed between processes.

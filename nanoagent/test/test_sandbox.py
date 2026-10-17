@@ -34,6 +34,10 @@ def short_tmp(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TMPDIR", "/tmp")
 
 
+unix_sockets = pytest.mark.skipif(sys.platform == "win32", reason="the egress proxy's Unix socket is not on Windows")
+
+
+@unix_sockets
 def test_egress_refuses_all_but_connect_to_a_declared_public_host(short_tmp: None) -> None:
     with egress(["api.example.com", "localhost"]) as path:
         assert _ask(path, _connect("other.example.com")).startswith(b"HTTP/1.1 403")
@@ -43,6 +47,7 @@ def test_egress_refuses_all_but_connect_to_a_declared_public_host(short_tmp: Non
         assert _ask(path, _connect("localhost")).startswith(b"HTTP/1.1 403")
 
 
+@unix_sockets
 def test_egress_tunnels_to_a_declared_host(short_tmp: None, monkeypatch: pytest.MonkeyPatch) -> None:
     upstream = socket.create_server(("127.0.0.1", 0))
     port = upstream.getsockname()[1]
@@ -64,7 +69,7 @@ def test_egress_tunnels_to_a_declared_host(short_tmp: None, monkeypatch: pytest.
 
 
 def test_refuses_an_unknown_sandbox() -> None:
-    with pytest.raises(ValueError, match="bwrap, seatbelt, none"):
+    with pytest.raises(ValueError, match="bwrap, seatbelt, appcontainer, none"):
         sandbox.configure("docker")
 
 
@@ -88,6 +93,7 @@ KINDS = [
             sys.platform != "darwin" or not Path("/usr/bin/sandbox-exec").exists(), reason="seatbelt runs on macOS"
         ),
     ),
+    pytest.param("appcontainer", marks=pytest.mark.skipif(sys.platform != "win32", reason="appcontainer runs on Windows")),
 ]
 
 
@@ -138,6 +144,42 @@ def test_the_verifier_runs_in_the_sandbox(confined: None, tmp_path: Path) -> Non
     assert verify_input(load_manifest(root), "echo", {"value": "yes"}).score == 1
 
 
+windows_only = pytest.mark.skipif(sys.platform != "win32", reason="appcontainer runs on Windows")
+
+
+@windows_only
+def test_appcontainer_tunnels_to_a_declared_host_through_its_pipe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    upstream = socket.create_server(("127.0.0.1", 0))
+    port = upstream.getsockname()[1]
+
+    def echo() -> None:
+        connection, _ = upstream.accept()
+        with connection:
+            connection.sendall(connection.recv(1024))
+
+    threading.Thread(target=echo, daemon=True).start()
+    monkeypatch.setattr(egress_module, "_public_address", lambda host: ("127.0.0.1", port))
+    script = (
+        "import os, socket\n"
+        "port = int(os.environ['HTTPS_PROXY'].rpartition(':')[2])\n"
+        "client = socket.create_connection(('127.0.0.1', port), timeout=20)\n"
+        "client.sendall(b'CONNECT api.example.com:443 HTTP/1.1\\r\\nHost: api.example.com:443\\r\\n\\r\\n')\n"
+        "assert client.recv(1024).startswith(b'HTTP/1.1 200'), 'no tunnel'\n"
+        "client.sendall(b'hello')\n"
+        "assert client.recv(1024) == b'hello', 'no echo'\n"
+        "print('ok')\n"
+    )
+    sandbox.configure("appcontainer", plugin_python(sys.executable))
+    try:
+        with sandbox.launch([sys.executable, "-I", "-c", script], root=tmp_path, env={}, hosts=["api.example.com"]) as (argv, env):
+            completed = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=60, check=False)
+    finally:
+        sandbox.configure("none")
+        upstream.close()
+    assert completed.stdout.strip() == "ok", completed.stderr
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="bwrap is not on Windows")
 def test_bwrap_runs_the_command_behind_the_egress_bridge_helper(tmp_path: Path) -> None:
     sandbox.configure("bwrap", plugin_python(sys.executable))
     try:
@@ -150,6 +192,7 @@ def test_bwrap_runs_the_command_behind_the_egress_bridge_helper(tmp_path: Path) 
     assert {("--ro-bind", str(path), str(path)) for path in helpers.readable()} <= binds
 
 
+@unix_sockets
 def test_the_egress_bridge_helper_runs_the_command_and_exits_with_its_status(tmp_path: Path) -> None:
     command = helpers.command("egress-bridge", str(tmp_path / "egress.sock"), "0", "--", sys.executable, "-c", "raise SystemExit(3)")
     assert subprocess.run(command, check=False).returncode == 3

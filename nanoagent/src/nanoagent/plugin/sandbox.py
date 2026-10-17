@@ -1,6 +1,6 @@
 """Where a plugin's processes run: plainly, or confined by bubblewrap or macOS's seatbelt.
 
-Every process a plugin brings (its ``run.sh``, its MCP server, its verifier, the ``uv sync``
+Every process a plugin brings (its MCP server, its verifier, the ``uv sync``
 that installs it) starts through :func:`launch`. Which sandbox that is is the host's choice,
 made once with :func:`configure`, with the Python plugins run on (nanoagent.plugin.python):
 
@@ -15,14 +15,19 @@ made once with :func:`configure`, with the Python plugins run on (nanoagent.plug
 - ``seatbelt``: the same confinement on macOS, through ``sandbox-exec``. With no network namespace
   to give it, the process may reach only the loopback port its own egress proxy listens on, and
   sees no other process, so neither another's environment.
+- ``appcontainer``: the same confinement on Windows, in a new AppContainer for each launch: no
+  network, no files but those the container's package SID is granted, no other process, and the
+  egress proxy through a named pipe only that container may open (docs/plans/windows-sandbox.md).
 """
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import shutil
 import subprocess
+import sys
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
@@ -31,10 +36,10 @@ from tempfile import TemporaryDirectory
 from mcp.client.stdio import get_default_environment
 
 from nanoagent import helpers
-from nanoagent.plugin.egress import PROXY_PORT, egress, egress_port
+from nanoagent.plugin.egress import PROXY_PORT, egress, egress_pipe, egress_port
 from nanoagent.plugin.python import PluginPython
 
-SANDBOXES = ("bwrap", "seatbelt", "none")
+SANDBOXES = ("bwrap", "seatbelt", "appcontainer", "none")
 # What every sandbox sees read-only: the system's programs, libraries and certificates.
 SYSTEM = ("/usr", "/bin", "/lib", "/lib64", "/sbin", "/etc/ssl", "/etc/ca-certificates", "/etc/alternatives")
 # What a seatbelt sandbox reads: the system's programs, libraries, certificates and installed software.
@@ -189,6 +194,96 @@ def _seatbelt(
     return ["/usr/bin/sandbox-exec", "-p", profile, "/usr/bin/env", "-C", str(root), *argv], inside
 
 
+# CPython makes os.mkdir(path, 0o700), which tempfile.mkdtemp calls, a folder whose only permission
+# entries are SYSTEM, Administrators and OWNER RIGHTS. A container is none of them, so it cannot use
+# the folder it made, and mkdtemp retries until it gives up. In a container a 0o700 folder gets the
+# permissions of the folder it is in, which the container owns.
+_WINDOWS_PYTHON = """import os
+
+_mkdir = os.mkdir
+
+
+def mkdir(path, mode=0o777, *, dir_fd=None):
+    return _mkdir(path, 0o777 if mode == 0o700 else mode, dir_fd=dir_fd)
+
+
+os.mkdir = mkdir
+"""
+
+
+@contextmanager
+def _appcontainer(
+    argv: Sequence[str],
+    root: Path,
+    env: dict[str, str],
+    readable: Sequence[Path],
+    writable: Sequence[Path],
+    hosts: Sequence[str],
+) -> Iterator[tuple[list[str], dict[str, str]]]:
+    from nanoagent.helpers import appcontainer
+
+    name = f"nanoagent.{secrets.token_hex(8)}"
+    sid = appcontainer.create(name)
+    # uv builds a git source (slimconfig) with git, which a container does not otherwise have. Git
+    # starts the tools beside its own, <root>/cmd/git.exe's <root>/usr/bin/sh.exe among them, so the
+    # container reads all of <root>: the git the app bundles, whose shell is busybox, as git for
+    # Windows' own cannot start in a container.
+    git = shutil.which("git")
+    tools = [Path(found).resolve().parent for found in [shutil.which("uv"), git] if found]
+    tools.append(_plugin_python().executable.parent)
+    git_roots = [Path(git).resolve().parents[1]] if git else []
+    granted: list[Path] = []
+    try:
+        with TemporaryDirectory(prefix="nanoagent-sandbox-", dir=appcontainer.homes()) as folder, egress_pipe(hosts, sid) as pipe:
+            home = Path(folder).resolve()
+            # Windows gives a container <LOCALAPPDATA>\Packages\<name>\AC\Temp as its temporary folder and never creates it.
+            (home / "Packages" / name / "AC" / "Temp").mkdir(parents=True)
+            (home / "python").mkdir()
+            (home / "python" / "sitecustomize.py").write_text(_WINDOWS_PYTHON, encoding="utf-8")
+            # Code the container runs is readable by every container (it is not secret); what a run
+            # writes is writable by this launch's container alone.
+            # Windows and Program Files already allow every container to read them, and only an
+            # administrator can change them.
+            system = [Path(os.environ[name]).resolve() for name in ("SystemRoot", "ProgramFiles", "ProgramFiles(x86)") if name in os.environ]
+            for path in {*_runtime(), *tools, *git_roots, root, *readable}:
+                if not any(path.is_relative_to(folder) for folder in system):
+                    appcontainer.grant(path, appcontainer.ALL_APPLICATION_PACKAGES)
+            for path in [*writable, home]:
+                appcontainer.grant(path, sid, write=True)
+                granted.append(path)
+            inside = {
+                "SystemRoot": os.environ["SystemRoot"],
+                # Without it a program named git is not found as git.exe.
+                "PATHEXT": os.environ["PATHEXT"],
+                "PATH": os.pathsep.join(str(path) for path in [*tools, Path(os.environ["SystemRoot"]) / "System32"]),
+                "PYTHONPATH": str(home / "python"),
+                "HOME": str(home),
+                "USERPROFILE": str(home),
+                "APPDATA": str(home),
+                "LOCALAPPDATA": str(home),
+                "TEMP": str(home),
+                "TMP": str(home),
+                "UV_CACHE_DIR": str(home / "uv-cache"),
+                "UV_LINK_MODE": "copy",
+                "UV_PYTHON_DOWNLOADS": "never",
+                **({"UV_PYTHON_INSTALL_DIR": os.environ["UV_PYTHON_INSTALL_DIR"]} if os.environ.get("UV_PYTHON_INSTALL_DIR") else {}),
+                # Git runs a credential helper through its MSYS sh, which cannot start in a container;
+                # a plugin's build has no credentials to give it either.
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "credential.helper",
+                "GIT_CONFIG_VALUE_0": "",
+                "GIT_TERMINAL_PROMPT": "0",
+                **env,
+            }
+            bridge = helpers.command("egress-bridge", pipe, "0", "--")
+            outside = helpers.command("appcontainer", name, str(root), "--")
+            yield [*outside, *bridge, *argv], {**get_default_environment(), appcontainer.ENV: json.dumps(inside)}
+    finally:
+        for path in granted:
+            appcontainer.revoke(path, sid)
+        appcontainer.delete(name)
+
+
 @contextmanager
 def launch(
     argv: Sequence[str],
@@ -209,6 +304,10 @@ def launch(
         yield list(argv), {**get_default_environment(), **env}
         return
     resolved = [path.resolve() for path in readable], [path.resolve() for path in writable]
+    if _kind == "appcontainer":
+        with _appcontainer(argv, root.resolve(), env, *resolved, hosts) as launched:
+            yield launched
+        return
     if _kind == "seatbelt":
         with egress_port(hosts) as port, TemporaryDirectory(prefix="nanoagent-sandbox-") as home:
             yield _seatbelt(argv, root.resolve(), env, *resolved, Path(home).resolve(), port)
@@ -242,6 +341,13 @@ if os.path.isdir("/proc"):
                 problems.append(f"read the host's environment through /proc/{pid}")
         except OSError:
             pass
+elif sys.platform == "win32":
+    # Windows: the host's memory is where its environment is; a container may not open it.
+    import ctypes
+    opened = ctypes.windll.kernel32.OpenProcess(0x0410, False, int(sys.argv[2]))
+    if opened:
+        ctypes.windll.kernel32.CloseHandle(opened)
+        problems.append("opened the host's process")
 else:
     # macOS: another process's starting environment, the way ps reads it (KERN_PROCARGS2).
     import ctypes
@@ -267,7 +373,7 @@ def check(root: Path) -> None:
     os.environ["NANOAGENT_SANDBOX_CANARY"] = canary
     try:
         python = str(_plugin_python().executable)
-        with launch([python, "-I", "-c", _PROBE, canary], root=root, env={}) as (argv, env):
+        with launch([python, "-I", "-c", _PROBE, canary, str(os.getpid())], root=root, env={}) as (argv, env):
             completed = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=CHECK_TIMEOUT, check=False)
     finally:
         del os.environ["NANOAGENT_SANDBOX_CANARY"]

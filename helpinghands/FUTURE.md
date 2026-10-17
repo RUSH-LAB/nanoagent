@@ -56,8 +56,7 @@ builds just that bundle. The app's own code still knows the other two targets
 To decide:
 
 - Windows has no plugin sandbox yet, so the app refuses to start there, and NanoAgent runs each
-  plugin's `run.sh` with `bash` (`desktop/PLAN.md`). Shipping it needs a sandbox, and a way to
-  run plugins without bash.
+  plugin with bash (`desktop/PLAN.md`). Shipping it needs a sandbox.
 - Linux sandboxes plugins with `bwrap`, so it is closer, but nobody has tested a bundle on a
   member's machine.
 - Neither bundle is signed.

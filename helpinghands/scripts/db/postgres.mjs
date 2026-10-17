@@ -68,7 +68,8 @@ function productionOwnerUrl() {
 
 function railwayVariables() {
   const result = spawnSync('railway', ['variables', '--service', 'mochi-lab', '--environment', 'production', '--kv'],
-    {cwd: root, encoding: 'utf8'});
+    // On Windows railway is npm's railway.cmd, which Node runs only through a shell.
+    {cwd: root, encoding: 'utf8', shell: process.platform === 'win32'});
   if (result.error?.code === 'ENOENT') throw new Error('railway is not installed or is not on PATH');
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`railway variables failed: ${result.stderr.trim()}`);

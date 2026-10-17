@@ -9,7 +9,7 @@ any file the server can, and reach any host, the private Railway network include
 
 ## Where it stands
 
-- `nanoagent.plugin.sandbox` launches every plugin process (`run.sh`, the MCP server, the
+- `nanoagent.plugin.sandbox` launches every plugin process (the MCP server, the
   verifier, the `uv sync` that installs it) through one wrapper, `launch`.
 - `sandbox: bwrap` confines it with bubblewrap: new namespaces, an empty environment, its own
   folder read-only, only the run's workspace to write, and no network but the egress proxy

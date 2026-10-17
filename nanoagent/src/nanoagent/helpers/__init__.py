@@ -7,8 +7,9 @@ loads, so a helper loads only NanoAgent's package and what it imports itself.
 
 - ``package``: a plugin folder's catalog entry, or the folder packed (nanoagent.plugin.package);
 - ``verifier``: one plugin verifier function, run in the sandbox (nanoagent.helpers.verifier);
-- ``egress-bridge``: inside bwrap, the sandbox's one port passed to its egress proxy
-  (nanoagent.helpers.egress_bridge).
+- ``egress-bridge``: inside bwrap or an AppContainer, the sandbox's one port passed to its egress proxy
+  (nanoagent.helpers.egress_bridge);
+- ``appcontainer``: on Windows, a command run in an AppContainer (nanoagent.helpers.appcontainer).
 
 The Python plugins run on is never this one but the host's ``plugin_python`` (nanoagent.plugin.python).
 """
@@ -26,6 +27,7 @@ HELPERS = {
     "package": "nanoagent.plugin.package",
     "verifier": "nanoagent.helpers.verifier",
     "egress-bridge": "nanoagent.helpers.egress_bridge",
+    "appcontainer": "nanoagent.helpers.appcontainer",
 }
 
 

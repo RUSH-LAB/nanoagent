@@ -22,8 +22,13 @@ const RUNTIME = 'mochi_runtime';
 export const LOCAL_OWNER_URL = `postgres://${OWNER}@127.0.0.1:${PORT}/${DATABASE}`;
 export const LOCAL_RUNTIME_URL = `postgres://${RUNTIME}@127.0.0.1:${PORT}/${DATABASE}`;
 
-/** A PostgreSQL 18 program from Homebrew's postgresql@18. */
+/** A PostgreSQL 18 program from Homebrew's postgresql@18, or from the Windows installer's folder. */
 export function pgBin(name) {
+  if (process.platform === 'win32') {
+    const program = path.join(process.env.ProgramFiles, 'PostgreSQL', '18', 'bin', `${name}.exe`);
+    if (!fs.existsSync(program)) throw new Error(`${name} from PostgreSQL 18 is missing: ${program}`);
+    return program;
+  }
   const prefix = spawnSync('brew', ['--prefix', 'postgresql@18'], {encoding: 'utf8'});
   const program = prefix.status === 0 ? path.join(prefix.stdout.trim(), 'bin', name) : null;
   if (!program || !fs.existsSync(program)) {
@@ -64,8 +69,11 @@ export function startLocal() {
   if (!localExists()) throw new Error('There is no local database: run npm run db:setup');
   const status = spawnSync(pgBin('pg_ctl'), ['-D', DATA, 'status'], {stdio: 'ignore'});
   if (status.status === 0) return;
-  run('pg_ctl', ['-D', DATA, '-l', path.join(LOCAL_DIR, 'server.log'), '-w',
-    '-o', `-p ${PORT} -c listen_addresses=127.0.0.1 -k ${DATA}`, 'start'], {quiet: true});
+  // No pipes: the server inherits them and, on Windows, keeps them open, so spawnSync would never return.
+  const started = spawnSync(pgBin('pg_ctl'), ['-D', DATA, '-l', path.join(LOCAL_DIR, 'server.log'), '-w',
+    '-o', `-p ${PORT} -c listen_addresses=127.0.0.1 -k ${DATA}`, 'start'], {stdio: 'ignore'});
+  if (started.error) throw started.error;
+  if (started.status !== 0) throw new Error(`pg_ctl exited with status ${started.status}: see ${path.join(LOCAL_DIR, 'server.log')}`);
 }
 
 /** Replace the local database with an empty one, without even its public schema, which a restore makes. */

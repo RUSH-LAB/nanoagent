@@ -25,7 +25,9 @@ import gzip
 import hashlib
 import io
 import json
+import os
 import subprocess
+import sys
 import tarfile
 import zlib
 from pathlib import Path, PurePosixPath
@@ -127,10 +129,11 @@ def _unzip(data: bytes) -> bytes:
 
 
 def _isolated(*args: str) -> dict[str, Any]:
-    """:func:`main` on ``args`` in a fresh process with an empty environment, its JSON answer."""
+    """:func:`main` on ``args`` in a fresh process with an empty environment, its JSON answer. Windows
+    sockets, which asyncio loads, do not start without ``SystemRoot``, so that alone is passed there."""
     completed = subprocess.run(
         helpers.command("package", *args),
-        env={},
+        env={"SystemRoot": os.environ["SystemRoot"]} if sys.platform == "win32" else {},
         capture_output=True,
         text=True,
         timeout=INSPECT_TIMEOUT,

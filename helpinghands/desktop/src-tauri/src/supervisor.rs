@@ -54,7 +54,7 @@ pub const PROVIDER_KEYS: &[(&str, &str)] = &[
 ];
 const SYSTEM_ENV: &[&str] = &[
     "HOME", "USER", "LOGNAME", "SHELL", "LANG", "TMPDIR",
-    "SystemRoot", "SystemDrive", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "COMSPEC", "PATHEXT",
+    "SystemRoot", "SystemDrive", "USERNAME", "USERDOMAIN", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "COMSPEC", "PATHEXT",
 ];
 
 /// config.yaml, bundled by scripts/stage.mjs.
@@ -113,7 +113,7 @@ pub struct Supervisor {
 impl Supervisor {
     pub fn new(app: &AppHandle) -> Result<Self, String> {
         let resources = app.path().resource_dir().map_err(|error| error.to_string())?;
-        let data = app.path().app_data_dir().map_err(|error| error.to_string())?;
+        let data = app.path().app_local_data_dir().map_err(|error| error.to_string())?;
         let home = app.path().home_dir().map_err(|error| error.to_string())?;
         let exe = std::env::current_exe().map_err(|error| error.to_string())?;
         let config_file = resources.join("config.yaml");
@@ -157,22 +157,35 @@ impl Supervisor {
 
     /// Stop the services a previous run left behind when it was killed or crashed: each
     /// recorded process that is still running the program it was started with.
-    #[cfg(unix)]
     fn stop_leftovers(&self) {
         let Ok(text) = fs::read_to_string(self.pid_file()) else { return };
         for (pid, program) in text.lines().filter_map(|line| line.split_once('\t')) {
-            let Ok(pid) = pid.parse::<libc::pid_t>() else { continue };
-            let command = Command::new("ps").args(["-p", &pid.to_string(), "-o", "command="]).output();
-            let running = command.is_ok_and(|output| String::from_utf8_lossy(&output.stdout).starts_with(program));
-            if !running {
-                continue;
+            #[cfg(unix)]
+            {
+                let Ok(pid) = pid.parse::<libc::pid_t>() else { continue };
+                let command = Command::new("ps").args(["-p", &pid.to_string(), "-o", "command="]).output();
+                let running = command.is_ok_and(|output| String::from_utf8_lossy(&output.stdout).starts_with(program));
+                if !running {
+                    continue;
+                }
+                unsafe { libc::kill(pid, libc::SIGTERM) };
+                let deadline = Instant::now() + STOP_TIMEOUT;
+                while Instant::now() < deadline && unsafe { libc::kill(pid, 0) } == 0 {
+                    thread::sleep(Duration::from_millis(100));
+                }
+                unsafe { libc::kill(pid, libc::SIGKILL) };
             }
-            unsafe { libc::kill(pid, libc::SIGTERM) };
-            let deadline = Instant::now() + STOP_TIMEOUT;
-            while Instant::now() < deadline && unsafe { libc::kill(pid, 0) } == 0 {
-                thread::sleep(Duration::from_millis(100));
+            // Windows has no signals: a recorded process still running the program it was started
+            // with is killed with its tree, as the services are at quit.
+            #[cfg(windows)]
+            {
+                let Some(image) = Path::new(program).file_name().and_then(|name| name.to_str()) else { continue };
+                let filter = format!("PID eq {pid}");
+                let listed = hidden(&mut Command::new("tasklist")).args(["/FI", &filter, "/FO", "CSV", "/NH"]).output();
+                if listed.is_ok_and(|output| String::from_utf8_lossy(&output.stdout).to_lowercase().starts_with(&format!("\"{}\"", image.to_lowercase()))) {
+                    kill_tree(pid);
+                }
             }
-            unsafe { libc::kill(pid, libc::SIGKILL) };
         }
         let _ = fs::remove_file(self.pid_file());
     }
@@ -322,7 +335,6 @@ impl Supervisor {
         let keyless = keys.is_empty();
         let sandbox = sandbox()?;
 
-        #[cfg(unix)]
         self.stop_leftovers();
         let nanoagent_port = self.config.nanoagent_port;
         if listening(nanoagent_port) {
@@ -339,7 +351,7 @@ impl Supervisor {
         let uv_log = logs.join("uv-sync.log");
         // Only NanoAgent's dependencies, as the bundled uv.lock pins them: NanoAgent itself is the
         // compiled module in site/, with no source to check the lock against.
-        let uv_status = Command::new(self.bin.join(exe("uv")))
+        let uv_status = hidden(&mut Command::new(self.bin.join(exe("uv"))))
             .args(["sync", "--frozen", "--no-dev", "--no-install-project", "--extra", "web", "--managed-python", "--python", &self.config.python_version])
             .current_dir(&nanoagent)
             .env_clear()
@@ -352,7 +364,11 @@ impl Supervisor {
         if !uv_status.success() {
             return Err(format!("uv sync failed ({uv_status}).\n\n{}", tail(&uv_log)));
         }
-        let site_packages = nanoagent.join(".venv/lib").join(format!("python{}", self.config.python_version)).join("site-packages");
+        let site_packages = if cfg!(windows) {
+            nanoagent.join(".venv/Lib/site-packages")
+        } else {
+            nanoagent.join(".venv/lib").join(format!("python{}", self.config.python_version)).join("site-packages")
+        };
         fs::write(site_packages.join("nanoagent.pth"), format!("{}\n", nanoagent.join("site").display()))
             .map_err(|error| format!("could not add NanoAgent to its environment: {error}"))?;
         if self.stopping.load(Ordering::SeqCst) {
@@ -365,7 +381,7 @@ impl Supervisor {
         let workspaces = self.data.join("agent-workspaces");
         let installs = self.data.join("nanoagent-installs");
         let uv_cache = self.data.join("nanoagent-uv-cache");
-        let python = nanoagent.join(".venv/bin/python");
+        let python = nanoagent.join(venv_python());
         let nanoagent_args = vec![
             // A compiled NanoAgent has no code object for `-m nanoagent` (nanoagent/__main__.py).
             "-I".to_string(), "-c".into(), "from nanoagent.__main__ import main; raise SystemExit(main())".into(), "web".into(),
@@ -493,7 +509,9 @@ impl Supervisor {
         let mut env: BTreeMap<String, String> = SYSTEM_ENV.iter().filter_map(|name| std::env::var(name).ok().map(|value| (name.to_string(), value))).collect();
         let system_path = if cfg!(windows) { std::env::var("PATH").unwrap_or_default() } else { "/usr/bin:/bin:/usr/sbin:/sbin".into() };
         let separator = if cfg!(windows) { ";" } else { ":" };
-        env.insert("PATH".into(), format!("{}{separator}{system_path}", self.bin.display()));
+        // Windows: the git the app bundles (scripts/stage.mjs), the only one a plugin's sandbox can run.
+        let git = if cfg!(windows) { format!("{}{separator}", self.resources.join("git").join("cmd").display()) } else { String::new() };
+        env.insert("PATH".into(), format!("{}{separator}{git}{system_path}", self.bin.display()));
         env
     }
 
@@ -501,7 +519,7 @@ impl Supervisor {
     /// caller's to write and read instead.
     fn spawn(&self, name: &'static str, command: &mut Command, log: &Path, piped: bool) -> Result<Option<(ChildStdin, ChildStdout)>, String> {
         let program = command.get_program().to_string_lossy().into_owned();
-        let mut child = command
+        let mut child = hidden(command)
             .stdin(if piped { Stdio::piped() } else { Stdio::null() })
             .stdout(if piped { Stdio::piped() } else { open_log(log)?.into() })
             .stderr(if piped { open_log(log)? } else { open_log_append(log)? })
@@ -578,6 +596,9 @@ impl Supervisor {
             unsafe {
                 libc::kill(service.child.id() as libc::pid_t, libc::SIGTERM);
             }
+            // A Python venv's python.exe starts the interpreter as its child: kill the whole tree.
+            #[cfg(windows)]
+            kill_tree(&service.child.id().to_string());
             let deadline = Instant::now() + STOP_TIMEOUT;
             while cfg!(unix) && Instant::now() < deadline && service.child.try_wait().ok().flatten().is_none() {
                 thread::sleep(Duration::from_millis(100));
@@ -587,6 +608,24 @@ impl Supervisor {
         }
         let _ = fs::remove_file(self.pid_file());
     }
+}
+
+/// Kill the process `pid` and every process it started.
+#[cfg(windows)]
+fn kill_tree(pid: &str) {
+    let _ = hidden(&mut Command::new("taskkill")).args(["/PID", pid, "/T", "/F"]).output();
+}
+
+/// `command` without a console window: this app has none, and each service would open one.
+fn hidden(command: &mut Command) -> &mut Command {
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(command, 0x0800_0000);
+    command
+}
+
+/// NanoAgent's Python inside its environment, relative to the environment's folder.
+fn venv_python() -> &'static str {
+    if cfg!(windows) { ".venv/Scripts/python.exe" } else { ".venv/bin/python" }
 }
 
 fn exe(name: &str) -> String {
@@ -600,6 +639,8 @@ fn sandbox() -> Result<&'static str, String> {
         Ok("seatbelt")
     } else if cfg!(target_os = "linux") {
         Ok("bwrap")
+    } else if cfg!(windows) {
+        Ok("appcontainer")
     } else {
         Err("Mochi Lab cannot confine plugins on this platform yet, so it does not run them here.".into())
     }
@@ -608,9 +649,7 @@ fn sandbox() -> Result<&'static str, String> {
 /// 32 random bytes, in hex.
 fn random_token() -> Result<String, String> {
     let mut bytes = [0u8; 32];
-    fs::File::open("/dev/urandom")
-        .and_then(|mut file| file.read_exact(&mut bytes))
-        .map_err(|error| format!("/dev/urandom: {error}"))?;
+    getrandom::fill(&mut bytes).map_err(|error| format!("the system's random numbers: {error}"))?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 

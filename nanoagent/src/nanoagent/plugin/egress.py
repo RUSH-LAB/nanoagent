@@ -13,6 +13,7 @@ A sandbox that shares the host's network (seatbelt) has no loopback of its own t
 from __future__ import annotations
 
 import ipaddress
+import secrets
 import select
 import socket
 import socketserver
@@ -87,8 +88,10 @@ def _handler(hosts: frozenset[str]) -> type[socketserver.BaseRequestHandler]:
     return Handler
 
 
-class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
-    daemon_threads = True
+if hasattr(socketserver, "UnixStreamServer"):
+
+    class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+        daemon_threads = True
 
 
 class _TcpServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
@@ -124,3 +127,32 @@ def egress_port(hosts: list[str] | tuple[str, ...]) -> Iterator[int]:
     server = _TcpServer(("127.0.0.1", 0), _allowed(hosts))
     with _serving(server):
         yield server.server_address[1]
+
+
+@contextmanager
+def egress_pipe(hosts: list[str] | tuple[str, ...], sid: str) -> Iterator[str]:
+    """Windows: serve the proxy for ``hosts`` through a new named pipe that only the AppContainer
+    with package SID ``sid`` may open, while the block runs; the pipe's name.
+
+    An AppContainer cannot reach the host's loopback, so its bridge (``nanoagent.helpers.egress_bridge``)
+    opens the pipe, and each connection is passed on to the proxy's loopback port.
+    """
+    from nanoagent.helpers import winpipe
+    from nanoagent.helpers.egress_bridge import _pump_pipe
+
+    name = rf"\\.\pipe\nanoagent-egress-{secrets.token_hex(16)}"
+    with egress_port(hosts) as port:
+
+        def connection(pipe: winpipe.Pipe) -> None:
+            try:
+                upstream = socket.create_connection(("127.0.0.1", port))
+            except OSError:
+                return
+            _pump_pipe(upstream, pipe)
+
+        # Full access for the container and for this process's own account (owner rights).
+        server = winpipe.Server(name, f"D:(A;;GA;;;{sid})(A;;GA;;;OW)", connection)
+        try:
+            yield name
+        finally:
+            server.close()
