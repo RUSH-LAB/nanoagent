@@ -556,17 +556,22 @@ const ctx = {
   fsHub: postgresServices?.fsHub ?? null,
   // The plugin marketplace's uploads; PostgreSQL only.
   market: postgresServices?.market ?? null,
-  // Mochi Lab's one-line install (routes/lab.js): its bundles, PostgreSQL only; the
-  // secret its download tokens are signed with; and the token its uploads carry.
+  // RUSH Lab, the app (routes/lab.js): its downloads, PostgreSQL only; the secret its connect
+  // links are signed with; and the token its uploads carry.
   lab: {
     bundles: postgresServices?.labBundles ?? null,
     secret: AUTH_SECRET,
     siteUrl: SITE_URL,
     uploadToken: process.env.LAB_UPLOAD_TOKEN || null,
-    installScript: path.join(__dirname, '../runner/install.sh'),
-    // A Better Auth session for the member, as the device grant makes one (its token); null when
+    // The member's GitHub login, which names their files' folder on their computer; null when
     // there is no such member any more.
-    // A session for the member, and their GitHub login, which names their files' folder there.
+    findMember: async userId => {
+      const {internalAdapter} = await auth.$context;
+      const user = await internalAdapter.findUserById(userId);
+      return user ? {login: user.githubLogin} : null;
+    },
+    // A Better Auth session for the member, as the device grant makes one (its token), and their
+    // GitHub login; null when there is no such member any more.
     createSession: async userId => {
       const {internalAdapter} = await auth.$context;
       const user = await internalAdapter.findUserById(userId);

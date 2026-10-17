@@ -1,87 +1,140 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod supervisor;
+//! RUSH Lab: a menu-bar app that runs its members' AI and plugins on this computer (lab.rs), opens
+//! at every login, and connects a member when the site hands it their connect link
+//! (rushlab://connect?site=&token=, server/routes/lab.js), once they confirm it is theirs.
 
-use std::collections::BTreeMap;
+mod lab;
+
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 
-use supervisor::{KeyStatus, Status, Supervisor};
-use tauri::menu::{Menu, MenuItem, MenuItemKind};
-use tauri::webview::NewWindowResponse;
-use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use lab::Lab;
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::tray::TrayIconBuilder;
+use tauri::{AppHandle, Manager, Url};
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
+use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
 
-#[tauri::command]
-fn status(supervisor: State<Arc<Supervisor>>) -> Status {
-    supervisor.status()
+// How long a launch waits, once running, for a connect link it was opened with before opening the site to get one.
+const LINK_WAIT: Duration = Duration::from_secs(3);
+
+/// Say `message` and quit: RUSH Lab cannot run.
+fn fail(app: &AppHandle, message: String) -> ! {
+    app.dialog().message(message).title("RUSH Lab").kind(MessageDialogKind::Error).blocking_show();
+    std::process::exit(1);
 }
 
-#[tauri::command]
-fn retry(app: AppHandle, supervisor: State<Arc<Supervisor>>) -> Result<(), String> {
-    supervisor.restart(app)
+/// RUSH Lab, once it is installed and running.
+fn ready(app: &AppHandle) -> Arc<Lab> {
+    loop {
+        if let Some(lab) = app.try_state::<Arc<Lab>>() {
+            return lab.inner().clone();
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
 }
 
-// The keys page's commands: only the app's own pages may call them, never the site it shows.
-#[tauri::command]
-fn keys(supervisor: State<Arc<Supervisor>>) -> Vec<KeyStatus> {
-    supervisor.keys()
-}
-
-#[tauri::command]
-fn save_keys(supervisor: State<Arc<Supervisor>>, changes: BTreeMap<String, Option<String>>) -> Result<(), String> {
-    supervisor.save_keys(changes)
-}
-
-#[tauri::command]
-fn open_site(app: AppHandle, supervisor: State<Arc<Supervisor>>) -> Result<(), String> {
-    supervisor.open_site(&app)
+/// Connect the member `link` is for, once they confirm it: Ok(false) when they do not.
+fn connect(app: &AppHandle, lab: &Lab, link: &Url) -> Result<bool, String> {
+    if link.scheme() != "rushlab" || link.host_str() != Some("connect") {
+        return Err(format!("RUSH Lab does not open {link}"));
+    }
+    let query = |name: &str| link.query_pairs().find(|(key, _)| key == name).map(|(_, value)| value.into_owned()).unwrap_or_default();
+    let token = query("token");
+    let answer: serde_json::Value = serde_json::from_str(&lab.ask(&["member", &query("site")], &token)?).map_err(|error| error.to_string())?;
+    let (site, login) = (answer["site"].as_str().unwrap_or_default(), answer["member"]["login"].as_str().unwrap_or_default());
+    let host = Url::parse(site).ok().and_then(|url| url.host_str().map(str::to_string)).unwrap_or_default();
+    let confirmed = app
+        .dialog()
+        .message(format!("Connect this computer to {host} as @{login}?\n\nThat account's AI and plugins will run here."))
+        .title("RUSH Lab")
+        .buttons(MessageDialogButtons::OkCancelCustom("Connect".into(), "Cancel".into()))
+        .blocking_show();
+    if !confirmed {
+        return Ok(false);
+    }
+    lab.ask(&["connect", &lab.data.display().to_string(), site], &token)?;
+    Ok(true)
 }
 
 fn main() {
+    let linked = Arc::new(AtomicBool::new(false));
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![status, retry, keys, save_keys, open_site])
-        // The platform's menu, with API Keys… after About on macOS.
-        .menu(|handle| {
-            let menu = Menu::default(handle)?;
-            let keys = MenuItem::with_id(handle, "keys", "API Keys…", true, Some("CmdOrCtrl+,"))?;
-            if let Some(MenuItemKind::Submenu(first)) = menu.items()?.into_iter().next() {
-                first.insert(&keys, 1)?;
-            }
-            Ok(menu)
-        })
-        .on_menu_event(|app, event| {
-            if event.id() == "keys" {
-                if let Some(supervisor) = app.try_state::<Arc<Supervisor>>() {
-                    supervisor.show(app, "keys.html");
-                }
-            }
-        })
-        .setup(|app| {
-            let supervisor = Arc::new(Supervisor::new(app.handle())?);
-            let opener = app.handle().clone();
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("Mochi Lab")
-                .inner_size(1280.0, 832.0)
-                .min_inner_size(800.0, 600.0)
-                // Links that ask for a new window open in the system browser.
-                .on_new_window(move |url, _features| {
-                    if matches!(url.scheme(), "http" | "https") {
-                        let _ = opener.opener().open_url(url.as_str(), None::<&str>);
-                    }
-                    NewWindowResponse::Deny
+        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
+        .setup(move |app| {
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            let open = MenuItem::with_id(app, "open", "Open RUSH Lab", true, None::<&str>)?;
+            let logs = MenuItem::with_id(app, "logs", "Show Logs", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Quit RUSH Lab", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&open, &logs, &PredefinedMenuItem::separator(app)?, &quit])?;
+            let icon = app.default_window_icon().cloned().ok_or("the app has no icon")?;
+            TrayIconBuilder::new()
+                .icon(icon)
+                .tooltip("RUSH Lab")
+                .menu(&menu)
+                .on_menu_event(|app, event| match (event.id().as_ref(), app.try_state::<Arc<Lab>>()) {
+                    ("open", Some(lab)) => drop(app.opener().open_url(&lab.site_url, None::<&str>)),
+                    ("logs", Some(lab)) => drop(app.opener().open_path(lab.data.join("logs").display().to_string(), None::<&str>)),
+                    ("quit", _) => app.exit(0),
+                    _ => {}
                 })
-                .build()?;
-            supervisor.start(app.handle().clone());
-            app.manage(supervisor);
-            // A signal (Ctrl+C on `npm run desktop`, kill) quits like the menu does, so the
-            // services are stopped rather than left running.
-            #[cfg(unix)]
+                .build(app)?;
+
+            let link_handle = app.handle().clone();
+            let link_seen = linked.clone();
+            app.deep_link().on_open_url(move |event| {
+                link_seen.store(true, Ordering::SeqCst);
+                for link in event.urls() {
+                    let app = link_handle.clone();
+                    thread::spawn(move || {
+                        let lab = ready(&app);
+                        if let Err(message) = connect(&app, &lab, &link) {
+                            app.dialog().message(format!("This computer was not connected: {message}")).title("RUSH Lab").kind(MessageDialogKind::Error).blocking_show();
+                        }
+                    });
+                }
+            });
+
+            // Off the main thread, where a dialog that waits for an answer cannot be shown.
+            let handle = app.handle().clone();
+            let first = linked.clone();
+            thread::spawn(move || {
+                // Opened from the disk image or Downloads, macOS runs it from a read-only copy that
+                // moves, which nothing could open again at login.
+                let exe = std::env::current_exe().unwrap_or_default();
+                if exe.starts_with("/Volumes") || exe.to_string_lossy().contains("/AppTranslocation/") {
+                    fail(&handle, "Drag RUSH Lab into your Applications folder, then open it from there.".into());
+                }
+                let lab = Arc::new(Lab::install(&handle).unwrap_or_else(|message| fail(&handle, format!("RUSH Lab could not be installed: {message}"))));
+                if let Err(error) = handle.autolaunch().enable() {
+                    fail(&handle, format!("RUSH Lab could not set itself to open at login: {error}"));
+                }
+                lab.start();
+                handle.manage(lab.clone());
+                // With no member connected yet, and no link to connect one, the site gives the link.
+                thread::sleep(LINK_WAIT);
+                if !first.load(Ordering::SeqCst) && !lab.has_connections() {
+                    let _ = handle.opener().open_url(&lab.site_url, None::<&str>);
+                }
+            });
+
+            // A signal (Ctrl+C on `npm run desktop`, kill) quits like the menu does, so lab.mjs is
+            // stopped rather than left running.
             {
                 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
                 let mut signals = signal_hook::iterator::Signals::new([SIGHUP, SIGINT, SIGTERM])?;
                 let handle = app.handle().clone();
-                std::thread::spawn(move || {
+                thread::spawn(move || {
                     if signals.forever().next().is_some() {
                         handle.exit(0);
                     }
@@ -90,11 +143,11 @@ fn main() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("Mochi Lab failed to build its window");
+        .expect("RUSH Lab failed to start");
     app.run(|app, event| {
         if let tauri::RunEvent::Exit = event {
-            if let Some(supervisor) = app.try_state::<Arc<Supervisor>>() {
-                supervisor.stop();
+            if let Some(lab) = app.try_state::<Arc<Lab>>() {
+                lab.stop();
             }
         }
     });

@@ -2,7 +2,7 @@
 const crypto = require('crypto');
 
 /**
- * The download token in Mochi Lab's one-line install (routes/lab.js): which
+ * The token in RUSH Lab's connect link (routes/lab.js): which
  * member it is for and until when, signed with the server's session secret,
  * so the server keeps nothing. `<user id, base64url>.<expiry, unix seconds>.<HMAC-SHA256, base64url>`,
  * the HMAC's key derived from the secret for this use alone.

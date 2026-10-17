@@ -103,18 +103,22 @@
 
 /* ── Installing RUSH Lab while it is not connected (_Connection.js) ── */
 
-/* The row wraps, to take the command under it. */
-.installRow {
-  flex-wrap: wrap;
+/* The downloads and the connect link are links, styled as the buttons beside them are. */
+.primaryLink,
+.primaryLink:hover {
+  color: white;
+  text-decoration: none;
 }
 
-/* The command: the row's whole width, under it. */
-.installCommand {
-  flex-basis: 100%;
-  margin-bottom: 0.6rem;
-  padding: 0.45rem 0.6rem;
-  overflow-wrap: anywhere;
-  font-size: 0.78rem;
+.secondaryLink,
+.secondaryLink:hover {
+  color: var(--ifm-font-color-base);
+  text-decoration: none;
+}
+
+.secondaryLink[aria-disabled='true'] {
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 /* The model every run is on, one row for each thing the computer's catalog knows of it. */

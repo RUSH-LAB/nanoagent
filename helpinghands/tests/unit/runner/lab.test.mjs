@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
 import {
-  addConnection, adoptLegacy, connectionId, filesFolderFor, keyHint, keyStatus, nanoagentCommand, parseEnv, providerKeys, relayEnv, systemEnv, writeKeys,
+  addConnection, adoptLegacy, connectableSite, connectionId, filesFolderFor, linkMember, linkSession, keyHint, keyStatus, nanoagentCommand, parseEnv, providerKeys, relayEnv, systemEnv, writeKeys,
 } from '../../../src/runner/lab.mjs';
 
 test('installs once, keeping its own site\'s files apart from any other\'s', () => {
@@ -19,6 +20,35 @@ test('names a connection by its site and member', () => {
   assert.equal(connectionId('https://rush-lab.org', 'tdjxZH_X-1'), 'rush-lab.org-tdjxZH_X-1');
   assert.equal(connectionId('http://localhost:3000', 'abc'), 'localhost-3000-abc');
   assert.throws(() => connectionId('https://rush-lab.org', '../x'), /not a member id/);
+});
+
+test('connects only to its own site, or a development checkout\'s on this computer', () => {
+  const config = {site_url: 'https://rush-lab.org'};
+  assert.equal(connectableSite(config, 'https://rush-lab.org/'), 'https://rush-lab.org');
+  for (const site of ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://[::1]:3000']) assert.equal(connectableSite(config, site), site);
+  for (const site of ['https://evil.example', 'http://rush-lab.org', 'https://localhost:3000', 'http://localhost.evil.example', 'not a url', '']) {
+    assert.throws(() => connectableSite(config, site), /is not a site RUSH Lab connects to/, site);
+  }
+});
+
+test('asks the site whose a connect link is, and then for their session, saying why it refuses', async () => {
+  const server = http.createServer((req, res) => {
+    const token = new URL(req.url, 'http://x').searchParams.get('token');
+    res.setHeader('Content-Type', 'application/json');
+    if (token !== 'good') return res.writeHead(401).end(JSON.stringify({error: 'This connect link is invalid or has expired.'}));
+    const member = {id: 'alice', login: 'alice-gh'};
+    res.end(JSON.stringify(req.method === 'GET' ? {member} : {session: 's-alice', member}));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const site = `http://127.0.0.1:${server.address().port}`;
+  try {
+    assert.deepEqual(await linkMember(site, 'good'), {id: 'alice', login: 'alice-gh'});
+    assert.deepEqual(await linkSession(site, 'good'), {session: 's-alice', member: {id: 'alice', login: 'alice-gh'}});
+    await assert.rejects(linkMember(site, 'bad'), /invalid or has expired/);
+    await assert.rejects(linkSession(site, 'bad'), /invalid or has expired/);
+  } finally {
+    server.close();
+  }
 });
 
 const SITE = 'https://rush-lab.org';

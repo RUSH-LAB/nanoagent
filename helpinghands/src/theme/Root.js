@@ -59,7 +59,7 @@ function IdleCommandBar() {
  *
  * Nor is a workspace. Every AI run goes to RUSH Lab on the member's own
  * computer (server/runner.js), so a member whose computer is not connected is
- * held at LabScreen, which offers the line that installs it and lets them in
+ * held at LabScreen, which offers the app and the link that connects it, and lets them in
  * once it connects. It is asked once, beside the workspaces: a computer that
  * leaves later (asleep, offline) does not throw the member out of the page they
  * are on, and the runs say it is not connected. The page that approves a

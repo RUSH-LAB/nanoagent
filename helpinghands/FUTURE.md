@@ -44,48 +44,26 @@ To decide:
 - Where the saved state lives, when it is removed, and how long a run may wait for Mochi Lab to
   start again before it is recorded as interrupted.
 
-## Mochi Lab for Windows and Linux
+## RUSH Lab for Windows
 
-Mochi Lab ships for macOS on Apple silicon only: `.github/workflows/helpinghands-desktop.yml`
-builds just that bundle. The app's own code still knows the other two targets
-(`desktop/scripts/stage.mjs` stages Node for `x86_64-pc-windows-msvc` and
-`x86_64-unknown-linux-gnu`), so building them again means adding their matrix entries back
-(`windows-latest`, and `ubuntu-22.04` with WebKitGTK installed) along with their bundle paths
-(`msi`, `nsis`, `appimage`, `deb`).
+RUSH Lab, the app (`desktop/`), ships for macOS only, Apple silicon and Intel:
+`.github/workflows/helpinghands-desktop.yml` builds those two dmgs. Linux is not planned.
+`desktop/scripts/stage.mjs` already stages Node and uv for `x86_64-pc-windows-msvc`.
 
 To decide:
 
-- Windows has no plugin sandbox yet, so the app refuses to start there, and NanoAgent runs each
-  plugin's `run.sh` with `bash` (`desktop/PLAN.md`). Shipping it needs a sandbox, and a way to
-  run plugins without bash.
-- Linux sandboxes plugins with `bwrap`, so it is closer, but nobody has tested a bundle on a
-  member's machine.
-- Neither bundle is signed.
-- The one-line install (`src/runner/install.sh`, `desktop/PLAN.md`) runs on macOS and on x86-64
-  Linux, and on Windows only inside WSL2, as Linux. Windows itself needs a plugin sandbox first:
-  lab.mjs, like the app, refuses to run plugins unconfined. Linux on ARM (and WSL2 on ARM Windows)
-  needs its own bundle, built on an ARM runner.
+- Windows has no plugin sandbox yet (`nanoagent.plugin.sandbox` has seatbelt and bwrap), and
+  lab.mjs refuses to run plugins unconfined. NanoAgent also runs each plugin's `run.sh` with
+  `bash`. Shipping it needs a sandbox, and a way to run plugins without bash.
+- lab.mjs's paths and signals are macOS's: `.venv/bin`, `/bin/ps`, SIGTERM.
+- The app's connect link reaches a running app through `tauri-plugin-single-instance`, which
+  Windows needs; its data folder would be `%APPDATA%`.
 
-## The Mochi Lab desktop app
+## RUSH Lab updates
 
-Members do not need the desktop app (`desktop/src-tauri`): Settings → AI gives them a one-line
-install that runs the same relay and compiled NanoAgent in the background, without a window
-(`src/runner/lab.mjs`, `desktop/PLAN.md`). The app is kept for later, unreleased.
-`.github/workflows/helpinghands-desktop.yml` builds it only in a run by hand, and keeps the dmg only as a workflow artifact of the private repository, which members
-cannot download.
-
-To decide, if it is released:
-
-- What it adds over the one-line install: a window on the site, the keys page, a menu-bar
-  presence, an installer members double-click.
-- Where members download it: Mochi could serve the dmg as it serves the one-line install's
-  bundles (`lab_bundle`, `routes/lab.js`), or GitHub Releases in a public repository that holds
-  only bundles.
-- Auto-update: `tauri-plugin-updater` needs a public `latest.json` beside the bundles.
-- Signing: the app is ad-hoc signed, so a downloaded copy opens only after right-click → Open.
-- Both use port 47311, so a member runs one or the other.
-- First check before release: open the app against the production Mochi it serves, sign in,
-  see the relay connect, and run a plugin.
+The app does not update itself: a member downloads a new dmg from the site. `tauri-plugin-updater`
+could fetch a `latest.json` and signed update from Mochi, which already serves the dmgs
+(`routes/lab.js`), with a member's session.
 
 ## Chat in RUSH Lab
 

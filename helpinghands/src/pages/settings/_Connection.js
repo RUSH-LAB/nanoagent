@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from 'react';
 import {apiRequest} from '@site/src/utils/api';
-import {INSTALL_HINT, useInstallCommand} from '@site/src/utils/labInstall';
+import {CONNECT_HINT, DOWNLOADS, INSTALL_HINT, useConnectLink} from '@site/src/utils/labApp';
 import {Fact, PaneHeading, Skeleton} from './_parts';
 import styles from './styles.module.css';
 import ai from './ai.module.css';
@@ -13,24 +13,32 @@ const CENTRAL = new Intl.DateTimeFormat('en-US', {
   year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
 });
 
-/** While RUSH Lab is not connected: the line that installs it, to paste in a terminal (utils/labInstall.js). */
+/** While RUSH Lab is not connected: the app to download, and the link that connects it (utils/labApp.js). */
 function InstallLab() {
-  const {command, note, copy} = useInstallCommand();
+  const {link, error} = useConnectLink();
   return (
     <section className={styles.group}>
       <div className={styles.groupHead}>
         <h4 className={styles.groupTitle}>Install RUSH Lab</h4>
       </div>
-      <div className={`${styles.row} ${ai.installRow}`}>
+      <div className={styles.row}>
         <div className={styles.rowLabel}>
-          <strong>Paste this in a terminal</strong>
-          {note?.error ? <span className={styles.error} role="alert">{note.error}</span>
-            : <span role="status">{note?.text ?? INSTALL_HINT}</span>}
+          <strong>Download the app</strong>
+          <span>{INSTALL_HINT}</span>
         </div>
         <div className={styles.rowControl}>
-          <button type="button" className={styles.secondaryButton} disabled={!command} onClick={copy}>Copy</button>
+          <a className={`${styles.primaryButton} ${ai.primaryLink}`} href={DOWNLOADS.appleSilicon} download>Apple silicon</a>
+          <a className={`${styles.secondaryButton} ${ai.secondaryLink}`} href={DOWNLOADS.intel} download>Intel</a>
         </div>
-        <code className={ai.installCommand}>{command ?? '…'}</code>
+      </div>
+      <div className={styles.row}>
+        <div className={styles.rowLabel}>
+          <strong>Connect it to your account</strong>
+          {error ? <span className={styles.error} role="alert">{error}</span> : <span>{CONNECT_HINT}</span>}
+        </div>
+        <div className={styles.rowControl}>
+          <a className={`${styles.secondaryButton} ${ai.secondaryLink}`} href={link ?? undefined} aria-disabled={!link}>Connect</a>
+        </div>
       </div>
     </section>
   );
@@ -38,8 +46,8 @@ function InstallLab() {
 
 /**
  * Settings → Connection: whether RUSH Lab on the member's computer, where their AI
- * and plugins run, is connected to their account (server/runner.js), and the line
- * that installs it while it is not.
+ * and plugins run, is connected to their account (server/runner.js), and the app
+ * to install and connect while it is not.
  */
 export default function Connection() {
   const [computer, setComputer] = useState(null);
@@ -76,8 +84,8 @@ export default function Connection() {
         </Fact>
         {computer.connected && <Fact label="Connected at">{CENTRAL.format(new Date(computer.since))}</Fact>}
         <p className={ai.connectionNote}>
-          Your AI and plugins run here. It starts at every login and stays connected while this
-          computer is on, whether or not you are signed in to this site.
+          Your AI and plugins run here. RUSH Lab opens at every login, in the menu bar, and stays
+          connected while this computer is on, whether or not you are signed in to this site.
         </p>
       </section>
       {!computer.connected && <InstallLab />}

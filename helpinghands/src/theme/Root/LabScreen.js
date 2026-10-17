@@ -1,28 +1,22 @@
 import React, {useEffect} from 'react';
 import {apiRequest} from '@site/src/utils/api';
-import {useInstallCommand} from '@site/src/utils/labInstall';
+import {CONNECT_HINT, DOWNLOADS, INSTALL_HINT, useConnectLink} from '@site/src/utils/labApp';
 import styles from './authScreen.module.css';
 
 // How often the screen asks whether RUSH Lab has connected.
 const STATUS_MS = 5_000;
 
-const CopyIcon = () => (
-  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 1.5h7A1.5 1.5 0 0 1 13.5 3v8H12V3H5zM2.5 5A1.5 1.5 0 0 1 4 3.5h6A1.5 1.5 0 0 1 11.5 5v8.5A1.5 1.5 0 0 1 10 15H4a1.5 1.5 0 0 1-1.5-1.5zM4 5v8.5h6V5z" /></svg>
-);
-const CheckIcon = () => (
-  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.8 4.2 6.5 11.5 2.2 7.2l1.1-1.1 3.2 3.2 6.2-6.2z" /></svg>
-);
-
 /**
  * What a signed-in member sees until RUSH Lab on their computer is connected.
  *
  * Every AI run goes to the member's own computer (server/runner.js), so the site
- * is not entered without it: the screen offers the line that installs it, and
- * lets the member in by itself once it connects. Rendered from the same
- * stylesheet as AuthScreen and OnboardingScreen, as the last step of arriving.
+ * is not entered without it: the screen offers the app to download and the link
+ * that connects it, and lets the member in by itself once it connects. Rendered
+ * from the same stylesheet as AuthScreen and OnboardingScreen, as the last step
+ * of arriving.
  */
 export default function LabScreen({onConnected, onSignOut}) {
-  const {command, note, copy} = useInstallCommand();
+  const {link, error} = useConnectLink();
 
   useEffect(() => {
     const timer = setInterval(() => apiRequest('/api/runner/status')
@@ -36,15 +30,21 @@ export default function LabScreen({onConnected, onSignOut}) {
       <div className={styles.card}>
         <img src="/img/rush-lab.png" alt="" className={styles.logo} />
         <h1 className={styles.title}>Install RUSH Lab</h1>
-        <p className={styles.tagline}>Run this command in your terminal once.</p>
-        <div className={styles.commandBox}>
-          <code className={styles.command}>{command ?? '…'}</code>
-          <button type="button" className={styles.copy} disabled={!command} onClick={copy}
-            aria-label={note?.text ? 'Copied' : 'Copy the command'} title={note?.text ? 'Copied' : 'Copy'}>
-            {note?.text ? <CheckIcon /> : <CopyIcon />}
-          </button>
-        </div>
-        {note?.error && <p className={styles.error} role="alert">{note.error}</p>}
+        <p className={styles.tagline}>Your AI and plugins run on your own Mac, in the RUSH Lab app.</p>
+        <ol className={styles.steps}>
+          <li>
+            <a className={styles.submit} href={DOWNLOADS.appleSilicon} download>Download for Mac</a>
+            <span className={styles.stepNote}>
+              For Apple silicon. On an Intel Mac, <a href={DOWNLOADS.intel} download>download this one</a>.
+            </span>
+          </li>
+          <li><span className={styles.stepNote}>{INSTALL_HINT}</span></li>
+          <li>
+            <a className={styles.submit} href={link ?? undefined} aria-disabled={!link}>Connect RUSH Lab</a>
+            <span className={styles.stepNote}>{CONNECT_HINT}</span>
+          </li>
+        </ol>
+        {error && <p className={styles.error} role="alert">{error}</p>}
         <button type="button" className={styles.switch} onClick={onSignOut}>
           Sign out
         </button>

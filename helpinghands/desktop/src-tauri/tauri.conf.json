@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Mochi Lab",
+  "productName": "RUSH Lab",
   "version": "0.0.0",
-  "identifier": "lab.mochi.desktop",
+  "identifier": "lab.mochi.lab",
   "build": {
     "frontendDist": "../splash",
     "beforeBuildCommand": "node scripts/stage.mjs"
@@ -15,12 +15,18 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
-    "externalBin": ["binaries/node", "binaries/uv"],
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "externalBin": [
+      "binaries/node",
+      "binaries/uv"
+    ],
     "resources": {
       "resources/runner/": "runner/",
       "resources/nanoagent/": "nanoagent/",
-      "resources/config.yaml": "config.yaml",
+      "resources/config.json": "config.json",
       "resources/stamp": "stamp"
     },
     "icon": [
@@ -33,6 +39,15 @@
     "macOS": {
       "entitlements": "Entitlements.plist",
       "signingIdentity": "-"
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "rushlab"
+        ]
+      }
     }
   }
 }

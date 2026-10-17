@@ -31,7 +31,7 @@ page is on the member's own computer, through Mochi Lab
   key is given none. Without it, members add their own.
 - An upload token, `LAB_UPLOAD_TOKEN`: a long random string the release job
   sends as `Authorization: Bearer` to `PUT /api/lab/bundles/<target>`, the
-  Mochi Lab bundles the one-line install downloads (`src/server/routes/lab.js`).
+  RUSH Lab app's dmgs that members download (`src/server/routes/lab.js`).
   Without it, uploads answer 503.
 
 The current deployment target is Railway. It builds the committed `Dockerfile`,

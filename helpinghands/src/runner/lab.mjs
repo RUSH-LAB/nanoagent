@@ -1,35 +1,33 @@
 /**
- * Mochi Lab without its window: what desktop/src-tauri/src/supervisor.rs does behind the app's
- * window, for members who use Mochi in the browser. install.sh unpacks its bundle
- * (desktop/scripts/bundle-lab.mjs) and has launchd (systemd on Linux) run it at login, restarting
- * it when it exits with an error:
+ * What RUSH Lab, the app (desktop/src-tauri), runs behind its menu-bar icon. The app installs its
+ * bundled files into the data folder's app/<stamp>/ and runs this from there, starting it again
+ * when it exits while the app is open:
  *
- *   mochi-lab/stamp          names this bundle
+ *   mochi-lab/stamp          names this build
  *   mochi-lab/config.json    desktop/config.yaml: its own site, the install's label, the files folders, Python's version
  *   mochi-lab/bin/{node,uv}  the runtimes, first on every service's PATH
  *   mochi-lab/runner/        this file, the relay (relay.mjs) and what it loads
  *   mochi-lab/nanoagent/     NanoAgent compiled by Nuitka (site/), its uv.lock, the PI runner's bundle, its config
  *
  * One install serves every connection on this computer's account: one member of one site each,
- * however many members and sites. The install's data folder, ~/Library/Application Support/<label>/
- * on macOS and ~/.local/share/<label>/ on Linux, holds what they share (app/, python/, the uv
- * cache, logs/lab.log) and connections/<id>/, one folder per connection (addConnection): its
- * site, its member, their sign-in (runner-credentials.json), their keys (settings.env), and
- * NanoAgent's folders and logs for them. The member's files are ~/<files folder>/<login>/.
+ * however many members and sites. The install's data folder, ~/Library/Application Support/<label>/,
+ * holds what they share (app/, python/, the uv cache, logs/lab.log) and connections/<id>/, one
+ * folder per connection (addConnection): its site, its member, their sign-in
+ * (runner-credentials.json), their keys (settings.env), and NanoAgent's folders and logs for them.
+ * The member's files are ~/<files folder>/<login>/.
  *
  * It runs `uv sync` for NanoAgent's dependencies once, then, for each connection, starts a
  * NanoAgent of its own on a free port, with that member's keys and the plugins Mochi installs in
  * the platform's sandbox, waits for its default profile, and starts a relay for it. It looks at
- * connections/ every few seconds: a new connection starts, a removed one stops, and one install.sh
- * wrote again restarts, while the others keep running. A connection whose service fails starts
- * again after a while; one another computer took the member's runs from stays stopped until it is
- * installed again. When a relay needs signing in, the device page opens in the browser; once it is
+ * connections/ every few seconds: a new connection starts, a removed one stops, and one connected
+ * again restarts, while the others keep running. A connection whose service fails starts again
+ * after a while; one another computer took the member's runs from stays stopped until it is
+ * connected again. When a relay needs signing in, the device page opens in the browser; once it is
  * connected after that, the site does, at Settings → AI while there is no key. Keys come only from
  * Mochi, through the relay: kept in the connection's settings.env, handed to its NanoAgent
  * (PUT /v1/keys), and the relay is told which are set. SIGTERM stops every connection, cleanly.
  *
- * It runs on macOS, where plugins run in seatbelt, and on Linux, Windows's WSL2 included, where
- * they run in bwrap (PLATFORMS). Node's own modules are all it loads.
+ * It runs on macOS, where plugins run in seatbelt (PLATFORMS). Node's own modules are all it loads.
  */
 import {spawn} from 'node:child_process';
 import crypto from 'node:crypto';
@@ -70,16 +68,13 @@ const SYSTEM_ENV = ['HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'TMPDIR'];
 const isProviderKey = name => PROVIDER_KEYS.some(([env]) => env === name);
 /**
  * Where it runs: the sandbox NanoAgent confines plugins in (nanoagent.plugin.sandbox), and how a
- * page opens in the member's browser. Under WSL2 that is
- * Windows's, through its interop; the page is in the log, and install.sh prints it, either way.
+ * page opens in the member's browser; the page is in the log either way.
  */
 export const PLATFORMS = {
   darwin: {sandbox: 'seatbelt', open: () => ['open']},
-  linux: {
-    sandbox: 'bwrap',
-    open: () => (/microsoft/i.test(fs.readFileSync('/proc/sys/kernel/osrelease', 'utf8')) ? ['/mnt/c/Windows/explorer.exe'] : ['xdg-open']),
-  },
 };
+// The hosts a development checkout's site runs on, which a connect link may name besides the app's own site.
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
@@ -90,6 +85,44 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 export function filesFolderFor(config, site) {
   return site === config.site_url ? config.files_folder : config.other_site.files_folder;
 }
+
+/**
+ * The site a connect link names (rushlab://connect, routes/lab.js), as its origin: the app's own
+ * site, or a development checkout's on this computer. Any other is refused, so no web page can
+ * connect this computer to a site of its own.
+ */
+export function connectableSite(config, site) {
+  let url;
+  try {
+    url = new URL(site);
+  } catch {
+    throw new Error(`${site} is not a site RUSH Lab connects to`);
+  }
+  if (url.origin === new URL(config.site_url).origin) return url.origin;
+  if (url.protocol === 'http:' && LOOPBACK.has(url.hostname)) return url.origin;
+  throw new Error(`${url.origin} is not a site RUSH Lab connects to`);
+}
+
+/** `method` /api/lab/session at `site` with a connect link's `token`: its answer, or why it refused. */
+async function linkAnswer(site, token, method) {
+  const response = await fetch(`${site}/api/lab/session?token=${encodeURIComponent(token)}`, {method, signal: AbortSignal.timeout(15_000)});
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error ?? `${site} answered ${response.status}`);
+  return body;
+}
+
+/**
+ * The member a connect link's `token` is for at `site`, {id, login}, without signing in
+ * (GET /api/lab/session): the app asks them to confirm it is theirs first.
+ */
+export async function linkMember(site, token) {
+  const {member} = await linkAnswer(site, token, 'GET');
+  if (!/^[A-Za-z0-9-]+$/.test(String(member?.login ?? ''))) throw new Error(`${site} named no GitHub login for this link`);
+  return member;
+}
+
+/** A session for the connect link's member at `site`, {session, member} (POST /api/lab/session). */
+export const linkSession = (site, token) => linkAnswer(site, token, 'POST');
 
 /** A connection's folder name: its site's host and port, and its member's id. */
 export function connectionId(site, memberId) {
@@ -350,13 +383,13 @@ const describeExit = ({code, signal}) => (signal ? `signal: ${signal}` : `exit s
 async function main() {
   const platform = PLATFORMS[process.platform];
   if (!platform) {
-    throw new Error(`Mochi Lab runs on macOS and Linux (Windows through WSL2), where plugins run in a sandbox; this is ${process.platform}.`);
+    throw new Error(`RUSH Lab runs on macOS, where plugins run in a sandbox; this is ${process.platform}.`);
   }
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const config = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8'));
   const bin = path.join(root, 'bin');
   const nanoagent = path.join(root, 'nanoagent');
-  // install.sh unpacks the bundle into <data>/app/<stamp>/.
+  // The app installs its files into <data>/app/<stamp>/.
   const data = path.resolve(root, '..', '..', '..');
   if (path.basename(data) !== config.label) throw new Error(`RUSH Lab is installed as ${config.label}, not in ${data}`);
   const connectionsFolder = path.join(data, 'connections');
@@ -478,7 +511,7 @@ async function main() {
 
   /** Stop what a previous run left, and make NanoAgent's environment, which every connection shares. */
   async function prepare() {
-    log(`Mochi Lab ${fs.readFileSync(path.join(root, 'stamp'), 'utf8').trim()}`);
+    log(`RUSH Lab ${fs.readFileSync(path.join(root, 'stamp'), 'utf8').trim()}`);
     fs.mkdirSync(connectionsFolder, {recursive: true, mode: 0o700});
     fs.mkdirSync(path.join(data, 'logs'), {recursive: true});
     await stopLeftovers();
@@ -518,7 +551,7 @@ async function main() {
     for (const [id, installed] of present) {
       let connection = connections.get(id);
       if (connection && connection.installed !== installed) {
-        log('Installed again; restarting.', id);
+        log('Connected again; restarting.', id);
         await stopConnection(connection);
         connection = null;
       }
@@ -541,14 +574,14 @@ async function main() {
   }
 
   /**
-   * A connection ends: failed, it starts again after RESTART_MS; replaced, it waits to be installed
+   * A connection ends: failed, it starts again after RESTART_MS; replaced, it waits to be connected
    * again. `message` says why; one stopped on purpose ends with nothing to say.
    */
   async function endConnection(connection, replaced, message) {
     if (connection.state !== 'running' && connection.state !== 'starting') return;
     connection.state = replaced ? 'replaced' : 'failed';
     connection.restartAt = Date.now() + RESTART_MS;
-    log(replaced ? 'Another computer took this member\'s runs; stopping until installed again.' : `${message}\nStarting again in ${RESTART_MS / 1000}s.`, connection.id);
+    log(replaced ? 'Another computer took this member\'s runs; stopping until connected again.' : `${message}\nStarting again in ${RESTART_MS / 1000}s.`, connection.id);
     connection.relayStdin = null;
     connection.token = null;
     await stopServices(connection.services);
@@ -659,16 +692,21 @@ async function main() {
   }
 }
 
-// As a URL the path is escaped ("Application Support" is Application%20Support), so compare paths;
-// launchd names this through the `current` link, and Node resolves it. install.sh asks it:
-//   lab.mjs label                      the label the install is under
-//   lab.mjs connect <data> <site>      keep LAB_SESSION as its member's connection, and print its id
+// As a URL the path is escaped ("Application Support" is Application%20Support), so compare paths.
+// The app asks it, with a connect link's token in LAB_TOKEN:
+//   lab.mjs member <site>              the member the link is for, as JSON, and the site it names
+//   lab.mjs connect <data> <site>      keep a session for them as their connection, and print its id
 if (process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(process.argv[1])) {
   const config = () => JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'config.json'), 'utf8'));
-  const [command, data, site] = process.argv.slice(2);
-  const run = command === 'label' ? async () => console.log(config().label)
-    : command === 'connect' ? async () => console.log(await addConnection(data, site, JSON.parse(process.env.LAB_SESSION ?? '{}')))
-      : main;
+  const token = process.env.LAB_TOKEN ?? '';
+  const [command, ...args] = process.argv.slice(2);
+  const run = command === 'member' ? async () => {
+    const site = connectableSite(config(), args[0]);
+    console.log(JSON.stringify({site, member: await linkMember(site, token)}));
+  } : command === 'connect' ? async () => {
+    const site = connectableSite(config(), args[1]);
+    console.log(await addConnection(args[0], site, await linkSession(site, token)));
+  } : main;
   run().catch(error => {
     console.error(`${new Date().toISOString()} ${error.message}`);
     process.exitCode = 1;

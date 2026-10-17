@@ -26,10 +26,10 @@ const REPLACED = 4000;
 // The close code a server shutting down sends, so each Mochi Lab dials its replacement.
 const GOING_AWAY = 1001;
 const NULL_BODY = new Set([101, 204, 205, 304]);
-// What a key's name and value may be, as Mochi Lab's supervisor checks them again.
+// What a key's name and value may be, as RUSH Lab's lab.mjs checks them again.
 const KEY_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
 const KEY_LENGTH = 1000;
-// A hint is ten characters and an ellipsis (desktop supervisor.rs key_hint); a longer one is cut.
+// A hint is ten characters and an ellipsis (runner/lab.mjs keyHint); a longer one is cut.
 const HINT_LENGTH = 16;
 
 /**

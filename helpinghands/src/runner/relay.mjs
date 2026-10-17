@@ -5,7 +5,7 @@
  * response back (runner/protocol.js). Mochi never reaches this computer; the
  * relay reaches Mochi, and only the routes the protocol allows reach NanoAgent.
  *
- * The desktop supervisor runs it with:
+ * lab.mjs, its supervisor, runs one for each connection with:
  *   MOCHI_SITE_URL        the Mochi it serves
  *   NANOAGENT_URL         the NanoAgent beside it, and NANOAGENT_API_TOKEN, its bearer token
  *   RUNNER_CREDENTIALS    where the member's session token is kept (mode 0600)

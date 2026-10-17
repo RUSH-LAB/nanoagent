@@ -5,7 +5,7 @@
  *
  *   src-tauri/resources/runner/     the relay that lends this computer's NanoAgent to Mochi
  *   src-tauri/resources/nanoagent/  NanoAgent compiled by Nuitka (site/), its uv.lock, the PI runner's bundle, and the config the app runs
- *   src-tauri/resources/config.yaml this folder's config.yaml
+ *   src-tauri/resources/config.json this folder's config.yaml, as JSON: lab.mjs loads only Node's own modules
  *   src-tauri/resources/stamp       names this staging; the app installs each stamp once
  *   src-tauri/binaries/{node,uv}-<target>   the runtimes, downloaded and checksum-verified
  */
@@ -98,7 +98,7 @@ async function stageUv(target, platform) {
   fs.copyFileSync(binary, path.join(binaries, `uv-${target}${platform.exe}`));
 }
 
-// The relay and the protocol it shares with Mochi's server; Node's own modules are all it loads.
+// lab.mjs, the relay and the protocol it shares with Mochi's server; Node's own modules are all they load.
 function stageRunner() {
   copy(path.join(mochiRoot, 'src', 'runner'), path.join(resources, 'runner'));
 }
@@ -107,7 +107,7 @@ function stageRunner() {
  * NanoAgent ships compiled, not as source: Nuitka builds its package into one module, for the
  * Python the app runs it on, in resources/nanoagent/site/ with the files it reads beside it.
  * Its dependencies are open source and are installed from the uv.lock resolved here, on first
- * launch. Beside them go the PI runner's two bundled files and the config the supervisor runs, at
+ * launch. Beside them go the PI runner's two bundled files and the config lab.mjs runs, at
  * the paths that config names them by.
  */
 async function stageNanoAgent(uv) {
@@ -169,7 +169,7 @@ async function main() {
   await stageUv(target, platform);
   stageRunner();
   await stageNanoAgent(path.join(binaries, `uv-${target}${platform.exe}`));
-  fs.copyFileSync(path.join(desktop, 'config.yaml'), path.join(resources, 'config.yaml'));
+  fs.writeFileSync(path.join(resources, 'config.json'), `${JSON.stringify(config, null, 2)}\n`);
   const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {cwd: mochiRoot, encoding: 'utf8'}).trim();
   fs.writeFileSync(path.join(resources, 'stamp'), `${new Date().toISOString().replace(/[:.]/g, '-')}-${commit}\n`);
 }
