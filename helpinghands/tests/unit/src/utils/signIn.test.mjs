@@ -35,6 +35,7 @@ describe('sign-in gate', () => {
     assert.equal(asksForSession(page('/assets/js/main.js')), false);
     assert.equal(asksForSession(page('/img/rush-lab.png')), false);
     assert.equal(asksForSession(page('/tasks', 'application/json')), false);
+    assert.equal(asksForSession(page('/api/lab/window-sign-in?token=t')), false);
     assert.equal(asksForSession({method: 'POST', url: '/tasks', headers: {accept: 'text/html'}}), false);
   });
 

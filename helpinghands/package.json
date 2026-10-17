@@ -28,6 +28,7 @@
     "docusaurus": "docusaurus",
     "start": "node scripts/dev/start-local.mjs",
     "desktop": "npm --prefix desktop install --no-audit --no-fund && npm --prefix desktop run build && open \"desktop/src-tauri/target/release/bundle/macos/RUSH Lab.app\"",
+    "desktop:dev": "node scripts/dev/desktop-dev.mjs",
     "start:site": "docusaurus start --no-open",
     "start:production": "NODE_ENV=production node src/server/index.js",
     "build": "docusaurus build",

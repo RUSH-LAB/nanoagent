@@ -13,8 +13,9 @@ window leaves it running there, so runs still reach this computer.
 2. They drag RUSH Lab into Applications and open it. It is ad-hoc signed, not notarized, so the
    first time macOS blocks it until they click **Open Anyway** in System Settings → Privacy &
    Security. Opened from the disk image or Downloads instead, it says to move it, and quits.
-3. Its window shows the site. **Continue with GitHub** signs in through their browser (below);
-   the browser asks to open RUSH Lab, and the window is signed in.
+3. Its window shows the site. **Continue with GitHub** signs in in macOS's sign-in sheet over the
+   window (below), and the window is signed in. On Windows the window signs in as the site does:
+   WebView2 gives GitHub's passkeys through Windows Hello.
 4. Signed in, the window connects this computer by itself, and lets them in once it is.
 
 ## Build
@@ -81,7 +82,8 @@ holds nothing secret.
 
 At launch the app (`src-tauri/src/main.rs`, `lab.rs`):
 
-1. Opens its window on `site_url`, hidden when the login item opened it (`--login`), and its
+1. Opens its window on `site_url`, or on the site on this computer `--site` names (`npm run
+   desktop:dev`, with the site in the window's title). Hidden when the login item opened it (`--login`). And its
    menu-bar icon: Open RUSH Lab (the window), Show Logs, Quit RUSH Lab. The Dock icon, or opening
    the app again, shows the window too; closing it hides it, and the Dock icon with it. The
    window's pages see `window.__RUSH_LAB_APP__`. Links that ask for a new window open in the
@@ -100,16 +102,18 @@ A failure in steps 2 to 4 says why in a dialog, and the app quits.
 ## Signing in the window
 
 GitHub's sign-in asks for passkeys, which a WebKit window gives only to an app signed by an Apple
-developer, so the window signs in through the member's browser, where they are signed in already
-or sign in as they always do (`src/server/routes/lab.js`):
+developer, so the window signs in in macOS's own sign-in sheet over it (ASWebAuthenticationSession,
+`src-tauri/src/sign_in.rs`), where passkeys work and Safari's sign-ins carry over
+(`src/server/routes/lab.js`):
 
 1. In the window, **Continue with GitHub** (`AuthScreen.js`) goes to `rushlab://sign-in`, which the
-   app follows instead of the page. It opens `GET /api/lab/sign-in?state=<random>` in the browser.
+   app follows instead of the page. It opens `GET /api/lab/sign-in?state=<random>` in the sheet.
 2. Signed in there, Mochi redirects to `rushlab://sign-in?site=&state=&token=<t>`; signed out, to
-   the sign-in page first, which comes back. The browser asks to open RUSH Lab.
-3. The app takes back only the state it asked for, once, so no other page can sign its window in
-   as someone else. It opens `GET /api/lab/window-sign-in?token=<t>` in the window, which sets
-   the session cookie of a new session for the token's member, and opens the site.
+   the sign-in page first, which comes back. The sheet hands that address to this app alone, never
+   to a browser or another copy of the app, and closes.
+3. The app takes it only with the state it asked for. It opens
+   `GET /api/lab/window-sign-in?token=<t>` in the window, which sets the session cookie of a new
+   session for the token's member, and opens the site.
 
 ## Connecting a member
 

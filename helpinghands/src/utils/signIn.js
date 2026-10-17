@@ -44,12 +44,15 @@ function isSignInPage(pathname) {
  * Whether the answer to a request depends on the session: a browser navigation
  * (it accepts HTML) to a page rather than a file, which is either a page that
  * needs a session or the sign-in page, which somebody signed in skips. Scripts,
- * styles, and images carry no workspace data and pass.
+ * styles, and images carry no workspace data and pass, and so does the API,
+ * which answers for itself: RUSH Lab's window opens /api/lab/window-sign-in
+ * signed out, to sign in.
  */
 function asksForSession({method, headers, url}) {
   if (method !== 'GET' && method !== 'HEAD') return false;
   if (!String(headers.accept || '').includes('text/html')) return false;
   const {pathname} = new URL(url, 'http://localhost');
+  if (pathname === '/api' || pathname.startsWith('/api/')) return false;
   if (/\.[^/]+$/.test(pathname) && !pathname.endsWith('.html')) return false;
   return isSignInPage(pathname) || !isOpenPage(pathname);
 }

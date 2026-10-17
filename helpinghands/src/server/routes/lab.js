@@ -13,16 +13,15 @@
  *   POST /api/lab/session?token=       {session, member: {id, login}}: the app keeps the session as
  *                                      the member's connection on this computer, for its relay,
  *                                      so it connects with no sign-in page
- *   GET /api/lab/sign-in?state=        in the member's browser, which the app's window sends them to
+ *   GET /api/lab/sign-in?state=        in macOS's sign-in sheet over the app's window, which opens it
  *                                      to sign in: signed in, back to the app with
  *                                      rushlab://sign-in?state=&token=; signed out, the sign-in page first
  *   GET /api/lab/window-sign-in?token= in the app's window: signs it in as the token's member, and
  *                                      opens the site
  *
  * GitHub's sign-in asks for passkeys the app's window cannot give, so the window
- * signs in through the member's browser, where they are signed in already or
- * sign in as they always do; `state` is the app's, so it takes back only the
- * sign-in it asked for.
+ * signs in in macOS's sign-in sheet, where passkeys work and Safari's sign-ins
+ * carry over; `state` is the app's, so it takes back only the sign-in it asked for.
  *
  * The link is `rushlab://connect?site=<SITE_URL>&token=<t>`. `t` is a token for the member that
  * lasts an hour (lab-tokens.js), signed with the session secret, so the app needs no session to
