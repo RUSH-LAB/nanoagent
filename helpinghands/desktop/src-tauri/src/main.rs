@@ -4,11 +4,13 @@
 //! computer (lab.rs). It opens at every login, in the menu bar, and closing the window leaves it
 //! running there. The window signs in in macOS's sign-in sheet over it (sign_in.rs). A member
 //! signed in in the window is connected as soon as the site hands the window their connect link
-//! (rushlab://connect?site=&token=, server/routes/lab.js); a link from anywhere else connects them
-//! only once they confirm it is theirs. `npm run desktop:dev` opens it on this checkout's local site
-//! instead (--site); opened any other way, its window is always its own site's. A release keeps
-//! itself the build its site serves (update.rs). Its terminal windows run the member's own shell
-//! on a page the app bundles (terminal.rs), opened from the menu bar or by rushlab://terminal.
+//! (<scheme>://connect?site=&token=, server/routes/lab.js); a link from anywhere else connects them
+//! only once they confirm it is theirs. Its window is always its own site's, config.json's site_url:
+//! rush-lab.org's for RUSH Lab, and for RUSH Lab Dev (`npm run desktop:dev`) this checkout's local
+//! site; the two differ only in config.json (lab.rs). A release keeps itself the build its site
+//! serves (update.rs). Its terminal windows run the member's own shell on a page the app bundles
+//! (terminal.rs), opened from the menu bar or by <scheme>://terminal. The scheme is config.json's:
+//! rushlab for RUSH Lab, rushlab-dev for RUSH Lab Dev.
 
 mod lab;
 mod setup;
@@ -33,10 +35,8 @@ use tauri_plugin_opener::OpenerExt;
 
 // What the login item opens RUSH Lab with, and an update the build it installed: then its window starts hidden.
 const AT_LOGIN: &str = "--login";
-// What `npm run desktop:dev` opens RUSH Lab with, before a site on this computer: its window shows that site.
-const DEV_SITE: &str = "--site";
 // Tells the site's pages they are in the app's window (src/utils/labApp.js), that it opens
-// rushlab://terminal, and on macOS that the app signs the window in (sign_in.rs): WebKit gives
+// <scheme>://terminal, and on macOS that the app signs the window in (sign_in.rs): WebKit gives
 // GitHub's passkeys only to an app signed by an Apple developer. WebView2 gives them through Windows
 // Hello, so there the window signs in as the site does.
 #[cfg(target_os = "macos")]
@@ -44,9 +44,14 @@ const IN_APP: &str = "window.__RUSH_LAB_APP__ = true; window.__RUSH_LAB_TERMINAL
 #[cfg(not(target_os = "macos"))]
 const IN_APP: &str = "window.__RUSH_LAB_APP__ = true; window.__RUSH_LAB_TERMINAL__ = true;";
 
-/// Say `message` and quit: RUSH Lab cannot run.
+/// This build's config.json (lab.rs), which the app keeps from its start.
+fn app_config(app: &AppHandle) -> tauri::State<'_, lab::Config> {
+    app.state::<lab::Config>()
+}
+
+/// Say `message` and quit: the app cannot run.
 fn fail(app: &AppHandle, message: String) -> ! {
-    app.dialog().message(message).title("RUSH Lab").kind(MessageDialogKind::Error).blocking_show();
+    app.dialog().message(message).title(&app_config(app).product_name).kind(MessageDialogKind::Error).blocking_show();
     std::process::exit(1);
 }
 
@@ -54,22 +59,7 @@ fn fail(app: &AppHandle, message: String) -> ! {
 #[cfg(target_os = "macos")]
 struct Site(Url);
 
-/// The site `--site` names for the window, which must be on this computer (a checkout's `npm start`);
-/// None without one.
-fn dev_site() -> Result<Option<Url>, String> {
-    let args: Vec<String> = std::env::args().collect();
-    let Some(at) = args.iter().position(|arg| arg == DEV_SITE) else {
-        return Ok(None);
-    };
-    let named = args.get(at + 1).ok_or("--site needs a site")?;
-    let site = Url::parse(named).map_err(|error| format!("--site {named}: {error}"))?;
-    if site.scheme() != "http" || !matches!(site.host_str(), Some("localhost" | "127.0.0.1" | "[::1]")) {
-        return Err(format!("--site {named}: RUSH Lab opens only a site on this computer, such as http://localhost:3000"));
-    }
-    Ok(Some(site))
-}
-
-/// RUSH Lab, once it is installed and running.
+/// The app, once it is installed and running.
 fn ready(app: &AppHandle) -> Arc<Lab> {
     loop {
         if let Some(lab) = app.try_state::<Arc<Lab>>() {
@@ -79,7 +69,7 @@ fn ready(app: &AppHandle) -> Arc<Lab> {
     }
 }
 
-/// The window, shown and in front, with RUSH Lab in the Dock while it is.
+/// The window, shown and in front, with the app in the Dock while it is.
 fn show(app: &AppHandle) {
     #[cfg(target_os = "macos")]
     let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
@@ -93,8 +83,9 @@ fn show(app: &AppHandle) {
 /// Connect the member `link` is for: at once when the window's own site handed it over, as they
 /// are signed in there; otherwise once they confirm it. Ok(false) when they do not.
 fn connect(app: &AppHandle, lab: &Lab, link: &Url, from_window: bool) -> Result<bool, String> {
-    if link.scheme() != "rushlab" || link.host_str() != Some("connect") {
-        return Err(format!("RUSH Lab does not open {link}"));
+    let config = app_config(app);
+    if link.scheme() != config.scheme || link.host_str() != Some("connect") {
+        return Err(format!("{} does not open {link}", config.product_name));
     }
     let query = |name: &str| link.query_pairs().find(|(key, _)| key == name).map(|(_, value)| value.into_owned()).unwrap_or_default();
     let token = query("token");
@@ -107,7 +98,7 @@ fn connect(app: &AppHandle, lab: &Lab, link: &Url, from_window: bool) -> Result<
         let confirmed = app
             .dialog()
             .message(format!("Connect this computer to {host} as @{login}?\n\nThat account's AI and plugins will run here."))
-            .title("RUSH Lab")
+            .title(&config.product_name)
             .buttons(MessageDialogButtons::OkCancelCustom("Connect".into(), "Cancel".into()))
             .blocking_show();
         if !confirmed {
@@ -119,7 +110,7 @@ fn connect(app: &AppHandle, lab: &Lab, link: &Url, from_window: bool) -> Result<
 }
 
 /// Sign the window in, in the sign-in sheet over it: the site's sign-in for the app
-/// (GET /api/lab/sign-in, server/routes/lab.js) ends it with rushlab://sign-in?state=&token=, which
+/// (GET /api/lab/sign-in, server/routes/lab.js) ends it with <scheme>://sign-in?state=&token=, which
 /// signs the window in if it is this sign-in's.
 #[cfg(target_os = "macos")]
 fn sign_in(app: &AppHandle) -> Result<(), String> {
@@ -129,31 +120,33 @@ fn sign_in(app: &AppHandle) -> Result<(), String> {
     let mut page = app.state::<Site>().0.clone();
     page.set_path("/api/lab/sign-in");
     page.query_pairs_mut().append_pair("state", &state);
-    let window = app.get_webview_window("main").ok_or("RUSH Lab has no window")?;
+    let config = app_config(app);
+    let window = app.get_webview_window("main").ok_or(format!("{} has no window", config.product_name))?;
     let handle = app.clone();
-    sign_in::show(&window, page, move |answer| {
+    sign_in::show(&window, page, &config.scheme, move |answer| {
         let signed = answer.and_then(|link| match link {
             Some(link) => signed_in(&handle, &link, &state),
             None => Ok(()),
         });
         if let Err(message) = signed {
-            refuse(&handle, format!("RUSH Lab was not signed in: {message}"));
+            refuse(&handle, format!("{} was not signed in: {message}", app_config(&handle).product_name));
         }
     })
 }
 
-/// The site's answer to the sign-in `state` named (rushlab://sign-in?state=&token=): the window
+/// The site's answer to the sign-in `state` named (<scheme>://sign-in?state=&token=): the window
 /// signs in with its token.
 #[cfg(target_os = "macos")]
 fn signed_in(app: &AppHandle, link: &Url, state: &str) -> Result<(), String> {
     let query = |name: &str| link.query_pairs().find(|(key, _)| key == name).map(|(_, value)| value.into_owned()).unwrap_or_default();
-    if link.scheme() != "rushlab" || link.host_str() != Some("sign-in") || query("state") != state {
+    let config = app_config(app);
+    if link.scheme() != config.scheme || link.host_str() != Some("sign-in") || query("state") != state {
         return Err(format!("the site answered {link}, which is not this sign-in's"));
     }
     let mut page = app.state::<Site>().0.clone();
     page.set_path("/api/lab/window-sign-in");
     page.query_pairs_mut().append_pair("token", &query("token"));
-    let window = app.get_webview_window("main").ok_or("RUSH Lab has no window")?;
+    let window = app.get_webview_window("main").ok_or(format!("{} has no window", config.product_name))?;
     window.navigate(page).map_err(|error| error.to_string())?;
     show(app);
     Ok(())
@@ -164,19 +157,19 @@ fn signed_in(app: &AppHandle, link: &Url, state: &str) -> Result<(), String> {
 fn refuse(app: &AppHandle, message: String) {
     let app = app.clone();
     thread::spawn(move || {
-        app.dialog().message(message).title("RUSH Lab").kind(MessageDialogKind::Error).blocking_show();
+        app.dialog().message(message).title(&app_config(&app).product_name).kind(MessageDialogKind::Error).blocking_show();
     });
 }
 
-/// Whether `link` is rushlab://terminal, which opens a terminal window and runs nothing.
-fn is_terminal(link: &Url) -> bool {
-    link.scheme() == "rushlab" && link.host_str() == Some("terminal")
+/// Whether `link` is <scheme>://terminal, which opens a terminal window and runs nothing.
+fn is_terminal(link: &Url, scheme: &str) -> bool {
+    link.scheme() == scheme && link.host_str() == Some("terminal")
 }
 
 /// Open a terminal window on the projects folder, or say why it did not open.
 fn open_terminal(app: &AppHandle) {
     if let Err(message) = terminal::open_window(app, None) {
-        app.dialog().message(format!("The terminal did not open: {message}")).title("RUSH Lab").kind(MessageDialogKind::Error).show(|_| {});
+        app.dialog().message(format!("The terminal did not open: {message}")).title(&app_config(app).product_name).kind(MessageDialogKind::Error).show(|_| {});
     }
 }
 
@@ -186,7 +179,7 @@ fn connect_later(app: &AppHandle, link: Url, from_window: bool) {
     thread::spawn(move || {
         let lab = ready(&app);
         if let Err(message) = connect(&app, &lab, &link, from_window) {
-            app.dialog().message(format!("This computer was not connected: {message}")).title("RUSH Lab").kind(MessageDialogKind::Error).blocking_show();
+            app.dialog().message(format!("This computer was not connected: {message}")).title(&app_config(&app).product_name).kind(MessageDialogKind::Error).blocking_show();
         }
     });
 }
@@ -212,21 +205,19 @@ fn main() {
             let at_login = std::env::args().any(|arg| arg == AT_LOGIN);
             #[cfg(target_os = "macos")]
             app.set_activation_policy(if at_login { tauri::ActivationPolicy::Accessory } else { tauri::ActivationPolicy::Regular });
-            let dev = dev_site().unwrap_or_else(|message| fail(app.handle(), message));
-            // A window on a local site says which.
-            let title = dev.as_ref().map_or("RUSH Lab".to_string(), |site| format!("RUSH Lab — {}", site.origin().ascii_serialization()));
-            let site = match dev {
-                Some(site) => site,
-                None => lab::site_url(app.handle())?.parse()?,
-            };
+            let config = lab::config(app.handle())?;
+            let site: Url = config.site_url.parse()?;
+            let (name, scheme, update_target) = (config.product_name.clone(), config.scheme.clone(), config.update_target.clone());
+            app.manage(config);
             #[cfg(target_os = "macos")]
             app.manage(Site(site.clone()));
             app.manage(setup::Setup::new());
             let update_site = site.clone();
             let handle = app.handle().clone();
             let opener = app.handle().clone();
+            let navigation_scheme = scheme.clone();
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(site))
-                .title(title)
+                .title(&name)
                 .inner_size(1280.0, 832.0)
                 .min_inner_size(800.0, 600.0)
                 .visible(!at_login)
@@ -237,9 +228,9 @@ fn main() {
                         setup::again(&window);
                     }
                 })
-                // The site's rushlab: links are the app's to follow, not the page's.
+                // The site's <scheme>: links are the app's to follow, not the page's.
                 .on_navigation(move |url| {
-                    if url.scheme() != "rushlab" {
+                    if url.scheme() != navigation_scheme {
                         return true;
                     }
                     #[cfg(target_os = "macos")]
@@ -248,12 +239,12 @@ fn main() {
                         let signing = handle.clone();
                         let _ = handle.run_on_main_thread(move || {
                             if let Err(message) = sign_in(&signing) {
-                                refuse(&signing, format!("RUSH Lab could not open its sign-in: {message}"));
+                                refuse(&signing, format!("{} could not open its sign-in: {message}", app_config(&signing).product_name));
                             }
                         });
                         return false;
                     }
-                    if is_terminal(url) {
+                    if is_terminal(url, &navigation_scheme) {
                         // The window opens on the main thread, once this navigation is refused.
                         let opening = handle.clone();
                         let _ = handle.run_on_main_thread(move || open_terminal(&opening));
@@ -270,7 +261,7 @@ fn main() {
                     NewWindowResponse::Deny
                 })
                 .build()?;
-            // Closing the window leaves RUSH Lab running in the menu bar, so runs still reach this computer.
+            // Closing the window leaves the app running in the menu bar, so runs still reach this computer.
             let hidden = app.handle().clone();
             let closing = window.clone();
             window.on_window_event(move |event| {
@@ -285,15 +276,15 @@ fn main() {
                 }
             });
 
-            let open = MenuItem::with_id(app, "open", "Open RUSH Lab", true, None::<&str>)?;
+            let open = MenuItem::with_id(app, "open", format!("Open {name}"), true, None::<&str>)?;
             let new_terminal = MenuItem::with_id(app, "terminal", "New Terminal", true, None::<&str>)?;
             let logs = MenuItem::with_id(app, "logs", "Show Logs", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit RUSH Lab", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", format!("Quit {name}"), true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &new_terminal, &logs, &PredefinedMenuItem::separator(app)?, &quit])?;
             let icon = app.default_window_icon().cloned().ok_or("the app has no icon")?;
             TrayIconBuilder::new()
                 .icon(icon)
-                .tooltip("RUSH Lab")
+                .tooltip(&name)
                 .menu(&menu)
                 .on_menu_event(|app, event| match (event.id().as_ref(), app.try_state::<Arc<Lab>>()) {
                     ("open", _) => show(app),
@@ -307,7 +298,7 @@ fn main() {
             let link_handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
                 for link in event.urls() {
-                    if is_terminal(&link) {
+                    if is_terminal(&link, &scheme) {
                         // From another thread: this runs on the main thread while the event's listeners
                         // are locked, and building a window there waits for that lock.
                         let opening = link_handle.clone();
@@ -325,21 +316,19 @@ fn main() {
                 // moves, which nothing could open again at login.
                 let exe = std::env::current_exe().unwrap_or_default();
                 if exe.starts_with("/Volumes") || exe.to_string_lossy().contains("/AppTranslocation/") {
-                    fail(&handle, "Drag RUSH Lab into your Applications folder, then open it from there.".into());
+                    fail(&handle, format!("Drag {name} into your Applications folder, then open it from there."));
                 }
                 setup::installing(&handle);
-                let lab = Arc::new(Lab::install(&handle).unwrap_or_else(|message| fail(&handle, format!("RUSH Lab could not be installed: {message}"))));
+                let lab = Arc::new(Lab::install(&handle).unwrap_or_else(|message| fail(&handle, format!("{name} could not be installed: {message}"))));
                 if let Err(error) = handle.autolaunch().enable() {
-                    fail(&handle, format!("RUSH Lab could not set itself to open at login: {error}"));
+                    fail(&handle, format!("{name} could not set itself to open at login: {error}"));
                 }
                 // What the last run said of setting up is not this one's.
                 let _ = std::fs::remove_file(lab.data.join(setup::FILE));
                 setup::follow(handle.clone(), lab.data.clone());
                 lab.start();
-                match lab::update_target(&handle) {
-                    Ok(Some(target)) => update::keep_updated(handle.clone(), lab.clone(), update_site, target),
-                    Ok(None) => {}
-                    Err(message) => fail(&handle, message),
+                if let Some(target) = update_target {
+                    update::keep_updated(handle.clone(), lab.clone(), update_site, target);
                 }
                 handle.manage(lab);
             });
@@ -360,7 +349,7 @@ fn main() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("RUSH Lab failed to start");
+        .expect("the app failed to start");
     app.run(|app, event| match event {
         // The Dock icon, or opening the app again, brings the window back.
         #[cfg(target_os = "macos")]

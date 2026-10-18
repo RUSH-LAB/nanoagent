@@ -7,8 +7,9 @@
  *   src-tauri/resources/runner/     the relay that lends this computer's NanoAgent to Mochi
  *   src-tauri/resources/terminal/   what the terminal writes into a plugin project: project.md and the publish-plugin skill
  *   src-tauri/resources/nanoagent/  NanoAgent's source (site/), its uv.lock, the PI runner's bundle, and the config the app runs
- *   src-tauri/resources/config.json this folder's config.yaml, as JSON: lab.mjs loads only Node's own modules;
- *                                   with --release (npm run build:release), the target it updates itself as
+ *   src-tauri/resources/config.json this folder's config.yaml, as JSON (scripts/config.mjs): lab.mjs loads only
+ *                                   Node's own modules; with --release (npm run build:release), the target it
+ *                                   updates itself as; with --dev (npm run desktop:dev), RUSH Lab Dev's
  *   src-tauri/resources/stamp       names this staging; the app installs each stamp once
  *   src-tauri/resources/git/        Windows only: MinGit, with busybox-w32 as its shell
  *   src-tauri/binaries/{node,uv}-<target>   the runtimes, downloaded and checksum-verified
@@ -20,7 +21,7 @@ import process from 'node:process';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {build} from 'esbuild';
-import YAML from 'yaml';
+import {readConfig} from './config.mjs';
 
 const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const mochiRoot = path.dirname(desktop);
@@ -30,7 +31,9 @@ const nanoagentRoot = path.resolve(mochiRoot, '..', 'nanoagent');
 const resources = path.join(desktop, 'src-tauri', 'resources');
 const binaries = path.join(desktop, 'src-tauri', 'binaries');
 const cache = path.join(desktop, '.cache');
-const config = YAML.parse(fs.readFileSync(path.join(desktop, 'config.yaml'), 'utf8'));
+const release = process.argv.includes('--release');
+const dev = process.argv.includes('--dev');
+const config = readConfig({dev});
 
 // Rust target triple -> the runtimes' own platform names.
 const TARGETS = {
@@ -197,6 +200,8 @@ async function stageNanoAgent(uv) {
 async function main() {
   const target = process.env.TAURI_ENV_TARGET_TRIPLE;
   const platform = TARGETS[target];
+  // RUSH Lab Dev never updates itself: its local site's database is a copy of production's, release archives too.
+  if (release && dev) throw new Error('--release and --dev cannot be given together: RUSH Lab Dev is never a release');
   if (!platform) {
     throw new Error(`TAURI_ENV_TARGET_TRIPLE is ${JSON.stringify(target)}; run this through npm run build (targets: ${Object.keys(TARGETS).join(', ')})`);
   }
@@ -213,7 +218,7 @@ async function main() {
   if (platform.exe) await stageGit();
   await stageNanoAgent(path.join(binaries, `uv-${target}${platform.exe}`));
   // A release updates itself from its site (src-tauri/src/update.rs); any other build stays as built.
-  if (process.argv.includes('--release')) config.update_target = target;
+  if (release) config.update_target = target;
   fs.writeFileSync(path.join(resources, 'config.json'), `${JSON.stringify(config, null, 2)}\n`);
   const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {cwd: mochiRoot, encoding: 'utf8'}).trim();
   fs.writeFileSync(path.join(resources, 'stamp'), `${new Date().toISOString().replace(/[:.]/g, '-')}-${commit}\n`);

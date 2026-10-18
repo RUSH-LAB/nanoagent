@@ -1,4 +1,5 @@
 import {useEffect, useState} from 'react';
+import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import API_BASE, {apiRequest} from '@site/src/utils/api';
 
 // How often the connect link is asked for again: its token lasts an hour.
@@ -65,7 +66,15 @@ export function visitorSystem() {
 /** Whether this page is in the RUSH Lab app's own window, which says so (desktop/src-tauri/src/main.rs). */
 export const inLabApp = () => typeof window !== 'undefined' && window.__RUSH_LAB_APP__ === true;
 
-/** Whether the app's window opens rushlab://terminal, a terminal window of the app's (desktop/src-tauri/src/terminal.rs). */
+/**
+ * A link the RUSH Lab app that serves this site opens, <its scheme>://<path>: RUSH Lab's, or RUSH
+ * Lab Dev's on npm start's local site (server/lab-app.js, docusaurus.config.js's labScheme).
+ */
+export function useLabLink(path) {
+  return `${useDocusaurusContext().siteConfig.customFields.labScheme}://${path}`;
+}
+
+/** Whether the app's window opens <scheme>://terminal, a terminal window of the app's (desktop/src-tauri/src/terminal.rs). */
 export const labAppHasTerminal = () => typeof window !== 'undefined' && window.__RUSH_LAB_TERMINAL__ === true;
 
 /** Whether the app signs its window in itself (macOS), rather than the page signing in as on the site (Windows). */
@@ -90,7 +99,7 @@ export function useLabSetup() {
 
 /**
  * The link that connects the RUSH Lab app on this computer to the member's account
- * (rushlab://connect, server/routes/lab.js): {link, error}.
+ * (<scheme>://connect, server/routes/lab.js): {link, error}.
  */
 export function useConnectLink() {
   const [link, setLink] = useState(null);

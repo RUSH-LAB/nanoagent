@@ -16,6 +16,8 @@ const routes = loadRoute('lab');
 const SECRET = 'a-test-secret-of-at-least-thirty-two-characters';
 const UPLOAD = 'the-upload-token';
 const SITE = 'https://mochi.example';
+// The links of the app that serves the site (lab-app.js servedApp).
+const SCHEME = 'rushlab-dev';
 const ARM = 'aarch64-apple-darwin';
 const INTEL = 'x86_64-apple-darwin';
 // More than two chunks, fed in pieces that do not line up with them.
@@ -54,7 +56,7 @@ describe('RUSH Lab\'s download and connect link', () => {
     const database = await migratedDatabase();
     db = database.db;
     ctx = makeCtx({lab: {
-      bundles: createPostgresLab({pool: database.pool}), secret: SECRET, siteUrl: SITE, uploadToken: UPLOAD,
+      bundles: createPostgresLab({pool: database.pool}), secret: SECRET, siteUrl: SITE, scheme: SCHEME, uploadToken: UPLOAD,
       findMember: async userId => (userId === 'gone' ? null : {login: `${userId}-gh`}),
       sessionCookie: async token => `session=${token}; Path=/; HttpOnly`,
       createSession: async userId => (userId === 'gone' ? null : {token: `session-for-${userId}`, login: `${userId}-gh`}),
@@ -90,7 +92,7 @@ describe('RUSH Lab\'s download and connect link', () => {
     const {status, payload} = await call({path: '/api/lab/connect', auth: as('alice')});
     assert.equal(status, 200);
     const link = new URL(payload.link);
-    assert.equal(`${link.protocol}//${link.host}`, 'rushlab://connect');
+    assert.equal(`${link.protocol}//${link.host}`, `${SCHEME}://connect`);
     assert.equal(link.searchParams.get('site'), SITE);
     assert.equal(verifyDownloadToken(SECRET, link.searchParams.get('token')), 'alice');
   });
@@ -118,7 +120,7 @@ describe('RUSH Lab\'s download and connect link', () => {
     const signedIn = await call({path: '/api/lab/sign-in', query: {state}, auth: as('alice')});
     assert.equal(signedIn.written.status, 302);
     const back = new URL(signedIn.written.headers.Location);
-    assert.equal(`${back.protocol}//${back.host}`, 'rushlab://sign-in');
+    assert.equal(`${back.protocol}//${back.host}`, `${SCHEME}://sign-in`);
     assert.equal(back.searchParams.get('site'), SITE);
     assert.equal(back.searchParams.get('state'), state);
     assert.equal(verifyDownloadToken(SECRET, back.searchParams.get('token')), 'alice');
@@ -248,6 +250,9 @@ describe('RUSH Lab\'s download and connect link', () => {
     const script = String(written.body);
     assert.match(script, new RegExp(`^SITE='${SITE}'$`, 'm'));
     assert.match(script, /"\$SITE\/api\/lab\/bundles\/\$TARGET"/);
+    // The release, whatever the site: config.yaml's top level.
+    assert.match(script, /^APP='\/Applications\/RUSH Lab\.app'$/m);
+    assert.match(script, /quit app id "lab\.mochi\.lab"/);
     execFileSync('sh', ['-n'], {input: script});
     assert.throws(() => installScript("https://x.org'; rm -rf ~"), /not a site/);
   });

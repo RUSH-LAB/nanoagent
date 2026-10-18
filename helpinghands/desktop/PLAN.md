@@ -29,6 +29,15 @@ Needs Node 22, Rust, a C compiler (Xcode's command line tools), and NanoAgent's 
 `helpinghands/`. The app needs nothing installed where it runs. Opening the build takes over this
 computer's RUSH Lab, as a member's install does.
 
+`npm run desktop:dev` (`scripts/dev/desktop-dev.mjs`) builds RUSH Lab Dev instead, by the same code
+and the same steps, installs it in /Applications beside RUSH Lab and opens it; `npm run
+desktop:dev:build` only builds it. The two differ only in `config.yaml`: its top level is RUSH
+Lab's, and its `dev` block (`scripts/stage.mjs --dev`) gives RUSH Lab Dev its own name,
+identifier and data folder (`lab.mochi.lab.dev`), link scheme (`rushlab-dev`), files and projects
+folders, and this checkout's `npm start`, `http://localhost:3000`, as its one site. Both can run
+at once. RUSH Lab Dev never updates itself: a local site's database is a copy of production's,
+release archives too.
+
 `.github/workflows/helpinghands-desktop.yml` builds a release (`npm run build:release`,
 `scripts/release.mjs`) for each kind of Mac on its own runner, since each bundles that Mac's
 runtimes. A release's version is its build's time, `0.<yyyymmdd>.<hhmmss>` in UTC; it
@@ -74,7 +83,7 @@ RUSH Lab.app
     ├── runner/                   src/runner/: lab.mjs, the relay and what they load
     ├── terminal/                 what the terminal writes into a plugin project: project.md and the publish-plugin skill
     ├── nanoagent/                NanoAgent's source (site/), its uv.lock, the PI runner's bundle, its config
-    ├── config.json               config.yaml: the Mochi it serves, its label, the files folders, runtime versions
+    ├── config.json               config.yaml (RUSH Lab Dev's: its `dev` block over it): the app's name, label, scheme, the Mochi it serves, its folders, runtime versions
     └── stamp                     names this build
 ```
 
@@ -85,15 +94,14 @@ runner ships as its two bundled files.
 
 At launch the app (`src-tauri/src/main.rs`, `lab.rs`):
 
-1. Opens its window on `site_url`, or on the site on this computer `--site` names (`npm run
-   desktop:dev`, with the site in the window's title). Hidden when the login item opened it (`--login`). And its
-   menu-bar icon: Open RUSH Lab (the window), New Terminal (below), Show Logs, Quit RUSH Lab. The Dock icon, or opening
+1. Opens its window on `site_url`, titled with its `product_name`. Hidden when the login item opened it (`--login`). And its
+   menu-bar icon: Open RUSH Lab (the window), New Terminal (below), Show Logs, Quit RUSH Lab, each naming the app. The Dock icon, or opening
    the app again, shows the window too; closing it hides it, and the Dock icon with it. The
    window's pages see `window.__RUSH_LAB_APP__`. Links that ask for a new window open in the
    browser.
 2. Stops and removes a RUSH Lab the old one-line install had launchd run
    (`~/Library/LaunchAgents/lab.mochi.lab.plist`). Its connections stay, and this app serves them.
-3. Installs this build once into `~/Library/Application Support/lab.mochi.lab/app/<stamp>/mochi-lab/`,
+3. Installs this build once into `~/Library/Application Support/<label>/app/<stamp>/mochi-lab/`,
    and removes older ones: NanoAgent's `.venv` is made beside it.
 4. Sets itself to open at login (`tauri-plugin-autostart`, a launch agent named for the app,
    which passes `--login`).
@@ -115,9 +123,9 @@ developer, so the window signs in in macOS's own sign-in sheet over it (ASWebAut
 `src-tauri/src/sign_in.rs`), where passkeys work and Safari's sign-ins carry over
 (`src/server/routes/lab.js`):
 
-1. In the window, **Continue with GitHub** (`AuthScreen.js`) goes to `rushlab://sign-in`, which the
+1. In the window, **Continue with GitHub** (`AuthScreen.js`) goes to `<scheme>://sign-in`, which the
    app follows instead of the page. It opens `GET /api/lab/sign-in?state=<random>` in the sheet.
-2. Signed in there, Mochi redirects to `rushlab://sign-in?site=&state=&token=<t>`; signed out, to
+2. Signed in there, Mochi redirects to `<scheme>://sign-in?site=&state=&token=<t>`; signed out, to
    the sign-in page first, which comes back. The sheet hands that address to this app alone, never
    to a browser or another copy of the app, and closes.
 3. The app takes it only with the state it asked for. It opens
@@ -131,7 +139,7 @@ connects them at once: the link came from the site the window shows, where they 
 link from anywhere else, such as Connect on the site in a browser, connects them only once they
 confirm it. `src/server/routes/lab.js`:
 
-- `GET /api/lab/connect` (signed in) answers `{link}`: `rushlab://connect?site=<SITE_URL>&token=<t>`.
+- `GET /api/lab/connect` (signed in) answers `{link}`: `<scheme>://connect?site=<SITE_URL>&token=<t>`.
   The token is the member's for an hour, `<user id, base64url>.<expiry, unix seconds>.<HMAC-SHA256, base64url>`,
   signed with a key derived from `BETTER_AUTH_SECRET` (`src/server/lab-tokens.js`). Mochi keeps
   nothing of it.
@@ -140,12 +148,13 @@ confirm it. `src/server/routes/lab.js`:
   member, the same Better Auth session the device grant gives once a member approves a computer.
   Anyone holding the link for its hour could make one, so it is the member's to keep.
 
-The app registers the `rushlab` scheme (`tauri-plugin-deep-link`), and macOS hands each link to the
-running app; a second launch quits (`tauri-plugin-single-instance`). For a link, it asks lab.mjs:
+The app registers its `scheme` (`tauri-plugin-deep-link`): `rushlab` for RUSH Lab, `rushlab-dev`
+for RUSH Lab Dev, whose links its local site makes (`src/server/lab-app.js`, `MOCHI_LOCAL_SITE`).
+macOS hands each link to the running app; a second launch quits
+(`tauri-plugin-single-instance`). For a link, it asks lab.mjs:
 
-1. `lab.mjs member <site>`, with the token in `LAB_TOKEN`: the site must be `site_url`, or a
-   development checkout's on this computer (`http://localhost`, `127.0.0.1` or `[::1]`, any port;
-   `connectableSite`), so no web page can connect this computer to a site of its own. Then whose
+1. `lab.mjs member <site>`, with the token in `LAB_TOKEN`: the site must be `site_url`
+   (`connectableSite`), so no web page can connect this computer to a site of its own. Then whose
    the link is (`GET /api/lab/session`).
 2. For a link from outside the window, the app asks: "Connect this computer to <host> as
    @<login>?" A link for someone else's account, which a page could open, is refused here.
@@ -156,14 +165,15 @@ Any failure says why in a dialog.
 
 ## lab.mjs
 
-`src/runner/lab.mjs` serves every connection on this computer's account: one member of one site
-each, however many members and sites. The data folder, `~/Library/Application Support/lab.mochi.lab/`
+`src/runner/lab.mjs` serves every connection on this computer's account: one member of its one
+site each, however many members. A connection to any other site, which an earlier build kept, is
+removed at startup (`removeOtherSites`), its member's files left as they are. The data folder, `~/Library/Application Support/<label>/`
 (`label` in `config.yaml`), holds what they share: `app/<stamp>/`, `python/`, the uv cache, and
 `logs/lab.log`. Each connection is `connections/<host>-<member id>/`: its `site`, its member
 (`member.json`, their id and GitHub login), their sign-in (`runner-credentials.json`, mode 0600),
 their keys (`settings.env`), NanoAgent's folders and `logs/` for them, and `installed`, rewritten by
-each connect. The member's files are `~/rushlab/<login>/` for rush-lab.org and
-`~/rushlab-dev/<login>/` for any other site, such as a checkout's `npm start`.
+each connect. The member's files are `~/<files_folder>/<login>/`: `~/rushlab/<login>/` in RUSH Lab,
+`~/rushlab-dev/<login>/` in RUSH Lab Dev.
 
 It starts with `uv sync`, once. Then, for each connection, it starts NanoAgent on a free port with
 the sandbox, a fresh token, that member's keys and `run_models=true` (each run may name its own
@@ -197,7 +207,7 @@ A member designs a plugin with any AI CLI on their computer (`claude`, `codex`, 
 RUSH Lab's terminal, with no NanoAgent harness or OpenRouter key in that chat
 (`src-tauri/src/terminal.rs`, the page `terminal/`):
 
-- **New Terminal** in the menu-bar menu, or `rushlab://terminal` (the site's navbar shows
+- **New Terminal** in the menu-bar menu, or `<scheme>://terminal` (the site's navbar shows
   **Terminal** in the app's window, `labAppHasTerminal()`; from anywhere else the deep link), opens
   a window of its own, `terminal-<n>`. It loads the page the app bundles (`dist/terminal/`, built
   by `scripts/stage.mjs` with xterm.js), never the site: only that page reaches the terminal's
@@ -281,9 +291,9 @@ in a single transaction. Any signed-in member may read them; row-level security 
 upload path write them. A download that an upload overtakes is cut off rather than finished with
 the new dmg's bytes.
 
-Locally, `npm start` runs no RUSH Lab of its own: a checkout's site connects the app installed on
-this computer, as rush-lab.org does. To try a change to the runner or NanoAgent, build the app
-(`npm run desktop`).
+Locally, `npm start` runs no RUSH Lab of its own: a checkout's site is RUSH Lab Dev's, which it
+connects as rush-lab.org connects RUSH Lab. To try a change to the runner or NanoAgent, build it
+(`npm run desktop:dev`).
 
 ## Known gaps
 

@@ -9,6 +9,7 @@ const { loadBuildPlugins, writeClientComponentRegistry } = require('./plugins/lo
 const runtimeContentPlugin = require('./src/runtime-content');
 const {platformConfig} = require('./src/platform');
 const {asksForSession, redirectFor} = require('./src/utils/signIn');
+const {servedApp} = require('./src/server/lab-app');
 
 // This file describes one deployable application, not one workspace. A
 // workspace's title, logo, homepage, navigation, and collections are loaded
@@ -52,6 +53,8 @@ const config = {
     platformName,
     // When npm start's local database was last pulled from production (scripts/db/sync.mjs).
     pulledAt: process.env.MOCHI_PULLED_AT || null,
+    // The scheme of the RUSH Lab app that serves this site, which its links use (utils/labApp.js).
+    labScheme: servedApp().scheme,
   },
 
   future: {

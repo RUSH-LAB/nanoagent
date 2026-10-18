@@ -7,15 +7,16 @@ import path from 'node:path';
 import YAML from 'yaml';
 import crypto from 'node:crypto';
 import {
-  addConnection, adoptLegacy, connectableSite, connectionId, draftSupervisor, draftsToInstall, filesFolderFor, linkMember, linkSession, keyHint, keyStatus, nanoagentCommand,
-  parseEnv, previewConnection, previewOutcome, providerKeys, readDrafts, relayEnv, removeDraft, rushlab, rushlabCommand, systemEnv, writeDraft, writeKeys,
+  addConnection, adoptLegacy, connectableSite, connectionId, draftSupervisor, draftsToInstall, linkMember, linkSession, keyHint, keyStatus, nanoagentCommand,
+  parseEnv, previewConnection, previewOutcome, providerKeys, readDrafts, relayEnv, removeDraft, removeOtherSites, rushlab, rushlabCommand, systemEnv, writeDraft, writeKeys,
 } from '../../../src/runner/lab.mjs';
 
-test('installs once, keeping its own site\'s files apart from any other\'s', () => {
+const CONFIG = {product_name: 'RUSH Lab', site_url: 'https://rush-lab.org'};
+
+test('installs once, its own site\'s files apart from RUSH Lab Dev\'s', () => {
   const config = YAML.parse(fs.readFileSync(new URL('../../../desktop/config.yaml', import.meta.url), 'utf8'));
-  assert.equal(config.label, 'lab.mochi.lab');
-  assert.equal(filesFolderFor(config, 'https://rush-lab.org'), 'rushlab');
-  assert.equal(filesFolderFor(config, 'http://localhost:3000'), 'rushlab-dev');
+  assert.deepEqual([config.label, config.files_folder], ['lab.mochi.lab', 'rushlab']);
+  assert.deepEqual([config.dev.label, config.dev.files_folder], ['lab.mochi.lab.dev', 'rushlab-dev']);
 });
 
 test('names a connection by its site and member', () => {
@@ -24,13 +25,38 @@ test('names a connection by its site and member', () => {
   assert.throws(() => connectionId('https://rush-lab.org', '../x'), /not a member id/);
 });
 
-test('connects only to its own site, or a development checkout\'s on this computer', () => {
-  const config = {site_url: 'https://rush-lab.org'};
-  assert.equal(connectableSite(config, 'https://rush-lab.org/'), 'https://rush-lab.org');
-  for (const site of ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://[::1]:3000']) assert.equal(connectableSite(config, site), site);
-  for (const site of ['https://evil.example', 'http://rush-lab.org', 'https://localhost:3000', 'http://localhost.evil.example', 'not a url', '']) {
-    assert.throws(() => connectableSite(config, site), /is not a site RUSH Lab connects to/, site);
+test('connects only to its own site', () => {
+  assert.equal(connectableSite(CONFIG, 'https://rush-lab.org/'), 'https://rush-lab.org');
+  for (const site of ['http://localhost:3000', 'http://127.0.0.1:3000', 'https://evil.example', 'http://rush-lab.org', 'not a url', '']) {
+    assert.throws(() => connectableSite(CONFIG, site), /is not a site RUSH Lab connects to: it serves only https:\/\/rush-lab\.org$/, site);
   }
+  const dev = {product_name: 'RUSH Lab Dev', site_url: 'http://localhost:3000'};
+  assert.equal(connectableSite(dev, 'http://localhost:3000'), 'http://localhost:3000');
+  for (const site of ['https://rush-lab.org', 'http://127.0.0.1:3000', 'http://localhost:3001']) {
+    assert.throws(() => connectableSite(dev, site), /is not a site RUSH Lab Dev connects to: it serves only http:\/\/localhost:3000$/, site);
+  }
+});
+
+test('removes each connection to another site at startup, saying why, its member\'s files left as they are', async () => {
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'lab-data-'));
+  const own = await addConnection(data, CONFIG, 'https://rush-lab.org', {session: 'tok-a', member: {id: 'alice', login: 'alice-gh'}});
+  const other = await addConnection(data, CONFIG, 'http://localhost:3000', {session: 'tok-b', member: {id: 'alice', login: 'alice-gh'}});
+  const said = [];
+  const write = console.log;
+  console.log = line => said.push(line);
+  try {
+    assert.deepEqual(removeOtherSites(data, CONFIG), [other]);
+  } finally {
+    console.log = write;
+  }
+  assert.deepEqual(fs.readdirSync(path.join(data, 'connections')), [own]);
+  assert.equal(said.length, 1);
+  assert.match(said[0], new RegExp(`\\[${other}\\] Removed the connection to http://localhost:3000: RUSH Lab serves only https://rush-lab\\.org\\. Its member's files are left as they are\\.$`));
+  assert.deepEqual(removeOtherSites(data, CONFIG), []);
+  // A folder an adopt left before writing `installed` is not a connection yet, and is left as it is.
+  fs.mkdirSync(path.join(data, 'connections', 'half'));
+  assert.deepEqual(removeOtherSites(data, CONFIG), []);
+  assert.deepEqual(fs.readdirSync(path.join(data, 'connections')).sort(), ['half', own]);
 });
 
 test('asks the site whose a connect link is, and then for their session, saying why it refuses', async () => {
@@ -58,8 +84,8 @@ const read = (...parts) => fs.readFileSync(path.join(...parts), 'utf8');
 
 test('keeps each member\'s session as a connection of their own, another member\'s left as it is', async () => {
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'lab-data-'));
-  const alice = await addConnection(data, SITE, {session: 's-alice', member: {id: 'alice', login: 'alice-gh'}});
-  const bob = await addConnection(data, 'http://localhost:3000', {session: 's-bob', member: {id: 'bob', login: 'bob-gh'}});
+  const alice = await addConnection(data, CONFIG, SITE, {session: 's-alice', member: {id: 'alice', login: 'alice-gh'}});
+  const bob = await addConnection(data, CONFIG, 'http://localhost:3000', {session: 's-bob', member: {id: 'bob', login: 'bob-gh'}});
   assert.equal(alice, 'rush-lab.org-alice');
   assert.equal(bob, 'localhost-3000-bob');
   const folder = path.join(data, 'connections', alice);
@@ -70,20 +96,20 @@ test('keeps each member\'s session as a connection of their own, another member\
   // Installed again, only that connection's sign-in and `installed` change.
   const installed = read(folder, 'installed');
   await new Promise(resolve => setTimeout(resolve, 5));
-  await addConnection(data, SITE, {session: 's-alice-2', member: {id: 'alice', login: 'alice-gh'}});
+  await addConnection(data, CONFIG, SITE, {session: 's-alice-2', member: {id: 'alice', login: 'alice-gh'}});
   assert.equal(JSON.parse(read(folder, 'runner-credentials.json')).token, 's-alice-2');
   assert.notEqual(read(folder, 'installed'), installed);
   assert.equal(JSON.parse(read(data, 'connections', bob, 'runner-credentials.json')).token, 's-bob');
-  await assert.rejects(addConnection(data, SITE, {session: 'bad session', member: {id: 'c', login: 'c'}}), /no valid session/);
-  await assert.rejects(addConnection(data, SITE, {session: 's', member: {id: 'c'}}), /no GitHub login/);
+  await assert.rejects(addConnection(data, CONFIG, SITE, {session: 'bad session', member: {id: 'c', login: 'c'}}), /no valid session/);
+  await assert.rejects(addConnection(data, CONFIG, SITE, {session: 's', member: {id: 'c'}}), /no GitHub login/);
   fs.rmSync(data, {recursive: true});
 });
 
 /** A data folder as an install from before connections left it, signed in with `token`. */
-function legacyInstall(token) {
+function legacyInstall(token, site = SITE) {
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'lab-legacy-'));
-  fs.writeFileSync(path.join(data, 'site'), `${SITE}\n`);
-  fs.writeFileSync(path.join(data, 'runner-credentials.json'), JSON.stringify({site: SITE, token}));
+  fs.writeFileSync(path.join(data, 'site'), `${site}\n`);
+  fs.writeFileSync(path.join(data, 'runner-credentials.json'), JSON.stringify({site, token}));
   fs.writeFileSync(path.join(data, 'settings.env'), 'OPENROUTER_API_KEY=sk-or-1\n');
   fs.mkdirSync(path.join(data, 'agent-workspaces'));
   fs.mkdirSync(path.join(data, 'python'));
@@ -94,7 +120,7 @@ test('makes an install from before connections its member\'s connection, as the 
   const data = legacyInstall('old');
   const member = async (site, token) => (site === SITE && token === 'old' ? {id: 'alice', login: 'alice-gh'} : false);
   // Bob installs: Alice's sign-in, keys and folders become her connection, and Bob gets his.
-  assert.equal(await addConnection(data, SITE, {session: 's-bob', member: {id: 'bob', login: 'bob-gh'}}, {member}), 'rush-lab.org-bob');
+  assert.equal(await addConnection(data, CONFIG, SITE, {session: 's-bob', member: {id: 'bob', login: 'bob-gh'}}, {member}), 'rush-lab.org-bob');
   const alice = path.join(data, 'connections', 'rush-lab.org-alice');
   assert.equal(read(alice, 'settings.env'), 'OPENROUTER_API_KEY=sk-or-1\n');
   assert.deepEqual(JSON.parse(read(alice, 'runner-credentials.json')), {site: SITE, token: 'old'});
@@ -106,13 +132,22 @@ test('makes an install from before connections its member\'s connection, as the 
 
 test('drops a sign-in from before connections the site knows no more, and stops when it cannot be reached', async () => {
   const forgotten = legacyInstall('old');
-  assert.equal(await adoptLegacy(forgotten, {member: async () => false}), null);
+  assert.equal(await adoptLegacy(forgotten, CONFIG, {member: async () => false}), null);
   assert.deepEqual(fs.readdirSync(forgotten), ['python']);
   fs.rmSync(forgotten, {recursive: true});
   const unreachable = legacyInstall('old');
-  await assert.rejects(adoptLegacy(unreachable, {member: async () => null}), /could not reach https:\/\/rush-lab\.org/);
+  await assert.rejects(adoptLegacy(unreachable, CONFIG, {member: async () => null}), /could not reach https:\/\/rush-lab\.org/);
   assert.ok(fs.existsSync(path.join(unreachable, 'runner-credentials.json')));
   fs.rmSync(unreachable, {recursive: true});
+});
+
+test('drops a sign-in from before connections to another site without asking it', async () => {
+  const data = legacyInstall('old', 'http://localhost:3000');
+  const member = async () => assert.fail('asked the other site whose the sign-in is');
+  assert.equal(await addConnection(data, CONFIG, SITE, {session: 's-bob', member: {id: 'bob', login: 'bob-gh'}}, {member}), 'rush-lab.org-bob');
+  assert.deepEqual(fs.readdirSync(path.join(data, 'connections')), ['rush-lab.org-bob']);
+  assert.deepEqual(fs.readdirSync(data).sort(), ['connections', 'python']);
+  fs.rmSync(data, {recursive: true});
 });
 
 test('hints at a key without giving it away', () => {
@@ -242,6 +277,7 @@ function supervised(answer, bytes = Buffer.from('package')) {
   const told = [];
   const busy = [];
   const supervisor = draftSupervisor({
+    config: CONFIG,
     data,
     connections,
     install: (connection, sha256, got) => {
@@ -345,15 +381,15 @@ test('removes only a draft this computer has, by a plugin id', () => {
 
 test('previews a draft for the one connection on this computer, or the one named of several', async () => {
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'lab-data-'));
-  assert.throws(() => previewConnection(data, null), /^Error: No account is connected on this computer: open RUSH Lab and sign in$/);
-  const alice = await addConnection(data, 'https://rush-lab.org', {session: 'tok-a', member: {id: 'alice', login: 'alice-gh'}});
-  assert.deepEqual(previewConnection(data, null), {id: alice, login: 'alice-gh', site: 'https://rush-lab.org'});
-  const dev = await addConnection(data, 'http://localhost:3000', {session: 'tok-b', member: {id: 'alice', login: 'alice-gh'}});
-  assert.throws(() => previewConnection(data, null), error => error.message === [
+  assert.throws(() => previewConnection(data, CONFIG, null), /^Error: No account is connected on this computer: open RUSH Lab and sign in$/);
+  const alice = await addConnection(data, CONFIG, 'https://rush-lab.org', {session: 'tok-a', member: {id: 'alice', login: 'alice-gh'}});
+  assert.deepEqual(previewConnection(data, CONFIG, null), {id: alice, login: 'alice-gh', site: 'https://rush-lab.org'});
+  const dev = await addConnection(data, CONFIG, 'http://localhost:3000', {session: 'tok-b', member: {id: 'alice', login: 'alice-gh'}});
+  assert.throws(() => previewConnection(data, CONFIG, null), error => error.message === [
     'More than one account is connected on this computer: name the draft\'s with --to <connection>:',
     `  ${dev}  @alice-gh on http://localhost:3000`,
     `  ${alice}  @alice-gh on https://rush-lab.org`,
   ].join('\n'));
-  assert.deepEqual(previewConnection(data, dev), {id: dev, login: 'alice-gh', site: 'http://localhost:3000'});
-  assert.throws(() => previewConnection(data, 'other'), /^Error: No connection other is on this computer\. Its connections:\n/);
+  assert.deepEqual(previewConnection(data, CONFIG, dev), {id: dev, login: 'alice-gh', site: 'http://localhost:3000'});
+  assert.throws(() => previewConnection(data, CONFIG, 'other'), /^Error: No connection other is on this computer\. Its connections:\n/);
 });

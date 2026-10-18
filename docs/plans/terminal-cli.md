@@ -294,7 +294,7 @@ Track A:
   `plugin new` copies none.
 - In the app (`npm start`, then `npm run desktop:dev`): New Terminal opens a window whose shell
   finds the member's `claude`, `codex` or `gemini`, and `nanoagent`, `uv` and `rushlab`; New
-  plugin… makes `~/rushlab-plugins/<id>/` with the three files, and `nanoagent plugin inspect .`
+  plugin… makes `~/rushlab-dev-plugins/<id>/` with the three files, and `nanoagent plugin inspect .`
   passes there; the navbar's Terminal opens one; a link printed in the terminal opens in the
   browser; closing the window ends its shell (`ps`); an update waits while a terminal is open.
 

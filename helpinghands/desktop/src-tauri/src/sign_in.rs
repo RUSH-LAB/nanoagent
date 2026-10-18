@@ -1,6 +1,6 @@
 //! The window's sign-in, in macOS's own sign-in sheet over the window (ASWebAuthenticationSession):
 //! GitHub's passkeys work there, as they do not in the window, and the sheet hands what the site
-//! answers (rushlab://sign-in?state=&token=) back to this app alone, never to the browser or to
+//! answers (<scheme>://sign-in?state=&token=) back to this app alone, never to the browser or to
 //! another copy of the app.
 
 use std::cell::RefCell;
@@ -38,13 +38,13 @@ thread_local! {
     static SHOWING: RefCell<Option<(Retained<ASWebAuthenticationSession>, Retained<Anchor>)>> = const { RefCell::new(None) };
 }
 
-/// Show `page` in the sign-in sheet over `window`, on the main thread. `done` gets the rushlab: URL
+/// Show `page` in the sign-in sheet over `window`, on the main thread. `done` gets the `scheme`: URL
 /// the site ends it with, None when the member closes the sheet, or why it failed.
-pub fn show(window: &WebviewWindow, page: Url, done: impl Fn(Result<Option<Url>, String>) + 'static) -> Result<(), String> {
+pub fn show(window: &WebviewWindow, page: Url, scheme: &str, done: impl Fn(Result<Option<Url>, String>) + 'static) -> Result<(), String> {
     let mtm = MainThreadMarker::new().ok_or("the sign-in sheet opens on the main thread")?;
     let ns_window = window.ns_window().map_err(|error| error.to_string())?;
     // The window outlives the sheet, which only borrows it.
-    let ns_window = unsafe { Retained::retain(ns_window.cast::<NSObject>()) }.ok_or("RUSH Lab has no window")?;
+    let ns_window = unsafe { Retained::retain(ns_window.cast::<NSObject>()) }.ok_or("the app has no window")?;
     let anchor: Retained<Anchor> = {
         let this = Anchor::alloc(mtm).set_ivars(ns_window);
         unsafe { msg_send![super(this), init] }
@@ -70,7 +70,7 @@ pub fn show(window: &WebviewWindow, page: Url, done: impl Fn(Result<Option<Url>,
         ASWebAuthenticationSession::initWithURL_callbackURLScheme_completionHandler(
             ASWebAuthenticationSession::alloc(),
             &url,
-            Some(&NSString::from_str("rushlab")),
+            Some(&NSString::from_str(scheme)),
             RcBlock::as_ptr(&completion),
         )
     };

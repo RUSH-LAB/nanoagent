@@ -2,8 +2,9 @@
 //! bundles (desktop/terminal/), never the site, running the member's login shell in a PTY. A login
 //! shell reads the member's profile, so its PATH finds their AI CLIs (claude, codex, gemini, ...);
 //! first on it, put back there once the profile has run, are launchers for the installed build's
-//! NanoAgent, uv and `rushlab` (lab.mjs). The PTY's bytes go only between this file and the
-//! window's page, never through Mochi or the relay.
+//! NanoAgent, uv and `rushlab` (lab.mjs): a command, named rushlab in RUSH Lab Dev too, not the
+//! app's link scheme (config.json's). The PTY's bytes go only between this file and the window's
+//! page, never through Mochi or the relay.
 //!
 //! A window opens on the projects folder (~/<projects_folder>/) or on one plugin project in it,
 //! which New plugin… makes with `nanoagent plugin new` and the publish-plugin skill written in as
@@ -34,7 +35,6 @@ const LABEL: &str = "terminal-";
 const CHUNK: usize = 64 * 1024;
 // What New plugin… writes into a project, each the whole text, so each AI CLI reads its own.
 const SKILL_FILES: [&str; 3] = ["AGENTS.md", "CLAUDE.md", "GEMINI.md"];
-const MISSING: &str = "RUSH Lab is still setting up NanoAgent (menu bar → Show Logs)";
 
 /// The terminal windows open, by label with the folder each starts in, and their shells, by id.
 #[derive(Default)]
@@ -65,7 +65,7 @@ pub struct Project {
 
 /// RUSH Lab, once it has installed its build.
 fn installed(app: &AppHandle) -> Result<Arc<Lab>, String> {
-    app.try_state::<Arc<Lab>>().map(|lab| lab.inner().clone()).ok_or_else(|| "RUSH Lab is still installing".to_string())
+    app.try_state::<Arc<Lab>>().map(|lab| lab.inner().clone()).ok_or_else(|| format!("{} is still installing", app.state::<lab::Config>().product_name))
 }
 
 /// RUSH Lab and the terminal window `webview` is, refusing any other window.
@@ -112,13 +112,19 @@ fn quote(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', r"'\''"))
 }
 
-/// The launchers for the build installed at `root`: each file's name and text.
+/// What a launcher says when the build it runs is not set up yet, in the app `name`.
+fn missing(name: &str) -> String {
+    format!("{name} is still setting up NanoAgent (menu bar → Show Logs)")
+}
+
+/// The launchers for the build installed at `root` by the app `name`: each file's name and text.
 #[cfg(unix)]
-fn launchers(root: &Path) -> Vec<(String, String)> {
+fn launchers(root: &Path, name: &str) -> Vec<(String, String)> {
     let bin = root.join("bin");
+    let missing = missing(name);
     let script = |targets: &[PathBuf], run: String| {
         let checks: String = targets.iter().map(|target| format!("[ -e {} ] || missing\n", quote(target))).collect();
-        format!("#!/bin/sh\n# Written by RUSH Lab for the build it runs (src-tauri/src/terminal.rs).\nmissing() {{ echo '{MISSING}' >&2; exit 1; }}\n{checks}{run}\n")
+        format!("#!/bin/sh\n# Written by RUSH Lab for the build it runs (src-tauri/src/terminal.rs).\nmissing() {{ echo '{missing}' >&2; exit 1; }}\n{checks}{run}\n")
     };
     let python = root.join("nanoagent/.venv/bin/python");
     let (node, lab_mjs) = (bin.join("node"), root.join("runner/lab.mjs"));
@@ -129,13 +135,14 @@ fn launchers(root: &Path) -> Vec<(String, String)> {
     ]
 }
 
-/// The launchers for the build installed at `root`: each file's name and text.
+/// The launchers for the build installed at `root` by the app `name`: each file's name and text.
 #[cfg(windows)]
-fn launchers(root: &Path) -> Vec<(String, String)> {
+fn launchers(root: &Path, name: &str) -> Vec<(String, String)> {
     let bin = root.join("bin");
+    let missing = missing(name);
     let script = |targets: &[PathBuf], run: String| {
         let checks: String = targets.iter().map(|target| format!("if not exist \"{}\" goto missing\r\n", target.display())).collect();
-        format!("@echo off\r\nrem Written by RUSH Lab for the build it runs (src-tauri/src/terminal.rs).\r\nsetlocal\r\n{checks}{run}\r\nexit /b %errorlevel%\r\n:missing\r\necho {MISSING} 1>&2\r\nexit /b 1\r\n")
+        format!("@echo off\r\nrem Written by RUSH Lab for the build it runs (src-tauri/src/terminal.rs).\r\nsetlocal\r\n{checks}{run}\r\nexit /b %errorlevel%\r\n:missing\r\necho {missing} 1>&2\r\nexit /b 1\r\n")
     };
     let python = root.join(r"nanoagent\.venv\Scripts\python.exe");
     let (node, uv, lab_mjs) = (bin.join("node.exe"), bin.join("uv.exe"), root.join(r"runner\lab.mjs"));
@@ -187,11 +194,11 @@ fn write_whole(file: &Path, text: &str, executable: bool) -> Result<(), String> 
 
 /// <data>/terminal/, rewritten for the build installed now: bin/ its launchers, and on unix shell/
 /// the shells' startup files. The launchers' folder.
-fn write_launchers(lab: &Lab) -> Result<PathBuf, String> {
+fn write_launchers(app: &AppHandle, lab: &Lab) -> Result<PathBuf, String> {
     let terminal = lab.data.join("terminal");
     let bin = terminal.join("bin");
     fs::create_dir_all(&bin).map_err(|error| format!("{}: {error}", bin.display()))?;
-    for (name, text) in launchers(lab.root()) {
+    for (name, text) in launchers(lab.root(), &app.state::<lab::Config>().product_name) {
         write_whole(&bin.join(name), &text, true)?;
     }
     #[cfg(unix)]
@@ -220,13 +227,14 @@ fn skill_text(preface: &str, skill: &str, id: &str) -> String {
 pub fn open_window(app: &AppHandle, folder: Option<PathBuf>) -> Result<(), String> {
     let lab = installed(app)?;
     let projects = projects_folder(app)?;
+    let name = &app.state::<lab::Config>().product_name;
     let title = match &folder {
-        Some(folder) => format!("{} — RUSH Lab", folder.file_name().unwrap_or_default().to_string_lossy()),
-        None => "Terminal — RUSH Lab".to_string(),
+        Some(folder) => format!("{} — {name}", folder.file_name().unwrap_or_default().to_string_lossy()),
+        None => format!("Terminal — {name}"),
     };
     let folder = folder.unwrap_or(projects.clone());
     inside(&projects, &folder)?;
-    write_launchers(&lab)?;
+    write_launchers(app, &lab)?;
     let terminals = app.state::<Terminals>();
     let label = format!("{LABEL}{}", terminals.next.fetch_add(1, Ordering::SeqCst));
     let opener = app.clone();
@@ -325,7 +333,7 @@ fn login_command(login: PathBuf, terminal: &Path) -> Result<CommandBuilder, Stri
         }
         // -C runs once fish has read its configuration.
         Some("fish") => command.args(["-l", "-C", "set -gx PATH $RUSH_LAB_BIN $PATH; set -e RUSH_LAB_BIN"]),
-        _ => return Err(format!("RUSH Lab's terminal runs zsh, bash or fish, and your login shell is {}", login.display())),
+        _ => return Err(format!("The terminal runs zsh, bash or fish, and your login shell is {}", login.display())),
     }
     Ok(command)
 }
@@ -385,7 +393,7 @@ pub async fn terminal_new_project(webview: Webview, id: String) -> Result<Projec
     let resources = app.path().resource_dir().map_err(|error| error.to_string())?.join("terminal");
     let read = |name: &str| fs::read_to_string(resources.join(name)).map_err(|error| format!("{}: {error}", resources.join(name).display()));
     let text = skill_text(&read("project.md")?, &read("SKILL.md")?, &id);
-    let launcher = write_launchers(&lab)?.join(if cfg!(windows) { "nanoagent.cmd" } else { "nanoagent" });
+    let launcher = write_launchers(app, &lab)?.join(if cfg!(windows) { "nanoagent.cmd" } else { "nanoagent" });
     let mut command = Command::new(launcher);
     command.args(["plugin".as_ref(), "new".as_ref(), folder.as_os_str()]);
     // Without a console window: this app has none, and Windows would open one.
@@ -463,7 +471,7 @@ pub fn terminal_start(webview: Webview, cols: u16, rows: u16, output: Channel<In
     thread::spawn(move || {
         for data in typing {
             if let Err(error) = writer.write_all(&data).and_then(|()| writer.flush()) {
-                let _ = said.send(InvokeResponseBody::Raw(format!("\r\n[RUSH Lab could not type into the shell: {error}]\r\n").into_bytes()));
+                let _ = said.send(InvokeResponseBody::Raw(format!("\r\n[Could not type into the shell: {error}]\r\n").into_bytes()));
                 break;
             }
         }
@@ -550,12 +558,12 @@ mod tests {
     fn each_launcher_runs_the_installed_build_quoted() {
         let root = Path::new("/Users/a b/Library/Application Support/lab.mochi.lab/app/it's/mochi-lab");
         let quoted = r"'/Users/a b/Library/Application Support/lab.mochi.lab/app/it'\''s/mochi-lab";
-        let launchers: HashMap<String, String> = launchers(root).into_iter().collect();
+        let launchers: HashMap<String, String> = launchers(root, "RUSH Lab Dev").into_iter().collect();
         let nanoagent = &launchers["nanoagent"];
         assert!(nanoagent.starts_with("#!/bin/sh\n"));
         assert!(nanoagent.contains(&format!("[ -e {quoted}/nanoagent/.venv/bin/python' ] || missing\n")));
         assert!(nanoagent.contains(&format!("PATH={quoted}/bin':\"$PATH\" exec {quoted}/nanoagent/.venv/bin/python' -I -m nanoagent \"$@\"\n")));
-        assert!(nanoagent.contains(&format!("missing() {{ echo '{MISSING}' >&2; exit 1; }}")));
+        assert!(nanoagent.contains("missing() { echo 'RUSH Lab Dev is still setting up NanoAgent (menu bar → Show Logs)' >&2; exit 1; }"));
         assert!(launchers["uv"].ends_with(&format!("exec {quoted}/bin/uv' \"$@\"\n")));
         let rushlab = &launchers["rushlab"];
         assert!(rushlab.contains(&format!("[ -e {quoted}/bin/node' ] || missing\n[ -e {quoted}/runner/lab.mjs' ] || missing\n")));
@@ -565,10 +573,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_launcher_whose_build_is_not_set_up_says_so() {
-        let launchers: HashMap<String, String> = launchers(Path::new("/nonexistent/mochi-lab")).into_iter().collect();
+        let launchers: HashMap<String, String> = launchers(Path::new("/nonexistent/mochi-lab"), "RUSH Lab").into_iter().collect();
         let output = Command::new("sh").arg("-c").arg(&launchers["nanoagent"]).output().unwrap();
         assert_eq!(output.status.code(), Some(1));
-        assert_eq!(String::from_utf8_lossy(&output.stderr).trim(), MISSING);
+        assert_eq!(String::from_utf8_lossy(&output.stderr).trim(), missing("RUSH Lab"));
     }
 
     /// What `login` prints for `command -v nanoagent` in a PTY, the member's profile in `home`
@@ -622,7 +630,7 @@ mod tests {
     #[test]
     fn a_login_shell_but_zsh_bash_or_fish_is_refused() {
         let refused = login_command(PathBuf::from("/bin/tcsh"), Path::new("/t")).err().unwrap();
-        assert_eq!(refused, "RUSH Lab's terminal runs zsh, bash or fish, and your login shell is /bin/tcsh");
+        assert_eq!(refused, "The terminal runs zsh, bash or fish, and your login shell is /bin/tcsh");
     }
 
     #[test]

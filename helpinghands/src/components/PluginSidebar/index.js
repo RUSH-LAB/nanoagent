@@ -2,7 +2,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import {useClickOutside} from '@site/src/hooks/useClickOutside';
-import {labAppHasTerminal} from '@site/src/utils/labApp';
+import {labAppHasTerminal, useLabLink} from '@site/src/utils/labApp';
 // The blog's group sidebar, reused so the two read as one design.
 import styles from '@site/src/components/BlogGroupSidebar/styles.module.css';
 import own from './styles.module.css';
@@ -86,6 +86,7 @@ function TagSwitcher({navigation}) {
 
 function DraftList({navigation, draftsError}) {
   const terminal = labAppHasTerminal();
+  const terminalLink = useLabLink('terminal');
   if (!navigation.draftLinks.length && !draftsError && !terminal) return null;
   return (
     <>
@@ -109,7 +110,7 @@ function DraftList({navigation, draftsError}) {
       ))}
       {terminal && (
         <li className="menu__list-item">
-          <a className={clsx('menu__link', styles.categoryLink, own.marketplace)} href="rushlab://terminal">
+          <a className={clsx('menu__link', styles.categoryLink, own.marketplace)} href={terminalLink}>
             <span className={styles.taxonomyTitle}>Open Terminal</span>
           </a>
         </li>

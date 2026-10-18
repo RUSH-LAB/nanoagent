@@ -4,6 +4,7 @@ What each Mochi release changes, one sentence each.
 
 ## Unreleased
 
+- `npm run desktop:dev` installs RUSH Lab Dev, an app of its own beside RUSH Lab, built by the same code and steps and differing only in desktop/config.yaml's `dev` block (its name, lab.mochi.lab.dev, rushlab-dev:// links, ~/rushlab-dev/ and ~/rushlab-dev-plugins/), which serves only `npm start`'s site and never updates itself, while RUSH Lab serves only rush-lab.org, removing any connection an earlier build kept to another site.
 - RUSH Lab has a terminal (menu bar → New Terminal, or Terminal in the navbar), a window of the app's own running your login shell, where New plugin… starts a plugin project in ~/rushlab-plugins/ with the publish-plugin skill as its AGENTS.md, CLAUDE.md and GEMINI.md, so any AI CLI on your computer (claude, codex, gemini, ...) designs a NanoAgent plugin with you, with no OpenRouter key.
 - `rushlab preview .` in the terminal installs the plugin in that folder on your RUSH Lab as a draft, for the one account connected there or the one `--to` names, which Plugins lists under Drafts on this computer and opens as it would once published, with sessions of its own (migration 0043), and `rushlab preview --stop <id>` removes it.
 - In a narrow window the navbar's menu lists the workspace's Plugins and Workspace above your account, spaced alike, and its header is no longer under the local site's banner.

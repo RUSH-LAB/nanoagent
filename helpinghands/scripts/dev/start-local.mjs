@@ -19,7 +19,8 @@ const nanoagentStartupTimeoutMs = 30_000;
  * The local server runs on the local database (scripts/db/local.mjs), which it
  * migrates as its owner and serves as the runtime role, as Railway does
  * production's. A database URL anywhere else would be another database, so
- * .env and the shell may hold none.
+ * .env and the shell may hold none. It is the site RUSH Lab Dev serves, so its
+ * links are that app's (MOCHI_LOCAL_SITE, src/server/lab-app.js).
  */
 export function environmentFor({base = process.env, envFile = localEnvFile} = {}) {
   if (!fs.existsSync(envFile)) throw new Error('Run npm run db:setup before npm start');
@@ -27,7 +28,7 @@ export function environmentFor({base = process.env, envFile = localEnvFile} = {}
   const env = {...file, ...base, EDITOR_PORT: base.EDITOR_PORT || '3001'};
   const named = ['DATABASE_URL', 'DATABASE_MIGRATION_URL'].filter(key => env[key]);
   if (named.length) throw new Error(`${named.join(' and ')} must not be set: npm start runs on the local database. Run npm run db:setup`);
-  return {...env, DATABASE_URL: LOCAL_RUNTIME_URL, DATABASE_MIGRATION_URL: LOCAL_OWNER_URL, PG_SSL: 'disable'};
+  return {...env, DATABASE_URL: LOCAL_RUNTIME_URL, DATABASE_MIGRATION_URL: LOCAL_OWNER_URL, PG_SSL: 'disable', MOCHI_LOCAL_SITE: '1'};
 }
 
 export function portIsAvailable(port, host = 'localhost') {
