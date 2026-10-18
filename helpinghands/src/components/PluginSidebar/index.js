@@ -2,6 +2,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import {useClickOutside} from '@site/src/hooks/useClickOutside';
+import {useLabCommand} from '@site/src/utils/labApp';
 // The blog's group sidebar, reused so the two read as one design.
 import styles from '@site/src/components/BlogGroupSidebar/styles.module.css';
 import own from './styles.module.css';
@@ -12,7 +13,10 @@ export {pluginNavigation} from './navigation';
  * The Plugins sidebar, shaped like a blog's: the tag switcher (All, or one
  * tag), the only place a tag is chosen, then the plugins in view. The tags are
  * the ones the member gave their plugins; where the reader is lives in the URL
- * (?tag=, ?app=), so every entry is a plain link.
+ * (?tag=, ?app=, ?draft=), so every entry is a plain link. Below them, while
+ * the member's computer is connected, are the drafts on it, or why they could
+ * not be read, and how to make one in the member's own terminal with the
+ * command their RUSH Lab puts on their PATH.
  */
 
 function TagIcon() {
@@ -80,7 +84,49 @@ function TagSwitcher({navigation}) {
   );
 }
 
-function PluginList({navigation, marketplaceHref}) {
+// What a member adds to their shell's startup for ~/.local/bin, where RUSH Lab puts its command, to be on their PATH.
+const PATH_LINES = [
+  ['macOS', `echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc`],
+  ['Windows (PowerShell)', `[Environment]::SetEnvironmentVariable('Path', "$env:USERPROFILE\\.local\\bin;" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')`],
+];
+
+function DraftList({navigation, draftsError}) {
+  const command = useLabCommand();
+  return (
+    <>
+      <li className="menu__list-item">
+        <span className={styles.emptySelection}>Drafts on this computer</span>
+      </li>
+      {draftsError && (
+        <li className="menu__list-item">
+          <span className={styles.groupError} role="alert">{draftsError}</span>
+        </li>
+      )}
+      {navigation.draftLinks.map(draft => (
+        <li className="menu__list-item" key={draft.id}>
+          <Link
+            className={clsx('menu__link', styles.categoryLink, draft.id === navigation.draft?.id && 'menu__link--active')}
+            to={draft.permalink}
+          >
+            <span className={styles.taxonomyTitle}>{draft.title}</span>
+          </Link>
+        </li>
+      ))}
+      <li className={clsx('menu__list-item', own.draftHint)}>
+        <p>
+          To make one, in your terminal run <code>{command} new my-plugin</code>, open your AI CLI (Claude Code, Codex,
+          Gemini) in <code>my-plugin</code>, then run <code>{command} preview .</code> to see it here.
+        </p>
+        <p>If your terminal cannot find <code>{command}</code>, add ~/.local/bin to your PATH, then open a new terminal:</p>
+        {PATH_LINES.map(([system, line]) => (
+          <p key={system}>{system}: <code>{line}</code></p>
+        ))}
+      </li>
+    </>
+  );
+}
+
+function PluginList({navigation, marketplaceHref, showDrafts, draftsError}) {
   return (
     <nav className={clsx('menu thin-scrollbar', styles.menu)} aria-label="Plugins">
       <ul className="menu__list">
@@ -101,6 +147,7 @@ function PluginList({navigation, marketplaceHref}) {
             <span className={styles.taxonomyTitle}>Browse Marketplace</span>
           </Link>
         </li>
+        {showDrafts && <DraftList navigation={navigation} draftsError={draftsError} />}
       </ul>
     </nav>
   );
@@ -114,8 +161,12 @@ function DoubleChevron() {
   );
 }
 
-/** `marketplaceHref` is the marketplace in the reader's workspace, so the navbar keeps it. */
-export default function PluginSidebar({navigation, marketplaceHref, collapsed, onCollapse}) {
+/**
+ * `marketplaceHref` is the marketplace in the reader's workspace, so the navbar keeps it;
+ * `showDrafts`, whether the member's computer said which drafts it has, or `draftsError` why
+ * they could not be read.
+ */
+export default function PluginSidebar({navigation, marketplaceHref, showDrafts, draftsError, collapsed, onCollapse}) {
   return (
     <div className={clsx(styles.sidebar, collapsed && styles.sidebarHidden)}>
       <div className={styles.sidebarControls}>
@@ -130,7 +181,7 @@ export default function PluginSidebar({navigation, marketplaceHref, collapsed, o
           <DoubleChevron />
         </button>
       </div>
-      <PluginList navigation={navigation} marketplaceHref={marketplaceHref} />
+      <PluginList navigation={navigation} marketplaceHref={marketplaceHref} showDrafts={showDrafts} draftsError={draftsError} />
     </div>
   );
 }

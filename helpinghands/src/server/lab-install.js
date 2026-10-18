@@ -1,18 +1,22 @@
 'use strict';
 
+const {releaseApp} = require('./lab-app');
+
 /**
  * The script `curl -fsSL <site>/install.sh | sh` runs: it installs RUSH Lab on this Mac from
  * `site` and opens it, quitting the one running first, as only one runs at a time. A download
  * curl makes is not quarantined, so macOS opens the app without asking to allow it (Open Anyway).
- * The dmg is checked against the sha256 the site sends with it.
+ * The dmg is checked against the sha256 the site sends with it. It installs the release, whatever
+ * the site (lab-app.js releaseApp).
  */
 function macScript(site) {
   checkSite(site);
+  const {productName, label} = releaseApp();
   return `#!/bin/sh
 # Installs RUSH Lab from ${site}: curl -fsSL ${site}/install.sh | sh
 set -eu
 SITE='${site}'
-APP='/Applications/RUSH Lab.app'
+APP='/Applications/${productName}.app'
 
 fail() { echo "RUSH Lab was not installed: $1" >&2; exit 1; }
 
@@ -32,11 +36,11 @@ ACTUAL=$(shasum -a 256 "$WORK/RUSH-Lab.dmg" | awk '{ print $1 }')
 hdiutil attach -quiet -nobrowse -readonly -mountpoint "$WORK/disk" "$WORK/RUSH-Lab.dmg" || fail "its disk image did not open"
 
 # One RUSH Lab runs at a time; it takes up to a minute to stop.
-if pgrep -f 'RUSH Lab.app/Contents/MacOS/' > /dev/null; then
+if pgrep -f '${productName}.app/Contents/MacOS/' > /dev/null; then
   echo "Quitting the RUSH Lab that is running..."
-  osascript -e 'quit app id "lab.mochi.lab"' > /dev/null
+  osascript -e 'quit app id "${label}"' > /dev/null
   waited=0
-  while pgrep -f 'RUSH Lab.app/Contents/MacOS/' > /dev/null; do
+  while pgrep -f '${productName}.app/Contents/MacOS/' > /dev/null; do
     [ "$waited" -lt 90 ] || fail "the RUSH Lab running did not quit. Quit it from its menu-bar icon, then run the command again"
     sleep 1
     waited=$((waited + 1))
@@ -44,7 +48,7 @@ if pgrep -f 'RUSH Lab.app/Contents/MacOS/' > /dev/null; then
 fi
 
 rm -rf "$APP" || fail "$APP could not be replaced"
-ditto "$WORK/disk/RUSH Lab.app" "$APP" || fail "it could not be copied into /Applications"
+ditto "$WORK/disk/${productName}.app" "$APP" || fail "it could not be copied into /Applications"
 open "$APP"
 echo "RUSH Lab is installed in Applications, and open: sign in in its window."
 `;
@@ -56,10 +60,11 @@ echo "RUSH Lab is installed in Applications, and open: sign in in its window."
  * started, as only one runs at a time. A download PowerShell makes has no mark of the web, so
  * SmartScreen does not stop the installer. The installer is checked against the sha256 the site
  * sends with it. It runs in the member's own PowerShell, so it throws rather than exits, which
- * would close their window.
+ * would close their window. Like macScript, it installs the release.
  */
 function windowsScript(site) {
   checkSite(site);
+  const {productName} = releaseApp();
   return `# Installs RUSH Lab from ${site}: irm ${site}/install.ps1 | iex
 & {
 $ErrorActionPreference = 'Stop'
@@ -68,7 +73,7 @@ $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $Site = '${site}'
 # Where the installer puts RUSH Lab for this user (tauri.conf.json: nsis installMode currentUser).
-$Folder = Join-Path $env:LOCALAPPDATA 'RUSH Lab'
+$Folder = Join-Path $env:LOCALAPPDATA '${productName}'
 
 function Fail($Why) { throw "RUSH Lab was not installed: $Why" }
 function Running { @(Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith("$Folder\\", 'OrdinalIgnoreCase') }) }

@@ -67,7 +67,7 @@ needed for the Resend verification command:
 
 ```dotenv
 RESEND_API_KEY=...
-MAIL_FROM=Mochi Lab <no-reply@rush-lab.org>
+MAIL_FROM=RUSH Lab <no-reply@rush-lab.org>
 MAIL_TEST_TO=...
 ```
 

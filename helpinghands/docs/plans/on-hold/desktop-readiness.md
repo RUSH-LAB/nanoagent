@@ -1,6 +1,6 @@
 # Desktop readiness
 
-Mochi Lab remains a web application for now. The goal of the current work is
+RUSH Lab remains a web application for now. The goal of the current work is
 to preserve that fast development loop while keeping operating-system
 integration behind replaceable boundaries.
 

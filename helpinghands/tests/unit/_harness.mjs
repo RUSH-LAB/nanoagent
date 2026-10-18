@@ -899,10 +899,11 @@ export const SESSION = '00000000-0000-4000-8000-000000000001';
 
 /**
  * Plugin sessions (postgres/sessions.js) held in memory: `SESSION` of every
- * plugin id in `plugins` exists; anything else is a SessionError 404. Every
- * session created, turn added and archive or restore is recorded.
+ * plugin id in `plugins` exists, and of every one in `drafts` with the draft of
+ * that id; anything else is a SessionError 404. Every session created, turn
+ * added and archive or restore is recorded.
  */
-export function fakeSessions(plugins = ['echo', 'arxiv-source']) {
+export function fakeSessions(plugins = ['echo', 'arxiv-source'], drafts = []) {
   const {SessionError} = require('../../src/server/postgres/sessions.js');
   const summary = (id, pluginId) => ({id, pluginId, title: '', runs: 0, cost: 0, ttftS: null, running: [...sessions.rows.values()].some(row => row.sessionId === id)});
   const sessions = {
@@ -910,23 +911,23 @@ export function fakeSessions(plugins = ['echo', 'arxiv-source']) {
     turns: [],
     rows: new Map(),
     created: [],
-    async assertOwned(_context, pluginId, id) {
-      if (id !== SESSION || !plugins.includes(pluginId)) throw new SessionError(404, `No session ${id} for ${pluginId}`);
+    async assertOwned(_context, pluginId, draft, id) {
+      if (id !== SESSION || !(draft ? drafts : plugins).includes(pluginId)) throw new SessionError(404, `No session ${id} for ${draft ? 'the draft ' : ''}${pluginId}`);
     },
-    async list(_context, pluginId) {
-      return plugins.includes(pluginId) ? [summary(SESSION, pluginId)] : [];
+    async list(_context, pluginId, draft) {
+      return (draft ? drafts : plugins).includes(pluginId) ? [summary(SESSION, pluginId)] : [];
     },
-    async create(_context, pluginId) {
-      sessions.created.push(pluginId);
+    async create(_context, pluginId, draft) {
+      sessions.created.push(draft ? `draft ${pluginId}` : pluginId);
       return {...summary(SESSION, pluginId), chat: [], running: null};
     },
-    async get(context, pluginId, id) {
-      await sessions.assertOwned(context, pluginId, id);
+    async get(context, pluginId, draft, id) {
+      await sessions.assertOwned(context, pluginId, draft, id);
       const going = [...sessions.rows.values()].find(row => row.sessionId === id);
       return {...summary(id, pluginId), chat: [], running: going ? {prompt: going.prompt} : null, calls: []};
     },
-    async startRun(context, pluginId, sessionId, {id, prompt, install}) {
-      await sessions.assertOwned(context, pluginId, sessionId);
+    async startRun(context, pluginId, draft, sessionId, {id, prompt, install}) {
+      await sessions.assertOwned(context, pluginId, draft, sessionId);
       if ([...sessions.rows.values()].some(row => row.sessionId === sessionId)) throw new SessionError(409, 'This session is still answering a message');
       sessions.rows.set(id, {id, workspaceId: context.workspaceId, userId: context.userId, sessionId, pluginId, prompt, install, folder: null, sent: null, ran: false});
     },
@@ -947,8 +948,8 @@ export function fakeSessions(plugins = ['echo', 'arxiv-source']) {
       return true;
     },
     archived: [],
-    async archive(context, pluginId, id, archived) {
-      await sessions.assertOwned(context, pluginId, id);
+    async archive(context, pluginId, draft, id, archived) {
+      await sessions.assertOwned(context, pluginId, draft, id);
       sessions.archived.push({pluginId, id, archived});
       return {id, pluginId, title: '', archivedAt: archived ? '2026-10-14T00:00:00.000Z' : null, runs: 0, cost: 0, ttftS: null};
     },

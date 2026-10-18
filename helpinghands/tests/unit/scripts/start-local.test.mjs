@@ -24,6 +24,7 @@ describe('local process supervisor configuration', () => {
     assert.equal(env.DATABASE_MIGRATION_URL, 'postgres://neondb_owner@127.0.0.1:55432/mochi');
     assert.equal(env.PG_SSL, 'disable');
     assert.equal(env.EDITOR_PORT, '4101');
+    assert.equal(env.MOCHI_LOCAL_SITE, '1');
   });
 
   it('refuses any other database URL, in .env or the shell', () => {

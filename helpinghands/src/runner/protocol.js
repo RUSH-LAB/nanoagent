@@ -2,18 +2,21 @@
 
 /**
  * Mochi and a member's own computer, over the one WebSocket the computer opens
- * to `PATH` (Mochi Lab's relay, runner/relay.mjs). Mochi sends NanoAgent
+ * to `PATH` (RUSH Lab's relay, runner/relay.mjs). Mochi sends NanoAgent
  * requests down it; the relay makes each against the NanoAgent on that
  * computer and streams the response back. Settings → AI also sets the
- * computer's API keys down it: Mochi Lab keeps them, and says only which are
+ * computer's API keys down it: RUSH Lab keeps them, and says only which are
  * set, never their values. A request Mochi asks to `hold` (a plugin run) is
  * not the connection's: the relay keeps it going when the connection drops,
  * with every frame it sent, for HOLD_MS, and lists it in its next `hello`, so
  * Mochi, the same process or one started since, `resume`s it from the frames
- * it has, and `release`s it once it has kept what the run did. JSON text
- * frames, bodies base64:
+ * it has, and `release`s it once it has kept what the run did. The `hello`
+ * also lists the drafts the computer's NanoAgent has installed (plugins the
+ * member is making there, runner/lab.mjs), which Mochi reaches only as any
+ * install, by sha256. JSON text frames, bodies base64:
  *
- *   computer → Mochi   {type: 'hello', device, keys: [{env, label, set}], runs: [id]}   again when keys change
+ *   computer → Mochi   {type: 'hello', device, keys: [{env, label, set}], drafts: [{id, name, version, sha256}], runs: [id]}
+ *                                                    again when keys or drafts change
  *                      {type: 'head', id, status, headers}
  *                      {type: 'chunk', id, data}
  *                      {type: 'end', id}

@@ -56,7 +56,7 @@ if (!(GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET)) {
 }
 const SITE_URL = (process.env.SITE_URL || 'http://localhost:3000').replace(/\/$/, '');
 // The clients allowed to ask for a device code: the sync client (cli/rush.mjs)
-// and Mochi Lab's relay (runner/relay.mjs).
+// and RUSH Lab's relay (runner/relay.mjs).
 const DEVICE_CLIENT_IDS = new Set(['mochi-cli', 'mochi-desktop']);
 // The marketplace plugins every new account starts with installed.
 const PREINSTALLED_PLUGINS = require('js-yaml').load(fs.readFileSync(path.join(__dirname, 'preinstalled-plugins.yaml'), 'utf8')).plugins;

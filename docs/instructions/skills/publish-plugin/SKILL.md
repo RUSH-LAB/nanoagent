@@ -7,7 +7,7 @@ description: Build a NanoAgent plugin from the reference plugin, zeyuyang8/arxiv
 
 A NanoAgent plugin packages one checkable job: typed tools served over MCP,
 tasks built from those tools, a deterministic verifier, and a product page.
-RUSH Lab lists published plugins. Each member's Mochi Lab desktop app runs
+RUSH Lab lists published plugins, and each member's RUSH Lab desktop app runs
 them on that member's own computer.
 
 The reference plugin is https://github.com/zeyuyang8/arxiv-source, a full
@@ -201,23 +201,39 @@ Then walk this list by hand:
 
 - [ ] The top level holds only `nanoagent.yaml`, `contract.py`, `README.md`,
       `LICENSE`, `pyproject.toml`, `uv.lock`, `.gitignore`, `.env`,
-      `src/`, `tests/`, `verifier/`, `ui/` and `product/`. No reports, run
-      outputs or notes.
+      `src/`, `tests/`, `verifier/`, `ui/` and `product/`, and a coding
+      agent's instructions, `AGENTS.md`, `CLAUDE.md` and `GEMINI.md`, which
+      are never packed. No reports, run outputs or notes.
 - [ ] The `id`, README title, `nanoagent-<id>` project name and LICENSE
       holder are all renamed. `version` matches in both files.
 - [ ] Every `Tool` and `Task` appears in `nanoagent.yaml`, the README, the
       `IMPLEMENTATIONS` table and the verifier's tables.
 - [ ] No model is used anywhere in `verifier/`.
 
-## 9. Publish
+## 9. See it in RUSH Lab
+
+RUSH Lab puts the `rushlab` command on your PATH. In your terminal, run this
+from the plugin folder:
+
+```bash
+rushlab preview .
+```
+
+It prints every rule the plugin breaks and exits 1, or installs the plugin
+on this computer's RUSH Lab and exits 0. Fix each rule it prints and run it
+again. Once it passes, open RUSH Lab → **Plugins** → **Drafts**, open the
+plugin, ask its chat for a task, and check the verdict on the result card.
+Nothing is published yet.
+
+## 10. Publish
 
 1. With the person's go-ahead, create a **public** GitHub repository and
    push to it, for example with
    `gh repo create <id> --public --source . --push`.
 2. The person signs in at https://rush-lab.org and opens their workspace, for
    COMP 480/580 https://rush-lab.org/w/comp-480-580.
-3. They open Mochi Lab on their computer and approve its request to connect.
-   If Mochi Lab has no OpenRouter key, RUSH Lab gives it one with $10 of
+3. They open the RUSH Lab app on their computer and approve its request to connect.
+   If the app has no OpenRouter key, RUSH Lab gives it one with $10 of
    credit. They can save their own key and choose the model under
    **Settings → AI**.
 4. In the workspace's **Marketplace**, they select **Submit your artifact**.

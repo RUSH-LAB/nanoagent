@@ -41,7 +41,7 @@ npm run db:pull                    # replace the local database with a copy of p
 npm run db:push -- comp-480-580    # replace that workspace on production with the local one
 ```
 
-`db:pull` copies all of production's data except Mochi Lab's desktop bundles,
+`db:pull` copies all of production's data except RUSH Lab's desktop bundles,
 then clears every session, verification and device code and every account's
 stored tokens and password, so no sign-in travels. It replaces everything
 local, including work not pushed yet. Sign in again on the local site.

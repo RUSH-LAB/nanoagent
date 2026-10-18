@@ -1,7 +1,7 @@
 'use strict';
 const fallbackProfiles = require('../../ai-profiles.json');
 const {budgetRefusal} = require('../ai-metering');
-const {completionPayload} = require('../ai');
+const {completionPayload, RUNNER_OFFLINE} = require('../ai');
 const aiSettings = require('../ai-settings');
 // Route module organized from server/index.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
@@ -79,7 +79,7 @@ function corsHeaders(req, corsOrigin) {
  * Returns `{error}` for a rejection, otherwise `{request}` ready for ai.
  */
 function composeRequest(body, sanitizeText, agent = null, catalog = null, run = {}) {
-  const {prompt, context, messages, type, agentId, profileId, model: chatModel, appId, sessionId} = body;
+  const {prompt, context, messages, type, agentId, profileId, model: chatModel, appId, sessionId, draft} = body;
   if (!prompt || typeof prompt !== 'string') return {error: 'Missing or invalid prompt'};
   if (prompt.length > 50000) return {error: 'Prompt must be 50000 characters or fewer'};
   if (context !== undefined && typeof context !== 'string') return {error: 'context must be a string'};
@@ -103,6 +103,8 @@ function composeRequest(body, sanitizeText, agent = null, catalog = null, run = 
   if (agentId !== undefined && (typeof agentId !== 'string' || !agentId || agentId.length > 100)) {
     return {error: 'agentId must be a non-empty string of 100 characters or fewer'};
   }
+  // A draft is an app's: the one of that id the member's computer has (routes/apps.js).
+  if (draft !== undefined && (draft !== true || appId === undefined)) return {error: 'draft must be true, with an appId'};
   // A prompt for a NanoAgent app runs on that app's own agent, whose tools and
   // instructions NanoAgent owns, so nothing here may choose them instead.
   if (appId !== undefined) {
@@ -117,7 +119,7 @@ function composeRequest(body, sanitizeText, agent = null, catalog = null, run = 
       return {error: 'sessionId must name a session with the app'};
     }
     if (context) history.push({role: 'user', content: `Context:\n${sanitizeText(context)}`});
-    return {request: {input: sanitizeText(prompt), messages: history, app: appId, ...run}, session: sessionId};
+    return {request: {input: sanitizeText(prompt), messages: history, app: appId, ...(draft ? {draft} : {}), ...run}, session: sessionId};
   }
   if (profileId !== undefined && (typeof profileId !== 'string' || !profileId || profileId.length > 100)) {
     return {error: 'profileId must be a non-empty string of 100 characters or fewer'};
@@ -358,13 +360,20 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
       ctx.requireWorkspacePermission(req.context, 'apps:use');
       if (!ctx.appRuns || !ctx.sessions || !ctx.workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
       try {
-        await ctx.sessions.assertOwned(req.context, composed.request.app, composed.session);
+        await ctx.sessions.assertOwned(req.context, composed.request.app, Boolean(composed.request.draft), composed.session);
       } catch (error) {
         if (error.name === 'SessionError') return json(res, error.status, {error: error.message});
         throw error;
       }
-      // The app runs as the member installed it: NanoAgent's install of its package.
-      const opened = await ctx.workspaceApps.open(req.context, composed.request.app, ai);
+      // The app runs as the member installed it: NanoAgent's install of its package, or of their draft.
+      let opened;
+      if (composed.request.draft) {
+        const drafts = ctx.runners.drafts(req.auth?.userId);
+        if (!drafts) return json(res, 503, {error: RUNNER_OFFLINE});
+        opened = await ctx.workspaceApps.openDraft(req.context, composed.request.app, ai, drafts);
+      } else {
+        opened = await ctx.workspaceApps.open(req.context, composed.request.app, ai);
+      }
       if (opened.error) return json(res, opened.status, {error: opened.error});
       composed.request.install = opened.value.sha256;
     }
@@ -375,7 +384,7 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
       let run;
       try {
         run = await ctx.appRuns.start(req.context, {
-          pluginId: composed.request.app, sessionId: composed.session, prompt: composed.request.input, request: composed.request,
+          pluginId: composed.request.app, draft: Boolean(composed.request.draft), sessionId: composed.session, prompt: composed.request.input, request: composed.request,
         });
       } catch (error) {
         if (error.name === 'SessionError') return json(res, error.status, {error: error.message});
@@ -499,7 +508,7 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
   }
 };
 
-/** The member's computer's catalog as models to choose, each available once Mochi Lab holds its provider's key. */
+/** The member's computer's catalog as models to choose, each available once RUSH Lab holds its provider's key. */
 function localModels(listing, catalog) {
   const providers = new Map(listing.providers.map(provider => [provider.id, provider]));
   const models = listing.models.map(model => {

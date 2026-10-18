@@ -24,13 +24,18 @@ const STOP_TIMEOUT: Duration = Duration::from_secs(60);
 const RESTART: Duration = Duration::from_secs(30);
 const POLL: Duration = Duration::from_millis(250);
 
-/// config.json, bundled by scripts/stage.mjs.
+/// config.json, bundled by scripts/stage.mjs: RUSH Lab's, or RUSH Lab Dev's (config.yaml).
 #[derive(Deserialize)]
-struct Config {
-    site_url: String,
+pub struct Config {
+    /// The app's name, which its menu, dialogs and windows say.
+    pub product_name: String,
     label: String,
+    /// The scheme of the app's links: <scheme>://connect and ://sign-in.
+    pub scheme: String,
+    /// The Mochi this app serves, which its window shows.
+    pub site_url: String,
     /// A release's target, which it updates itself as (update.rs); None for any other build.
-    update_target: Option<String>,
+    pub update_target: Option<String>,
 }
 
 pub struct Lab {
@@ -43,21 +48,11 @@ pub struct Lab {
 }
 
 /// config.json, as this build bundles it.
-fn config(app: &AppHandle) -> Result<Config, String> {
+pub fn config(app: &AppHandle) -> Result<Config, String> {
     let resources = app.path().resource_dir().map_err(|error| error.to_string())?;
     let config_file = resources.join("config.json");
     let text = fs::read_to_string(&config_file).map_err(|error| format!("{}: {error}", config_file.display()))?;
     serde_json::from_str(&text).map_err(|error| format!("{}: {error}", config_file.display()))
-}
-
-/// The Mochi this app serves, which its window shows.
-pub fn site_url(app: &AppHandle) -> Result<String, String> {
-    Ok(config(app)?.site_url)
-}
-
-/// The target a release updates itself as; None for any other build.
-pub fn update_target(app: &AppHandle) -> Result<Option<String>, String> {
-    Ok(config(app)?.update_target)
 }
 
 impl Lab {
@@ -68,7 +63,7 @@ impl Lab {
         let config = config(app)?;
         let data = app.path().local_data_dir().map_err(|error| error.to_string())?.join(&config.label);
         #[cfg(target_os = "macos")]
-        remove_launch_agent(app, &config.label)?;
+        remove_launch_agent(app, &config)?;
         let stamp_file = resources.join("stamp");
         let stamp = fs::read_to_string(&stamp_file).map_err(|error| format!("{}: {error}", stamp_file.display()))?;
         let apps = data.join("app");
@@ -211,9 +206,10 @@ impl Lab {
     }
 }
 
-/// The one-line install had launchd run lab.mjs as `label`: stop it, and keep launchd from starting it again.
+/// The one-line install had launchd run lab.mjs as the app's label: stop it, and keep launchd from starting it again.
 #[cfg(target_os = "macos")]
-fn remove_launch_agent(app: &AppHandle, label: &str) -> Result<(), String> {
+fn remove_launch_agent(app: &AppHandle, config: &Config) -> Result<(), String> {
+    let label = &config.label;
     let plist = app.path().home_dir().map_err(|error| error.to_string())?.join("Library/LaunchAgents").join(format!("{label}.plist"));
     if !plist.exists() {
         return Ok(());
@@ -225,7 +221,7 @@ fn remove_launch_agent(app: &AppHandle, label: &str) -> Result<(), String> {
         let deadline = Instant::now() + STOP_TIMEOUT;
         while loaded() {
             if Instant::now() > deadline {
-                return Err(format!("the RUSH Lab installed with the terminal command ({service}) did not stop within {}s", STOP_TIMEOUT.as_secs()));
+                return Err(format!("the {} installed with the terminal command ({service}) did not stop within {}s", config.product_name, STOP_TIMEOUT.as_secs()));
             }
             thread::sleep(Duration::from_secs(1));
         }

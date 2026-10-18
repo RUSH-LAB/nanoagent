@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import {createApiClient} from './api-client.mjs';
 // ─────────────────────────────────────────────────────────────
-// Comprehensive API integration tests for the Mochi Lab editor server
+// Comprehensive API integration tests for the RUSH Lab editor server
 // Usage:  node tests/integration/test-api.mjs
 // Requires the server running on http://localhost:3001, and a GitHub sign-in
 // saved by `node cli/rush.mjs login http://localhost:3001`
@@ -470,7 +470,7 @@ async function runCleanup() {
 // ────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log(`\n${BOLD}Mochi Lab API Integration Tests${RESET}`);
+  console.log(`\n${BOLD}RUSH Lab API Integration Tests${RESET}`);
   console.log(`${DIM}Target: ${BASE}${RESET}\n`);
 
   await preflight();

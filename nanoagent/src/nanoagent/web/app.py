@@ -304,7 +304,7 @@ def create_app(
     async def set_keys(request: Request) -> JSONResponse:
         """Set (a key) or remove (null) provider API keys, for every run from now on.
 
-        The caller keeps them (Mochi Lab's supervisor); this process only holds them in its
+        The caller keeps them (RUSH Lab's supervisor); this process only holds them in its
         environment, which PI's runs and the catalog inherit, and forgets every model built
         with the old ones.
         """

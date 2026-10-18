@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Members' own computers, each running NanoAgent for its member (Mochi Lab).
+ * Members' own computers, each running NanoAgent for its member (RUSH Lab).
  *
  * A computer dials in: it opens a WebSocket to /api/runner signed in as its
  * member, and from then on that member's runs go down that socket
@@ -13,6 +13,8 @@
  *
  * Plugin pages come from the computer too. Their frame carries no session, so
  * a page's address names the computer by `page`, a random id of its connection.
+ * The computer also says which drafts its NanoAgent has installed, plugins its
+ * member is making there (runner/lab.mjs): theirs alone to open.
  */
 const crypto = require('crypto');
 const {WebSocketServer} = require('ws');
@@ -23,7 +25,7 @@ const {createNanoAgentGateway, RUNNER_OFFLINE} = require('./ai');
 const MAX_PAYLOAD = 64 * 1024 * 1024;
 const PING_MS = 25_000;
 const REPLACED = 4000;
-// The close code a server shutting down sends, so each Mochi Lab dials its replacement.
+// The close code a server shutting down sends, so each RUSH Lab dials its replacement.
 const GOING_AWAY = 1001;
 const NULL_BODY = new Set([101, 204, 205, 304]);
 // What a key's name and value may be, as RUSH Lab's lab.mjs checks them again.
@@ -46,6 +48,22 @@ function keyList(value) {
       set: key.set === true,
       hint: key.set === true && typeof key.hint === 'string' ? key.hint.slice(0, HINT_LENGTH) : null,
     }));
+}
+
+const PLUGIN_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const SHA256 = /^[0-9a-f]{64}$/;
+const text = (value, length) => typeof value === 'string' && value.length <= length;
+
+/**
+ * The computer's `hello` list of drafts, as {id, name, version, sha256};
+ * anything else is dropped.
+ */
+function draftList(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 20)
+    .filter(draft => text(draft?.id, 100) && PLUGIN_ID.test(draft.id) && SHA256.test(draft.sha256)
+      && text(draft.name, 100) && text(draft.version, 64))
+    .map(({id, name, version, sha256}) => ({id, name, version, sha256}));
 }
 
 /** An error of the member's computer's connection, which a run reports as it is. */
@@ -131,7 +149,7 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
 
   function attach(userId, socket) {
     // `runs`: the held requests the computer said it has, once it has said hello.
-    const entry = {socket, page: crypto.randomUUID(), device: null, since: new Date().toISOString(), keys: [], pending: new Map(), closed: false, runs: null};
+    const entry = {socket, page: crypto.randomUUID(), device: null, since: new Date().toISOString(), keys: [], drafts: [], pending: new Map(), closed: false, runs: null};
     entry.gateway = createNanoAgentGateway({endpoint: {url: 'http://runner'}, fetchImpl: socketFetch(entry), local: true});
     connected.get(userId)?.socket.close(REPLACED, 'Another RUSH Lab signed in as this account');
     connected.set(userId, entry);
@@ -145,11 +163,12 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
         return socket.close(1003, 'Frames are JSON');
       }
       if (frame?.type === 'hello') {
-        // A hello again is the computer saying its keys changed: a key the member removed stays removed.
+        // A hello again is the computer saying its keys or drafts changed: a key the member removed stays removed.
         const first = !entry.greeted;
         entry.greeted = true;
         entry.device = typeof frame.device === 'string' ? frame.device.slice(0, 100) : null;
         entry.keys = keyList(frame.keys);
+        entry.drafts = draftList(frame.drafts);
         if (first) giveKey(userId, entry);
         const runs = Array.isArray(frame.runs) ? frame.runs.filter(id => typeof id === 'string') : [];
         entry.runs = new Set(runs);
@@ -259,6 +278,11 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
     /** The NanoAgent of the computer whose connection has the `page` id, else null. */
     byPage(page) {
       return pages.get(page)?.gateway ?? null;
+    },
+
+    /** The drafts the member's connected computer has installed, else null. */
+    drafts(userId) {
+      return connected.get(userId)?.drafts ?? null;
     },
 
     /** Whether the member's computer is connected, what it calls itself, and which keys it holds. */

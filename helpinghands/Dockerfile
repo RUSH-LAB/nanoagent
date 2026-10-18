@@ -21,6 +21,8 @@ COPY --from=build /app/build ./build
 COPY --from=build /app/src ./src
 COPY --from=build /app/plugins ./plugins
 COPY --from=build /app/scripts ./scripts
+# The RUSH Lab apps' names and link schemes (src/server/lab-app.js).
+COPY --from=build /app/desktop/config.yaml ./desktop/config.yaml
 RUN mkdir -p /app/var && chown -R node:node /app
 
 USER node

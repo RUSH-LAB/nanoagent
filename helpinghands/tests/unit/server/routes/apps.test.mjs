@@ -131,6 +131,42 @@ describe('NanoAgent apps', () => {
     assert.deepEqual(ctx.workspaceApps.calls, []);
   });
 
+  it('lists and opens the drafts on the member\'s computer, with its page id, none while it is not connected', async () => {
+    const draft = {id: 'my-draft', name: 'My Draft', version: '0.2.0', sha256: 'e'.repeat(64)};
+    const ctx = ctxWith({});
+    ctx.runners.drafts = userId => (userId === context.userId ? [draft] : null);
+    const asked = [];
+    ctx.workspaceApps.openDraft = async (_context, id, on, drafts) => {
+      asked.push([id, on, drafts]);
+      const found = drafts.find(each => each.id === id);
+      return found
+        ? {value: {id, name: found.name, version: found.version, sha256: found.sha256, uiVersion: '0123456789abcdef', source: 'draft'}}
+        : {error: `No draft named ${id} on your RUSH Lab`, status: 404};
+    };
+    const viewer = {...context, role: 'viewer'};
+    const listed = await invoke(routes, {method: 'GET', path: '/api/app-drafts', ctx, requestContext: viewer});
+    assert.equal(listed.status, 200);
+    assert.deepEqual(listed.payload, {drafts: [draft]});
+    const opened = await invoke(routes, {method: 'GET', path: '/api/app-drafts/my-draft', ctx, requestContext: viewer});
+    assert.equal(opened.status, 200);
+    assert.deepEqual(opened.payload.app, {
+      id: 'my-draft', name: 'My Draft', version: '0.2.0', sha256: draft.sha256, uiVersion: '0123456789abcdef', source: 'draft', computer: PAGE,
+    });
+    assert.deepEqual(asked, [['my-draft', ctx.ai, [draft]]]);
+    const unknown = await invoke(routes, {method: 'GET', path: '/api/app-drafts/other', ctx, requestContext: viewer});
+    assert.deepEqual([unknown.status, unknown.payload.error], [404, 'No draft named other on your RUSH Lab']);
+    assert.equal((await invoke(routes, {method: 'GET', path: '/api/app-drafts/Not%20an%20id', ctx, requestContext: viewer})).status, 404);
+
+    ctx.runners.computer = () => null;
+    ctx.runners.drafts = () => null;
+    for (const path of ['/api/app-drafts', '/api/app-drafts/my-draft']) {
+      const offline = await invoke(routes, {method: 'GET', path, ctx, requestContext: viewer});
+      assert.equal(offline.status, 503, path);
+      assert.match(offline.payload.error, /RUSH Lab on your computer is not connected/);
+    }
+    assert.equal(asked.length, 2);
+  });
+
   it('lets a member tag their plugin, with a short list of short names', async () => {
     const ctx = ctxWith({});
     const tag = (body, role = 'owner', id = 'echo') => invoke(routes, {method: 'PATCH', path: `/api/apps/${id}`, body, ctx, requestContext: {...context, role}});
@@ -323,6 +359,22 @@ describe('an app\'s sessions', () => {
     assert.deepEqual(read.payload.session.calls, []);
   });
 
+  it('keeps a draft\'s sessions apart from those with the plugin of its id', async () => {
+    const ctx = ctxWith({});
+    ctx.sessions = fakeSessions(['echo'], ['my-draft']);
+    const list = async path => (await invoke(routes, {method: 'GET', path, ctx, requestContext: context})).payload.sessions.map(session => session.id);
+    assert.deepEqual(await list('/api/app-drafts/my-draft/sessions'), [SESSION]);
+    assert.deepEqual(await list('/api/app-drafts/echo/sessions'), []);
+    assert.deepEqual(await list('/api/apps/my-draft/sessions'), []);
+    await invoke(routes, {method: 'POST', path: '/api/app-drafts/my-draft/sessions', ctx, requestContext: context});
+    assert.deepEqual(ctx.sessions.created, ['draft my-draft']);
+    const installed = await invoke(routes, {method: 'GET', path: `/api/app-drafts/echo/sessions/${SESSION}`, ctx, requestContext: context});
+    assert.deepEqual([installed.status, installed.payload.error], [404, `No session ${SESSION} for the draft echo`]);
+    const archived = await invoke(routes, {method: 'PATCH', path: `/api/app-drafts/my-draft/sessions/${SESSION}`, body: {archived: true}, ctx, requestContext: context});
+    assert.equal(archived.status, 200);
+    assert.deepEqual(ctx.sessions.archived, [{pluginId: 'my-draft', id: SESSION, archived: true}]);
+  });
+
   it('refuses to change a session, and any id that is not one', async () => {
     const ctx = ctxWith({});
     const put = await invoke(routes, {method: 'PUT', path: `${PATH}/${SESSION}`, body: {title: 'x'}, ctx, requestContext: context});
@@ -351,7 +403,7 @@ describe('an app\'s sessions', () => {
       signal.addEventListener('abort', () => { cancelled = true; resolve({error: 'The AI request was cancelled.', status: 499}); });
       finish = () => resolve({text: 'Saved.'});
     });
-    await ctx.appRuns.start(context, {pluginId: 'echo', sessionId: SESSION, prompt: 'save 1706.03762', request: {install: SHA}});
+    await ctx.appRuns.start(context, {pluginId: 'echo', draft: false, sessionId: SESSION, prompt: 'save 1706.03762', request: {install: SHA}});
     const listed = await invoke(routes, {method: 'GET', path: PATH, ctx, requestContext: context});
     assert.deepEqual(listed.payload.sessions.map(session => session.running), [true]);
     const read = await invoke(routes, {method: 'GET', path: `${PATH}/${SESSION}`, ctx, requestContext: context});
@@ -367,7 +419,7 @@ describe('an app\'s sessions', () => {
     assert.equal(gone.status, 404);
     assert.equal((await invoke(routes, {method: 'GET', path: `${PATH}/${SESSION}`, ctx, requestContext: context})).payload.session.running, null);
 
-    await ctx.appRuns.start(context, {pluginId: 'echo', sessionId: SESSION, prompt: 'again', request: {install: SHA}});
+    await ctx.appRuns.start(context, {pluginId: 'echo', draft: false, sessionId: SESSION, prompt: 'again', request: {install: SHA}});
     await new Promise(resolve => setImmediate(resolve));
     const stopped = await invoke(routes, {method: 'DELETE', path: `${PATH}/${SESSION}/run`, ctx, requestContext: context});
     assert.equal(stopped.status, 200);

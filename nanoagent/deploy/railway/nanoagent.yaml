@@ -64,5 +64,5 @@ max_file_bytes: 10485760
 max_output_chars: 50000
 heartbeat_seconds: 10.0
 include_reasoning: false
-# Runs choose among the profiles above, within the limits above (Mochi Lab sets true).
+# Runs choose among the profiles above, within the limits above (RUSH Lab sets true).
 run_models: false

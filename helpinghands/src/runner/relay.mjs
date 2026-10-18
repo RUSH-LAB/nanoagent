@@ -1,5 +1,5 @@
 /**
- * Mochi Lab's relay: this computer's NanoAgent, lent to its member's runs on
+ * RUSH Lab's relay: this computer's NanoAgent, lent to its member's runs on
  * Mochi (server/runner.js). It signs in as the member, dials Mochi, and makes
  * each request Mochi sends against the NanoAgent beside it, streaming the
  * response back (runner/protocol.js). Mochi never reaches this computer; the
@@ -10,7 +10,7 @@
  *   NANOAGENT_URL         the NanoAgent beside it, and NANOAGENT_API_TOKEN, its bearer token
  *   RUNNER_CREDENTIALS    where the member's session token is kept (mode 0600)
  *   RUNNER_DEVICE         what Settings → AI calls this computer
- *   RUNNER_KEYS           which API keys Mochi Lab holds: [{env, label, set}], as JSON
+ *   RUNNER_KEYS           which API keys RUSH Lab holds: [{env, label, set}], as JSON
  *   RUNNER_FILES          the folder kept in sync with the member's own files (files.mjs)
  * and reads what happens as JSON lines on stdout:
  *   {"event": "sign-in", "url", "code"}   open url in a browser and approve code
@@ -19,7 +19,9 @@
  *   {"event": "requests", "count"}        how many of Mochi's requests are going here, held runs included
  *   {"event": "keys", "id", "changes"}    apply these keys: answer {"id", "error"} on stdin,
  *                                         error null once NanoAgent has them
- * and writes {"keys": [{env, label, set}]} on stdin whenever which keys are set changes.
+ * and writes on stdin
+ *   {"keys": [{env, label, set}]}                          whenever which keys are set changes
+ *   {"drafts": [{id, name, version, sha256}]}              whenever which drafts NanoAgent has installed changes
  */
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -124,20 +126,28 @@ function drop(held, id) {
  * but the held ones, which `held` keeps from one connection to the next.
  * `keys` is which API keys this computer holds, `saveKeys(changes)` applies new
  * ones, and `onKeys(listener)` hears which are set whenever that changes, to
- * tell Mochi again. `onRelease` hears that Mochi has kept what a held request did.
+ * tell Mochi again; `drafts` and `onDrafts(listener)` are the same for the
+ * drafts its NanoAgent has installed (lab.mjs). `onRelease` hears that Mochi has kept what a held request did.
  * `running`, the requests going that are not held, is shared by a relay's connections like `held`.
  */
-export function connect({site, nanoagent, nanoagentToken, token, device, keys = [], saveKeys, onKeys, onRelease, held = new Map(), running = new Map(), onEvent = say}) {
+export function connect({
+  site, nanoagent, nanoagentToken, token, device, keys = [], saveKeys, onKeys, drafts = [], onDrafts, onRelease, held = new Map(), running = new Map(), onEvent = say,
+}) {
   return new Promise(resolve => {
     const url = new URL(PATH, site);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
     const socket = new WebSocket(url, {headers: {Authorization: `Bearer ${token}`}});
     const send = message => socket.readyState === WebSocket.OPEN && socket.send(JSON.stringify(message));
     let current = keys;
-    const hello = () => send({type: 'hello', device, keys: current, runs: [...held.keys()]});
+    let currentDrafts = drafts;
+    const hello = () => send({type: 'hello', device, keys: current, drafts: currentDrafts, runs: [...held.keys()]});
     const report = () => onEvent({event: 'requests', count: running.size + held.size});
     const unlisten = onKeys?.(list => {
       current = list;
+      hello();
+    });
+    const unlistenDrafts = onDrafts?.(list => {
+      currentDrafts = list;
       hello();
     });
     socket.onopen = () => {
@@ -160,7 +170,7 @@ export function connect({site, nanoagent, nanoagentToken, token, device, keys = 
         report();
       } else if (frame.type === 'resume') {
         const run = held.get(frame.id);
-        if (!run) return send({type: 'error', id: frame.id, message: 'Mochi Lab is not running that any more'});
+        if (!run) return send({type: 'error', id: frame.id, message: 'RUSH Lab is not running that any more'});
         clearTimeout(run.timer);
         run.send = send;
         for (const message of run.frames.slice(frame.from)) send(message);
@@ -180,6 +190,7 @@ export function connect({site, nanoagent, nanoagentToken, token, device, keys = 
       if (ended) return;
       ended = true;
       unlisten?.();
+      unlistenDrafts?.();
       for (const controller of running.values()) controller.abort();
       // A held request goes on without Mochi, for a while.
       for (const [id, run] of held) {
@@ -221,16 +232,19 @@ async function signedIn(site, token) {
 }
 
 /**
- * The supervisor's keys: applying new ones (asked on stdout, answered on
- * stdin), and hearing which are set (on stdin) whenever that changes.
+ * The supervisor: applying new keys (asked on stdout, answered on stdin), and
+ * hearing which are set, and which drafts NanoAgent has (on stdin), whenever
+ * that changes.
  */
-function supervisorKeys() {
+function supervisor() {
   const waiting = new Map();
   const listeners = new Set();
+  const draftListeners = new Set();
   let next = 0;
   readline.createInterface({input: process.stdin}).on('line', line => {
-    const {id, error, keys} = JSON.parse(line);
+    const {id, error, keys, drafts} = JSON.parse(line);
     if (keys) return listeners.forEach(listener => listener(keys));
+    if (drafts) return draftListeners.forEach(listener => listener(drafts));
     const call = waiting.get(id);
     waiting.delete(id);
     if (error) call?.reject(new Error(error));
@@ -246,6 +260,10 @@ function supervisorKeys() {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    onDrafts(listener) {
+      draftListeners.add(listener);
+      return () => draftListeners.delete(listener);
+    },
   };
 }
 
@@ -258,14 +276,16 @@ async function main(env) {
     nanoagent: env.NANOAGENT_URL.replace(/\/$/, ''),
     nanoagentToken: env.NANOAGENT_API_TOKEN,
     device: env.RUNNER_DEVICE || os.hostname(),
-    ...supervisorKeys(),
+    ...supervisor(),
     // The held requests, which outlive each connection, and the others going.
     held: new Map(),
     running: new Map(),
   };
-  // Which keys are set, for each connection's hello, kept as the supervisor says it changes.
+  // Which keys are set, and which drafts NanoAgent has, for each connection's hello, kept as the supervisor says they change.
   let keys = JSON.parse(env.RUNNER_KEYS);
   options.onKeys(list => { keys = list; });
+  let drafts = [];
+  options.onDrafts(list => { drafts = list; });
   let token = await readToken(credentials);
   for (let attempt = 0; ; attempt += 1) {
     let userId = token && await signedIn(site, token);
@@ -285,7 +305,7 @@ async function main(env) {
       log: message => console.error(`${new Date().toISOString()} files: ${message}`),
     }) : null;
     const opened = Date.now();
-    const {code, reason} = await connect({...options, keys, token, onRelease: () => files?.sync()});
+    const {code, reason} = await connect({...options, keys, drafts, token, onRelease: () => files?.sync()});
     files?.stop();
     say({event: 'disconnected', reason: String(reason || code)});
     // Another computer took this member's runs; this one stops.

@@ -21,10 +21,15 @@ function changesUrl(from, to) {
  * The version the person runs, with a link to its source when the host names the repository it
  * was published from; and for a plugin the host can update (`latest` names its newest version),
  * Update when that is newer, with what changed since. `plugin.version` asks the host for it, and a
- * host that moves the plugin to another version opens its page again.
+ * host that moves the plugin to another version opens its page again. A draft (`source` "draft"),
+ * which runs as it is being made, says so instead, and has nothing to update.
  */
 function versionControl(plugin) {
   const box = h("div", { class: "app-version" });
+  if (plugin.source === "draft") {
+    box.append(h("span", { class: "app-version-current", text: `Draft v${plugin.version}` }));
+    return box;
+  }
   const error = h("span", { class: "error-text small-text", role: "alert" });
   let state = {
     version: plugin.version,

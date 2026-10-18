@@ -37,7 +37,7 @@ const UNKNOWN_AUTHORS = Object.freeze(['Unknown']);
  */
 async function askCatalogue(fetchExternal, target) {
   try {
-    const reply = await fetchExternal(target, {headers: {'User-Agent': 'MochiLab/1.0'}});
+    const reply = await fetchExternal(target, {headers: {'User-Agent': 'RUSHLab/1.0'}});
     return reply.ok ? await reply.json() : null;
   } catch {
     return null;
@@ -286,7 +286,7 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
       const askJSON = async (target) => {
         try {
           const reply = await fetchExternal(target, {
-            headers: {'User-Agent': 'MochiLab/1.0 (bibliography enrichment)'},
+            headers: {'User-Agent': 'RUSHLab/1.0 (bibliography enrichment)'},
             timeoutMs: 15_000,
           });
           return reply.ok ? await reply.json() : null;

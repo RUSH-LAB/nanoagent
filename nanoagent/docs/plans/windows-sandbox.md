@@ -3,7 +3,7 @@
 ## Why it is needed
 
 `nanoagent.plugin.sandbox` confines every plugin process with `bwrap` (Linux) or `seatbelt`
-(macOS). Windows has neither, so Mochi Lab's desktop app and `lab.mjs` refuse to start there.
+(macOS). Windows has neither, so RUSH Lab's desktop app and `lab.mjs` refuse to start there.
 `sandbox: none` is not an answer: a plugin is code anyone published.
 
 ## The sandbox: `appcontainer`

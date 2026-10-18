@@ -162,6 +162,34 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     assert.equal((await runners.saveKeys('u2', {OPENROUTER_API_KEY: 'sk-1'})).status, 409);
   });
 
+  it('hears which drafts the computer installed, again whenever they change, and none once it is gone', async () => {
+    const draft = {id: 'my-draft', name: 'My Draft', version: '0.2.0', sha256: 'e'.repeat(64)};
+    let announce;
+    const {closed} = await dialIn('member-token', {
+      drafts: [
+        draft,
+        {...draft, id: '../escape'},
+        {...draft, sha256: 'not a sha'},
+        {...draft, name: 'n'.repeat(101)},
+        {...draft, version: 7},
+        'not a draft',
+      ],
+      onDrafts: listener => { announce = listener; },
+    });
+    assert.deepEqual(runners.drafts('u1'), [draft]);
+    assert.equal(runners.drafts('u2'), null);
+    const changed = {...draft, version: '0.3.0', sha256: 'f'.repeat(64), folder: '/Users/me/my-draft'};
+    announce([changed]);
+    await until(() => runners.drafts('u1')[0]?.version === '0.3.0');
+    assert.deepEqual(runners.drafts('u1'), [{id: 'my-draft', name: 'My Draft', version: '0.3.0', sha256: 'f'.repeat(64)}]);
+    announce(Array.from({length: 25}, (_, i) => ({...draft, id: `draft-${i}`})));
+    await until(() => runners.drafts('u1').length !== 1);
+    assert.equal(runners.drafts('u1').length, 20);
+    dropComputers();
+    await closed;
+    await until(() => runners.drafts('u1') === null);
+  });
+
   it('gives a computer without an OpenRouter key Mochi\'s, once a connection, and none to one with its own', async () => {
     const given = [];
     runners = createRunners({
@@ -290,7 +318,7 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     };
     const {closed} = await dialIn('member-token', {held});
     const first = appRunsOn(runners);
-    await first.start({userId: 'u1', workspaceId: 'lab'}, {pluginId: 'echo', sessionId: SESSION, prompt: 'slow', request: {input: 'slow', install: 'a'.repeat(64)}});
+    await first.start({userId: 'u1', workspaceId: 'lab'}, {pluginId: 'echo', draft: false, sessionId: SESSION, prompt: 'slow', request: {input: 'slow', install: 'a'.repeat(64)}});
     await until(() => [...held.values()][0]?.frames.length === 2);
     runners.close();
     await closed;
@@ -307,12 +335,12 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     await first.cancel({userId: 'u1', workspaceId: 'lab'}, SESSION);
   });
 
-  it('fails a held run at once when a new Mochi Lab without it says hello before the old one\'s socket closes', async () => {
+  it('fails a held run at once when a new RUSH Lab without it says hello before the old one\'s socket closes', async () => {
     await dialIn('member-token', {held: new Map()});
     const deltas = [];
     const running = (await runners.aiFor('u1')).stream({input: 'slow', run: {id: 'run-1'}, onDelta: text => deltas.push(text)});
     await until(() => deltas.length);
-    // Another Mochi Lab signs in: Mochi replaces the first, whose close it hears after the new hello.
+    // Another RUSH Lab signs in: Mochi replaces the first, whose close it hears after the new hello.
     relays.push(connect({site, nanoagent: nanoUrl, token: 'member-token', device: 'desktop', held: new Map(), onEvent: () => {}}));
     assert.deepEqual(await running, {error: 'RUSH Lab stopped while answering', status: 503});
     nano.finishers[0]();

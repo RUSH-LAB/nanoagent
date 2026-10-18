@@ -25,7 +25,7 @@
  *                                      so it connects with no sign-in page
  *   GET /api/lab/sign-in?state=        in macOS's sign-in sheet over the app's window, which opens it
  *                                      to sign in: signed in, back to the app with
- *                                      rushlab://sign-in?state=&token=; signed out, the sign-in page first
+ *                                      <scheme>://sign-in?state=&token=; signed out, the sign-in page first
  *   GET /api/lab/window-sign-in?token= in the app's window: signs it in as the token's member, and
  *                                      opens the site
  *
@@ -33,7 +33,8 @@
  * signs in in macOS's sign-in sheet, where passkeys work and Safari's sign-ins
  * carry over; `state` is the app's, so it takes back only the sign-in it asked for.
  *
- * The link is `rushlab://connect?site=<SITE_URL>&token=<t>`. `t` is a token for the member that
+ * The link is `<scheme>://connect?site=<SITE_URL>&token=<t>`, `scheme` the links of the app that
+ * serves this site (lab-app.js servedApp). `t` is a token for the member that
  * lasts an hour (lab-tokens.js), signed with the session secret, so the app needs no session to
  * use it. Targets are aarch64-apple-darwin, x86_64-apple-darwin and x86_64-pc-windows-msvc. Each
  * keeps its newest app and update only, in PostgreSQL (postgres/lab.js), sent on a chunk at a
@@ -107,7 +108,7 @@ async function sendBundle(res, bundles, bundle) {
 }
 
 module.exports = async function lab(req, res, url, pathname, ctx) {
-  const {json, lab: {bundles, secret, siteUrl, uploadToken, findMember, createSession, sessionCookie}} = ctx;
+  const {json, lab: {bundles, secret, siteUrl, scheme, uploadToken, findMember, createSession, sessionCookie}} = ctx;
   const install = INSTALL_SCRIPTS.get(pathname);
   if (install) {
     if (req.method !== 'GET') return json(res, 405, {error: 'Method not allowed'});
@@ -125,7 +126,7 @@ module.exports = async function lab(req, res, url, pathname, ctx) {
     const state = url.searchParams.get('state');
     if (!STATE.test(state ?? '')) return json(res, 400, {error: 'Sign in from the RUSH Lab app'});
     const location = req.auth?.userId
-      ? `rushlab://sign-in?${new URLSearchParams({site: siteUrl, state, token: signDownloadToken(secret, req.auth.userId)})}`
+      ? `${scheme}://sign-in?${new URLSearchParams({site: siteUrl, state, token: signDownloadToken(secret, req.auth.userId)})}`
       : signInUrl(`${pathname}?${new URLSearchParams({state})}`);
     res.writeHead(302, {Location: location, 'Cache-Control': 'no-store'});
     return res.end();
@@ -144,7 +145,7 @@ module.exports = async function lab(req, res, url, pathname, ctx) {
     if (req.method !== 'GET') return json(res, 405, {error: 'Method not allowed'});
     if (!req.auth?.userId) return json(res, 401, {error: 'Sign in to connect RUSH Lab'});
     const query = new URLSearchParams({site: siteUrl, token: signDownloadToken(secret, req.auth.userId)});
-    return json(res, 200, {link: `rushlab://connect?${query}`});
+    return json(res, 200, {link: `${scheme}://connect?${query}`});
   }
 
   if (session) {

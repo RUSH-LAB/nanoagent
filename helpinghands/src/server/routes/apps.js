@@ -16,6 +16,10 @@ const {APP_UI_ROUTE: UI_ROUTE} = require('./paths');
 // shown in a sandboxed frame (src/components/PluginFrame). A prompt for an app
 // goes through /api/ai/stream with an appId and runs on that app's NanoAgent
 // agent inside the same workspace (routes/ai.js).
+// A draft, a plugin the member is making on their computer, which its RUSH Lab
+// installed there itself, is listed at /api/app-drafts and opened at
+// /api/app-drafts/{id} the same way, with sessions of its own at
+// /api/app-drafts/{id}/sessions; its prompts carry `draft: true`.
 //
 // The folder is private: its path comes from the caller's own identity, so no
 // request can name anyone else's. Each run works on a copy of it in a scratch
@@ -32,12 +36,13 @@ function contentTypeFor(path, body) {
   return text ? {type: 'text/plain; charset=utf-8', inline: true} : {type: 'application/octet-stream', inline: false};
 }
 
-const ROUTES = new Set(['/api/apps', '/api/app-installs', '/api/agent-files', '/api/agent-files/content']);
+const ROUTES = new Set(['/api/apps', '/api/app-installs', '/api/app-drafts', '/api/agent-files', '/api/agent-files/content']);
 const PLUGIN_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const APP_ROUTE = /^\/api\/apps\/([^/]+)$/;
+const DRAFT_ROUTE = /^\/api\/app-drafts\/([^/]+)$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const UI_VERSION = /^[0-9a-f]{16}$/;
-const SESSIONS_ROUTE = /^\/api\/apps\/([^/]+)\/sessions(?:\/([^/]+)(\/run)?)?$/;
+const SESSIONS_ROUTE = /^\/api\/(apps|app-drafts)\/([^/]+)\/sessions(?:\/([^/]+)(\/run)?)?$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
@@ -94,13 +99,13 @@ async function serveUiFile(res, json, runners, sha256, page, version, raw) {
 }
 
 /**
- * The caller's sessions with one app (postgres/sessions.js): list and start
+ * The caller's sessions with one app, or with `draft` their draft of it (postgres/sessions.js): list and start
  * them, read one back with every call it made, and archive or restore one
  * (PATCH `{archived}`). A session still answering a message says so, `running`
  * (its message, `{prompt}`, when read back), and its run is followed at `/run`,
  * every event so far and then each as it comes, and cancelled by DELETE there.
  */
-async function sessionRoute(req, res, ctx, app, id, run) {
+async function sessionRoute(req, res, ctx, app, draft, id, run) {
   const {json, requireWorkspacePermission} = ctx;
   if (!PLUGIN_ID.test(app) || (id !== null && !UUID.test(id))) return json(res, 404, {error: 'Not found'});
   if (!ctx.sessions || !ctx.appRuns) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
@@ -108,7 +113,7 @@ async function sessionRoute(req, res, ctx, app, id, run) {
     if (run) {
       requireWorkspacePermission(req.context, 'apps:use');
       await ctx.appRuns.settle(req.context);
-      if (!(await ctx.sessions.get(req.context, app, id)).running) {
+      if (!(await ctx.sessions.get(req.context, app, draft, id)).running) {
         return json(res, 404, {error: 'This session is not answering a message any more. Open it again to see its answer.'});
       }
       if (req.method === 'GET') {
@@ -124,22 +129,22 @@ async function sessionRoute(req, res, ctx, app, id, run) {
     if (id === null && req.method === 'GET') {
       requireWorkspacePermission(req.context, 'content:read');
       await ctx.appRuns.settle(req.context);
-      return json(res, 200, {sessions: await ctx.sessions.list(req.context, app)});
+      return json(res, 200, {sessions: await ctx.sessions.list(req.context, app, draft)});
     }
     if (id === null && req.method === 'POST') {
       requireWorkspacePermission(req.context, 'apps:use');
-      return json(res, 200, {session: await ctx.sessions.create(req.context, app)});
+      return json(res, 200, {session: await ctx.sessions.create(req.context, app, draft)});
     }
     if (id !== null && req.method === 'GET') {
       requireWorkspacePermission(req.context, 'content:read');
       await ctx.appRuns.settle(req.context);
-      return json(res, 200, {session: await ctx.sessions.get(req.context, app, id)});
+      return json(res, 200, {session: await ctx.sessions.get(req.context, app, draft, id)});
     }
     if (id !== null && req.method === 'PATCH') {
       requireWorkspacePermission(req.context, 'apps:use');
       const body = await ctx.readBody(req).catch(() => null);
       if (typeof body?.archived !== 'boolean') return json(res, 400, {error: 'Request body must be {"archived": true} or {"archived": false}'});
-      return json(res, 200, {session: await ctx.sessions.archive(req.context, app, id, body.archived)});
+      return json(res, 200, {session: await ctx.sessions.archive(req.context, app, draft, id, body.archived)});
     }
   } catch (error) {
     if (error.name === 'SessionError') return json(res, error.status, {error: error.message});
@@ -214,14 +219,29 @@ async function appRoute(req, res, ctx, id) {
   return json(res, 405, {error: 'Method not allowed'});
 }
 
+/** The caller's computer's draft `id`, opened as an app is (appRoute's GET). */
+async function draftRoute(req, res, ctx, id) {
+  const {json, requireWorkspacePermission, workspaceApps} = ctx;
+  if (req.method !== 'GET') return json(res, 405, {error: 'Method not allowed'});
+  if (!PLUGIN_ID.test(id)) return json(res, 404, {error: `No draft named ${id} on your RUSH Lab`});
+  if (!workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
+  requireWorkspacePermission(req.context, 'content:read');
+  const computer = ctx.runners.computer(req.context.userId);
+  if (!computer) return json(res, 503, {error: RUNNER_OFFLINE});
+  const opened = await workspaceApps.openDraft(req.context, id, computer, ctx.runners.drafts(req.context.userId));
+  return opened.error ? json(res, opened.status, {error: opened.error}) : json(res, 200, {app: {...opened.value, computer: ctx.runners.page(req.context.userId)}});
+}
+
 module.exports = async function app_routes(req, res, url, pathname, ctx) {
   const {json, readRawBody, requireWorkspacePermission} = ctx;
   const ui = UI_ROUTE.exec(pathname);
   if (ui && req.method === 'GET') return serveUiFile(res, json, ctx.runners, ui[1], ui[2], ui[3], ui[4]);
   const sessions = SESSIONS_ROUTE.exec(pathname);
-  if (sessions) return sessionRoute(req, res, ctx, sessions[1], sessions[2] ?? null, Boolean(sessions[3]));
+  if (sessions) return sessionRoute(req, res, ctx, sessions[2], sessions[1] === 'app-drafts', sessions[3] ?? null, Boolean(sessions[4]));
   const app = APP_ROUTE.exec(pathname);
   if (app) return appRoute(req, res, ctx, app[1]);
+  const draft = DRAFT_ROUTE.exec(pathname);
+  if (draft) return draftRoute(req, res, ctx, draft[1]);
   if (!ROUTES.has(pathname)) return;
 
   if (req.method === 'GET' && pathname === '/api/apps') {
@@ -230,6 +250,14 @@ module.exports = async function app_routes(req, res, url, pathname, ctx) {
     const result = await ctx.workspaceApps.list(req.context);
     if (result.error) return json(res, result.status, {error: result.error});
     return json(res, 200, {apps: result.value});
+  }
+
+  // The drafts on the caller's computer, which only it lists.
+  if (req.method === 'GET' && pathname === '/api/app-drafts') {
+    requireWorkspacePermission(req.context, 'content:read');
+    const drafts = ctx.runners.drafts(req.context.userId);
+    if (!drafts) return json(res, 503, {error: RUNNER_OFFLINE});
+    return json(res, 200, {drafts});
   }
 
   // Entering a workspace installs the member's apps ahead of the first open, on

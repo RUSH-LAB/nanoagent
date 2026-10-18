@@ -1,5 +1,5 @@
 /**
- * Mochi Lab API server. Exposes a REST API on port 3001 (or EDITOR_PORT) for
+ * RUSH Lab API server. Exposes a REST API on port 3001 (or EDITOR_PORT) for
  * file CRUD, references, analytics, snapshots, and more.
  * All routes live under /api/* and return JSON with CORS headers.
  */
@@ -19,6 +19,7 @@ const {PROJECT_ROOT, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
 const {makeSignature} = require('better-auth/crypto');
 const {auth, AUTH_SECRET, SITE_URL, tenancy, githubUsers, resolveIdentity, isPublicPath, productionAuthError} = require('./auth');
 const {INSTALL_SCRIPTS} = require('./lab-install');
+const {servedApp} = require('./lab-app');
 const {asksForSession, redirectFor} = require('../utils/signIn');
 const {createAiMeter} = require('./ai-metering');
 const {
@@ -217,7 +218,7 @@ function json(res, status, data, opts) {
     ...corsHeaders(res.req),
     'X-API-Version': '1.0',
     // A stable protocol identifier, unlike the deployment's display name.
-    'X-Powered-By': 'Mochi Lab',
+    'X-Powered-By': 'RUSH Lab',
   };
   if (status === 200 && res.req?.method === 'GET') {
     const etag = '"' + crypto.createHash('md5').update(body).digest('hex').slice(0, 16) + '"';
@@ -559,11 +560,12 @@ const ctx = {
   // The plugin marketplace's uploads; PostgreSQL only.
   market: postgresServices?.market ?? null,
   // RUSH Lab, the app (routes/lab.js): its downloads, PostgreSQL only; the secret its connect
-  // links are signed with; and the token its uploads carry.
+  // links are signed with; the scheme of the app serving this site; and the token its uploads carry.
   lab: {
     bundles: postgresServices?.labBundles ?? null,
     secret: AUTH_SECRET,
     siteUrl: SITE_URL,
+    scheme: servedApp().scheme,
     uploadToken: process.env.LAB_UPLOAD_TOKEN || null,
     // The member's GitHub login, which names their files' folder on their computer; null when
     // there is no such member any more.

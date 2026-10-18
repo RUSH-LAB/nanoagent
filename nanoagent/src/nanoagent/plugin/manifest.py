@@ -29,7 +29,8 @@ raises :class:`PluginError` listing every broken rule at once:
    and is not one of the task's tools: NanoAgent runs it before the task and pins its output for
    :func:`verify_task`.
 6. ``verifier/`` is a deterministic verifier package (see :mod:`nanoagent.plugin.verifier`).
-7. Nothing else: the top level holds only the standard layout (and :data:`TOOL_ARTIFACTS`),
+7. Nothing else: the top level holds only the standard layout (and :data:`TOOL_ARTIFACTS`,
+   which are never packed: what tools create in a checkout, and a coding agent's instructions),
    and ``verifier/`` only ``.py`` files. ``src/`` and ``tests/`` are the plugin's own to
    organize.
 8. ``ui/`` is how the plugin's page draws its outputs: ``ui/renderers.js``, ``ui/renderers.css``
@@ -189,8 +190,12 @@ UI_PROPERTIES = (
     "__proto__",
 )
 UI_PROPERTY = re.compile(r"(?<!\.)\.\s*(" + "|".join(UI_PROPERTIES) + r")(?![\w$])")
-# What git, uv, Python and the test tools create in a checkout: allowed anywhere, never checked.
-TOOL_ARTIFACTS = frozenset({".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".DS_Store"})
+# What git, uv, Python and the test tools create in a checkout, and the coding agents' instructions
+# (AGENTS.md, CLAUDE.md, GEMINI.md, which RUSH Lab writes into a project): allowed at the top level
+# and anywhere else, never checked, never packed.
+TOOL_ARTIFACTS = frozenset(
+    {".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".DS_Store", "AGENTS.md", "CLAUDE.md", "GEMINI.md"}
+)
 
 
 class Status(enum.Enum):

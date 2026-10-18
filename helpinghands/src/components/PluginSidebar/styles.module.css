@@ -26,3 +26,19 @@
   stroke-width: 2;
   stroke-linecap: round;
 }
+
+.draftHint {
+  padding: 0.4rem 0.6rem;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.draftHint p {
+  margin: 0 0 0.4rem;
+}
+
+.draftHint code {
+  font-size: 0.68rem;
+  overflow-wrap: anywhere;
+}
