@@ -14,12 +14,24 @@ uv run nanoagent --help
 
 ## Plugins
 
-NanoAgent plugins follow the implementation-neutral `nanoagent.plugin/v1`
-contract. Every plugin is a folder with this standard layout
-(`nanoagent.plugin.manifest.REQUIRED_FILES` / `REQUIRED_FOLDERS`):
+Every plugin declares the plugin format it follows, its spec, in `nanoagent.yaml`:
+`spec: nanoagent.plugin/v1`. A spec never changes once released, so a plugin keeps
+running on every NanoAgent that runs its spec, whatever else a release changes.
+NanoAgent runs every spec in `nanoagent.plugin.manifest.SPECS`, each with its own
+module of rules and the classes its files name (`nanoagent.plugin.v1`, so
+`_ > nanoagent.plugin.v1.ManifestConfig:`). A change a plugin could break on (its
+rules, the contract, the verifier, the UI kit or the `nanoagent.ui/v1` bridge) is a
+new spec beside the last, and NanoAgent keeps running the last; it refuses a
+plugin whose spec it does not run, saying which it runs. A plugin made for
+NanoAgent 0.6 or earlier, which named the NanoAgent it was made for
+(`nanoagent: ~=0.6.0`), moves onto `nanoagent.plugin/v1` with
+`nanoagent plugin migrate <folder>`.
+
+A plugin is a folder with this standard layout
+(`nanoagent.plugin.authoring.STANDARD_FILES` / `STANDARD_FOLDERS`):
 
 ```text
-nanoagent.yaml   # manifest (a slimconfig ManifestConfig): id, runtime, permissions, tools, tasks
+nanoagent.yaml   # manifest (a slimconfig ManifestConfig): spec, id, runtime, permissions, tools, tasks
 contract.py      # each tool's and task's typed input and output: slimconfig Output classes
 README.md
 LICENSE
@@ -34,43 +46,38 @@ ui/              # how the page draws task outputs: renderers.js and renderers.c
 product/         # the product page: product.yaml and icon.svg
 ```
 
-Nothing else may sit at the top level. The only exceptions are what tools create in a
-checkout: `.git`, `.venv`, `__pycache__`, `.pytest_cache`, `.ruff_cache`, `.mypy_cache`,
-`.DS_Store`, and the coding agents' instructions: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`
-(`TOOL_ARTIFACTS`). None of them is ever packed.
+The rules come in two sets. A spec's rules, in the docstring of its module
+(`nanoagent.plugin.v1`), are what running and listing a plugin rely on: a
+`.env` holding names only, a `contract.py` of declarations only (snake_case
+tools, kebab-case tasks, classes named `...Input` and `...Output`), a
+`nanoagent.yaml` that fills the spec's `ManifestConfig` under slimconfig's
+rules (tables keyed by the contract's `Tool` and `Task`, the standard
+`runtime.command` `[uv, run, --frozen, python, -m, plugin]`, a PEP 440
+`version`), a deterministic verifier, a `ui/` and a `product/` (below).
+`load_manifest` loads a plugin under them, and so does every install and
+every tool call, which checks them again, so a plugin edited after it loaded
+is refused too.
 
-The rules a plugin must follow are listed in one place, the docstring of
-`nanoagent.plugin.manifest`. These are the layout above, a `.env` holding
-names only, a `contract.py` of declarations only (snake_case tools,
-kebab-case tasks, classes named `...Input` and `...Output`), a
-`nanoagent.yaml` that fills `ManifestConfig` under slimconfig's rules (tables
-keyed by the contract's `Tool` and `Task`, the standard `runtime.command`
-`[uv, run, --frozen, python, -m, plugin]`, a PEP 440 `version`), a
-deterministic verifier, a `ui/` and a
-`product/` (below), no extra files, and standard files that are the
-template's (`nanoagent/plugin/template/`, what `nanoagent plugin new`
-writes): its MIT `LICENSE` naming whoever built it, its `.gitignore` entries, a `README.md`
-opening with `# <name>` with the sections Tools, Layout and Develop and run
-and every tool and task named under Tools, and a `pyproject.toml` naming the
-project `nanoagent-<id>` at the manifest's version, with the template's
-`requires-python`, dependencies and `slimconfig` source and every other
-dependency bounded both ways. A `ready` plugin's `product.yaml` is its own,
-not the template's placeholder. NanoAgent refuses to load a plugin that breaks any rule, and `PluginError` lists every
-violation at once (`nanoagent plugin inspect <path>` prints them). The web
-host refuses to start with such a plugin. Every tool call checks the rules
-again, so a plugin edited after it loaded is refused too.
+The template's rules, in the docstring of `nanoagent.plugin.authoring`, follow
+what `nanoagent plugin new` writes (`nanoagent/plugin/template/`) and change
+with it, so they hold only where a plugin is made and published
+(`nanoagent plugin new`, `inspect` and `pack`, `check_plugin`), never where a
+published one is installed or run: the layout above and nothing else at the
+top level (but what tools create in a checkout: `.git`, `.venv`, `__pycache__`,
+`.pytest_cache`, `.ruff_cache`, `.mypy_cache`, `.DS_Store`, and the coding
+agents' instructions: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `TOOL_ARTIFACTS`,
+none of them ever packed), its MIT `LICENSE` naming whoever built it, its
+`.gitignore` entries, a `README.md` opening with `# <name>` with the sections
+Tools, Layout and Develop and run and every tool and task named under Tools,
+and a `pyproject.toml` naming the project `nanoagent-<id>` at the manifest's
+version, with the template's `requires-python`, dependencies and `slimconfig`
+source and every other dependency bounded both ways. A `ready` plugin's
+`product.yaml` is its own, not the template's placeholder. Either way
+`PluginError` lists every violation at once (`nanoagent plugin inspect <path>`
+prints them).
 
-Every plugin names the NanoAgent versions it runs on: `nanoagent` in
-`nanoagent.yaml` is one NanoAgent minor version, `~=X.Y.0`, and NanoAgent
-refuses a plugin whose range does not hold its own version
-(`nanoagent.__version__`).
-`nanoagent plugin new` writes `~=<this version>`, such as `~=0.3.0`
-(0.3.0 up to, not including, 0.4). NanoAgent raises its minor version
-whenever a plugin made for the last one could break: the plugin rules, the
-contract, the verifier, the UI kit or the `nanoagent.ui/v1` bridge. Any other
-release raises the patch version. Each release is a git tag,
-`nanoagent-v<version>`, and [CHANGELOG.md](CHANGELOG.md) says what a plugin
-must change for it.
+Each release is a git tag, `nanoagent-v<version>`, and
+[CHANGELOG.md](CHANGELOG.md) says what it changes for plugins.
 
 Before each launch NanoAgent checks the plugin's environment: `NANOAGENT_WORKSPACE` plus each `.env`
 name taken from NanoAgent's own environment, which must be set, and a `uv.lock` that matches `pyproject.toml`.

@@ -101,12 +101,16 @@ def test_refuses_what_is_not_a_package() -> None:
         inspect_package(b"not a package")
 
 
-def test_lists_every_broken_rule_of_the_packaged_plugin(plugin: Path) -> None:
+def test_inspects_a_package_under_its_specs_rules_alone(plugin: Path) -> None:
     files = _files(pack(plugin))
+    # The template's .gitignore is held to where a plugin is packed, not where its package is inspected.
+    files["echo/.gitignore"] = b"*.pyc\n"
+    assert inspect_package(_tar(files))["id"] == "echo"
     files.pop("echo/LICENSE")
+    files.pop("echo/contract.py")
     with pytest.raises(PackageError) as error:
         inspect_package(_tar(files))
-    assert "missing LICENSE" in error.value.violations
+    assert error.value.violations[:2] == ["missing contract.py", "missing LICENSE"]
 
 
 def test_the_package_folder_is_named_by_the_plugin_id(plugin: Path) -> None:

@@ -1,4 +1,4 @@
-_ > nanoagent.plugin.manifest.ProductConfig:
+_ > nanoagent.plugin.v1.ProductConfig:
 tagline: "Check words against the ones you trust"
 summary: "Give it the words you trust and the words to check. It marks every word known, changed, new or unreadable."
 highlights:

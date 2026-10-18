@@ -1,7 +1,26 @@
 # Changelog
 
-What each NanoAgent release changes for plugins. A plugin's `nanoagent` range in `nanoagent.yaml`
-names the releases it runs on; a new minor version is one a plugin made for the last may break on.
+What each NanoAgent release changes for plugins. Since 0.7.0 a plugin declares the plugin format it
+follows, its `spec`, and runs on every release that runs that spec (`nanoagent.plugin.manifest.SPECS`).
+
+## 0.7.0
+
+A plugin declares the spec it follows, not the NanoAgent it was made for: `spec:
+nanoagent.plugin/v1` in `nanoagent.yaml` replaces `nanoagent: ~=0.6.0`, and its files name the
+spec's classes, `nanoagent.plugin.v1.*` for `nanoagent.plugin.manifest.*`. A spec never changes
+once released: a change a plugin could break on is a new spec, beside the last, which NanoAgent
+keeps running. `nanoagent plugin migrate <folder>` moves a plugin made for 0.6 or earlier onto
+`nanoagent.plugin/v1` (and deletes a 0.5 plugin's `run.sh`). Publish it again for RUSH's
+marketplace to offer it: a version published before 0.7.0 is listed under maintenance.
+
+- `nanoagent.plugin/v1` is 0.6.0's plugin rules less the template's. Every v1 plugin still has a
+  `LICENSE`, but the rules that follow what `nanoagent plugin new` writes (what `LICENSE`,
+  `README.md`, `pyproject.toml` and `.gitignore` hold, nothing else at the top level, `tests/`, a
+  ready plugin's product page not the template's placeholder) are checked only by `nanoagent
+  plugin new`, `inspect` and `pack` (`nanoagent.plugin.authoring.check_plugin`), never when a
+  plugin is installed, its package inspected (`POST /v1/packages/inspect`) or its tools called.
+- A catalog entry's `spec` is the plugin's own.
+- `load_listing` and `PluginListing` are gone.
 
 ## 0.6.0
 

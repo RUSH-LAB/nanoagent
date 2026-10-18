@@ -108,7 +108,9 @@ its dependencies and its `slimconfig` source unchanged.
 ## 5. Write the manifest: `nanoagent.yaml`
 
 - `version` is PEP 440 and matches `pyproject.toml`'s `version`.
-- `nanoagent: ~=0.6.0` is the one NanoAgent minor version the plugin runs on.
+- `spec: nanoagent.plugin/v1` is the plugin format it follows. Every NanoAgent
+  that runs that spec runs the plugin, so it never needs a new version just
+  because NanoAgent has one.
 - `runtime.command` is exactly `[uv, run, --frozen, python, -m, plugin]`.
 - `permissions.network.hosts` lists bare hostnames only (no scheme, port or
   path), and only the ones the plugin needs. `filesystem.write` is
@@ -122,7 +124,7 @@ its dependencies and its `slimconfig` source unchanged.
     It may never copy from the reference tool's output.
 
 Follow slimconfig's rules: the file keeps its class headers (such as
-`_ > nanoagent.plugin.manifest.ManifestConfig:`), sets every field, and adds
+`_ > nanoagent.plugin.v1.ManifestConfig:`), sets every field, and adds
 no other field.
 
 ## 6. Write the verifier and its tests
@@ -265,6 +267,7 @@ Lab, and emails it to the course staff instead.
 | `<id> is one of NanoAgent's own plugins` | Choose a new id. |
 | `Your uploads may hold N MB in all` | Remove one of your other published plugins, or shrink this one. |
 | `uv.lock is out of date with pyproject.toml` | Run `uv lock` and commit the result. |
+| `nanoagent.yaml names the NanoAgent it was made for` | The plugin was made before plugins declared their spec: run `nanoagent plugin migrate .`, then commit the result. |
 | A broken README, LICENSE, or `.gitignore` rule | Restore the reference plugin's version of that part, then add yours after it. |
 | A `decide` field that cannot be filled | Make the field an Enum or bool, or make sure an earlier tool output or the task input holds a value of exactly its type. |
 | A verifier import or call that is not allowed | Replace it with a pure standard-library equivalent, or move the work into a tool. |

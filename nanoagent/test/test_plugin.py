@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from nanoagent.plugin import call_tool, load_manifest, plugin_tools
+from nanoagent.plugin.authoring import check_plugin
 
 
 CONTRACT = """from dataclasses import dataclass
@@ -43,22 +44,22 @@ TOOLS = {Tool.ECHO: (EchoInput, EchoOutput)}
 TASKS = {Task.ECHO: (EchoInput, EchoOutput)}
 """
 
-MANIFEST = """_ > nanoagent.plugin.manifest.ManifestConfig:
+MANIFEST = """_ > nanoagent.plugin.v1.ManifestConfig:
 id: echo
 name: Echo
 version: 1.0.0
 status: ready
-nanoagent: ~=0.6.0
-runtime > nanoagent.plugin.manifest.RuntimeConfig:
+spec: nanoagent.plugin/v1
+runtime > nanoagent.plugin.v1.RuntimeConfig:
   type: mcp_stdio
   command: [uv, run, --frozen, python, -m, plugin]
-permissions > nanoagent.plugin.manifest.PermissionsConfig:
-  network > nanoagent.plugin.manifest.NetworkConfig: {hosts: []}
-  filesystem > nanoagent.plugin.manifest.FilesystemConfig: {write: [workspace]}
-tools > dict[contract.Tool, nanoagent.plugin.manifest.ToolConfig]:
+permissions > nanoagent.plugin.v1.PermissionsConfig:
+  network > nanoagent.plugin.v1.NetworkConfig: {hosts: []}
+  filesystem > nanoagent.plugin.v1.FilesystemConfig: {write: [workspace]}
+tools > dict[contract.Tool, nanoagent.plugin.v1.ToolConfig]:
   echo:
     description: Echo input
-tasks > dict[contract.Task, nanoagent.plugin.manifest.TaskConfig]:
+tasks > dict[contract.Task, nanoagent.plugin.v1.TaskConfig]:
   echo:
     description: Echo input
     runner: tool
@@ -68,7 +69,7 @@ tasks > dict[contract.Task, nanoagent.plugin.manifest.TaskConfig]:
 """
 
 
-PRODUCT = """_ > nanoagent.plugin.manifest.ProductConfig:
+PRODUCT = """_ > nanoagent.plugin.v1.ProductConfig:
 tagline: Echo what you say
 summary: It repeats its input.
 highlights: [Exact, Instant]
@@ -124,7 +125,7 @@ def _uv_lock() -> str:
 
 
 def write_plugin(root: Path) -> Path:
-    from nanoagent.plugin.manifest import TEMPLATE
+    from nanoagent.plugin.authoring import TEMPLATE
 
     for name, content in {
         "README.md": README,
@@ -161,7 +162,7 @@ def write_plugin(root: Path) -> Path:
 
 
 def test_loads_strict_plugin_manifest(tmp_path: Path) -> None:
-    from nanoagent.plugin.manifest import RUNTIME_COMMAND
+    from nanoagent.plugin.v1 import RUNTIME_COMMAND
 
     manifest = load_manifest(write_plugin(tmp_path).parent)
     assert manifest.command == RUNTIME_COMMAND
@@ -182,7 +183,7 @@ def test_rejects_missing_standard_folder(tmp_path: Path, name: str) -> None:
     write_plugin(tmp_path)
     shutil.rmtree(tmp_path / name)
     with pytest.raises(ValueError, match=f"{name}/"):
-        load_manifest(tmp_path)
+        check_plugin(tmp_path)
 
 
 def test_env_names_variables_without_values(tmp_path: Path) -> None:
@@ -850,12 +851,12 @@ def test_product_is_what_a_catalog_shows(tmp_path: Path) -> None:
     )
     (tmp_path / "product" / "notes.txt").write_text("draft\n")
     with pytest.raises(PluginError) as error:
-        load_manifest(tmp_path)
+        check_plugin(tmp_path)
     assert error.value.violations == [
-        "unexpected product/notes.txt",
         "product/product.yaml tagline is blank",
         "product/product.yaml highlights must hold 2 to 4 entries, not 1",
         "product/product.yaml steps has a blank entry",
+        "unexpected product/notes.txt",
     ]
 
 
@@ -891,12 +892,10 @@ def test_reports_every_broken_rule_at_once(tmp_path: Path) -> None:
     (tmp_path / ".env").write_text("TOKEN=secret\n", encoding="utf-8")
     path.write_text(path.read_text().replace("name: Echo\n", "name: Echo\nauthor: someone\n"))
     with pytest.raises(PluginError) as error:
-        load_manifest(tmp_path)
-    assert error.value.violations[:2] == [
-        "missing tests/test_verifier.py",
-        ".env line 1 must be a variable NAME alone, with no = or value",
-    ]
-    assert "sets `author`, which is not a field of" in error.value.violations[2]
+        check_plugin(tmp_path)
+    assert error.value.violations[0] == ".env line 1 must be a variable NAME alone, with no = or value"
+    assert "sets `author`, which is not a field of" in error.value.violations[1]
+    assert error.value.violations[2:] == ["missing tests/test_verifier.py"]
 
 
 def test_refuses_a_plugin_edited_after_it_loaded(tmp_path: Path) -> None:
@@ -913,15 +912,17 @@ def test_allows_tool_artifacts_but_refuses_extra_files(tmp_path: Path) -> None:
     for artifact in (".git/HEAD", ".venv/pyvenv.cfg", "verifier/__pycache__/x.pyc", "src/.DS_Store"):
         (tmp_path / artifact).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / artifact).write_text("", encoding="utf-8")
-    load_manifest(tmp_path)
+    check_plugin(tmp_path)
 
     (tmp_path / "downloads").mkdir()
     (tmp_path / "notes.txt").write_text("", encoding="utf-8")
     (tmp_path / "schemas").mkdir()
     (tmp_path / "verifier" / "data.csv").write_text("", encoding="utf-8")
     (tmp_path / "src" / "data.csv").write_text("", encoding="utf-8")
+    # Running a plugin checks its spec's rules alone, which extra files do not break.
+    load_manifest(tmp_path)
     with pytest.raises(PluginError) as error:
-        load_manifest(tmp_path)
+        check_plugin(tmp_path)
     assert error.value.violations == [
         "unexpected downloads",
         "unexpected notes.txt",
@@ -968,7 +969,7 @@ def _layout(folder: Path) -> set[str]:
 
 @pytest.mark.parametrize("plugin", sorted(path.name for path in PLUGINS.iterdir() if path.is_dir()))
 def test_every_fixture_plugin_follows_every_rule(plugin: str) -> None:
-    assert load_manifest(PLUGINS / plugin).id == plugin
+    assert check_plugin(PLUGINS / plugin).id == plugin
 
 
 def test_plugin_new_creates_a_plugin_with_the_standard_layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -976,7 +977,7 @@ def test_plugin_new_creates_a_plugin_with_the_standard_layout(tmp_path: Path, mo
 
     from nanoagent.cli.plugin import main
     from nanoagent.plugin import scaffold
-    from nanoagent.plugin.manifest import REQUIRED_FILES, REQUIRED_FOLDERS, TEMPLATE
+    from nanoagent.plugin.authoring import STANDARD_FILES, STANDARD_FOLDERS, TEMPLATE
 
     # A template holding coding-agent instructions: plugin new copies none of them.
     template = tmp_path / "template"
@@ -987,9 +988,9 @@ def test_plugin_new_creates_a_plugin_with_the_standard_layout(tmp_path: Path, mo
     (tmp_path / "gitconfig").write_text("[user]\n\tname = Ada Lovelace\n")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
     assert main(["new", str(tmp_path / "my-notes")]) == 0
-    manifest = load_manifest(tmp_path / "my-notes")
-    assert (manifest.id, manifest.name) == ("my-notes", "My Notes")
-    assert _layout(tmp_path / "my-notes") == {*REQUIRED_FILES, *REQUIRED_FOLDERS}
+    manifest = check_plugin(tmp_path / "my-notes")
+    assert (manifest.id, manifest.name, manifest.spec) == ("my-notes", "My Notes", "nanoagent.plugin/v1")
+    assert _layout(tmp_path / "my-notes") == {*STANDARD_FILES, *STANDARD_FOLDERS}
     assert not any((tmp_path / "my-notes" / name).exists() for name in AGENT_INSTRUCTIONS)
     license_text = (tmp_path / "my-notes" / "LICENSE").read_text()
     assert "{{" not in license_text and "Ada Lovelace" in license_text
@@ -1057,25 +1058,39 @@ async def test_plugin_tool_images_reach_the_model_as_images() -> None:
 
 
 @pytest.mark.parametrize(
-    ("versions", "problem"),
+    ("line", "problem"),
     [
-        ("~=0.3.0", "nanoagent.yaml nanoagent: the plugin runs on NanoAgent ~=0.3.0, not this NanoAgent, 0.6.0"),
-        ("~=0.7.0", "nanoagent.yaml nanoagent: the plugin runs on NanoAgent ~=0.7.0, not this NanoAgent, 0.6.0"),
-        ('">=0.5"', "nanoagent.yaml nanoagent '>=0.5' is not one NanoAgent minor version, such as ~=0.6.0"),
-        ("~=0.6.1", "nanoagent.yaml nanoagent '~=0.6.1' is not one NanoAgent minor version, such as ~=0.6.0"),
-        ("latest", "nanoagent.yaml nanoagent 'latest' is not one NanoAgent minor version, such as ~=0.6.0"),
-        ('""', "nanoagent.yaml nanoagent '' is not one NanoAgent minor version, such as ~=0.6.0"),
+        ("spec: nanoagent.plugin/v9", "nanoagent.yaml spec 'nanoagent.plugin/v9' is not one this NanoAgent runs: nanoagent.plugin/v1"),
+        ("", "nanoagent.yaml declares no spec, the plugin format it follows: this NanoAgent runs nanoagent.plugin/v1"),
+        (
+            "nanoagent: ~=0.6.0",
+            "nanoagent.yaml names the NanoAgent it was made for, nanoagent: ~=0.6.0, from before plugins declared their"
+            " spec; `nanoagent plugin migrate <folder>` moves it to nanoagent.plugin/v1",
+        ),
     ],
 )
-def test_a_plugin_names_the_nanoagent_versions_it_runs_on(tmp_path: Path, versions: str, problem: str) -> None:
+def test_a_plugin_declares_a_spec_this_nanoagent_runs(tmp_path: Path, line: str, problem: str) -> None:
     from nanoagent.plugin import PluginError
 
-    write_plugin(tmp_path)
-    manifest = tmp_path / "nanoagent.yaml"
-    manifest.write_text(manifest.read_text().replace("nanoagent: ~=0.6.0", f"nanoagent: {versions}"))
+    manifest = write_plugin(tmp_path)
+    manifest.write_text(manifest.read_text().replace("spec: nanoagent.plugin/v1", line))
     with pytest.raises(PluginError) as error:
         load_manifest(tmp_path)
     assert error.value.violations == [problem]
+
+
+def test_migrate_moves_a_plugin_made_before_specs_onto_v1(tmp_path: Path) -> None:
+    from nanoagent.cli.plugin import main
+
+    manifest = write_plugin(tmp_path)
+    manifest.write_text(manifest.read_text().replace("spec: nanoagent.plugin/v1", "nanoagent: ~=0.5.0").replace("nanoagent.plugin.v1.", "nanoagent.plugin.manifest."))
+    product = tmp_path / "product" / "product.yaml"
+    product.write_text(product.read_text().replace("nanoagent.plugin.v1.", "nanoagent.plugin.manifest."))
+    (tmp_path / "run.sh").write_text("#!/bin/sh\nexec uv run --frozen python -m plugin\n")
+    assert main(["migrate", str(tmp_path)]) == 0
+    assert manifest.read_text() == MANIFEST and product.read_text() == PRODUCT
+    assert not (tmp_path / "run.sh").exists()
+    assert main(["migrate", str(tmp_path)]) == 1
 
 
 def test_ui_is_the_renderers_of_nanoagents_page(tmp_path: Path) -> None:
@@ -1186,8 +1201,10 @@ def test_standard_files_are_the_templates(tmp_path: Path, path: str, edit, probl
     write_plugin(tmp_path)
     file = tmp_path / path
     file.write_text(edit(file.read_text() if file.exists() else ""), encoding="utf-8")
+    # The template's rules hold where a plugin is made and published, never where it runs.
+    load_manifest(tmp_path)
     with pytest.raises(PluginError) as error:
-        load_manifest(tmp_path)
+        check_plugin(tmp_path)
     assert [violation for violation in error.value.violations if problem in violation], error.value.violations
 
 
@@ -1211,7 +1228,6 @@ def test_a_plugin_runs_the_standard_server_with_standard_names(tmp_path: Path) -
         "nanoagent.yaml runtime.command must be [uv, run, --frozen, python, -m, plugin]",
         "nanoagent.yaml tool 'Echo' is not a snake_case tool name",
         "nanoagent.yaml task 'Echo' is not a kebab-case task id",
-        "pyproject.toml must give the project nanoagent.yaml's version, banana",
         "contract.py TOOLS['Echo']: output class EchoResult must be named ...Output",
         "contract.py TASKS['Echo']: output class EchoResult must be named ...Output",
     ]
@@ -1229,7 +1245,7 @@ def test_pyproject_keeps_the_templates_environment(tmp_path: Path) -> None:
         .replace('branch = "master"', 'branch = "main"')
     )
     with pytest.raises(PluginError) as error:
-        load_manifest(tmp_path)
+        check_plugin(tmp_path)
     assert error.value.violations == [
         "pyproject.toml must require Python >=3.12",
         "pyproject.toml must depend on slimconfig",
@@ -1241,14 +1257,14 @@ def test_pyproject_keeps_the_templates_environment(tmp_path: Path) -> None:
 
 def test_a_ready_plugin_describes_itself_and_names_its_tasks(tmp_path: Path) -> None:
     from nanoagent.plugin import PluginError
-    from nanoagent.plugin.manifest import TEMPLATE
+    from nanoagent.plugin.authoring import TEMPLATE
 
     write_plugin(tmp_path)
     (tmp_path / "product" / "product.yaml").write_text((TEMPLATE / "product" / "product.yaml").read_text().replace("{{name}}", "Echo"))
     readme = tmp_path / "README.md"
     readme.write_text(readme.read_text().replace("`echo` repeats its input.", "The echo tool repeats its input."))
     with pytest.raises(PluginError) as error:
-        load_manifest(tmp_path)
+        check_plugin(tmp_path)
     assert error.value.violations == [
         "README.md ## Tools does not name echo, echo",
         "product/product.yaml still holds the template's placeholder text; a ready plugin describes itself",
@@ -1256,7 +1272,7 @@ def test_a_ready_plugin_describes_itself_and_names_its_tasks(tmp_path: Path) -> 
     manifest = tmp_path / "nanoagent.yaml"
     manifest.write_text(manifest.read_text().replace("status: ready", "status: in-development"))
     readme.write_text(readme.read_text().replace("The echo tool", "`echo`"))
-    load_manifest(tmp_path)
+    check_plugin(tmp_path)
 
 
 def test_renderers_draw_only_task_outputs_from_inside_their_own(tmp_path: Path) -> None:

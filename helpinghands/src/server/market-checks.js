@@ -1,10 +1,11 @@
 'use strict';
 
 /**
- * Whether Mochi's NanoAgent still accepts an upload's package (postgres/market.js). Each was
- * checked by the NanoAgent it was published on, and a newer one may refuse it, as one that drops
- * a file the plugin rules once required refuses every package that still has it: that version is
- * `refused`, with `refusal` saying why, until its uploader publishes it again. NanoAgent keeps
+ * Whether RUSH's NanoAgent still accepts an upload's package (postgres/market.js). Each was
+ * checked by the NanoAgent it was published on, against the rules of the spec its plugin
+ * declares, which never change; a newer NanoAgent refuses it only when it does not run that spec,
+ * as 0.7.0 refuses a package made before plugins declared one: that version is `refused`, with
+ * `refusal` saying why, until its uploader publishes it again. NanoAgent keeps
  * how it checked each package while it runs, so a package is sent to it once.
  */
 async function checkUpload({ai, market}, userId, entry) {
