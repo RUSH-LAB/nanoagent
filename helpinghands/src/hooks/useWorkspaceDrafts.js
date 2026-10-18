@@ -6,7 +6,7 @@ import API_BASE, {apiJson} from '@site/src/utils/api';
  * its RUSH Lab installed (`rushlab preview`): `{drafts, error, offline}`, with
  * `drafts` null until they arrive and `offline` while no computer is connected
  * (503). Read again whenever the window comes back into view, so a draft
- * previewed in the terminal shows up once the member returns.
+ * previewed from the member's terminal shows up once they return.
  */
 export default function useWorkspaceDrafts(workspace) {
   const [state, setState] = useState({workspaceId: null, drafts: null, error: null, offline: false});

@@ -61,8 +61,8 @@ Every plugin:
   bridge's `runTask`, `session.save` and `workspace.*` and the task-run endpoint
   (`POST /v1/workspaces/<ws>/installs/<sha256>/tasks/<task>/runs`): tasks run through the chat.
 - `AGENTS.md`, `CLAUDE.md` and `GEMINI.md`, a coding agent's instructions, may sit anywhere in a
-  plugin and are never packed (`TOOL_ARTIFACTS`), so a plugin made in RUSH Lab's terminal packs
-  and imports with them.
+  plugin and are never packed (`TOOL_ARTIFACTS`), so a plugin made with `rushlab new` packs and
+  imports with them.
 - The Dashboard of a draft, a plugin RUSH Lab installed from its folder (`rushlab preview`), says
   "Draft v<version>", and has no Update.
 

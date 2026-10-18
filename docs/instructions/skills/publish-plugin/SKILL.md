@@ -212,8 +212,8 @@ Then walk this list by hand:
 
 ## 9. See it in RUSH Lab
 
-In a terminal of the RUSH Lab app (menu bar → New Terminal), run this from
-the plugin folder:
+RUSH Lab puts the `rushlab` command on your PATH. In your terminal, run this
+from the plugin folder:
 
 ```bash
 rushlab preview .

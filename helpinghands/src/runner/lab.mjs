@@ -4,10 +4,10 @@
  * when it exits while the app is open:
  *
  *   mochi-lab/stamp          names this build
- *   mochi-lab/config.json    desktop/config.yaml: the app's name, label, scheme and site, the files folders, Python's version
+ *   mochi-lab/config.json    desktop/config.yaml: the app's name, label, scheme, command and site, the files folder, Python's version
  *   mochi-lab/bin/{node,uv}  the runtimes, first on every service's PATH
  *   mochi-lab/git/           git, next on it
- *   mochi-lab/runner/        this file, the relay (relay.mjs) and what it loads
+ *   mochi-lab/runner/        this file, the relay (relay.mjs) and what it loads, and plugin-project/, what `<command> new` writes
  *   mochi-lab/nanoagent/     NanoAgent's source (site/), its uv.lock, the PI runner's bundle, its config
  *
  * One install serves every connection on this computer's account to its one site (config.site_url):
@@ -31,13 +31,17 @@
  * relay has a request of Mochi's going, a held run included: the app updates itself only while it
  * is not (desktop/src-tauri/src/update.rs). SIGTERM stops every connection, cleanly.
  *
- * A plugin the member is making on this computer is a draft: `rushlab preview` (the terminal's
- * launcher, from the plugin's folder) packs it into the data folder's drafts/<id>/ (writeDraft), for
- * one connection, the only one or the one it names (previewConnection), whose NanoAgent installs it
- * from there, one draft at a time (draftSupervisor), the relay telling Mochi which drafts it has
- * (its hello's `drafts`), so the member opens it on the Plugins page before publishing it.
- * drafts/<id>/status.json says how the install stands, for `rushlab preview` to wait on; a draft
- * whose folder is gone is removed.
+ * At each start it writes the app's command (config.command, rushlab; rushlab-dev in RUSH Lab Dev)
+ * into ~/.local/bin/ for the build it runs (installCommand), which the member runs in whatever
+ * terminal they use: `<command> new <id>` makes a plugin there for their AI CLI to design with
+ * (newPlugin), `<command> nanoagent` and `<command> uv` run the bundled ones (bundledCommand), so
+ * nothing else goes on their PATH. A plugin the member is making on this computer is a draft:
+ * `<command> preview`, from the plugin's folder, packs it into the data folder's drafts/<id>/
+ * (writeDraft), for one connection, the only one or the one it names (previewConnection), whose
+ * NanoAgent installs it from there, one draft at a time (draftSupervisor), the relay telling Mochi
+ * which drafts it has (its hello's `drafts`), so the member opens it on the Plugins page before
+ * publishing it. drafts/<id>/status.json says how the install stands, for `<command> preview` to
+ * wait on; a draft whose folder is gone is removed.
  *
  * It runs on macOS, where plugins run in seatbelt, and on Windows, in an AppContainer (PLATFORMS).
  * Node's own modules are all it loads.
@@ -60,7 +64,7 @@ const RESTART_MS = 30_000;
 const LOG_TAIL_LINES = 30;
 // How long a draft's install may take: NanoAgent's two syncs of up to 600 s each, and its inspection.
 const DRAFT_INSTALL_MS = 25 * 60_000;
-// How often `rushlab preview` looks at its draft's status, and how long it waits for RUSH Lab to give one.
+// How often `<command> preview` looks at its draft's status, and how long it waits for RUSH Lab to give one.
 const DRAFT_POLL_MS = 500;
 const DRAFT_STATUS_MS = 10_000;
 const PLUGIN_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -458,7 +462,7 @@ export function readDrafts(data) {
   const all = path.join(data, 'drafts');
   for (const id of fs.existsSync(all) ? fs.readdirSync(all) : []) {
     const file = path.join(draftFolder(data, id), 'draft.json');
-    // Not written yet: `rushlab preview` writes it last.
+    // Not written yet: `<command> preview` writes it last.
     if (!fs.existsSync(file)) continue;
     const draft = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (fs.existsSync(draft.folder)) drafts.push(draft);
@@ -770,13 +774,16 @@ async function main() {
     await sleep(WATCH_MS);
   }
 
-  /** Stop what a previous run left, and make NanoAgent's environment, which every connection shares. */
+  /** Stop what a previous run left, write the app's command, and make NanoAgent's environment, which every connection shares. */
   async function prepare() {
     log(`${config.product_name} ${fs.readFileSync(path.join(root, 'stamp'), 'utf8').trim()}`);
     fs.mkdirSync(connectionsFolder, {recursive: true, mode: 0o700});
     fs.mkdirSync(path.join(data, 'logs'), {recursive: true});
     await stopLeftovers();
     removeOtherSites(data, config);
+    const {shell} = os.userInfo();
+    // Not awaited: the member's shell may take a while to say its PATH, and NanoAgent need not wait for it.
+    installCommand({home: os.homedir(), root, config, shell, windows: WINDOWS, readPath: () => memberPath(shell)});
     fs.rmSync(busyFile, {force: true});
     log('Preparing NanoAgent\'s Python environment (the first start downloads Python)…');
     setupStage('python');
@@ -985,13 +992,115 @@ async function main() {
   }
 }
 
-const RUSHLAB_USAGE = `usage:
-  rushlab preview [folder] [--to <connection>]   open the plugin in folder (. by default) in this app, as a draft
-                                                 of the account connected as <connection>, which only more than one needs
-  rushlab preview --stop <id>                    remove the draft <id>`;
+/**
+ * The app's command for the build at `root`, in the member's `home`: {file, text}, the script
+ * ~/.local/bin/<command> (on Windows <command>.cmd) runs the bundled node on this file with, which
+ * says so when that build is gone.
+ */
+export function commandLauncher({home, root, config, windows}) {
+  const {join} = windows ? path.win32 : path.posix;
+  const node = join(root, 'bin', windows ? 'node.exe' : 'node');
+  const labMjs = join(root, 'runner', 'lab.mjs');
+  const written = `Written by ${config.product_name} at each start, for the build it runs (src/runner/lab.mjs).`;
+  const gone = `${config.product_name} is not set up here: open ${config.product_name}, which writes ${config.command} again`;
+  if (windows) {
+    return {
+      file: join(home, '.local', 'bin', `${config.command}.cmd`),
+      text: `@echo off\r\nrem ${written}\r\nif not exist "${node}" (\r\n  echo ${gone} 1>&2\r\n  exit /b 1\r\n)\r\n"${node}" "${labMjs}" rushlab %*\r\nexit /b %errorlevel%\r\n`,
+    };
+  }
+  // One word of sh each: Application Support has a space.
+  const quote = text => `'${text.replaceAll("'", "'\\''")}'`;
+  return {
+    file: join(home, '.local', 'bin', config.command),
+    text: `#!/bin/sh\n# ${written}\n[ -e ${quote(node)} ] || { echo ${quote(gone)} >&2; exit 1; }\nexec ${quote(node)} ${quote(labMjs)} rushlab "$@"\n`,
+  };
+}
 
-/** `rushlab`'s arguments (RUSHLAB_USAGE): {stop: id}, or {folder, to}, `to` null when none is named; null for anything else. */
+/** Whether `folder` is one of the folders in `PATH`, as Windows compares them when `windows`. */
+export function onPath(folder, PATH, windows) {
+  const {delimiter, resolve} = windows ? path.win32 : path.posix;
+  const name = entry => (windows ? resolve(entry).toLowerCase() : resolve(entry));
+  return PATH.split(delimiter).filter(Boolean).some(entry => name(entry) === name(folder));
+}
+
+/** How the member puts ~/.local/bin on their terminal's PATH, for their login `shell`. */
+export function pathAdvice(shell, windows) {
+  if (windows) return 'run this in PowerShell: [Environment]::SetEnvironmentVariable(\'Path\', "$env:USERPROFILE\\.local\\bin;" + [Environment]::GetEnvironmentVariable(\'Path\', \'User\'), \'User\')';
+  const name = path.basename(shell);
+  if (name === 'fish') return 'run this: fish_add_path ~/.local/bin';
+  const file = {zsh: '~/.zshrc', bash: '~/.bash_profile'}[name] ?? `${name}'s startup file`;
+  return `add this line to ${file}: export PATH="$HOME/.local/bin:$PATH"`;
+}
+
+/**
+ * The PATH the member's terminal has: on macOS their login `shell`'s once their startup files have
+ * run, as this app's own is launchd's; on Windows this process's, as Explorer gives every program.
+ */
+function memberPath(shell) {
+  if (WINDOWS) return Promise.resolve(process.env.PATH ?? '');
+  return new Promise((resolve, reject) => {
+    const child = spawn(shell, ['-ilc', 'printf "\\n%s%s" RUSH_LAB_PATH= "$PATH"'], {stdio: ['ignore', 'pipe', 'ignore'], timeout: 15_000});
+    let out = '';
+    child.stdout.on('data', chunk => { out += chunk; });
+    child.once('error', reject);
+    child.once('close', (code, signal) => {
+      // Its startup files may print anything before it.
+      const at = out.lastIndexOf('RUSH_LAB_PATH=');
+      if (at < 0) reject(new Error(`${shell} printed no PATH (${describeExit({code, signal})})`));
+      else resolve(out.slice(at + 'RUSH_LAB_PATH='.length));
+    });
+  });
+}
+
+/**
+ * Write the app's command for the build at `root` (commandLauncher), and log whether the member's
+ * terminal finds it, as `readPath()` (memberPath) gives its PATH, and if not, how to make it.
+ */
+export async function installCommand({home, root, config, shell, windows, readPath}) {
+  const {file, text} = commandLauncher({home, root, config, windows});
+  try {
+    fs.mkdirSync(path.dirname(file), {recursive: true});
+    // Whole or not at all, as a terminal may be running it.
+    fs.writeFileSync(`${file}.partial`, text);
+    fs.chmodSync(`${file}.partial`, 0o755);
+    fs.renameSync(`${file}.partial`, file);
+  } catch (error) {
+    log(`could not write ${config.command} (${file}): ${error.message}`);
+    return;
+  }
+  let PATH;
+  try {
+    PATH = await readPath();
+  } catch (error) {
+    log(`Wrote ${file}, but could not tell whether your terminal finds ${config.command}: ${error.message}`);
+    return;
+  }
+  if (onPath(path.dirname(file), PATH, windows)) log(`Wrote ${file}: run ${config.command} in a terminal`);
+  else log(`Wrote ${file}, but ${path.dirname(file)} is not on your terminal's PATH, so ${config.command} is not found there: ${pathAdvice(shell, windows)}, then open a new terminal window`);
+}
+
+/** How the app's command is used, for the app `config`. */
+function usage({command, product_name: name}) {
+  const lines = [
+    ['new <id>', 'make the plugin <id> in ./<id>, for an AI CLI there to design with you'],
+    ['preview [folder] [--to <connection>]', `open the plugin in folder (. by default) in ${name}, as a draft`],
+    ['', 'of the account connected as <connection>, which only more than one needs'],
+    ['preview --stop <id>', 'remove the draft <id>'],
+    ['nanoagent <args>', `run ${name}'s NanoAgent`],
+    ['uv <args>', `run ${name}'s uv`],
+  ];
+  const width = Math.max(...lines.map(([words]) => words.length)) + command.length + 4;
+  return `usage:\n${lines.map(([words, says]) => `  ${(words && `${command} ${words}`).padEnd(width)}${says}`).join('\n')}`;
+}
+
+/**
+ * The app's command's arguments (usage): {new: id}; {run: nanoagent or uv, args}; {stop: id}; or
+ * {folder, to}, `to` null when none is named; null for anything else.
+ */
 export function rushlabCommand(args) {
+  if (args[0] === 'new') return args.length === 2 ? {new: args[1]} : null;
+  if (args[0] === 'nanoagent' || args[0] === 'uv') return {run: args[0], args: args.slice(1)};
   if (args[0] !== 'preview') return null;
   if (args[1] === '--stop') return args.length === 3 ? {stop: args[2]} : null;
   let folder = null;
@@ -1002,6 +1111,56 @@ export function rushlabCommand(args) {
     else return null;
   }
   return {folder: folder ?? '.', to};
+}
+
+/**
+ * How the build at `root` runs its `nanoagent` or `uv` with `args` for the member, in their `env`:
+ * NanoAgent with the bundled runtimes and git first on its PATH, for `plugin new`'s uv and git.
+ */
+export function bundledCommand(root, run, args, env) {
+  const bin = path.join(root, 'bin');
+  if (run === 'uv') return {program: path.join(bin, exe('uv')), args, env};
+  // Windows' environment names it Path.
+  const name = Object.keys(env).find(key => key.toUpperCase() === 'PATH') ?? 'PATH';
+  const PATH = [bin, path.join(root, 'git', WINDOWS ? 'cmd' : 'bin'), env[name]].filter(Boolean).join(path.delimiter);
+  return {program: venvPython(path.join(root, 'nanoagent')), args: ['-I', '-m', 'nanoagent', ...args], env: {...env, [name]: PATH}};
+}
+
+// What `<command> new` writes the preface and the skill into, one for each AI CLI.
+const PROJECT_FILES = ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md'];
+
+/**
+ * `<command> new <id>`: make the plugin `id` in `cwd`/<id> with the build at `root`'s NanoAgent
+ * (`plugin new`), then its AGENTS.md, CLAUDE.md and GEMINI.md: runner/plugin-project/project.md
+ * for it, then the publish-plugin `skill`. A folder already there is refused; one it could not
+ * finish is removed. The folder.
+ */
+export async function newPlugin({root, config, skill}, id, cwd) {
+  if (!PLUGIN_ID.test(id)) throw new Error(`${id} is not a plugin id: lowercase letters and numbers, in words joined by single hyphens`);
+  const folder = path.resolve(cwd, id);
+  if (fs.existsSync(folder)) throw new Error(`${folder} already exists`);
+  const preface = fs.readFileSync(path.join(root, 'runner', 'plugin-project', 'project.md'), 'utf8');
+  const text = `${preface.replaceAll('{{id}}', id).replaceAll('{{command}}', config.command)}\n${fs.readFileSync(skill, 'utf8')}`;
+  const {program, args, env} = bundledCommand(root, 'nanoagent', ['plugin', 'new', folder], process.env);
+  try {
+    const made = await runPython(program, args, env);
+    if (made.code !== 0) throw new Error(made.stderr.trim() || `nanoagent plugin new failed (exit status: ${made.code})`);
+    for (const name of PROJECT_FILES) fs.writeFileSync(path.join(folder, name), text);
+  } catch (error) {
+    const partial = fs.existsSync(folder);
+    fs.rmSync(folder, {recursive: true, force: true});
+    throw new Error(`Could not make the plugin ${id}${partial ? `, so ${folder} is removed` : ''}: ${error.message}`);
+  }
+  return folder;
+}
+
+/** Run `program args` in this terminal: its exit code. */
+function runHere({program, args, env}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(program, args, {stdio: 'inherit', env});
+    child.once('error', error => reject(new Error(`could not run ${program}: ${error.message}`)));
+    child.once('close', code => resolve(code ?? 1));
+  });
 }
 
 /**
@@ -1029,10 +1188,10 @@ export function previewConnection(data, config, to) {
   return all[0];
 }
 
-/** Run `python args`: its exit code and what it printed. */
-function runPython(python, args) {
+/** Run `python args`, in `env`: its exit code and what it printed. */
+function runPython(python, args, env = process.env) {
   return new Promise((resolve, reject) => {
-    const child = spawn(python, args, {stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true});
+    const child = spawn(python, args, {stdio: ['ignore', 'pipe', 'pipe'], env, windowsHide: true});
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', chunk => { stdout += chunk; });
@@ -1043,18 +1202,25 @@ function runPython(python, args) {
 }
 
 /**
- * `rushlab preview [folder]`: pack the plugin in `folder` with NanoAgent, which checks it against
- * every plugin rule, read its id, name and version (`plugin inspect`), keep it as a draft of its
- * connection's, and wait for RUSH Lab to install it there, saying how it stands. Its exit code: 0
- * once it is installed, 1 when it is not, 2 for a command it does not know.
+ * The app's command (usage), for the build at `root` with its `config` and `data` folder, and the
+ * publish-plugin `skill` `new` writes. `preview [folder]` packs the plugin in `folder` with
+ * NanoAgent, which checks it against every plugin rule, reads its id, name and version
+ * (`plugin inspect`), keeps it as a draft of its connection's, and waits for the app to install it
+ * there, saying how it stands. Its exit code: 0 once done, 1 when not, 2 for a command it does
+ * not know; `nanoagent` and `uv` exit as they do.
  */
-export async function rushlab(args) {
+export async function rushlab(args, {root, config, data, skill}) {
   const command = rushlabCommand(args);
   if (!command) {
-    console.error(RUSHLAB_USAGE);
+    console.error(usage(config));
     return 2;
   }
-  const {root, config, data} = installation();
+  if ('new' in command) {
+    const folder = await newPlugin({root, config, skill}, command.new, process.cwd());
+    console.log(`Made the plugin ${command.new} in ${folder}. In it, start your AI CLI (claude, codex, gemini, …) to design it with you, and run ${config.command} preview . to see it in ${config.product_name}.`);
+    return 0;
+  }
+  if ('run' in command) return runHere(bundledCommand(root, command.run, command.args, process.env));
   if ('stop' in command) {
     removeDraft(data, command.stop);
     console.log(`Removed the draft ${command.stop}`);
@@ -1099,7 +1265,7 @@ export async function rushlab(args) {
       if (outcome.ok) console.log(`Open ${config.product_name} → Plugins → Drafts → ${plugin.name}`);
       return outcome.ok ? 0 : 1;
     }
-    if (said === null && Date.now() - started > DRAFT_STATUS_MS) throw new Error(`${config.product_name} is not running: open it, then run rushlab preview again`);
+    if (said === null && Date.now() - started > DRAFT_STATUS_MS) throw new Error(`${config.product_name} is not running: open it, then run ${config.command} preview again`);
     if (Date.now() - started > DRAFT_INSTALL_MS) throw new Error(`${config.product_name} did not install ${plugin.name} within ${DRAFT_INSTALL_MS / 60_000} minutes`);
     await sleep(DRAFT_POLL_MS);
   }
@@ -1109,15 +1275,18 @@ export async function rushlab(args) {
 // The app asks it, with a connect link's token in LAB_TOKEN:
 //   lab.mjs member <site>              the member the link is for, as JSON, and the site it names
 //   lab.mjs connect <data> <site>      keep a session for them as their connection, and print its id
-// and the terminal's `rushlab` launcher, from the member's shell:
-//   lab.mjs rushlab <args>             rushlab (RUSHLAB_USAGE)
+// and the app's command (commandLauncher), in the member's terminal:
+//   lab.mjs rushlab <args>             rushlab (usage)
 if (process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(process.argv[1])) {
   const config = () => JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'config.json'), 'utf8'));
   const token = process.env.LAB_TOKEN ?? '';
   const [command, ...args] = process.argv.slice(2);
   if (command === 'rushlab') {
     // A member reads it in their terminal: what went wrong, without the log's time.
-    rushlab(args).then(code => { process.exitCode = code; }, error => {
+    Promise.resolve().then(() => {
+      const app = installation();
+      return rushlab(args, {...app, skill: path.join(app.root, 'runner', 'plugin-project', 'SKILL.md')});
+    }).then(code => { process.exitCode = code; }, error => {
       console.error(error.message);
       process.exitCode = 1;
     });

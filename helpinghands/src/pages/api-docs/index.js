@@ -432,7 +432,7 @@ const CATEGORIES = [
         response: '{ "preparing": true }',
       },
       {
-        method: 'GET', path: '/api/app-drafts', description: 'The drafts on your computer: plugins you are making there, which `rushlab preview` in RUSH Lab\'s terminal installed on the NanoAgent of the account it was for; 503 while RUSH Lab is not connected.',
+        method: 'GET', path: '/api/app-drafts', description: 'The drafts on your computer: plugins you are making there, which `rushlab preview`, run in your own terminal, had RUSH Lab install on the NanoAgent of the account it was for; 503 while RUSH Lab is not connected.',
         response: '{ "drafts": [{ "id": "my-plugin", "name": "My Plugin", "version": "0.1.0", "sha256": "..." }] }',
       },
       {

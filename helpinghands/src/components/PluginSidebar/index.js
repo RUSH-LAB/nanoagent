@@ -2,7 +2,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import {useClickOutside} from '@site/src/hooks/useClickOutside';
-import {labAppHasTerminal, useLabLink} from '@site/src/utils/labApp';
+import {useLabCommand} from '@site/src/utils/labApp';
 // The blog's group sidebar, reused so the two read as one design.
 import styles from '@site/src/components/BlogGroupSidebar/styles.module.css';
 import own from './styles.module.css';
@@ -15,8 +15,8 @@ export {pluginNavigation} from './navigation';
  * the ones the member gave their plugins; where the reader is lives in the URL
  * (?tag=, ?app=, ?draft=), so every entry is a plain link. Below them, while
  * the member's computer is connected, are the drafts on it, or why they could
- * not be read, and in the RUSH Lab app a link to its terminal, where drafts
- * are made.
+ * not be read, and how to make one in the member's own terminal with the
+ * command their RUSH Lab puts on their PATH.
  */
 
 function TagIcon() {
@@ -84,10 +84,14 @@ function TagSwitcher({navigation}) {
   );
 }
 
+// What a member adds to their shell's startup for ~/.local/bin, where RUSH Lab puts its command, to be on their PATH.
+const PATH_LINES = [
+  ['macOS', `echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc`],
+  ['Windows (PowerShell)', `[Environment]::SetEnvironmentVariable('Path', "$env:USERPROFILE\\.local\\bin;" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')`],
+];
+
 function DraftList({navigation, draftsError}) {
-  const terminal = labAppHasTerminal();
-  const terminalLink = useLabLink('terminal');
-  if (!navigation.draftLinks.length && !draftsError && !terminal) return null;
+  const command = useLabCommand();
   return (
     <>
       <li className="menu__list-item">
@@ -108,13 +112,16 @@ function DraftList({navigation, draftsError}) {
           </Link>
         </li>
       ))}
-      {terminal && (
-        <li className="menu__list-item">
-          <a className={clsx('menu__link', styles.categoryLink, own.marketplace)} href={terminalLink}>
-            <span className={styles.taxonomyTitle}>Open Terminal</span>
-          </a>
-        </li>
-      )}
+      <li className={clsx('menu__list-item', own.draftHint)}>
+        <p>
+          To make one, in your terminal run <code>{command} new my-plugin</code>, open your AI CLI (Claude Code, Codex,
+          Gemini) in <code>my-plugin</code>, then run <code>{command} preview .</code> to see it here.
+        </p>
+        <p>If your terminal cannot find <code>{command}</code>, add ~/.local/bin to your PATH, then open a new terminal:</p>
+        {PATH_LINES.map(([system, line]) => (
+          <p key={system}>{system}: <code>{line}</code></p>
+        ))}
+      </li>
     </>
   );
 }

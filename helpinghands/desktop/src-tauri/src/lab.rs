@@ -30,12 +30,10 @@ pub struct Config {
     /// The app's name, which its menu, dialogs and windows say.
     pub product_name: String,
     label: String,
-    /// The scheme of the app's links: <scheme>://connect, ://sign-in and ://terminal.
+    /// The scheme of the app's links: <scheme>://connect and ://sign-in.
     pub scheme: String,
     /// The Mochi this app serves, which its window shows.
     pub site_url: String,
-    /// The terminal's plugin projects, ~/<projects_folder>/<id>/ (terminal.rs).
-    projects_folder: String,
     /// A release's target, which it updates itself as (update.rs); None for any other build.
     pub update_target: Option<String>,
 }
@@ -55,11 +53,6 @@ pub fn config(app: &AppHandle) -> Result<Config, String> {
     let config_file = resources.join("config.json");
     let text = fs::read_to_string(&config_file).map_err(|error| format!("{}: {error}", config_file.display()))?;
     serde_json::from_str(&text).map_err(|error| format!("{}: {error}", config_file.display()))
-}
-
-/// The folder the terminal's plugin projects are in, ~/<projects_folder>/.
-pub fn projects_folder(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app.path().home_dir().map_err(|error| error.to_string())?.join(config(app)?.projects_folder))
 }
 
 impl Lab {
@@ -108,11 +101,6 @@ impl Lab {
             child: Mutex::new(None),
             stopping: AtomicBool::new(false),
         })
-    }
-
-    /// This build's files, installed: app/<stamp>/mochi-lab/.
-    pub fn root(&self) -> &Path {
-        &self.root
     }
 
     fn node(&self) -> Command {

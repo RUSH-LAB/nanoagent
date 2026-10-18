@@ -8,15 +8,13 @@
 //! only once they confirm it is theirs. Its window is always its own site's, config.json's site_url:
 //! rush-lab.org's for RUSH Lab, and for RUSH Lab Dev (`npm run desktop:dev`) this checkout's local
 //! site; the two differ only in config.json (lab.rs). A release keeps itself the build its site
-//! serves (update.rs). Its terminal windows run the member's own shell on a page the app bundles
-//! (terminal.rs), opened from the menu bar or by <scheme>://terminal. The scheme is config.json's:
-//! rushlab for RUSH Lab, rushlab-dev for RUSH Lab Dev.
+//! serves (update.rs). The scheme is config.json's: rushlab for RUSH Lab, rushlab-dev for RUSH Lab
+//! Dev.
 
 mod lab;
 mod setup;
 #[cfg(target_os = "macos")]
 mod sign_in;
-mod terminal;
 mod update;
 
 use std::sync::Arc;
@@ -37,14 +35,13 @@ use tauri_plugin_opener::OpenerExt;
 
 // What the login item opens RUSH Lab with, and an update the build it installed: then its window starts hidden.
 const AT_LOGIN: &str = "--login";
-// Tells the site's pages they are in the app's window (src/utils/labApp.js), that it opens
-// <scheme>://terminal, and on macOS that the app signs the window in (sign_in.rs): WebKit gives
-// GitHub's passkeys only to an app signed by an Apple developer. WebView2 gives them through Windows
-// Hello, so there the window signs in as the site does.
+// Tells the site's pages they are in the app's window (src/utils/labApp.js), and on macOS that the app
+// signs the window in (sign_in.rs): WebKit gives GitHub's passkeys only to an app signed by an Apple
+// developer. WebView2 gives them through Windows Hello, so there the window signs in as the site does.
 #[cfg(target_os = "macos")]
-const IN_APP: &str = "window.__RUSH_LAB_APP__ = true; window.__RUSH_LAB_TERMINAL__ = true; window.__RUSH_LAB_SIGNS_IN__ = true;";
+const IN_APP: &str = "window.__RUSH_LAB_APP__ = true; window.__RUSH_LAB_SIGNS_IN__ = true;";
 #[cfg(not(target_os = "macos"))]
-const IN_APP: &str = "window.__RUSH_LAB_APP__ = true; window.__RUSH_LAB_TERMINAL__ = true;";
+const IN_APP: &str = "window.__RUSH_LAB_APP__ = true;";
 
 /// This build's config.json (lab.rs), which the app keeps from its start.
 fn app_config(app: &AppHandle) -> tauri::State<'_, lab::Config> {
@@ -163,18 +160,6 @@ fn refuse(app: &AppHandle, message: String) {
     });
 }
 
-/// Whether `link` is <scheme>://terminal, which opens a terminal window and runs nothing.
-fn is_terminal(link: &Url, scheme: &str) -> bool {
-    link.scheme() == scheme && link.host_str() == Some("terminal")
-}
-
-/// Open a terminal window on the projects folder, or say why it did not open.
-fn open_terminal(app: &AppHandle) {
-    if let Err(message) = terminal::open_window(app, None) {
-        app.dialog().message(format!("The terminal did not open: {message}")).title(&app_config(app).product_name).kind(MessageDialogKind::Error).show(|_| {});
-    }
-}
-
 /// Connect `link`'s member off the main thread, where a dialog that waits for an answer cannot be shown.
 fn connect_later(app: &AppHandle, link: Url, from_window: bool) {
     let app = app.clone();
@@ -194,15 +179,6 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![AT_LOGIN])))
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(terminal::Terminals::default())
-        .invoke_handler(tauri::generate_handler![
-            terminal::terminal_projects,
-            terminal::terminal_new_project,
-            terminal::terminal_open_project,
-            terminal::terminal_start,
-            terminal::terminal_write,
-            terminal::terminal_resize,
-        ])
         .setup(|app| {
             let at_login = std::env::args().any(|arg| arg == AT_LOGIN);
             #[cfg(target_os = "macos")]
@@ -217,7 +193,6 @@ fn main() {
             let update_site = site.clone();
             let handle = app.handle().clone();
             let opener = app.handle().clone();
-            let navigation_scheme = scheme.clone();
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(site))
                 .title(&name)
                 .inner_size(1280.0, 832.0)
@@ -232,7 +207,7 @@ fn main() {
                 })
                 // The site's <scheme>: links are the app's to follow, not the page's.
                 .on_navigation(move |url| {
-                    if url.scheme() != navigation_scheme {
+                    if url.scheme() != scheme {
                         return true;
                     }
                     #[cfg(target_os = "macos")]
@@ -244,12 +219,6 @@ fn main() {
                                 refuse(&signing, format!("{} could not open its sign-in: {message}", app_config(&signing).product_name));
                             }
                         });
-                        return false;
-                    }
-                    if is_terminal(url, &navigation_scheme) {
-                        // The window opens on the main thread, once this navigation is refused.
-                        let opening = handle.clone();
-                        let _ = handle.run_on_main_thread(move || open_terminal(&opening));
                         return false;
                     }
                     connect_later(&handle, url.clone(), true);
@@ -270,11 +239,8 @@ fn main() {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let _ = closing.hide();
-                    // In the Dock still while a terminal window is open.
                     #[cfg(target_os = "macos")]
-                    if !terminal::running(&hidden) {
-                        let _ = hidden.set_activation_policy(tauri::ActivationPolicy::Accessory);
-                    }
+                    let _ = hidden.set_activation_policy(tauri::ActivationPolicy::Accessory);
                 }
             });
 
@@ -303,10 +269,9 @@ fn main() {
             }
 
             let open = MenuItem::with_id(app, "open", format!("Open {name}"), true, None::<&str>)?;
-            let new_terminal = MenuItem::with_id(app, "terminal", "New Terminal", true, None::<&str>)?;
             let logs = MenuItem::with_id(app, "logs", "Show Logs", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", format!("Quit {name}"), true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &new_terminal, &logs, &PredefinedMenuItem::separator(app)?, &quit])?;
+            let menu = Menu::with_items(app, &[&open, &logs, &PredefinedMenuItem::separator(app)?, &quit])?;
             let icon = app.default_window_icon().cloned().ok_or("the app has no icon")?;
             TrayIconBuilder::new()
                 .icon(icon)
@@ -314,7 +279,6 @@ fn main() {
                 .menu(&menu)
                 .on_menu_event(|app, event| match (event.id().as_ref(), app.try_state::<Arc<Lab>>()) {
                     ("open", _) => show(app),
-                    ("terminal", _) => open_terminal(app),
                     ("logs", Some(lab)) => drop(app.opener().open_path(lab.data.join("logs").display().to_string(), None::<&str>)),
                     ("quit", _) => app.exit(0),
                     _ => {}
@@ -324,14 +288,7 @@ fn main() {
             let link_handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
                 for link in event.urls() {
-                    if is_terminal(&link, &scheme) {
-                        // From another thread: this runs on the main thread while the event's listeners
-                        // are locked, and building a window there waits for that lock.
-                        let opening = link_handle.clone();
-                        thread::spawn(move || open_terminal(&opening));
-                    } else {
-                        connect_later(&link_handle, link, false);
-                    }
+                    connect_later(&link_handle, link, false);
                 }
             });
 
@@ -381,7 +338,6 @@ fn main() {
         #[cfg(target_os = "macos")]
         tauri::RunEvent::Reopen { .. } => show(app),
         tauri::RunEvent::Exit => {
-            terminal::close_all(app);
             if let Some(lab) = app.try_state::<Arc<Lab>>() {
                 lab.stop();
             }

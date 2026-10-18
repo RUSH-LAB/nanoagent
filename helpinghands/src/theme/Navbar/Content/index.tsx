@@ -1,6 +1,5 @@
 import React, {useEffect, type ReactNode} from 'react';
 import clsx from 'clsx';
-import useIsBrowser from '@docusaurus/useIsBrowser';
 import {ErrorCauseBoundary, ThemeClassNames} from '@docusaurus/theme-common';
 import {
   splitNavbarItems,
@@ -13,7 +12,6 @@ import WorkspaceSwitcher from '@site/src/components/WorkspaceSwitcher';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 import {prepareWorkspaceApps} from '@site/src/hooks/useWorkspaceApps';
 import useNavbarItems from '@site/src/hooks/useNavbarItems';
-import {labAppHasTerminal, useLabLink} from '@site/src/utils/labApp';
 
 import styles from './styles.module.css';
 
@@ -71,9 +69,6 @@ export default function NavbarContent(): ReactNode {
   const mobileSidebar = useNavbarMobileSidebar();
   const {workspace} = useWorkspaceSite();
   const [leftItems, rightItems] = splitNavbarItems(useNavbarItems());
-  // Only the app's window opens a terminal, and only once it is known to be the app's.
-  const hasTerminal = useIsBrowser() && labAppHasTerminal();
-  const terminalLink = useLabLink('terminal');
 
   // Entering a workspace starts installing its plugins, before any is opened.
   useEffect(() => prepareWorkspaceApps(workspace?.id), [workspace?.id]);
@@ -92,7 +87,6 @@ export default function NavbarContent(): ReactNode {
       }
       right={
         <>
-          {hasTerminal && <a className="navbar__item navbar__link" href={terminalLink}>Terminal</a>}
           <NavbarItems items={rightItems} />
           <NavbarColorModeToggle className={styles.colorModeToggle} />
         </>

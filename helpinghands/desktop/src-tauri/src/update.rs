@@ -2,10 +2,10 @@
 //! server/routes/lab.js). Every CHECK_EVERY it asks for that build; one with a newer version (a
 //! release's is its build's time, scripts/release.mjs) is downloaded, checked against the update
 //! key (plugins.updater.pubkey in tauri.conf.json) and the version it was signed for, and installed
-//! once nothing runs here and the app's windows are closed, a terminal's too, so an update never
-//! stops a run, a page a member is on, or their shell. On macOS it is installed over this app,
-//! which then opens it; on Windows its installer quits this app and opens the one it installed.
-//! Only a release (npm run build:release) updates itself.
+//! once nothing runs here and the app's window is closed, so an update never stops a run or a page
+//! a member is on. On macOS it is installed over this app, which then opens it; on Windows its
+//! installer quits this app and opens the one it installed. Only a release (npm run build:release)
+//! updates itself.
 
 use std::sync::Arc;
 use std::thread;
@@ -70,15 +70,13 @@ async fn install(app: &AppHandle, lab: &Arc<Lab>, site: &Url, target: &str) -> R
     Ok(true)
 }
 
-/// Until nothing runs here and the windows are closed.
+/// Until nothing runs here and the window is closed.
 fn wait_until_unused(app: &AppHandle, lab: &Lab) {
     while !(lab.idle() && window_closed(app)) {
         thread::sleep(IDLE_POLL);
     }
 }
 
-/// Whether the main window is hidden and no terminal window is open.
 fn window_closed(app: &AppHandle) -> bool {
-    !crate::terminal::running(app)
-        && app.get_webview_window("main").is_none_or(|window| window.is_visible().is_ok_and(|visible| !visible))
+    app.get_webview_window("main").is_none_or(|window| window.is_visible().is_ok_and(|visible| !visible))
 }

@@ -178,7 +178,7 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     });
     assert.deepEqual(runners.drafts('u1'), [draft]);
     assert.equal(runners.drafts('u2'), null);
-    const changed = {...draft, version: '0.3.0', sha256: 'f'.repeat(64), folder: '/Users/me/rushlab-plugins/my-draft'};
+    const changed = {...draft, version: '0.3.0', sha256: 'f'.repeat(64), folder: '/Users/me/my-draft'};
     announce([changed]);
     await until(() => runners.drafts('u1')[0]?.version === '0.3.0');
     assert.deepEqual(runners.drafts('u1'), [{id: 'my-draft', name: 'My Draft', version: '0.3.0', sha256: 'f'.repeat(64)}]);

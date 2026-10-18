@@ -12,7 +12,7 @@ import {devOverlay} from '../../../scripts/dev/desktop-dev.mjs';
 const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../desktop');
 const yaml = YAML.parse(fs.readFileSync(path.join(desktop, 'config.yaml'), 'utf8'));
 const tauri = JSON.parse(fs.readFileSync(path.join(desktop, 'src-tauri', 'tauri.conf.json'), 'utf8'));
-const IDENTITY = ['product_name', 'label', 'scheme', 'site_url', 'files_folder', 'projects_folder'];
+const IDENTITY = ['product_name', 'label', 'scheme', 'site_url', 'files_folder', 'command'];
 
 describe("the desktop app's config.yaml builds", () => {
   it('builds RUSH Lab from tauri.conf.json, which says who config.yaml says it is', () => {

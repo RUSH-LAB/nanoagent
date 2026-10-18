@@ -14,16 +14,16 @@ product_name: RUSH Lab
 # on Windows %LOCALAPPDATA%. It serves a connection there for each member of its site connected on
 # this computer, each with its own NanoAgent on a free port.
 label: lab.mochi.lab
-# The app's links (<scheme>://connect, ://sign-in, ://terminal): tauri.conf.json's deep-link scheme.
+# The app's links (<scheme>://connect, ://sign-in): tauri.conf.json's deep-link scheme.
 scheme: rushlab
 # The one Mochi this app serves: its window's, and the only site a connect link may name.
 site_url: https://rush-lab.org
 # The member's own files in each workspace they are in, <home>/<files_folder>/<login>/, kept in
 # sync both ways with their home there by the relay (src/runner/files.mjs).
 files_folder: rushlab
-# The terminal's plugin projects (menu bar → New Terminal), ~/<projects_folder>/<id>/: outside the
-# member's files, so a project's .venv and .git never sync to Mochi.
-projects_folder: rushlab-plugins
+# The command the app puts on the member's PATH, <home>/.local/bin/<command> (src/runner/lab.mjs),
+# which makes and previews plugin projects and runs the app's own nanoagent and uv in any terminal.
+command: rushlab
 # RUSH Lab Dev: on this checkout's `npm start`, beside RUSH Lab and sharing nothing with it.
 dev:
   product_name: RUSH Lab Dev
@@ -31,7 +31,7 @@ dev:
   scheme: rushlab-dev
   site_url: http://localhost:3000
   files_folder: rushlab-dev
-  projects_folder: rushlab-dev-plugins
+  command: rushlab-dev
 
 # Bundled runtimes. Node runs lab.mjs, the relay and NanoAgent's PI runner; uv installs NanoAgent's
 # dependencies (uv.lock) on first launch, on the Python NanoAgent runs on, and runs its plugins.

@@ -6,12 +6,14 @@ import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
 import crypto from 'node:crypto';
+import {spawnSync} from 'node:child_process';
 import {
-  addConnection, adoptLegacy, connectableSite, connectionId, draftSupervisor, draftsToInstall, installsFolder, linkMember, linkSession, keyHint, keyStatus, nanoagentCommand,
-  parseEnv, previewConnection, previewOutcome, providerKeys, readDrafts, relayEnv, removeDraft, removeOtherSites, rushlab, rushlabCommand, systemEnv, writeDraft, writeKeys,
+  addConnection, adoptLegacy, bundledCommand, commandLauncher, connectableSite, connectionId, draftSupervisor, draftsToInstall, installCommand, installsFolder, linkMember,
+  linkSession, keyHint, keyStatus, nanoagentCommand, newPlugin, onPath, parseEnv, pathAdvice, previewConnection, previewOutcome, providerKeys, readDrafts, relayEnv, removeDraft,
+  removeOtherSites, rushlab, rushlabCommand, systemEnv, writeDraft, writeKeys,
 } from '../../../src/runner/lab.mjs';
 
-const CONFIG = {product_name: 'RUSH Lab', site_url: 'https://rush-lab.org'};
+const CONFIG = {product_name: 'RUSH Lab', site_url: 'https://rush-lab.org', command: 'rushlab'};
 
 test('installs once, its own site\'s files apart from RUSH Lab Dev\'s', () => {
   const config = YAML.parse(fs.readFileSync(new URL('../../../desktop/config.yaml', import.meta.url), 'utf8'));
@@ -361,23 +363,182 @@ test('says a draft failed while its connection is not running, and forgets one r
   assert.equal(connections.get('a').drafts.size, 0);
 });
 
-test('reads rushlab\'s arguments, and says how to use it, exiting 2, for any it does not know', async () => {
+/** What `run` logged with console.log and console.error, without the log's time. */
+async function said(run) {
+  const lines = [];
+  const {log, error} = console;
+  console.log = line => lines.push(line.replace(/^\S+Z /, ''));
+  console.error = line => lines.push(line);
+  try {
+    return {result: await run(), lines};
+  } finally {
+    Object.assign(console, {log, error});
+  }
+}
+
+test('reads the command\'s arguments, and says how to use it, exiting 2, for any it does not know', async () => {
   assert.deepEqual(rushlabCommand(['preview']), {folder: '.', to: null});
   assert.deepEqual(rushlabCommand(['preview', 'plugin', '--to', 'localhost-3000-abc']), {folder: 'plugin', to: 'localhost-3000-abc'});
   assert.deepEqual(rushlabCommand(['preview', '--to', 'x', 'plugin']), {folder: 'plugin', to: 'x'});
   assert.deepEqual(rushlabCommand(['preview', '--stop', 'my-draft']), {stop: 'my-draft'});
-  for (const args of [[], ['publish'], ['preview', 'a', 'b'], ['preview', '--to'], ['preview', '--to', 'x', '--to', 'y'], ['preview', '--stop'], ['preview', '--stop', 'a', 'b'], ['preview', '--force']]) {
+  assert.deepEqual(rushlabCommand(['new', 'my-plugin']), {new: 'my-plugin'});
+  assert.deepEqual(rushlabCommand(['nanoagent', 'plugin', 'inspect', '.', '--to']), {run: 'nanoagent', args: ['plugin', 'inspect', '.', '--to']});
+  assert.deepEqual(rushlabCommand(['uv', 'lock']), {run: 'uv', args: ['lock']});
+  assert.deepEqual(rushlabCommand(['uv']), {run: 'uv', args: []});
+  for (const args of [[], ['publish'], ['new'], ['new', 'a', 'b'], ['preview', 'a', 'b'], ['preview', '--to'], ['preview', '--to', 'x', '--to', 'y'], ['preview', '--stop'],
+    ['preview', '--stop', 'a', 'b'], ['preview', '--force']]) {
     assert.equal(rushlabCommand(args), null, args.join(' '));
   }
-  const said = [];
-  const error = console.error;
-  console.error = line => said.push(line);
-  try {
-    assert.equal(await rushlab(['preview', '--stop']), 2);
-  } finally {
-    console.error = error;
+  const {result, lines} = await said(() => rushlab(['preview', '--stop'], {config: {...CONFIG, product_name: 'RUSH Lab Dev', command: 'rushlab-dev'}}));
+  assert.equal(result, 2);
+  assert.equal(lines[0], [
+    'usage:',
+    '  rushlab-dev new <id>                               make the plugin <id> in ./<id>, for an AI CLI there to design with you',
+    '  rushlab-dev preview [folder] [--to <connection>]   open the plugin in folder (. by default) in RUSH Lab Dev, as a draft',
+    '                                                     of the account connected as <connection>, which only more than one needs',
+    '  rushlab-dev preview --stop <id>                    remove the draft <id>',
+    '  rushlab-dev nanoagent <args>                       run RUSH Lab Dev\'s NanoAgent',
+    '  rushlab-dev uv <args>                              run RUSH Lab Dev\'s uv',
+  ].join('\n'));
+});
+
+test('writes the command as one sh script on the bundled node, every path quoted', () => {
+  const root = '/Users/o\'brien/Library/Application Support/lab.mochi.lab/app/7/mochi-lab';
+  assert.deepEqual(commandLauncher({home: '/Users/o\'brien', root, config: CONFIG, windows: false}), {
+    file: '/Users/o\'brien/.local/bin/rushlab',
+    text: [
+      '#!/bin/sh',
+      '# Written by RUSH Lab at each start, for the build it runs (src/runner/lab.mjs).',
+      '[ -e \'/Users/o\'\\\'\'brien/Library/Application Support/lab.mochi.lab/app/7/mochi-lab/bin/node\' ]'
+        + ' || { echo \'RUSH Lab is not set up here: open RUSH Lab, which writes rushlab again\' >&2; exit 1; }',
+      'exec \'/Users/o\'\\\'\'brien/Library/Application Support/lab.mochi.lab/app/7/mochi-lab/bin/node\''
+        + ' \'/Users/o\'\\\'\'brien/Library/Application Support/lab.mochi.lab/app/7/mochi-lab/runner/lab.mjs\' rushlab "$@"',
+      '',
+    ].join('\n'),
+  });
+});
+
+test('runs the command on the build\'s node, its words whole, and says so once that build is gone', {skip: process.platform === 'win32'}, () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'lab home '));
+  const root = path.join(home, 'Application Support', 'mochi-lab');
+  fs.mkdirSync(path.join(root, 'bin'), {recursive: true});
+  fs.writeFileSync(path.join(root, 'bin', 'node'), '#!/bin/sh\nprintf \'%s\\n\' "$@"\n', {mode: 0o755});
+  const {file, text} = commandLauncher({home, root, config: CONFIG, windows: false});
+  fs.mkdirSync(path.dirname(file), {recursive: true});
+  fs.writeFileSync(file, text, {mode: 0o755});
+  const ran = spawnSync(file, ['preview', 'a b', '--to', 'x'], {encoding: 'utf8'});
+  assert.deepEqual([ran.status, ran.stdout], [0, `${path.join(root, 'runner', 'lab.mjs')}\nrushlab\npreview\na b\n--to\nx\n`]);
+  fs.rmSync(path.join(root, 'bin', 'node'));
+  const gone = spawnSync(file, ['preview'], {encoding: 'utf8'});
+  assert.deepEqual([gone.status, gone.stderr], [1, 'RUSH Lab is not set up here: open RUSH Lab, which writes rushlab again\n']);
+});
+
+test('writes the command on Windows as a .cmd in %USERPROFILE%\\.local\\bin', () => {
+  const root = 'C:\\Users\\Ada B\\AppData\\Local\\lab.mochi.lab.dev\\app\\7\\mochi-lab';
+  assert.deepEqual(commandLauncher({home: 'C:\\Users\\Ada B', root, config: {...CONFIG, product_name: 'RUSH Lab Dev', command: 'rushlab-dev'}, windows: true}), {
+    file: 'C:\\Users\\Ada B\\.local\\bin\\rushlab-dev.cmd',
+    text: [
+      '@echo off',
+      'rem Written by RUSH Lab Dev at each start, for the build it runs (src/runner/lab.mjs).',
+      `if not exist "${root}\\bin\\node.exe" (`,
+      '  echo RUSH Lab Dev is not set up here: open RUSH Lab Dev, which writes rushlab-dev again 1>&2',
+      '  exit /b 1',
+      ')',
+      `"${root}\\bin\\node.exe" "${root}\\runner\\lab.mjs" rushlab %*`,
+      'exit /b %errorlevel%',
+      '',
+    ].join('\r\n'),
+  });
+});
+
+test('tells whether a folder is on PATH, and how to put ~/.local/bin there', () => {
+  assert.equal(onPath('/Users/a/.local/bin', '/usr/bin:/Users/a/.local/bin/:/bin', false), true);
+  assert.equal(onPath('/Users/a/.local/bin', '/usr/bin::/bin', false), false);
+  assert.equal(onPath('/Users/a/.local/bin', '/Users/A/.local/bin', false), false);
+  assert.equal(onPath('C:\\Users\\a\\.local\\bin', 'C:\\Windows;c:\\users\\A\\.local\\bin\\', true), true);
+  assert.equal(pathAdvice('/bin/zsh', false), 'add this line to ~/.zshrc: export PATH="$HOME/.local/bin:$PATH"');
+  assert.equal(pathAdvice('/bin/bash', false), 'add this line to ~/.bash_profile: export PATH="$HOME/.local/bin:$PATH"');
+  assert.equal(pathAdvice('/bin/ksh', false), 'add this line to ksh\'s startup file: export PATH="$HOME/.local/bin:$PATH"');
+  assert.equal(pathAdvice('/opt/homebrew/bin/fish', false), 'run this: fish_add_path ~/.local/bin');
+  assert.match(pathAdvice(null, true), /^run this in PowerShell: \[Environment\]::SetEnvironmentVariable\('Path', "\$env:USERPROFILE\\\.local\\bin;" \+/);
+});
+
+test('installs the command at each start, saying when the member\'s terminal does not find it', {skip: process.platform === 'win32'}, async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'lab-home-'));
+  const file = path.join(home, '.local', 'bin', 'rushlab');
+  const install = readPath => said(() => installCommand({home, root: '/r', config: CONFIG, shell: '/bin/zsh', windows: false, readPath}));
+  assert.deepEqual((await install(async () => '/usr/bin:/bin')).lines, [
+    `Wrote ${file}, but ${path.dirname(file)} is not on your terminal's PATH, so rushlab is not found there: `
+      + 'add this line to ~/.zshrc: export PATH="$HOME/.local/bin:$PATH", then open a new terminal window',
+  ]);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o755);
+  assert.match(fs.readFileSync(file, 'utf8'), /^exec '\/r\/bin\/node' '\/r\/runner\/lab\.mjs' rushlab "\$@"$/m);
+  fs.writeFileSync(file, 'an older build\'s');
+  assert.deepEqual((await install(async () => `/usr/bin:${path.dirname(file)}`)).lines, [`Wrote ${file}: run rushlab in a terminal`]);
+  assert.equal(fs.readFileSync(file, 'utf8'), commandLauncher({home, root: '/r', config: CONFIG, windows: false}).text);
+  assert.deepEqual((await install(async () => { throw new Error('/bin/zsh printed no PATH (exit status: 1)'); })).lines, [
+    `Wrote ${file}, but could not tell whether your terminal finds rushlab: /bin/zsh printed no PATH (exit status: 1)`,
+  ]);
+  assert.deepEqual(fs.readdirSync(path.dirname(file)), ['rushlab']);
+});
+
+test('runs the bundled NanoAgent with the bundled runtimes and git first on its PATH, and the bundled uv as it is', () => {
+  const root = path.join('/data', 'mochi-lab');
+  const python = process.platform === 'win32' ? path.join(root, 'nanoagent', '.venv', 'Scripts', 'python.exe') : path.join(root, 'nanoagent', '.venv', 'bin', 'python');
+  const git = path.join(root, 'git', process.platform === 'win32' ? 'cmd' : 'bin');
+  assert.deepEqual(bundledCommand(root, 'nanoagent', ['plugin', 'inspect', '.'], {HOME: '/h', PATH: '/usr/bin'}), {
+    program: python,
+    args: ['-I', '-m', 'nanoagent', 'plugin', 'inspect', '.'],
+    env: {HOME: '/h', PATH: [path.join(root, 'bin'), git, '/usr/bin'].join(path.delimiter)},
+  });
+  assert.deepEqual(bundledCommand(root, 'nanoagent', [], {Path: 'C:\\Windows'}).env, {Path: [path.join(root, 'bin'), git, 'C:\\Windows'].join(path.delimiter)});
+  const env = {HOME: '/h', PATH: '/usr/bin'};
+  assert.deepEqual(bundledCommand(root, 'uv', ['lock', '--check'], env), {
+    program: path.join(root, 'bin', process.platform === 'win32' ? 'uv.exe' : 'uv'), args: ['lock', '--check'], env,
+  });
+});
+
+/** A build whose NanoAgent's `plugin new` runs `script` (sh, its folder in $6), and the skill. */
+function fakeBuild(script) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lab build '));
+  fs.mkdirSync(path.join(root, 'nanoagent', '.venv', 'bin'), {recursive: true});
+  fs.writeFileSync(path.join(root, 'nanoagent', '.venv', 'bin', 'python'), `#!/bin/sh\n${script}\n`, {mode: 0o755});
+  fs.mkdirSync(path.join(root, 'runner', 'plugin-project'), {recursive: true});
+  fs.writeFileSync(path.join(root, 'runner', 'plugin-project', 'project.md'), '# The plugin {{id}}\n\nRun `{{command}} preview .` for {{id}}.\n');
+  fs.writeFileSync(path.join(root, 'SKILL.md'), '# Build and publish a NanoAgent plugin\n');
+  return {root, config: {...CONFIG, command: 'rushlab-dev'}, skill: path.join(root, 'SKILL.md')};
+}
+
+test('makes a plugin with the bundled NanoAgent, and writes the preface and the skill into it for each AI CLI', {skip: process.platform === 'win32'}, async () => {
+  const build = fakeBuild('mkdir "$6" && printf \'%s\\n\' "$*" "$PATH" > "$6/made"');
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'lab-cwd-'));
+  const folder = await newPlugin(build, 'my-plugin', cwd);
+  assert.equal(folder, path.join(cwd, 'my-plugin'));
+  assert.deepEqual(fs.readdirSync(folder).sort(), ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md', 'made']);
+  const [args, PATH] = fs.readFileSync(path.join(folder, 'made'), 'utf8').split('\n');
+  assert.equal(args, `-I -m nanoagent plugin new ${folder}`);
+  assert.equal(PATH.split(':').slice(0, 2).join(':'), `${path.join(build.root, 'bin')}:${path.join(build.root, 'git', 'bin')}`);
+  for (const name of ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md']) {
+    assert.equal(fs.readFileSync(path.join(folder, name), 'utf8'), '# The plugin my-plugin\n\nRun `rushlab-dev preview .` for my-plugin.\n\n# Build and publish a NanoAgent plugin\n');
   }
-  assert.match(said[0], /^usage:\n {2}rushlab preview \[folder\] \[--to <connection>\]/);
+  await assert.rejects(newPlugin(build, 'my-plugin', cwd), {message: `${folder} already exists`});
+  assert.equal(fs.readFileSync(path.join(folder, 'AGENTS.md'), 'utf8').startsWith('# The plugin my-plugin'), true);
+});
+
+test('refuses an id no plugin has, and removes a plugin it could not finish, saying why', {skip: process.platform === 'win32'}, async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'lab-cwd-'));
+  const failing = fakeBuild('mkdir "$6"; echo \'git config user.name is not set\' >&2; exit 1');
+  for (const id of ['My-Plugin', 'my--plugin', '-my', 'my_plugin', '../x', '']) {
+    await assert.rejects(newPlugin(failing, id, cwd), {message: `${id} is not a plugin id: lowercase letters and numbers, in words joined by single hyphens`});
+  }
+  await assert.rejects(newPlugin(failing, 'my-plugin', cwd), {
+    message: `Could not make the plugin my-plugin, so ${path.join(cwd, 'my-plugin')} is removed: git config user.name is not set`,
+  });
+  const silent = fakeBuild('exit 3');
+  await assert.rejects(newPlugin(silent, 'my-plugin', cwd), {message: 'Could not make the plugin my-plugin: nanoagent plugin new failed (exit status: 3)'});
+  const noSkill = {...fakeBuild('mkdir "$6"'), skill: path.join(cwd, 'missing', 'SKILL.md')};
+  await assert.rejects(newPlugin(noSkill, 'my-plugin', cwd), /no such file or directory/);
+  assert.deepEqual(fs.readdirSync(cwd), []);
 });
 
 test('removes only a draft this computer has, by a plugin id', () => {
