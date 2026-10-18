@@ -155,7 +155,7 @@ test('writes keys readable only by this user, keeping only provider keys', () =>
 
 test('gives the services only the system basics, the bundled runtimes first on PATH', () => {
   const system = systemEnv({HOME: '/Users/m', USER: 'm', PATH: '/opt/homebrew/bin', OPENROUTER_API_KEY: 'k', SECRET: 's'}, '/app/bin', '/data');
-  assert.deepEqual(system, {HOME: '/Users/m', USER: 'm', PATH: '/app/bin:/usr/bin:/bin:/usr/sbin:/sbin', UV_PYTHON_INSTALL_DIR: '/data/python'});
+  assert.deepEqual(system, {HOME: '/Users/m', USER: 'm', PATH: '/app/bin:/app/git/bin:/usr/bin:/bin:/usr/sbin:/sbin', UV_PYTHON_INSTALL_DIR: '/data/python'});
 });
 
 test('starts a connection\'s NanoAgent sandboxed, in its own folders, with its keys and token', () => {

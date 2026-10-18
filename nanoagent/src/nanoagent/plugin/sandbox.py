@@ -27,7 +27,6 @@ import os
 import secrets
 import shutil
 import subprocess
-import sys
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
