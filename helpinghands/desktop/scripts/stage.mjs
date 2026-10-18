@@ -85,7 +85,8 @@ async function fetchVerified(url, expected) {
   const unpacked = path.join(cache, `${path.basename(url)}.d`);
   fs.rmSync(unpacked, {recursive: true, force: true});
   fs.mkdirSync(unpacked);
-  run('tar', ['-xf', file, '-C', unpacked]);
+  // Windows' own tar: a GNU tar earlier on PATH (Git Bash) reads the drive letter as a remote host.
+  run(process.platform === 'win32' ? path.join(process.env.SystemRoot, 'System32', 'tar.exe') : 'tar', ['-xf', file, '-C', unpacked]);
   return unpacked;
 }
 

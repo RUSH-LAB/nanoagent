@@ -30,7 +30,7 @@ Needs Node 22, Rust, a C compiler (Xcode's command line tools), and NanoAgent's 
 computer's RUSH Lab, as a member's install does.
 
 `npm run desktop:dev` (`scripts/dev/desktop-dev.mjs`) builds RUSH Lab Dev instead, by the same code
-and the same steps, installs it in /Applications beside RUSH Lab and opens it; `npm run
+and the same steps, installs it beside RUSH Lab (in /Applications on macOS, an NSIS install for the user on Windows) and opens it; `npm run
 desktop:dev:build` only builds it. The two differ only in `config.yaml`: its top level is RUSH
 Lab's, and its `dev` block (`scripts/stage.mjs --dev`) gives RUSH Lab Dev its own name,
 identifier and data folder (`lab.mochi.lab.dev`), link scheme and command (`rushlab-dev`), files
