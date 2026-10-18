@@ -62,7 +62,7 @@ Not built, not run. Before claiming support, check: the Tauri build (WebKitGTK w
 
 ## Open items
 
-- Run the checklist in `docs/os/windows-verify.md` on a Windows PC.
+- Run the checklist in `tasks/windows-verify.md` (repo root) on a Windows PC.
 
 - Clean up `<data>\installs\<hash>` when a connection is removed.
 - Run a self-update on Windows, and test sandbox file-write tasks there.
