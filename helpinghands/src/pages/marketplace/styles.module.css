@@ -1,10 +1,3 @@
-.page {
-  width: 100%;
-  max-width: 1240px;
-  margin: 0 auto;
-  padding: 2rem 1.25rem 3rem;
-}
-
 .header {
   display: flex;
   gap: 1.5rem;
@@ -25,76 +18,94 @@
   gap: 0.6rem;
 }
 
+/* Inputs: a hairline that strengthens on focus, not a colored ring. */
 .publishForm input,
 .search {
-  padding: 0.55rem 0.8rem;
-  border: 1px solid var(--ifm-color-emphasis-300);
-  border-radius: 10px;
+  border: 1px solid var(--site-hairline);
+  border-radius: var(--site-radius);
   background: var(--ifm-background-surface-color);
   color: var(--ifm-font-color-base);
   font: inherit;
+  transition: border-color 0.15s ease;
 }
 
 .publishForm input {
   flex: 1;
+  padding: 0.55rem 0.8rem;
 }
 
-.toolbar {
-  display: flex;
-  gap: 0.6rem;
-  margin: 1.5rem 0 1.25rem;
+.publishForm input:focus,
+.search:focus-within {
+  border-color: var(--site-hairline-strong);
+  outline: none;
 }
 
 .search {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  margin: 1.5rem 0 1.25rem;
+  padding: 0 0.9rem;
+  color: var(--ifm-color-emphasis-600);
+}
+
+.search svg {
+  flex: none;
+}
+
+.search input {
   flex: 1;
+  min-width: 0;
+  padding: 0.7rem 0;
+  border: none;
+  background: none;
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  outline: none;
 }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 1.1rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: 1rem;
 }
 
+/* A store card: the icon at the left, what the plugin is at the right. Its
+   edge is the hairline, which strengthens on hover and focus. */
 .tile {
   display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 0;
-  border: 1px solid var(--ifm-color-emphasis-200);
-  border-radius: 14px;
+  gap: 1rem;
+  align-items: flex-start;
+  padding: 1rem;
+  border: 1px solid var(--site-hairline);
+  border-radius: var(--site-radius-lg);
   background: var(--ifm-background-surface-color);
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
 .tile:hover,
 .tile:focus-visible {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
-}
-
-.art {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 120px;
+  border-color: var(--site-hairline-strong);
   background: var(--ifm-color-emphasis-100);
+  outline: none;
 }
 
-.art img {
-  width: 64px;
-  height: 64px;
-  border-radius: 16px;
+.icon {
+  flex: none;
+  width: 3rem;
+  height: 3rem;
+  border-radius: var(--site-radius-lg);
 }
 
 .tileBody {
   display: flex;
   flex: 1;
   flex-direction: column;
-  padding: 0.85rem 1rem 1rem;
+  min-width: 0;
 }
 
 .name {
@@ -103,16 +114,29 @@
   align-items: center;
   margin: 0;
   font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
-.added {
+.nameText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge {
+  flex: none;
   padding: 0 0.45rem;
-  border: 1px solid var(--ifm-color-success);
+  border: 1px solid var(--site-hairline-strong);
   border-radius: 999px;
-  color: var(--ifm-color-success-darkest);
   font-size: 0.65rem;
   font-weight: 600;
   line-height: 1.6;
+}
+
+.added {
+  border-color: var(--ifm-color-success);
+  color: var(--ifm-color-success-darkest);
 }
 
 [data-theme='dark'] .added {
@@ -137,8 +161,8 @@
   width: max-content;
   margin: 0;
   padding: 0.3rem;
-  border: 1px solid var(--ifm-color-emphasis-200);
-  border-radius: 10px;
+  border: 1px solid var(--site-hairline);
+  border-radius: var(--site-radius);
   background: var(--ifm-background-surface-color);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
   list-style: none;
@@ -178,36 +202,31 @@
   display: flex;
   gap: 0.4rem;
   align-items: center;
-  margin: 0.15rem 0 0;
+  margin: 0.5rem 0 0;
   color: var(--ifm-color-emphasis-600);
   font-size: 0.8rem;
 }
 
 .maintenance {
-  padding: 0 0.45rem;
-  border-radius: 999px;
+  border-color: transparent;
   background: var(--ifm-color-warning-contrast-background);
   color: var(--ifm-color-warning-contrast-foreground);
-  font-size: 0.65rem;
-  font-weight: 600;
-  line-height: 1.6;
 }
 
+/* The one place the accent shows on a card. Dark mode's primary is white, so
+   it is the text and edge color, never a fill under white text. */
 .official {
-  padding: 0 0.45rem;
-  border-radius: 999px;
-  background: var(--ifm-color-primary);
-  color: #fff;
-  font-size: 0.65rem;
-  line-height: 1.6;
+  border-color: var(--ifm-color-primary);
+  color: var(--ifm-color-primary);
 }
 
 .tagline {
   display: -webkit-box;
-  flex: 1;
   overflow: hidden;
-  margin: 0.55rem 0;
+  margin: 0.2rem 0 0;
+  color: var(--ifm-color-emphasis-800);
   font-size: 0.875rem;
+  line-height: 1.5;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
@@ -239,7 +258,7 @@
   margin: 1rem 0;
   padding: 0.7rem 0.9rem;
   border: 1px solid var(--ifm-color-warning-light);
-  border-radius: 8px;
+  border-radius: var(--site-radius);
   background: var(--ifm-color-warning-contrast-background);
   font-size: 0.875rem;
 }
@@ -248,7 +267,7 @@
   margin: 1rem 0;
   padding: 0.7rem 0.9rem;
   border: 1px solid var(--ifm-color-info-light);
-  border-radius: 8px;
+  border-radius: var(--site-radius);
   background: var(--ifm-color-info-contrast-background);
   font-size: 0.875rem;
 }
@@ -257,14 +276,13 @@
   margin: 1rem 0;
   padding: 0.7rem 0.9rem;
   border: 1px solid var(--ifm-color-danger-light);
-  border-radius: 8px;
+  border-radius: var(--site-radius);
   background: var(--ifm-color-danger-contrast-background);
   font-size: 0.875rem;
 }
 
 @media (max-width: 640px) {
   .header,
-  .toolbar,
   .publishForm {
     flex-direction: column;
     align-items: stretch;

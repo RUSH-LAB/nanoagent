@@ -5,6 +5,7 @@ import {useHistory, useLocation} from '@docusaurus/router';
 import Layout from '@theme/Layout';
 import AppProduct from '@site/src/components/AppProduct';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
+import pageStyles from '@site/src/css/page.module.css';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 import {forgetWorkspaceApps, prepareWorkspaceApps, workspaceAppsUrl} from '@site/src/hooks/useWorkspaceApps';
 import {useClickOutside} from '@site/src/hooks/useClickOutside';
@@ -62,21 +63,19 @@ function Tile({plugin, added, onOpen}) {
   const author = authorOf(plugin);
   return (
     <button type="button" className={styles.tile} onClick={() => onOpen(plugin)}>
-      <div className={styles.art}>
-        {/* A data: URL checked by NanoAgent, in an <img>, where an SVG cannot run anything. */}
-        <img src={plugin.product.icon} alt="" />
-      </div>
+      {/* A data: URL checked by NanoAgent, in an <img>, where an SVG cannot run anything. */}
+      <img className={styles.icon} src={plugin.product.icon} alt="" />
       <div className={styles.tileBody}>
         <h2 className={styles.name}>
-          {plugin.name}
-          {added && <span className={styles.added}>{behind(added) ? 'Update available' : 'Added'}</span>}
-          {plugin.status === 'refused' && <span className={styles.maintenance}>Under maintenance</span>}
+          <span className={styles.nameText}>{plugin.name}</span>
+          {added && <span className={`${styles.badge} ${styles.added}`}>{behind(added) ? 'Update available' : 'Added'}</span>}
+          {plugin.status === 'refused' && <span className={`${styles.badge} ${styles.maintenance}`}>Under maintenance</span>}
         </h2>
+        <p className={styles.tagline}>{plugin.product.tagline}</p>
         <p className={styles.author}>
           by {author.name}
-          {author.official && <span className={styles.official}>Official</span>}
+          {author.official && <span className={`${styles.badge} ${styles.official}`}>Official</span>}
         </p>
-        <p className={styles.tagline}>{plugin.product.tagline}</p>
       </div>
     </button>
   );
@@ -319,7 +318,7 @@ function Marketplace() {
 
   if (open) {
     return (
-      <main className={styles.page}>
+      <main className={`${pageStyles.pageContainer} ${pageStyles.wide}`}>
         <Detail
           plugin={open}
           added={added?.get(open.id) ?? null}
@@ -337,7 +336,7 @@ function Marketplace() {
   }
 
   return (
-    <main className={styles.page}>
+    <main className={`${pageStyles.pageContainer} ${pageStyles.wide}`}>
       <header className={styles.header}>
         <h1>Marketplace</h1>
         {/* A workspace that takes submissions publishes through its Submit page,
@@ -361,15 +360,19 @@ function Marketplace() {
         />
       )}
 
-      <div className={styles.toolbar}>
+      <label className={styles.search}>
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+          <circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M11 11l3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
         <input
           type="search"
-          className={styles.search}
+          aria-label="Search plugins"
           placeholder="Search plugins"
           value={query}
           onChange={event => setQuery(event.target.value)}
         />
-      </div>
+      </label>
       {state.error && <div className={styles.error}>{state.error}</div>}
       {state.plugins && !shown.length && <p className={styles.empty}>No plugins match.</p>}
       <div className={styles.grid}>

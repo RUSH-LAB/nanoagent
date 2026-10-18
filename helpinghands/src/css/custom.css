@@ -75,6 +75,13 @@
      research all open at this height; see "Page top spacing" below for why the
      theme's own two values disagree. */
   --site-content-top: 2rem;
+  /* Edges of app surfaces (cards, inputs, menus): a 1px hairline rather than
+     a shadow, and hover or focus strengthens the hairline instead of lifting
+     the surface. Infima's emphasis scale flips with the theme. */
+  --site-hairline: var(--ifm-color-emphasis-200);
+  --site-hairline-strong: var(--ifm-color-emphasis-400);
+  --site-radius: 8px;
+  --site-radius-lg: 12px;
   /* Vertical offset when jumping to an anchored element; adjust to control vertical centering. */
   --anchor-scroll-margin: 30vh;
 }
