@@ -212,22 +212,7 @@ Then walk this list by hand:
       `IMPLEMENTATIONS` table and the verifier's tables.
 - [ ] No model is used anywhere in `verifier/`.
 
-## 9. See it in RUSH Lab
-
-RUSH Lab puts the `rushlab` command on your PATH. In your terminal, run this
-from the plugin folder:
-
-```bash
-rushlab preview .
-```
-
-It prints every rule the plugin breaks and exits 1, or installs the plugin
-on this computer's RUSH Lab and exits 0. Fix each rule it prints and run it
-again. Once it passes, open RUSH Lab → **Plugins** → **Drafts**, open the
-plugin, ask its chat for a task, and check the verdict on the result card.
-Nothing is published yet.
-
-## 10. Publish
+## 9. Publish
 
 1. With the person's go-ahead, create a **public** GitHub repository and
    push to it, for example with

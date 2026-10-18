@@ -10,13 +10,11 @@
  * not the connection's: the relay keeps it going when the connection drops,
  * with every frame it sent, for HOLD_MS, and lists it in its next `hello`, so
  * Mochi, the same process or one started since, `resume`s it from the frames
- * it has, and `release`s it once it has kept what the run did. The `hello`
- * also lists the drafts the computer's NanoAgent has installed (plugins the
- * member is making there, runner/lab.mjs), which Mochi reaches only as any
- * install, by sha256. JSON text frames, bodies base64:
+ * it has, and `release`s it once it has kept what the run did. JSON text
+ * frames, bodies base64:
  *
- *   computer → Mochi   {type: 'hello', device, keys: [{env, label, set}], drafts: [{id, name, version, sha256}], runs: [id]}
- *                                                    again when keys or drafts change
+ *   computer → Mochi   {type: 'hello', device, keys: [{env, label, set}], runs: [id]}
+ *                                                    again when keys change
  *                      {type: 'head', id, status, headers}
  *                      {type: 'chunk', id, data}
  *                      {type: 'end', id}

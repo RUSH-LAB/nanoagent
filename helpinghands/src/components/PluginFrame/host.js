@@ -12,8 +12,6 @@ import {
  * accepted; `request(path, init)` fetches a Mochi API path with the user's
  * session; `onVersion(app)` hears that the member chose another version of the
  * plugin, or to follow its latest (`plugin.version`), with the app as they now run it.
- * A draft (`plugin.source` 'draft', routes/apps.js) has no versions to choose:
- * it runs as its computer's RUSH Lab installed it, its prompts saying so.
  *
  * Every run belongs to the current plugin session, which the page starts or
  * resumes (`session.start`, `session.resume`): Mochi charges the run to it, and
@@ -43,9 +41,7 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
   // Each session's conversation, by id: a run left going in one session keeps its turn there.
   const turns = new Map();
   let session = null;
-  const draft = plugin.source === 'draft';
-  // A draft's sessions are apart from those with the plugin installed (routes/apps.js).
-  const sessionsPath = `/api/${draft ? 'app-drafts' : 'apps'}/${encodeURIComponent(plugin.id)}/sessions`;
+  const sessionsPath = `/api/apps/${encodeURIComponent(plugin.id)}/sessions`;
   let currentTheme = theme;
   let runCount = 0;
   // The page's origin is opaque, so there is no origin to name but '*'.
@@ -137,7 +133,7 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     const run = await startRun(id, '/api/ai/stream', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({prompt: text, messages: promptHistory(turns.get(id)), appId: plugin.id, sessionId: id, ...(draft ? {draft: true} : {})}),
+      body: JSON.stringify({prompt: text, messages: promptHistory(turns.get(id)), appId: plugin.id, sessionId: id}),
     }, 'Could not send the prompt');
     return {result: {runId: run.runId}, after: () => relay(run, id, text)};
   }
@@ -222,7 +218,6 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     'session.start': async () => enter(await readSession(sessionsPath, {method: 'POST'}, 'Could not start a session')),
     'session.resume': async ({id}) => enter(await readSession(`${sessionsPath}/${id}`, undefined, 'Could not open the session')),
     'plugin.version': async ({version}) => {
-      if (draft) throw new Error('A draft runs from its folder: run rushlab preview again');
       const response = await request(`/api/apps/${encodeURIComponent(plugin.id)}`, {
         method: 'PATCH',
         headers: {'Content-Type': 'application/json'},

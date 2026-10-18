@@ -9,7 +9,6 @@ below runs `nanoagent …` or `uv …`, run `{{command}} nanoagent …` or `{{co
 
 - `{{command}} nanoagent plugin inspect .` checks it against every plugin rule.
 - `{{command}} uv run pytest` runs its tests.
-- `{{command}} preview .` shows it in the app, under Plugins → Drafts, before it is published.
 
 `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` hold this same text, one for each coding agent. They
 are never packed into the plugin.

@@ -90,8 +90,6 @@ Every plugin:
 - `AGENTS.md`, `CLAUDE.md` and `GEMINI.md`, a coding agent's instructions, may sit anywhere in a
   plugin and are never packed (`TOOL_ARTIFACTS`), so a plugin made with `rushlab new` packs and
   imports with them.
-- The Dashboard of a draft, a plugin RUSH Lab installed from its folder (`rushlab preview`), says
-  "Draft v<version>", and has no Update.
 
 ## 0.4.0
 

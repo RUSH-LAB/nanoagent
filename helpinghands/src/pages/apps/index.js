@@ -9,7 +9,6 @@ import PluginFrame from '@site/src/components/PluginFrame';
 import PluginSidebar, {pluginNavigation} from '@site/src/components/PluginSidebar';
 import TwoColumnLayout from '@site/src/components/TwoColumnLayout';
 import useWorkspaceApps, {forgetWorkspaceApps, prepareWorkspaceApps} from '@site/src/hooks/useWorkspaceApps';
-import useWorkspaceDrafts from '@site/src/hooks/useWorkspaceDrafts';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 import styles from './styles.module.css';
 
@@ -23,16 +22,9 @@ import styles from './styles.module.css';
  * bridge the page prompts the app's NanoAgent agent; what the apps save lands
  * in the caller's own workspace (src/pages/workspace). NanoAgent owns the
  * agent's model, instructions and the checks on every tool call.
- *
- * Beside them are the drafts on the member's computer: plugins they are making
- * there, which `rushlab preview` had its RUSH Lab install, opened the same way
- * before they are published.
  */
 
-/**
- * A plugin still being built, or one Mochi's NanoAgent refuses as it was published (`refused`,
- * server/market-checks.js): what it is, and that it cannot be used yet.
- */
+/** A plugin still being built: what it is, and that it cannot be used yet. */
 function MaintenanceNotice({app}) {
   return (
     <article className={styles.detail}>
@@ -41,13 +33,20 @@ function MaintenanceNotice({app}) {
       </header>
       <section className={styles.maintenanceNotice}>
         <strong>Under maintenance</strong>
-        <p>
-          {app.status === 'refused'
-            ? `${app.name} v${app.version} does not run on this version of RUSH Lab, so it can't be used until its author publishes it again. NanoAgent says: ${app.refusal}.`
-            : `${app.name} is still being built, so it can't be used yet.`}
-          {' '}It will open here once it is ready.
-        </p>
+        <p>{app.name} is still being built, so it can't be used yet. It will open here once it is ready.</p>
       </section>
+    </article>
+  );
+}
+
+/** A plugin Mochi's NanoAgent no longer runs as it was published (`refused`, server/market-checks.js). */
+function OutdatedNotice({app}) {
+  return (
+    <article className={styles.detail}>
+      <header className={styles.detailHeader}>
+        <h1>{app.name}</h1>
+      </header>
+      <p className={styles.muted}>Outdated: it opens again once its author publishes a version for this RUSH Lab.</p>
     </article>
   );
 }
@@ -90,6 +89,7 @@ function AppDetail({app, workspace}) {
     return () => { cancelled = true; };
   }, [ready, workspace.id, app.id, app.name, moved]);
   if (app.status === 'unavailable') return <UnavailableNotice app={app} />;
+  if (app.status === 'refused') return <OutdatedNotice app={app} />;
   if (!ready) return <MaintenanceNotice app={app} />;
   if (opened.error) return <div className={styles.error}>{opened.error}</div>;
   if (!opened.app) return <p className={styles.muted}>Preparing {app.name}…</p>;
@@ -101,43 +101,16 @@ function AppDetail({app, workspace}) {
   return <PluginFrame app={opened.app} workspace={workspace} onVersion={onVersion} />;
 }
 
-/** A draft, opened as its computer's NanoAgent installed it; each preview of it opens again (its key). */
-function DraftDetail({draft, workspace}) {
-  const [opened, setOpened] = React.useState({app: null, error: null});
-  React.useEffect(() => {
-    let cancelled = false;
-    apiJson(`${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/app-drafts/${encodeURIComponent(draft.id)}`, {fresh: true}).then(
-      result => !cancelled && setOpened(result.ok
-        ? {app: result.data.app, error: null}
-        : {app: null, error: result.data.error || `Could not open ${draft.name} (${result.status})`}),
-      () => !cancelled && setOpened({app: null, error: 'Could not reach the API server'}),
-    );
-    return () => { cancelled = true; };
-  }, [workspace.id, draft.id, draft.name]);
-  if (opened.error) return <div className={styles.error}>{opened.error}</div>;
-  if (!opened.app) return <p className={styles.muted}>Opening {draft.name}…</p>;
-  return <PluginFrame app={opened.app} workspace={workspace} />;
-}
-
 function AppsColumns() {
   const location = useLocation();
   const {slug, workspace} = useWorkspaceSite();
   const {apps, error} = useWorkspaceApps(workspace);
-  const {drafts, error: draftsError, offline} = useWorkspaceDrafts(workspace);
-  const navigation = pluginNavigation(apps ?? [], drafts ?? [], location.search, `/w/${encodeURIComponent(slug)}/apps`);
-  // Whether the computer said which drafts it has, or could not.
-  const draftsKnown = drafts !== null || offline || Boolean(draftsError);
+  const navigation = pluginNavigation(apps ?? [], location.search, `/w/${encodeURIComponent(slug)}/apps`);
 
   let content = null;
   if (!slug) content = <p className={styles.muted}>Open Plugins from a workspace.</p>;
   else if (error) content = <div className={styles.error}>{error}</div>;
-  else if (navigation.draft) {
-    content = <DraftDetail key={`${navigation.draft.id}:${navigation.draft.sha256}`} draft={navigation.draft} workspace={workspace} />;
-  } else if (navigation.requestedDraft) {
-    if (draftsError) content = <div className={styles.error}>{draftsError}</div>;
-    else if (offline) content = <div className={styles.error}>RUSH Lab on your computer is not connected, so its drafts can&apos;t open.</div>;
-    else if (drafts) content = <div className={styles.error}>No draft named {navigation.requestedDraft} on this computer.</div>;
-  } else if (apps && !apps.length && draftsKnown) {
+  else if (apps && !apps.length) {
     content = (
       <p className={styles.muted}>
         You have no plugins yet. <Link to={`/w/${encodeURIComponent(slug)}/marketplace`}>Browse the marketplace</Link> to install some.
@@ -160,8 +133,6 @@ function AppsColumns() {
         <PluginSidebar
           navigation={navigation}
           marketplaceHref={slug ? `/w/${encodeURIComponent(slug)}/marketplace` : '/marketplace'}
-          showDrafts={drafts !== null || Boolean(draftsError)}
-          draftsError={draftsError}
           collapsed={collapsed}
           onCollapse={onCollapse}
         />

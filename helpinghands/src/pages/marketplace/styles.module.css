@@ -207,12 +207,6 @@
   font-size: 0.8rem;
 }
 
-.maintenance {
-  border-color: transparent;
-  background: var(--ifm-color-warning-contrast-background);
-  color: var(--ifm-color-warning-contrast-foreground);
-}
-
 /* The one place the accent shows on a card. Dark mode's primary is white, so
    it is the text and edge color, never a fill under white text. */
 .official {
@@ -252,15 +246,6 @@
 
 .back:hover {
   text-decoration: underline;
-}
-
-.maintenanceNotice {
-  margin: 1rem 0;
-  padding: 0.7rem 0.9rem;
-  border: 1px solid var(--ifm-color-warning-light);
-  border-radius: var(--site-radius);
-  background: var(--ifm-color-warning-contrast-background);
-  font-size: 0.875rem;
 }
 
 .notice {

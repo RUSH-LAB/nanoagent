@@ -209,8 +209,8 @@ the one command the app puts on their PATH: `command` in `config.yaml`, `rushlab
 
 - lab.mjs writes `~/.local/bin/<command>` (on Windows `%USERPROFILE%\.local\bin\<command>.cmd`)
   each time it starts, so it runs the installed build's bundled node on its lab.mjs. When
-  `~/.local/bin` is not on the member's PATH, lab.mjs logs the line to add, and Plugins → Drafts
-  shows it; the command is never put anywhere else.
+  `~/.local/bin` is not on the member's PATH, lab.mjs logs the line to add; the command is never
+  put anywhere else.
 - `<command> new <id>` (`^[a-z0-9]+(-[a-z0-9]+)*$`) runs `nanoagent plugin new ./<id>` and writes
   the skill into the project as `AGENTS.md`, `CLAUDE.md` and `GEMINI.md`
   (`src/runner/plugin-project/project.md`, then `docs/instructions/skills/publish-plugin/SKILL.md`,
@@ -219,38 +219,8 @@ the one command the app puts on their PATH: `command` in `config.yaml`, `rushlab
   wherever the member makes it.
 - `<command> nanoagent ...` and `<command> uv ...` run the app's own NanoAgent (the bundled uv
   first on its PATH) and uv, so nothing else goes on the member's PATH.
-- `<command> preview` is below. With no subcommand, or another, it prints its usage and exits 2.
-
-## Drafts
-
-A plugin a member makes with `<command> new` opens in RUSH Lab before it is published, as a draft
-(`src/runner/lab.mjs`):
-
-- `<command> preview [folder] [--to <connection>]` (`.` by default) is for one connection: the one
-  `--to` names, or the only one on this computer (with several and no `--to`, it lists them and
-  exits 1). It packs the folder with NanoAgent (`nanoagent plugin pack`), printing every rule the
-  plugin breaks and exiting 1, reads its id, name and version (`nanoagent plugin inspect`), then
-  keeps it as `<data>/drafts/<id>/`: `package.tar.gz`, then `draft.json` `{id, name, version,
-  folder, sha256, connection}`. It waits for that sha256 in the draft's `status.json`, printing
-  how it stands, and exits 0 once it is installed, 1 when it failed, its connection is not
-  running, or RUSH Lab gave no status within 10 s (it is not running). `<command> preview --stop
-  <id>` removes the draft.
-- lab.mjs reads `drafts/` with `connections/`, every 2 s (`draftSupervisor`). The NanoAgent of a
-  draft's connection installs it when it has no install of it as it is now, one draft at a time
-  (`PUT /v1/installs/<sha256>`, up to 25 min for its two syncs); a package that failed is tried
-  again only once it is previewed again. `status.json` says `installing`, `installed` or
-  `failed`, with why (NanoAgent's status and answer when it refused). A NanoAgent started again
-  gets its drafts again, and a draft whose folder is gone is removed. The app waits to update
-  while one installs (`busy`).
-- After each change the relay is told the drafts its NanoAgent has, without their folders, and
-  says `hello` again with them (`drafts`, `src/runner/protocol.js`). Mochi keeps them for that
-  member alone (`runners.drafts`): `GET /api/app-drafts` lists them and `GET /api/app-drafts/<id>`
-  opens one through the install routes NanoAgent already has, so Plugins shows **Drafts on this
-  computer**, read again when the window comes back into view, or why they could not be read. A
-  draft's Dashboard says "Draft v<version>", with no Update, and its sessions are its own
-  (`/api/app-drafts/<id>/sessions`, migration 0044), apart from those with a plugin of its id the
-  member installed.
-- Publishing stays a public GitHub repository, imported with Marketplace → Publish a plugin.
+- With no subcommand, or another, it prints its usage and exits 2.
+- Publishing is a public GitHub repository, imported with Marketplace → Publish a plugin.
 
 ## Downloads
 

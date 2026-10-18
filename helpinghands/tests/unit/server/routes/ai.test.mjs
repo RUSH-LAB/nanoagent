@@ -44,8 +44,6 @@ const GUARDS = [
   {name: 'a malformed model', body: {prompt: 'p', model: {provider: 'x'}}, error: 'model must be {"provider": "<id>", "model": "<id>"}'},
   {name: 'a malformed app id', body: {prompt: 'p', appId: '../runs'}, error: 'appId must be a NanoAgent plugin id'},
   {name: 'an app id with a profile', body: {prompt: 'p', appId: 'echo', profileId: PROFILE}, error: 'appId cannot be combined with type, agentId, profileId or model'},
-  {name: 'a draft without an app id', body: {prompt: 'p', draft: true}, error: 'draft must be true, with an appId'},
-  {name: 'a draft that is not true', body: {prompt: 'p', appId: 'echo', draft: 'yes'}, error: 'draft must be true, with an appId'},
 ];
 
 const WORKSPACE = {workspaceId: 'test-org', userId: 'test-user', membershipId: 'member-1', role: 'owner'};
@@ -417,39 +415,6 @@ describe('POST /api/ai/stream', () => {
     assert.equal(unnamed.status, 400);
     const foreign = await ask({body: {prompt: 'p', appId: 'bibtex-check', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
     assert.equal(foreign.status, 404);
-  });
-
-  it('runs a draft\'s prompt on the draft the member\'s computer installed, in a session with the draft, never on an installed plugin of its id', async () => {
-    const ctx = appCtx();
-    const DRAFT = 'e'.repeat(64);
-    const opened = [];
-    ctx.runners = {
-      ...ctx.runners,
-      drafts: userId => (userId === 'test-user' ? [{id: 'arxiv-source', name: 'arXiv', version: '0.2.0', sha256: DRAFT}, {id: 'echo', name: 'Echo', version: '0.1.0', sha256: DRAFT}] : null),
-    };
-    ctx.workspaceApps = {
-      ...workspaceApps,
-      openDraft: async (_context, id, on, drafts) => {
-        opened.push([id, on, drafts.map(draft => draft.sha256)]);
-        return {value: {id, sha256: drafts.find(draft => draft.id === id).sha256, source: 'draft'}};
-      },
-    };
-    // A session with the installed plugin is not one with its draft.
-    const installed = await ask({body: {prompt: 'p', appId: 'arxiv-source', sessionId: SESSION, draft: true}, ctx, requestContext: WORKSPACE});
-    assert.deepEqual([installed.status, installed.payload.error], [404, `No session ${SESSION} for the draft arxiv-source`]);
-    ctx.sessions = fakeSessions(['echo'], ['arxiv-source']);
-    ctx.appRuns = appRunsFor(ctx);
-    assert.equal((await ask({body: {prompt: 'p', appId: 'arxiv-source', sessionId: SESSION}, ctx, requestContext: WORKSPACE})).status, 404);
-    const r = await ask({body: {prompt: 'save 1706.03762', appId: 'arxiv-source', sessionId: SESSION, draft: true}, ctx, requestContext: WORKSPACE});
-    assert.equal(r.res.written.status, 200);
-    assert.deepEqual(opened, [['arxiv-source', ctx.ai, [DRAFT, DRAFT]]]);
-    assert.equal(ctx.calls.ai[0].install, DRAFT);
-    assert.equal(ctx.sessions.turns[0].pluginId, 'arxiv-source');
-    // With no computer connected, there is no draft to run.
-    ctx.runners.drafts = () => null;
-    const offline = await ask({body: {prompt: 'p', appId: 'arxiv-source', sessionId: SESSION, draft: true}, ctx, requestContext: WORKSPACE});
-    assert.equal(offline.status, 503);
-    assert.equal(opened.length, 1);
   });
 
   it('runs an app prompt only on an app the workspace added', async () => {

@@ -184,13 +184,12 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
   return Object.freeze({
     /**
      * Start answering `prompt` in the caller's session `sessionId` with
-     * `pluginId`, or with `draft` their draft of it, on the install
-     * `request.install`; refuses a session already answering one (SessionError
-     * 409). The run, to `follow`.
+     * `pluginId`, on the install `request.install`; refuses a session already
+     * answering one (SessionError 409). The run, to `follow`.
      */
-    async start(context, {pluginId, draft, sessionId, prompt, request}) {
+    async start(context, {pluginId, sessionId, prompt, request}) {
       const id = crypto.randomUUID();
-      await sessions.startRun(context, pluginId, draft, sessionId, {id, prompt, install: request.install});
+      await sessions.startRun(context, pluginId, sessionId, {id, prompt, install: request.install});
       const row = {
         id, workspaceId: context.workspaceId, userId: context.userId, sessionId, pluginId, prompt,
         install: request.install, folder: null, sent: null, ran: false,

@@ -12,10 +12,7 @@ export {pluginNavigation} from './navigation';
  * The Plugins sidebar, shaped like a blog's: the tag switcher (All, or one
  * tag), the only place a tag is chosen, then the plugins in view. The tags are
  * the ones the member gave their plugins; where the reader is lives in the URL
- * (?tag=, ?app=, ?draft=), so every entry is a plain link. Below them, while
- * the member's computer is connected, are the drafts on it, or why they could
- * not be read, and how to make one in the member's own terminal with the
- * command their RUSH Lab puts on their PATH.
+ * (?tag=, ?app=), so every entry is a plain link.
  */
 
 function TagIcon() {
@@ -83,33 +80,7 @@ function TagSwitcher({navigation}) {
   );
 }
 
-function DraftList({navigation, draftsError}) {
-  if (!draftsError && !navigation.draftLinks.length) return null;
-  return (
-    <>
-      <li className="menu__list-item">
-        <span className={styles.emptySelection}>Drafts on this computer</span>
-      </li>
-      {draftsError && (
-        <li className="menu__list-item">
-          <span className={styles.groupError} role="alert">{draftsError}</span>
-        </li>
-      )}
-      {navigation.draftLinks.map(draft => (
-        <li className="menu__list-item" key={draft.id}>
-          <Link
-            className={clsx('menu__link', styles.categoryLink, draft.id === navigation.draft?.id && 'menu__link--active')}
-            to={draft.permalink}
-          >
-            <span className={styles.taxonomyTitle}>{draft.title}</span>
-          </Link>
-        </li>
-      ))}
-    </>
-  );
-}
-
-function PluginList({navigation, marketplaceHref, showDrafts, draftsError}) {
+function PluginList({navigation, marketplaceHref}) {
   return (
     <nav className={clsx('menu thin-scrollbar', styles.menu)} aria-label="Plugins">
       <ul className="menu__list">
@@ -120,7 +91,7 @@ function PluginList({navigation, marketplaceHref, showDrafts, draftsError}) {
               to={plugin.permalink}
             >
               <span className={styles.taxonomyTitle}>{plugin.title}</span>
-              {plugin.maintenance && <span className={own.maintenance} title="Under maintenance">maintenance</span>}
+              {plugin.badge && <span className={own.maintenance}>{plugin.badge}</span>}
             </Link>
           </li>
         ))}
@@ -130,7 +101,6 @@ function PluginList({navigation, marketplaceHref, showDrafts, draftsError}) {
             <span className={styles.taxonomyTitle}>Browse Marketplace</span>
           </Link>
         </li>
-        {showDrafts && <DraftList navigation={navigation} draftsError={draftsError} />}
       </ul>
     </nav>
   );
@@ -144,12 +114,8 @@ function DoubleChevron() {
   );
 }
 
-/**
- * `marketplaceHref` is the marketplace in the reader's workspace, so the navbar keeps it;
- * `showDrafts`, whether the member's computer said which drafts it has, or `draftsError` why
- * they could not be read.
- */
-export default function PluginSidebar({navigation, marketplaceHref, showDrafts, draftsError, collapsed, onCollapse}) {
+/** `marketplaceHref` is the marketplace in the reader's workspace, so the navbar keeps it. */
+export default function PluginSidebar({navigation, marketplaceHref, collapsed, onCollapse}) {
   return (
     <div className={clsx(styles.sidebar, collapsed && styles.sidebarHidden)}>
       <div className={styles.sidebarControls}>
@@ -164,7 +130,7 @@ export default function PluginSidebar({navigation, marketplaceHref, showDrafts, 
           <DoubleChevron />
         </button>
       </div>
-      <PluginList navigation={navigation} marketplaceHref={marketplaceHref} showDrafts={showDrafts} draftsError={draftsError} />
+      <PluginList navigation={navigation} marketplaceHref={marketplaceHref} />
     </div>
   );
 }
