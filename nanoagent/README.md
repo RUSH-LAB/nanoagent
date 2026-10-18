@@ -246,7 +246,7 @@ Each declared plugin tool is also available as a regular NanoAgent `Tool`
 through `nanoagent.plugin.plugin_tools(manifest, workspace, names)`.
 
 The web service runs only plugins it installed, each from a package (below)
-and known by the package's sha256 (`nanoagent.plugin.install`). Mochi Lab
+and known by the package's sha256 (`nanoagent.plugin.install`). RUSH Lab
 installs the plugins each workspace added from its marketplace, and shows them
 as apps:
 
@@ -426,7 +426,7 @@ each follow-up through the selected harness.
 ## Railway service
 
 The repository includes a production container and private Railway service
-configuration for Mochi Lab.
+configuration for RUSH Lab.
 
 Required variables:
 

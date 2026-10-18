@@ -25,7 +25,7 @@ brew install node@22 python@3.12 uv
 # Make the versioned Node installation available in this process.
 export PATH="$(brew --prefix node@22)/bin:$PATH"
 
-echo "Installing Mochi Lab JavaScript dependencies..."
+echo "Installing RUSH Lab JavaScript dependencies..."
 cd "$(dirname "$0")"
 npm ci
 

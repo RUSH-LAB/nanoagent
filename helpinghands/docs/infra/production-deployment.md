@@ -6,7 +6,7 @@ Secure, same-site cookies without exposing credentials to browser JavaScript.
 It calls NanoAgent over Railway's private network; NanoAgent is never public.
 That NanoAgent offers no plugin package of its own and only packs the plugins
 published to the marketplace from GitHub: every run, plugin install and plugin
-page is on the member's own computer, through Mochi Lab
+page is on the member's own computer, through RUSH Lab
 (`src/server/runner.js`), and is refused while it is not connected.
 
 ## Required services

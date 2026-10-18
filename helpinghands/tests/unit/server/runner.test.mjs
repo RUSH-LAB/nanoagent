@@ -335,12 +335,12 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     await first.cancel({userId: 'u1', workspaceId: 'lab'}, SESSION);
   });
 
-  it('fails a held run at once when a new Mochi Lab without it says hello before the old one\'s socket closes', async () => {
+  it('fails a held run at once when a new RUSH Lab without it says hello before the old one\'s socket closes', async () => {
     await dialIn('member-token', {held: new Map()});
     const deltas = [];
     const running = (await runners.aiFor('u1')).stream({input: 'slow', run: {id: 'run-1'}, onDelta: text => deltas.push(text)});
     await until(() => deltas.length);
-    // Another Mochi Lab signs in: Mochi replaces the first, whose close it hears after the new hello.
+    // Another RUSH Lab signs in: Mochi replaces the first, whose close it hears after the new hello.
     relays.push(connect({site, nanoagent: nanoUrl, token: 'member-token', device: 'desktop', held: new Map(), onEvent: () => {}}));
     assert.deepEqual(await running, {error: 'RUSH Lab stopped while answering', status: 503});
     nano.finishers[0]();

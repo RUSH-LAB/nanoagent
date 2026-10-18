@@ -129,7 +129,7 @@ async function testPage(path, contentStrings) {
 
 // ── Main ──
 async function main() {
-  console.log(`\n${BOLD}Mochi Lab — Frontend Page Content Verification${RESET}`);
+  console.log(`\n${BOLD}RUSH Lab — Frontend Page Content Verification${RESET}`);
   console.log(`${DIM}Target: ${BASE}${RESET}`);
   console.log(`${DIM}Testing: ${PAGES.length} pages${RESET}`);
 

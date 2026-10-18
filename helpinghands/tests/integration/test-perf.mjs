@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // -----------------------------------------------------------------
-// Performance regression tests for the Mochi Lab editor server
+// Performance regression tests for the RUSH Lab editor server
 // Usage:  node tests/integration/test-perf.mjs
 // Requires the server running on http://localhost:3001, and a GitHub sign-in
 // saved by `node cli/rush.mjs login http://localhost:3001`

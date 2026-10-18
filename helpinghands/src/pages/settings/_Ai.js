@@ -5,7 +5,7 @@ import ApiKeys from './_ApiKeys';
 import styles from './styles.module.css';
 import ai from './ai.module.css';
 
-// How often the pane asks whether Mochi Lab is connected.
+// How often the pane asks whether RUSH Lab is connected.
 const STATUS_MS = 5_000;
 
 // "$0.05", "$0.10", "$0.125": a price to the cent, or the tenth of a cent it has.
@@ -15,7 +15,7 @@ const thousands = tokens => (tokens >= 1_000_000 ? `${Number((tokens / 1_000_000
 const shortName = label => label.slice(label.indexOf(': ') + 1).trim();
 
 /**
- * Settings → AI. Your AI runs on your own computer, in Mochi Lab: its
+ * Settings → AI. Your AI runs on your own computer, in RUSH Lab: its
  * OpenRouter key (_ApiKeys.js), and the one model chat, inline completion and
  * apps all run on, which Mochi chooses (server/ai-settings.js MODEL).
  */
@@ -31,7 +31,7 @@ export default function Ai() {
       .catch(err => setError(err.message));
   }, []);
 
-  // The member's computer: whether Mochi Lab is connected and which keys it holds, asked again
+  // The member's computer: whether RUSH Lab is connected and which keys it holds, asked again
   // while this pane is open and as soon as a key is saved.
   const checkComputer = useCallback(() => apiRequest('/api/runner/status')
     .then(setComputer)
@@ -42,7 +42,7 @@ export default function Ai() {
     return () => clearInterval(timer);
   }, [checkComputer]);
 
-  // The catalog the member's runs go to, for the model's name and price; again when Mochi Lab
+  // The catalog the member's runs go to, for the model's name and price; again when RUSH Lab
   // connects or leaves, and when a key is saved.
   const connected = Boolean(computer?.connected);
   const loadListing = useCallback(() => apiRequest('/api/ai/models')

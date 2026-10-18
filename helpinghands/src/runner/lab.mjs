@@ -63,7 +63,7 @@ const DRAFT_INSTALL_MS = 25 * 60_000;
 const DRAFT_POLL_MS = 500;
 const DRAFT_STATUS_MS = 10_000;
 const PLUGIN_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-// The API keys Mochi Lab holds, by the name NanoAgent's PI runner (pi-ai) reads each from, and
+// The API keys RUSH Lab holds, by the name NanoAgent's PI runner (pi-ai) reads each from, and
 // whose models they reach. NanoAgent gets these and nothing else of the settings.
 export const PROVIDER_KEYS = [
   ['OPENROUTER_API_KEY', 'OpenRouter'],
@@ -287,7 +287,7 @@ export function providerKeys(settings) {
 export function writeKeys(file, changes) {
   const keys = Object.fromEntries(Object.entries(readSettings(file)).filter(([name]) => isProviderKey(name)));
   for (const [name, value] of Object.entries(changes)) {
-    if (!isProviderKey(name)) throw new Error(`${name} is not a key Mochi Lab holds`);
+    if (!isProviderKey(name)) throw new Error(`${name} is not a key RUSH Lab holds`);
     if (value === null) {
       delete keys[name];
       continue;
@@ -950,7 +950,7 @@ async function main() {
       if (event.event !== 'keys') fs.appendFileSync(relay.fd, `${line}\n`);
       if (event.event === 'sign-in') {
         signingIn = true;
-        // The device page says it is Mochi Lab asking (src/pages/device).
+        // The device page says it is RUSH Lab asking (src/pages/device).
         const page = `${event.url}&client=desktop`;
         log(`Sign in to Mochi, then approve this computer (code ${event.code}): ${page}`, id);
         openPage(page);

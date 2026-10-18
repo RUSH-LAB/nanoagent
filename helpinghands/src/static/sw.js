@@ -1,5 +1,5 @@
 /**
- * Keeps Mochi Lab's application on this computer, so the site still opens when
+ * Keeps RUSH Lab's application on this computer, so the site still opens when
  * the network is gone and the documents kept in the browser stay reachable.
  *
  * Only the application is stored here: HTML, scripts, styles, fonts, images.

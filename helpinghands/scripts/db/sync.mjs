@@ -3,7 +3,7 @@
  * only when asked.
  *
  * `pull` replaces the whole local database with a copy of production's, less
- * Mochi Lab's desktop bundles and every sign-in secret, and records a
+ * RUSH Lab's desktop bundles and every sign-in secret, and records a
  * fingerprint of each workspace as it was.
  *
  * `push` replaces one workspace on production with the local one: the

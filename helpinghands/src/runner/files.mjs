@@ -1,5 +1,5 @@
 /**
- * Mochi Lab's folder of its member's own files. For each workspace they are in,
+ * RUSH Lab's folder of its member's own files. For each workspace they are in,
  * `<root>/<slug>/` is kept in sync both ways (sync.mjs) with their home there,
  * `home/<user>/`: private to them, so only they and their plugin runs write it,
  * and the two sides never race another member. The workspace's shared files

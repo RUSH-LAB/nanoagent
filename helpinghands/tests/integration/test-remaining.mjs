@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import {createApiClient} from './api-client.mjs';
 // ─────────────────────────────────────────────────────────────
-// Tests for previously uncovered endpoints in the Mochi Lab server
+// Tests for previously uncovered endpoints in the RUSH Lab server
 // Usage:  node tests/integration/test-remaining.mjs
 // Requires the server running on http://localhost:3001, and a GitHub sign-in
 // saved by `node cli/rush.mjs login http://localhost:3001`
@@ -213,7 +213,7 @@ async function testTrashEmpty() {
 // Main
 // ────────────────────────────────────────────────────────────────
 async function main() {
-  console.log(`\n${BOLD}Mochi Lab — Remaining Endpoints Test Coverage${RESET}`);
+  console.log(`\n${BOLD}RUSH Lab — Remaining Endpoints Test Coverage${RESET}`);
   console.log(`${DIM}Target: ${BASE}${RESET}\n`);
 
   await preflight();

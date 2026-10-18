@@ -508,7 +508,7 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
   }
 };
 
-/** The member's computer's catalog as models to choose, each available once Mochi Lab holds its provider's key. */
+/** The member's computer's catalog as models to choose, each available once RUSH Lab holds its provider's key. */
 function localModels(listing, catalog) {
   const providers = new Map(listing.providers.map(provider => [provider.id, provider]));
   const models = listing.models.map(model => {

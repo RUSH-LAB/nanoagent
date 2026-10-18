@@ -7,8 +7,8 @@ import ai from './ai.module.css';
 const KEY = {env: 'OPENROUTER_API_KEY', label: 'OpenRouter'};
 
 /**
- * Settings → AI → API key: the OpenRouter key Mochi Lab runs your AI with on
- * your own computer. It goes down Mochi Lab's connection (server/runner.js)
+ * Settings → AI → API key: the OpenRouter key RUSH Lab runs your AI with on
+ * your own computer. It goes down RUSH Lab's connection (server/runner.js)
  * and is kept there only; this page learns whether it is set, never the key.
  * Runs use it as soon as it is saved; `onSaved` lets the pane show it.
  */

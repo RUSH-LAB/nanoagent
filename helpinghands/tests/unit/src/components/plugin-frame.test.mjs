@@ -153,10 +153,10 @@ describe('the bridge host', () => {
   });
 
   it('relays a refused prompt as the request\'s error', async () => {
-    const {posted, send} = await hostWith(() => Response.json({error: 'Mochi Lab is not connected'}, {status: 503}));
+    const {posted, send} = await hostWith(() => Response.json({error: 'RUSH Lab is not connected'}, {status: 503}));
     send('p1', 'prompt', {text: 'Save 1706.03762'});
     await until(() => posted.length);
-    assert.deepEqual(messages(posted), [{protocol: PROTOCOL, id: 'p1', error: {message: 'Mochi Lab is not connected'}}]);
+    assert.deepEqual(messages(posted), [{protocol: PROTOCOL, id: 'p1', error: {message: 'RUSH Lab is not connected'}}]);
   });
 
   it('follows a run again when its stream drops, from its first event', async () => {
@@ -271,7 +271,7 @@ describe('the bridge host', () => {
   it('continues a resumed session\'s conversation', async () => {
     const {calls, send} = await hostWith(() => eventStream(sse('done', {text: 'ok'})), {chat: [
       {prompt: 'Hi', answer: 'Hello', error: null},
-      {prompt: 'Save it', answer: '', error: 'Mochi Lab stopped while answering'},
+      {prompt: 'Save it', answer: '', error: 'RUSH Lab stopped while answering'},
     ]});
     send('p1', 'prompt', {text: 'Again'});
     await until(() => calls.length);

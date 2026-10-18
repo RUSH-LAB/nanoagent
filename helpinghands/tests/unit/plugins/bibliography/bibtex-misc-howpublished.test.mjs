@@ -12,7 +12,7 @@ describe('bibliography misc venue export', () => {
     title: 'Technical Notes',
     author: ['Grace Hopper'],
     year: 2026,
-    venue: 'Mochi Lab Notes',
+    venue: 'RUSH Lab Notes',
   };
 
   it('keeps a non-conference miscellaneous record as misc', () => {

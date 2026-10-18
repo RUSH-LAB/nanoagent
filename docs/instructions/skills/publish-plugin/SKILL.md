@@ -7,7 +7,7 @@ description: Build a NanoAgent plugin from the reference plugin, zeyuyang8/arxiv
 
 A NanoAgent plugin packages one checkable job: typed tools served over MCP,
 tasks built from those tools, a deterministic verifier, and a product page.
-RUSH Lab lists published plugins. Each member's Mochi Lab desktop app runs
+RUSH Lab lists published plugins, and each member's RUSH Lab desktop app runs
 them on that member's own computer.
 
 The reference plugin is https://github.com/zeyuyang8/arxiv-source, a full
@@ -232,8 +232,8 @@ Nothing is published yet.
    `gh repo create <id> --public --source . --push`.
 2. The person signs in at https://rush-lab.org and opens their workspace, for
    COMP 480/580 https://rush-lab.org/w/comp-480-580.
-3. They open Mochi Lab on their computer and approve its request to connect.
-   If Mochi Lab has no OpenRouter key, RUSH Lab gives it one with $10 of
+3. They open the RUSH Lab app on their computer and approve its request to connect.
+   If the app has no OpenRouter key, RUSH Lab gives it one with $10 of
    credit. They can save their own key and choose the model under
    **Settings → AI**.
 4. In the workspace's **Marketplace**, they select **Submit your artifact**.

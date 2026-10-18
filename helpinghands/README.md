@@ -1,4 +1,4 @@
-# Mochi Lab
+# RUSH Lab
 
 https://www.alphaxiv.org
 
@@ -9,7 +9,7 @@ Every member's AI runs on their own computer, in RUSH Lab (the Mac app,
 calls OpenRouter with the key kept there, and installs, serves the pages of, and
 runs every plugin. Mochi's servers keep no model key and run no model or plugin:
 they only list the marketplace and hold its plugin packages. While a member's
-Mochi Lab is not connected, their AI and plugins are refused, never run elsewhere.
+RUSH Lab is not connected, their AI and plugins are refused, never run elsewhere.
 
 ## OpenRouter keys
 
@@ -51,7 +51,7 @@ rush-lab.org (docs/infra/neon-postgres-setup.md).
 Open [http://localhost:3000](http://localhost:3000). By default, the supervisor
 uses the adjacent `../nanoagent` checkout. Set `NANOAGENT_PROJECT_DIR` to use a
 checkout elsewhere, or `NANOAGENT_URL` to use an already-running agent service.
-With the local NanoAgent, the checkout is also your Mochi Lab: every AI run goes
+With the local NanoAgent, the checkout is also your RUSH Lab: every AI run goes
 to a member's own computer, so `npm start` prints a sign-in link once; open it,
 signed in as the account you test with, and approve the code. Your runs then use
 the local NanoAgent, and Settings → AI can set its API key (until `npm start`

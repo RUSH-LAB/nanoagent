@@ -65,11 +65,11 @@ describe('selection destination', () => {
 describe('selectionContextFrom', () => {
   it('captures text and bounded source metadata', () => {
     assert.deepEqual(selectionContextFrom(selection('  useful text  '), {
-      title: 'Mochi Lab',
+      title: 'RUSH Lab',
       path: '/docs/example',
     }), {
       text: 'useful text',
-      title: 'Mochi Lab',
+      title: 'RUSH Lab',
       path: '/docs/example',
       truncated: false,
     });

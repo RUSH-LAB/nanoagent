@@ -51,7 +51,7 @@ const until = async (check, ms = 5000) => {
 };
 const read = file => fs.readFile(file, 'utf8').catch(() => null);
 
-describe('Mochi Lab\'s folder of the member\'s own files', () => {
+describe('RUSH Lab\'s folder of the member\'s own files', () => {
   let mochi;
   let site;
   let root;

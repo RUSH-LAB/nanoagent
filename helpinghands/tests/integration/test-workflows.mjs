@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import {createApiClient} from './api-client.mjs';
 // ─────────────────────────────────────────────────────────────
-// End-to-end user workflow tests for Mochi Lab
+// End-to-end user workflow tests for RUSH Lab
 // Tests 3 complete user journeys (12 tests total)
 // Usage:  node tests/integration/test-workflows.mjs
 // Requires the server running on http://localhost:3001, and a GitHub sign-in
@@ -457,7 +457,7 @@ async function journey4() {
 // ────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log(`\n${BOLD}Mochi Lab — End-to-End Workflow Tests${RESET}`);
+  console.log(`\n${BOLD}RUSH Lab — End-to-End Workflow Tests${RESET}`);
   console.log(`${DIM}Target: ${BASE}${RESET}`);
   console.log(`${DIM}Testing 3 user journeys (12 tests)${RESET}`);
 

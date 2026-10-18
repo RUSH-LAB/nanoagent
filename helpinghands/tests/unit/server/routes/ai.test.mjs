@@ -405,10 +405,10 @@ describe('POST /api/ai/stream', () => {
 
   it('keeps a failed app run\'s turn, with why', async () => {
     const ctx = appCtx();
-    ctx.ai.stream = async () => ({error: 'Mochi Lab disconnected, and was not back within 10 minutes', status: 503});
+    ctx.ai.stream = async () => ({error: 'RUSH Lab disconnected, and was not back within 10 minutes', status: 503});
     const r = await ask({body: {prompt: 'save 1706.03762', appId: 'arxiv-source', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
-    assert.match(r.res.writes.join(''), /event: error\ndata: \{"error":"Mochi Lab disconnected, and was not back within 10 minutes","status":503\}/);
-    assert.deepEqual(ctx.sessions.turns.map(({answer, error}) => ({answer, error})), [{answer: '', error: 'Mochi Lab disconnected, and was not back within 10 minutes'}]);
+    assert.match(r.res.writes.join(''), /event: error\ndata: \{"error":"RUSH Lab disconnected, and was not back within 10 minutes","status":503\}/);
+    assert.deepEqual(ctx.sessions.turns.map(({answer, error}) => ({answer, error})), [{answer: '', error: 'RUSH Lab disconnected, and was not back within 10 minutes'}]);
   });
 
   it('runs an app prompt only in one of the caller\'s sessions with it', async () => {
@@ -692,7 +692,7 @@ describe('/api/ai/settings and /api/ai/models', () => {
     assert.equal(ctx.preferences.merged.length, 1);
   });
 
-  it('lists the member\'s computer\'s models, each available once Mochi Lab holds its key', async () => {
+  it('lists the member\'s computer\'s models, each available once RUSH Lab holds its key', async () => {
     const ctx = makeCtx();
     assert.deepEqual(
       (await invoke(routes, {path: '/api/ai/models', ctx, auth: {userId: 'u1'}})).payload,
@@ -752,7 +752,7 @@ describe('/api/ai/settings and /api/ai/models', () => {
     const ctx = makeCtx();
     ctx.runners = {saveKeys: async (userId, changes) => {
       sent.push([userId, changes]);
-      return changes.BAD ? {error: 'BAD is not a key Mochi Lab holds', status: 400} : {value: {saved: true}};
+      return changes.BAD ? {error: 'BAD is not a key RUSH Lab holds', status: 400} : {value: {saved: true}};
     }};
     const put = body => invoke(routes, {method: 'PUT', path: '/api/runner/keys', body, ctx, auth: {userId: 'u1'}});
     assert.deepEqual((await put({changes: {OPENROUTER_API_KEY: 'sk-1'}})).payload, {saved: true});

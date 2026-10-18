@@ -1,5 +1,5 @@
 /**
- * Mochi Lab API server. Exposes a REST API on port 3001 (or EDITOR_PORT) for
+ * RUSH Lab API server. Exposes a REST API on port 3001 (or EDITOR_PORT) for
  * file CRUD, references, analytics, snapshots, and more.
  * All routes live under /api/* and return JSON with CORS headers.
  */
@@ -218,7 +218,7 @@ function json(res, status, data, opts) {
     ...corsHeaders(res.req),
     'X-API-Version': '1.0',
     // A stable protocol identifier, unlike the deployment's display name.
-    'X-Powered-By': 'Mochi Lab',
+    'X-Powered-By': 'RUSH Lab',
   };
   if (status === 200 && res.req?.method === 'GET') {
     const etag = '"' + crypto.createHash('md5').update(body).digest('hex').slice(0, 16) + '"';

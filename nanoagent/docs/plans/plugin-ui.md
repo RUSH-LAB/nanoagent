@@ -87,9 +87,9 @@ task's `{kind: "task", name, steps, thinking, text}`). `prompt` runs in the
 current session, and the host refuses it until a session is started or resumed. A run is the
 host's, not the page's: a page closed, reloaded or left mid-answer leaves it going, and a page
 that resumes the session meanwhile shows the message being answered and `follow`s it to its end.
-Mochi restarting does not stop it either, nor Mochi Lab's connection dropping for less than ten
-minutes: Mochi Lab holds the run and hands it to the Mochi it reconnects to. Every message ends
-as a turn: answered, or with `error` saying why not (it failed, was stopped, or Mochi Lab quit or
+Mochi restarting does not stop it either, nor RUSH Lab's connection dropping for less than ten
+minutes: RUSH Lab holds the run and hands it to the Mochi it reconnects to. Every message ends
+as a turn: answered, or with `error` saying why not (it failed, was stopped, or RUSH Lab quit or
 was away longer), which the agent's conversation leaves out. Only `cancel` stops a run, and a
 session answers one message at a time. The host also sends `{protocol, event: "host.theme",
 data: {theme}}` when the site's theme changes.

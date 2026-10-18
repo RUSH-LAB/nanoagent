@@ -183,7 +183,7 @@ test('writes keys readable only by this user, keeping only provider keys', () =>
   fs.appendFileSync(file, 'STRAY=1\n');
   writeKeys(file, {ANTHROPIC_API_KEY: null});
   assert.equal(fs.readFileSync(file, 'utf8'), 'OPENROUTER_API_KEY=sk-or-1\n');
-  assert.throws(() => writeKeys(file, {PATH: '/bin'}), /PATH is not a key Mochi Lab holds/);
+  assert.throws(() => writeKeys(file, {PATH: '/bin'}), /PATH is not a key RUSH Lab holds/);
   assert.throws(() => writeKeys(file, {OPENAI_API_KEY: ' '}), /must be one key, without spaces/);
   assert.throws(() => writeKeys(file, {OPENAI_API_KEY: 'two keys'}), /must be one key, without spaces/);
   assert.equal(fs.readFileSync(file, 'utf8'), 'OPENROUTER_API_KEY=sk-or-1\n');

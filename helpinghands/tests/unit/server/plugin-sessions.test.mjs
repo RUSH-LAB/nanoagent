@@ -133,11 +133,11 @@ describe('plugin sessions over PostgreSQL', () => {
     });
     assert.deepEqual(await sessions.runs({userId: 'bob', workspaceId: null}), []);
     assert.equal(await sessions.endRun(as('bob'), 'run-a', {prompt: 'x', answer: '', tools: [], activity: [], error: 'x'}), false);
-    assert.equal((await sessions.endRun(as('alice'), 'run-a', {prompt: 'check refs.bib', answer: '', tools: [], activity: [], error: 'Mochi Lab stopped while answering'})).error, 'Mochi Lab stopped while answering');
+    assert.equal((await sessions.endRun(as('alice'), 'run-a', {prompt: 'check refs.bib', answer: '', tools: [], activity: [], error: 'RUSH Lab stopped while answering'})).error, 'RUSH Lab stopped while answering');
     assert.equal(await sessions.endRun(as('alice'), 'run-a', {prompt: 'check refs.bib', answer: '', tools: [], activity: [], error: 'twice'}), false);
     const read = await sessions.get(as('alice'), 'bibtex-check', false, started.id);
     assert.equal(read.running, null);
-    assert.deepEqual(read.chat, [{prompt: 'check refs.bib', answer: '', tools: [], activity: [], error: 'Mochi Lab stopped while answering', version: null}]);
+    assert.deepEqual(read.chat, [{prompt: 'check refs.bib', answer: '', tools: [], activity: [], error: 'RUSH Lab stopped while answering', version: null}]);
   });
 
   it('keeps with each turn the upload version it ran on', async () => {

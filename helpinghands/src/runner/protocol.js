@@ -2,10 +2,10 @@
 
 /**
  * Mochi and a member's own computer, over the one WebSocket the computer opens
- * to `PATH` (Mochi Lab's relay, runner/relay.mjs). Mochi sends NanoAgent
+ * to `PATH` (RUSH Lab's relay, runner/relay.mjs). Mochi sends NanoAgent
  * requests down it; the relay makes each against the NanoAgent on that
  * computer and streams the response back. Settings → AI also sets the
- * computer's API keys down it: Mochi Lab keeps them, and says only which are
+ * computer's API keys down it: RUSH Lab keeps them, and says only which are
  * set, never their values. A request Mochi asks to `hold` (a plugin run) is
  * not the connection's: the relay keeps it going when the connection drops,
  * with every frame it sent, for HOLD_MS, and lists it in its next `hello`, so

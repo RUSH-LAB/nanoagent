@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * The OpenRouter key a member's Mochi Lab starts with: one of their own, made
+ * The OpenRouter key a member's RUSH Lab starts with: one of their own, made
  * with OPENROUTER_MANAGEMENT_KEY in Mochi's OpenRouter workspace (WORKSPACES:
  * production's, or every other site's, such as npm start's, whose accounts are
  * copies of production's and must not disable their keys), whose lifetime

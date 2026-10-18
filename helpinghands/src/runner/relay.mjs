@@ -1,5 +1,5 @@
 /**
- * Mochi Lab's relay: this computer's NanoAgent, lent to its member's runs on
+ * RUSH Lab's relay: this computer's NanoAgent, lent to its member's runs on
  * Mochi (server/runner.js). It signs in as the member, dials Mochi, and makes
  * each request Mochi sends against the NanoAgent beside it, streaming the
  * response back (runner/protocol.js). Mochi never reaches this computer; the
@@ -10,7 +10,7 @@
  *   NANOAGENT_URL         the NanoAgent beside it, and NANOAGENT_API_TOKEN, its bearer token
  *   RUNNER_CREDENTIALS    where the member's session token is kept (mode 0600)
  *   RUNNER_DEVICE         what Settings → AI calls this computer
- *   RUNNER_KEYS           which API keys Mochi Lab holds: [{env, label, set}], as JSON
+ *   RUNNER_KEYS           which API keys RUSH Lab holds: [{env, label, set}], as JSON
  *   RUNNER_FILES          the folder kept in sync with the member's own files (files.mjs)
  * and reads what happens as JSON lines on stdout:
  *   {"event": "sign-in", "url", "code"}   open url in a browser and approve code
@@ -170,7 +170,7 @@ export function connect({
         report();
       } else if (frame.type === 'resume') {
         const run = held.get(frame.id);
-        if (!run) return send({type: 'error', id: frame.id, message: 'Mochi Lab is not running that any more'});
+        if (!run) return send({type: 'error', id: frame.id, message: 'RUSH Lab is not running that any more'});
         clearTimeout(run.timer);
         run.send = send;
         for (const message of run.frames.slice(frame.from)) send(message);

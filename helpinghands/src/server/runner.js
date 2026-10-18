@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Members' own computers, each running NanoAgent for its member (Mochi Lab).
+ * Members' own computers, each running NanoAgent for its member (RUSH Lab).
  *
  * A computer dials in: it opens a WebSocket to /api/runner signed in as its
  * member, and from then on that member's runs go down that socket
@@ -25,7 +25,7 @@ const {createNanoAgentGateway, RUNNER_OFFLINE} = require('./ai');
 const MAX_PAYLOAD = 64 * 1024 * 1024;
 const PING_MS = 25_000;
 const REPLACED = 4000;
-// The close code a server shutting down sends, so each Mochi Lab dials its replacement.
+// The close code a server shutting down sends, so each RUSH Lab dials its replacement.
 const GOING_AWAY = 1001;
 const NULL_BODY = new Set([101, 204, 205, 304]);
 // What a key's name and value may be, as RUSH Lab's lab.mjs checks them again.
