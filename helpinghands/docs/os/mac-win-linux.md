@@ -6,12 +6,13 @@ What we found running RUSH Lab (the Tauri desktop app in `desktop/`) on Windows 
 
 | | macOS | Windows | Linux |
 |---|---|---|---|
-| Desktop app | Built and used | Built (NSIS installer, `npm --prefix desktop run build:windows`) and run | No build |
+| Desktop app | Built and used | Built by CI (NSIS installer, `.github/workflows/helpinghands-desktop.yml`) and run | No build |
+| Install command | `curl -fsSL <site>/install.sh \| sh` | `irm <site>/install.ps1 \| iex`, run twice by CI on each build | None |
 | Web view | WKWebView | WebView2 | Not applicable yet |
 | Fresh install, sign-in, connect | Used | Passed: install in 6 s, sign in, connect | Not tested |
 | Plugin run (NanoAgent) | Used | Passes after the path fixes below | Not tested |
 | Page dialogs | Fixed in shared site code, not run | Fixed and checked in the app | Not tested |
-| Self-update | Not re-tested | Not tested | Not tested |
+| Self-update | Not re-tested | Built (the installer is the update), not yet run | Not tested |
 | Sandbox file-write tasks | Not re-tested | Not tested | Not tested |
 
 ## What broke on Windows, and the fix
@@ -43,7 +44,8 @@ Tauri's dialog plugin replaces `window.alert` and `window.confirm` in the web vi
 ## Differences to keep in mind
 
 - **Web view.** macOS uses WKWebView, Windows uses WebView2 (Chromium). WKWebView has no `window.prompt`, which is one more reason the site must not use the browser's dialogs. WebView2 reloads on Ctrl+R by itself; macOS needed View → Reload (⌘R) added to its menu (commit `bf5b6ca0`).
-- **Installer.** macOS installs into /Applications (`npm run desktop:dev`). Windows builds an NSIS installer. Launching the raw exe fails: it exits with "could not be installed… Access is denied" when the bundled binaries are missing or an old runner still holds the folder. Install through NSIS and kill any orphaned runner first.
+- **Installer.** macOS installs into /Applications (`npm run desktop:dev`). Windows builds an NSIS installer, which installs for the user into `%LOCALAPPDATA%\RUSH Lab`; `install.ps1` runs it with `/S /R` (silent, then open RUSH Lab). Launching the raw exe fails: it exits with "could not be installed… Access is denied" when the bundled binaries are missing or an old runner still holds the folder. Install through NSIS and kill any orphaned runner first.
+- **Self-update.** On macOS the update is installed over the running app, which opens it when it next quits. On Windows the updater runs the installer, which quits the app at once, so `src-tauri/src/update.rs` downloads the update first and installs it only once nothing runs and the window is closed. The installer then opens RUSH Lab with `--login`, hidden as at login.
 - **Sandbox.** The Windows runner sandboxes plugins in an AppContainer; macOS uses its own sandbox. File-write behaviour under the AppContainer has not been tested.
 - **Data folder.** Windows keeps connections under `%LOCALAPPDATA%\lab.mochi.lab\connections\<id>`.
 - **Shell.** Developers on Windows use Git Bash or PowerShell. `npm test` with a quoted glob finds 0 tests there; run `node --test tests/**/*.test.mjs` from bash with globstar on.
@@ -61,7 +63,7 @@ Not built, not run. Before claiming support, check: the Tauri build (WebKitGTK w
 ## Open items
 
 - Clean up `<data>\installs\<hash>` when a connection is removed.
-- Test the self-update flow and sandbox file-write tasks on Windows.
+- Run a self-update on Windows, and test sandbox file-write tasks there.
 - `weather-alert` is no longer preinstalled; its upstream `run.sh` problem is still with its author.
 - `arxiv-source` was republished at 0.5.1 in the local database only. Production needs NanoAgent deployed before it can be published there.
 - Run the dialog check on the Mac app.

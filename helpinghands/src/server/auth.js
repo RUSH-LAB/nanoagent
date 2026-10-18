@@ -352,8 +352,9 @@ const PUBLIC_PATHS = new Set([
   '/api/health',
   // Whether the sign-in screen offers sign-up.
   '/api/signup-policy',
-  // The script that installs RUSH Lab (routes/lab.js).
+  // The scripts that install RUSH Lab (routes/lab.js).
   '/install.sh',
+  '/install.ps1',
 ]);
 
 /**

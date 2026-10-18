@@ -5,7 +5,7 @@ import styles from '@site/src/theme/Root/authScreen.module.css';
 
 /**
  * Where anyone gets RUSH Lab, the desktop app members sign in to and run their AI and plugins in
- * (src/utils/signIn.js: open without a session). Windows comes once its app is built.
+ * (src/utils/signIn.js: open without a session).
  */
 export default function Download() {
   return (
@@ -15,9 +15,8 @@ export default function Download() {
         <div className={styles.card}>
           <img src="/img/rush-lab.png" alt="" className={styles.logo} />
           <h1 className={styles.title}>Get RUSH Lab</h1>
-          <p className={styles.tagline}>The RUSH Lab app for your Mac: sign in there, and your AI and plugins run on this computer.</p>
+          <p className={styles.tagline}>The RUSH Lab app for your Mac or Windows PC: sign in there, and your AI and plugins run on this computer.</p>
           <LabInstall />
-          <p className={styles.tagline}>Windows is coming soon.</p>
         </div>
       </div>
     </>

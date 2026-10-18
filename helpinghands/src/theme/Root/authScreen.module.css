@@ -499,9 +499,10 @@
   text-decoration: underline;
 }
 
-/* The landing page (pages/index): a tab for each system, and how to install RUSH Lab on it. */
+/* The landing page (pages/index). */
 .landingCard { max-width: 480px; }
 
+/* A tab for each system, and how to install RUSH Lab on it (LabInstall.js). */
 .systems {
   display: flex;
   gap: 0.25rem;
@@ -529,13 +530,6 @@
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
 }
 
-.landingNote {
-  margin: 0 0 0.9rem;
-  text-align: center;
-  font-size: 0.9rem;
-  color: #64748b;
-  line-height: 1.5;
-}
 
 /* The site's dark theme. */
 :global([data-theme='dark']) .page {
@@ -593,7 +587,6 @@
 :global([data-theme='dark']) .systems { background: #0f172a; }
 :global([data-theme='dark']) .system { color: #94a3b8; }
 :global([data-theme='dark']) .systemActive { background: #1e293b; color: #f1f5f9; }
-:global([data-theme='dark']) .landingNote { color: #94a3b8; }
 
 /* Phones: let the card use the full width and sit near the top, so the
    on-screen keyboard does not push the submit button out of view. */

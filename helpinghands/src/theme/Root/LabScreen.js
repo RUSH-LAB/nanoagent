@@ -104,7 +104,7 @@ export default function LabScreen({onConnected, onSignOut}) {
       <div className={styles.card}>
         <img src="/img/rush-lab.png" alt="" className={styles.logo} />
         <h1 className={styles.title}>Install RUSH Lab</h1>
-        <p className={styles.tagline}>Your AI and plugins run on your own Mac, in the RUSH Lab app. Install it, then sign in in its window: it connects this computer, and this page lets you in.</p>
+        <p className={styles.tagline}>Your AI and plugins run on your own computer, in the RUSH Lab app. Install it, then sign in in its window: it connects this computer, and this page lets you in.</p>
         <LabInstall />
         {error && <p className={styles.error} role="alert">{error}</p>}
         <button type="button" className={styles.switch} onClick={onSignOut}>

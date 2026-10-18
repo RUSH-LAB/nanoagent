@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from 'react';
 import {apiRequest} from '@site/src/utils/api';
-import {CONNECT_HINT, DOWNLOADS, INSTALL_HINT, useConnectLink} from '@site/src/utils/labApp';
+import {CONNECT_HINT, DOWNLOADS, INSTALL_HINT, WINDOWS_INSTALL_HINT, useConnectLink, visitorSystem} from '@site/src/utils/labApp';
 import {Fact, PaneHeading, Skeleton} from './_parts';
 import styles from './styles.module.css';
 import ai from './ai.module.css';
@@ -24,11 +24,12 @@ function InstallLab() {
       <div className={styles.row}>
         <div className={styles.rowLabel}>
           <strong>Download the app</strong>
-          <span>{INSTALL_HINT}</span>
+          <span>{visitorSystem() === 'windows' ? WINDOWS_INSTALL_HINT : INSTALL_HINT}</span>
         </div>
         <div className={styles.rowControl}>
           <a className={`${styles.primaryButton} ${ai.primaryLink}`} href={DOWNLOADS.appleSilicon} download>Apple silicon</a>
           <a className={`${styles.secondaryButton} ${ai.secondaryLink}`} href={DOWNLOADS.intel} download>Intel</a>
+          <a className={`${styles.secondaryButton} ${ai.secondaryLink}`} href={DOWNLOADS.windows} download>Windows</a>
         </div>
       </div>
       <div className={styles.row}>

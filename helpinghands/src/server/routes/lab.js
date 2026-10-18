@@ -1,20 +1,22 @@
 'use strict';
 
 /**
- * RUSH Lab, the app that runs a member's AI and plugins on their own Mac
+ * RUSH Lab, the app that runs a member's AI and plugins on their own Mac or Windows PC
  * (desktop/src-tauri): its download, and the link that connects it to their account.
  *
- *   PUT /api/lab/bundles/{target}      the release job uploads a target's app, its dmg, with
- *                                      header X-Lab-Stamp and Authorization: Bearer LAB_UPLOAD_TOKEN
- *   GET /api/lab/bundles/{target}      anyone: the target's newest dmg, with X-Lab-Stamp and X-Lab-Sha256
+ *   PUT /api/lab/bundles/{target}      the release job uploads a target's app, its dmg or Windows
+ *                                      installer, with header X-Lab-Stamp and Authorization: Bearer LAB_UPLOAD_TOKEN
+ *   GET /api/lab/bundles/{target}      anyone: the target's newest app, with X-Lab-Stamp and X-Lab-Sha256
  *   PUT /api/lab/updates/{target}      the release job uploads a target's update, the updater's archive
- *                                      (RUSH Lab.app.tar.gz), with X-Lab-Stamp, X-Lab-Signature (its .sig)
- *                                      and Authorization: Bearer LAB_UPLOAD_TOKEN
+ *                                      (RUSH Lab.app.tar.gz on macOS; on Windows the installer again),
+ *                                      with X-Lab-Stamp, X-Lab-Signature (its .sig) and Authorization: Bearer LAB_UPLOAD_TOKEN
  *   GET /api/lab/updates/{target}      anyone: what the app's updater asks (desktop/src-tauri/src/update.rs),
  *                                      {version, url, signature}, 204 while there is none
  *   GET /api/lab/updates/{target}/app.tar.gz   anyone: that update's archive
  *   GET /install.sh                    anyone: the script that installs the app on a Mac (lab-install.js),
  *                                      curl -fsSL <SITE_URL>/install.sh | sh
+ *   GET /install.ps1                   anyone: the script that installs the app on Windows (lab-install.js),
+ *                                      irm <SITE_URL>/install.ps1 | iex
  *   GET /api/lab/connect               signed in: {link}, which the browser hands the app
  *   GET /api/lab/session?token=        {member: {id, login}}: whose the link is, which the app asks
  *                                      the member to confirm
@@ -33,29 +35,32 @@
  *
  * The link is `rushlab://connect?site=<SITE_URL>&token=<t>`. `t` is a token for the member that
  * lasts an hour (lab-tokens.js), signed with the session secret, so the app needs no session to
- * use it. Targets are aarch64-apple-darwin and x86_64-apple-darwin. Each keeps its newest dmg
- * and update only, in PostgreSQL (postgres/lab.js), sent on a chunk at a time. An update's version
- * is the one its signature was made for, which the updater checks it against. Without
- * LAB_UPLOAD_TOKEN set, uploads answer 503.
+ * use it. Targets are aarch64-apple-darwin, x86_64-apple-darwin and x86_64-pc-windows-msvc. Each
+ * keeps its newest app and update only, in PostgreSQL (postgres/lab.js), sent on a chunk at a
+ * time. An update's version is the one its signature was made for, which the updater checks it
+ * against. Without LAB_UPLOAD_TOKEN set, uploads answer 503.
  */
 const crypto = require('crypto');
 const {signDownloadToken, verifyDownloadToken} = require('../lab-tokens');
 const {signInUrl} = require('../../utils/signIn');
-const {INSTALL_PATH, installScript} = require('../lab-install');
+const {INSTALL_SCRIPTS} = require('../lab-install');
 const {LAB_ROUTE: ROUTE} = require('./paths');
 
-const TARGETS = new Set(['aarch64-apple-darwin', 'x86_64-apple-darwin']);
-// What the download is called on the member's computer, by target.
-const FILE_NAMES = {'aarch64-apple-darwin': 'RUSH-Lab-Apple-silicon.dmg', 'x86_64-apple-darwin': 'RUSH-Lab-Intel.dmg'};
+const DMG = 'application/x-apple-diskimage';
+const GZIP = 'application/gzip';
+const EXE = 'application/vnd.microsoft.portable-executable';
+// How each target's bundles are sent: their type, and what each is called on the member's computer.
+// Windows' installer is its update too, which the updater runs over the app.
+const DOWNLOADS = {
+  'aarch64-apple-darwin': {app: [DMG, 'RUSH-Lab-Apple-silicon.dmg'], update: [GZIP, 'RUSH-Lab-aarch64-apple-darwin.app.tar.gz']},
+  'x86_64-apple-darwin': {app: [DMG, 'RUSH-Lab-Intel.dmg'], update: [GZIP, 'RUSH-Lab-x86_64-apple-darwin.app.tar.gz']},
+  'x86_64-pc-windows-msvc': {app: [EXE, 'RUSH-Lab-Setup.exe'], update: [EXE, 'RUSH-Lab-Setup.exe']},
+};
+const TARGETS = new Set(Object.keys(DOWNLOADS));
 const MAX_BUNDLE_BYTES = 200 * 1024 * 1024;
 const STAMP = /^[A-Za-z0-9._-]{1,128}$/;
 // What `tauri signer sign` writes to a .sig: base64.
 const SIGNATURE = /^[A-Za-z0-9+/]{1,4096}={0,2}$/;
-// How each kind of bundle is downloaded, by target.
-const DOWNLOADS = {
-  dmg: {type: 'application/x-apple-diskimage', name: target => FILE_NAMES[target]},
-  update: {type: 'application/gzip', name: target => `RUSH-Lab-${target}.app.tar.gz`},
-};
 // The app's sign-in state: random, which it names its sign-in by.
 const STATE = /^[A-Za-z0-9_-]{16,128}$/;
 
@@ -72,10 +77,11 @@ function bearerIs(header, token) {
 
 /** Write `bundle` to `res` a chunk at a time, waiting while the caller is slow; stop if they go. */
 async function sendBundle(res, bundles, bundle) {
+  const [type, name] = DOWNLOADS[bundle.target][bundle.kind];
   res.writeHead(200, {
-    'Content-Type': DOWNLOADS[bundle.kind].type,
+    'Content-Type': type,
     'Content-Length': bundle.size,
-    'Content-Disposition': `attachment; filename="${DOWNLOADS[bundle.kind].name(bundle.target)}"`,
+    'Content-Disposition': `attachment; filename="${name}"`,
     'X-Lab-Stamp': bundle.stamp,
     'X-Lab-Sha256': bundle.sha256,
     'Cache-Control': 'private, no-cache',
@@ -102,16 +108,17 @@ async function sendBundle(res, bundles, bundle) {
 
 module.exports = async function lab(req, res, url, pathname, ctx) {
   const {json, lab: {bundles, secret, siteUrl, uploadToken, findMember, createSession, sessionCookie}} = ctx;
-  if (pathname === INSTALL_PATH) {
+  const install = INSTALL_SCRIPTS.get(pathname);
+  if (install) {
     if (req.method !== 'GET') return json(res, 405, {error: 'Method not allowed'});
-    res.writeHead(200, {'Content-Type': 'text/x-shellscript; charset=utf-8', 'Cache-Control': 'no-cache'});
-    return res.end(installScript(siteUrl));
+    res.writeHead(200, {'Content-Type': `${install.type}; charset=utf-8`, 'Cache-Control': 'no-cache'});
+    return res.end(install.script(siteUrl));
   }
   const match = ROUTE.exec(pathname);
   if (!match) return;
-  const [, connect, session, signIn, windowSignIn, dmgTarget, updateTarget, archive] = match;
-  const kind = updateTarget ? 'update' : 'dmg';
-  const target = dmgTarget ?? updateTarget;
+  const [, connect, session, signIn, windowSignIn, appTarget, updateTarget, archive] = match;
+  const kind = updateTarget ? 'update' : 'app';
+  const target = appTarget ?? updateTarget;
 
   if (signIn) {
     if (req.method !== 'GET') return json(res, 405, {error: 'Method not allowed'});

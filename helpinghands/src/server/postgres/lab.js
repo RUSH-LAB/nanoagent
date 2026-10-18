@@ -7,8 +7,8 @@ const CHUNK_BYTES = 4 * 1024 * 1024;
 const refusal = (status, message) => Object.assign(new Error(message), {status});
 
 /**
- * RUSH Lab's bundles (migrations 0034, 0039, 0040): for each target, the newest
- * of each kind, its dmg and its update (the updater's archive, with its
+ * RUSH Lab's bundles (migrations 0034, 0039, 0040, 0043): for each target, the newest
+ * of each kind, its app (a dmg, or Windows' installer) and its update (the updater's archive, with its
  * signature), which anyone may download and only the upload path writes. Neither
  * direction holds a whole bundle: an upload is written chunk by chunk as its
  * body arrives, and a download reads one chunk at a time.
@@ -25,7 +25,7 @@ function createPostgresLab({pool}) {
   };
 
   return Object.freeze({
-    /** The target's bundle of `kind`, 'dmg' or 'update', without its bytes, or null. */
+    /** The target's bundle of `kind`, 'app' or 'update', without its bytes, or null. */
     async bundle(target, kind) {
       const row = await first('select target, kind, upload_id, stamp, signature, sha256, size from lab_bundle where target = $1 and kind = $2', [target, kind]);
       return row ? {

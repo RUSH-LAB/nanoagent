@@ -4,6 +4,7 @@ What each Mochi release changes, one sentence each.
 
 ## Unreleased
 
+- RUSH Lab installs on Windows: the site offers its installer and a PowerShell command, `irm <site>/install.ps1 | iex`, which installs it and opens it, and it updates itself there as on macOS, waiting until nothing is running and its window is closed.
 - RUSH Lab on macOS reloads its page with ⌘R (View → Reload).
 - In a narrow window the navbar's menu lists the workspace's Plugins and Workspace above your account, spaced alike, and its header is no longer under the local site's banner.
 - The navbar no longer shows a search bar, nor does `/` open search, until search has a real engine behind it (FUTURE.md).

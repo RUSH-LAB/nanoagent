@@ -4,13 +4,15 @@ import API_BASE, {apiRequest} from '@site/src/utils/api';
 // How often the connect link is asked for again: its token lasts an hour.
 const LINK_MS = 30 * 60_000;
 
-// The RUSH Lab app for each kind of Mac (server/routes/lab.js).
+// The RUSH Lab app for each kind of Mac, and Windows' installer (server/routes/lab.js).
 export const DOWNLOADS = {
   appleSilicon: `${API_BASE}/api/lab/bundles/aarch64-apple-darwin`,
   intel: `${API_BASE}/api/lab/bundles/x86_64-apple-darwin`,
+  windows: `${API_BASE}/api/lab/bundles/x86_64-pc-windows-msvc`,
 };
 
 export const INSTALL_HINT = 'Open the download, drag RUSH Lab into your Applications folder, then open it. The first time, macOS blocks it: go to System Settings → Privacy & Security and click Open Anyway.';
+export const WINDOWS_INSTALL_HINT = 'Open the download: it installs RUSH Lab and opens it. Windows may say it protected your PC from an app it does not know: click More info, then Run anyway.';
 
 // What each kind of Mac is called (DOWNLOADS).
 export const CHIPS = {appleSilicon: 'Apple silicon', intel: 'Intel'};
@@ -46,8 +48,10 @@ export function useMacChip() {
   return chip;
 }
 
-/** The command that installs RUSH Lab on a Mac from this site and opens it (server/lab-install.js). */
-export const installCommand = () => `curl -fsSL ${window.location.origin}/install.sh | sh`;
+/** The command that installs RUSH Lab from this site on `system`, 'mac' or 'windows', and opens it (server/lab-install.js). */
+export const installCommand = system => (system === 'windows'
+  ? `irm ${window.location.origin}/install.ps1 | iex`
+  : `curl -fsSL ${window.location.origin}/install.sh | sh`);
 export const CONNECT_HINT = 'Once RUSH Lab is open, this hands it your account. The link is yours: keep it to yourself.';
 
 /**

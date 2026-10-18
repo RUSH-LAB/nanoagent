@@ -18,7 +18,7 @@ const {
 const {PROJECT_ROOT, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
 const {makeSignature} = require('better-auth/crypto');
 const {auth, AUTH_SECRET, SITE_URL, tenancy, githubUsers, resolveIdentity, isPublicPath, productionAuthError} = require('./auth');
-const {INSTALL_PATH} = require('./lab-install');
+const {INSTALL_SCRIPTS} = require('./lab-install');
 const {asksForSession, redirectFor} = require('../utils/signIn');
 const {createAiMeter} = require('./ai-metering');
 const {
@@ -688,8 +688,8 @@ async function handleRequest(req, res) {
 
   // A production process serves the Docusaurus application shell and API from
   // one origin, so the session cookie never has to be exposed to JavaScript.
-  // RUSH Lab's install script is the server's to write, with its SITE_URL (routes/lab.js).
-  if (pathname !== '/api' && !pathname.startsWith('/api/') && pathname !== INSTALL_PATH && process.env.NODE_ENV === 'production') {
+  // RUSH Lab's install scripts are the server's to write, with its SITE_URL (routes/lab.js).
+  if (pathname !== '/api' && !pathname.startsWith('/api/') && !INSTALL_SCRIPTS.has(pathname) && process.env.NODE_ENV === 'production') {
     const root = path.join(PROJECT_ROOT, 'build');
     // A page that needs a session is never sent to a visitor without one, who
     // goes to the sign-in page instead of seeing the page and then losing it.

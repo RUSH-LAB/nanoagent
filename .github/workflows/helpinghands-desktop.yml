@@ -1,14 +1,16 @@
 name: Helping Hands desktop app
 
 # Builds RUSH Lab, the Tauri app (helpinghands/desktop) members download from the site, for each
-# kind of Mac. Each target builds on its own runner, as the app bundles that Mac's runtimes
-# (scripts/stage.mjs).
+# kind of Mac and for x86-64 Windows. Each target builds on its own runner, as the app bundles that
+# system's runtimes (scripts/stage.mjs).
 #
-# The app is ad-hoc signed (signingIdentity "-" in tauri.conf.json), not notarized: the first time
-# it opens on a member's Mac, macOS blocks it until they click Open Anyway in System Settings ->
-# Privacy & Security. It is a release (npm run build:release): it updates itself from the site it
-# serves (src-tauri/src/update.rs), with the update this job signs with the app's update key
-# (TAURI_SIGNING_PRIVATE_KEY) and uploads beside each dmg.
+# The Mac app is ad-hoc signed (signingIdentity "-" in tauri.conf.json), not notarized: the first time
+# it opens from the dmg, macOS blocks it until the member clicks Open Anyway in System Settings ->
+# Privacy & Security. The Windows app is its NSIS installer (tauri.windows.conf.json), unsigned, so
+# SmartScreen asks before an installer downloaded in a browser runs. It is a release (npm run
+# build:release): it updates itself from the site it serves (src-tauri/src/update.rs), with the
+# update this job signs with the app's update key (TAURI_SIGNING_PRIVATE_KEY) and uploads beside
+# each app. On Windows the update is the installer itself.
 
 # A push to production rebuilds the app only when something it is built from changed: desktop/
 # (the app, its scripts and config.yaml), the runner, and the NanoAgent that stage.mjs bundles.
@@ -44,6 +46,8 @@ jobs:
             target: aarch64-apple-darwin
           - os: macos-15-intel
             target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -67,7 +71,45 @@ jobs:
             helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
             helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
             helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz.sig
+            helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe
+            helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe.sig
           if-no-files-found: error
+      # The command the site gives (irm <site>/install.ps1 | iex), run twice against this build served
+      # as the site serves it: it installs RUSH Lab and opens it, then replaces the one running.
+      - name: Install with install.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $setup = @(Get-ChildItem "desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe")
+          if ($setup.Count -ne 1) { throw "Expected one installer, found $($setup.Count)" }
+          $env:SETUP = $setup[0].FullName
+          $env:LAB_INSTALL = (Resolve-Path src/server/lab-install.js).Path
+          $site = Join-Path $env:RUNNER_TEMP 'site.js'
+          Set-Content -Path $site -Value @'
+          const fs = require('fs'), crypto = require('crypto'), {windowsScript} = require(process.env.LAB_INSTALL);
+          const setup = fs.readFileSync(process.env.SETUP);
+          require('http').createServer((req, res) => {
+            if (req.url === '/install.ps1') return res.end(windowsScript('http://127.0.0.1:8123'));
+            if (req.url !== '/api/lab/bundles/${{ matrix.target }}') { res.statusCode = 404; return res.end(); }
+            res.setHeader('X-Lab-Sha256', crypto.createHash('sha256').update(setup).digest('hex'));
+            res.end(setup);
+          }).listen(8123, '127.0.0.1');
+          '@
+          $server = Start-Process node -ArgumentList "`"$site`"" -PassThru -NoNewWindow
+          try {
+            Start-Sleep -Seconds 2
+            $folder = Join-Path $env:LOCALAPPDATA 'RUSH Lab'
+            foreach ($round in 1, 2) {
+              irm http://127.0.0.1:8123/install.ps1 | iex
+              $deadline = (Get-Date).AddSeconds(60)
+              while (-not @(Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith("$folder\", 'OrdinalIgnoreCase') }).Count) {
+                if ((Get-Date) -gt $deadline) { throw "RUSH Lab is not running from $folder after install $round" }
+                Start-Sleep -Seconds 1
+              }
+            }
+          } finally {
+            Stop-Process -Id $server.Id -Force
+          }
       - name: Upload to Mochi
         if: github.event_name == 'push'
         working-directory: helpinghands/desktop
@@ -93,8 +135,4 @@ jobs:
               sleep 30
             done
           }
-          set -- "$bundle"/dmg/*.dmg
-          [ "$#" -eq 1 ] || { echo "Expected one dmg, found $#" >&2; exit 1; }
-          put "$1" /api/lab/bundles/${{ matrix.target }}
-          update="$bundle/macos/RUSH Lab.app.tar.gz"
-          put "$update" /api/lab/updates/${{ matrix.target }} "X-Lab-Signature: $(cat "$update.sig")"
+
