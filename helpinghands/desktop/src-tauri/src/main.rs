@@ -308,7 +308,10 @@ fn main() {
             app.deep_link().on_open_url(move |event| {
                 for link in event.urls() {
                     if is_terminal(&link) {
-                        open_terminal(&link_handle);
+                        // From another thread: this runs on the main thread while the event's listeners
+                        // are locked, and building a window there waits for that lock.
+                        let opening = link_handle.clone();
+                        thread::spawn(move || open_terminal(&opening));
                     } else {
                         connect_later(&link_handle, link, false);
                     }
