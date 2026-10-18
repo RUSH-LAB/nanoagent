@@ -10,7 +10,7 @@ export const DOWNLOADS = {
   intel: `${API_BASE}/api/lab/bundles/x86_64-apple-darwin`,
 };
 
-export const INSTALL_HINT = 'Drag RUSH Lab into Applications and open it. The first time, macOS blocks it: click Open Anyway in System Settings, Privacy & Security.';
+export const INSTALL_HINT = 'Open the download, drag RUSH Lab into your Applications folder, then open it. The first time, macOS blocks it: go to System Settings → Privacy & Security and click Open Anyway.';
 
 // What each kind of Mac is called (DOWNLOADS).
 export const CHIPS = {appleSilicon: 'Apple silicon', intel: 'Intel'};

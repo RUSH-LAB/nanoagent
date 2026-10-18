@@ -18,14 +18,14 @@ export default function LabInstall() {
   return (
     <ol className={styles.steps}>
       <li>
-        <span className={styles.stepNote}>Paste this into Terminal. It installs RUSH Lab in Applications and opens it.</span>
+        <span className={styles.stepNote}>Paste this command into Terminal. It installs RUSH Lab in your Applications folder and opens it.</span>
         <div className={styles.command}>
           <code>{command}</code>
           <button type="button" className={styles.copy} onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
         </div>
       </li>
       <li>
-        <span className={styles.stepNote}>Or download it:</span>
+        <span className={styles.stepNote}>Or download the app:</span>
         {chip === null ? (
           <div className={styles.chips}>
             {Object.entries(CHIPS).map(([key, name]) => (
