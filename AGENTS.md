@@ -8,7 +8,7 @@
 
 **No LLM as judge.** A plugin's verifier is deterministic code and decides every case. Never use a model to verify a result, and never design a task whose correctness code cannot check.
 
-**The desktop app is the product.** Members use RUSH Lab, the desktop app, which bundles NanoAgent, the relay (`helpinghands/src/runner/`) and the plugin page kit. A change to any of them is not done until the desktop app is rebuilt with it and checked in that build. To check devmode, run Mochi with `npm start`, then `npm run desktop:dev` (both in `helpinghands/`): it builds RUSH Lab Dev, an app of its own built the same way, installs it in /Applications beside RUSH Lab and opens it, its window titled `RUSH Lab Dev`. RUSH Lab Dev is always on that local site, and RUSH Lab always on rush-lab.org, which runs production.
+**The desktop app is the product.** Members use RUSH Lab, the desktop app, which bundles NanoAgent, the relay (`helpinghands/src/runner/`) and the plugin page kit. A change to any of them is not done until the desktop app is rebuilt with it and checked in that build. To check devmode, run Mochi with `npm start`, then `npm run desktop:dev` (both in `helpinghands/`): it builds RUSH Lab Dev, an app of its own built the same way, installs it beside RUSH Lab (in /Applications on macOS, for the user on Windows) and opens it, its window titled `RUSH Lab Dev`. On Windows run it from PowerShell or cmd, where `cargo` is on the PATH. RUSH Lab Dev is always on that local site, and RUSH Lab always on rush-lab.org, which runs production.
 
 ## Configuration
 

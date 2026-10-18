@@ -41,7 +41,7 @@ describe("the desktop app's config.yaml builds", () => {
     const file = path.join(folder, 'config.yaml');
     try {
       fs.writeFileSync(file, 'product_name: RUSH Lab\n');
-      assert.throws(() => readConfig({}, file), new RegExp(`^Error: ${file} has no dev block for RUSH Lab Dev$`));
+      assert.throws(() => readConfig({}, file), error => error.message === `${file} has no dev block for RUSH Lab Dev`);
       fs.writeFileSync(file, 'product_name: RUSH Lab\ndev:\n  other: x\n');
       assert.throws(() => readConfig({}, file), /dev\.other overrides nothing RUSH Lab has$/);
     } finally {

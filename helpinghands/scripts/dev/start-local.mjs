@@ -284,7 +284,8 @@ export async function startLocal(argv = process.argv.slice(2)) {
     const ready = await waitForNanoAgent(env);
     console.log(`NanoAgent ready: ${ready.profile.id} (${ready.profile.model})`);
   }
-  const api = spawn(process.execPath, ['src/server/index.js'], options(root));
+  // Restarts when the server's code changes, so the API is never older than the checkout the site and the apps are built from.
+  const api = spawn(process.execPath, ['--watch-path=src/server', '--watch-preserve-output', 'src/server/index.js'], options(root));
   processes.push(
     {name: 'API', child: api},
     {name: 'site', child: spawn(process.execPath, [docusaurusCli, 'start', '--no-open', '--host', '127.0.0.1', '--port', String(sitePort)], options(root))},
