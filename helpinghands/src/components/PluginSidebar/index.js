@@ -2,7 +2,6 @@ import React, {useEffect, useRef, useState} from 'react';
 import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import {useClickOutside} from '@site/src/hooks/useClickOutside';
-import {useLabCommand} from '@site/src/utils/labApp';
 // The blog's group sidebar, reused so the two read as one design.
 import styles from '@site/src/components/BlogGroupSidebar/styles.module.css';
 import own from './styles.module.css';
@@ -84,14 +83,8 @@ function TagSwitcher({navigation}) {
   );
 }
 
-// What a member adds to their shell's startup for ~/.local/bin, where RUSH Lab puts its command, to be on their PATH.
-const PATH_LINES = [
-  ['macOS', `echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc`],
-  ['Windows (PowerShell)', `[Environment]::SetEnvironmentVariable('Path', "$env:USERPROFILE\\.local\\bin;" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')`],
-];
-
 function DraftList({navigation, draftsError}) {
-  const command = useLabCommand();
+  if (!draftsError && !navigation.draftLinks.length) return null;
   return (
     <>
       <li className="menu__list-item">
@@ -112,16 +105,6 @@ function DraftList({navigation, draftsError}) {
           </Link>
         </li>
       ))}
-      <li className={clsx('menu__list-item', own.draftHint)}>
-        <p>
-          To make one, in your terminal run <code>{command} new my-plugin</code>, open your AI CLI (Claude Code, Codex,
-          Gemini) in <code>my-plugin</code>, then run <code>{command} preview .</code> to see it here.
-        </p>
-        <p>If your terminal cannot find <code>{command}</code>, add ~/.local/bin to your PATH, then open a new terminal:</p>
-        {PATH_LINES.map(([system, line]) => (
-          <p key={system}>{system}: <code>{line}</code></p>
-        ))}
-      </li>
     </>
   );
 }

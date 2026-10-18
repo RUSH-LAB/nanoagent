@@ -16,7 +16,6 @@ const {servedApp} = require('./src/server/lab-app');
 // from PostgreSQL at request time. These values are deliberately only the
 // platform identity shown before a workspace has been resolved.
 const {name: platformName, tagline: platformTagline} = platformConfig();
-const labApp = servedApp();
 
 writeClientComponentRegistry();
 
@@ -54,10 +53,8 @@ const config = {
     platformName,
     // When npm start's local database was last pulled from production (scripts/db/sync.mjs).
     pulledAt: process.env.MOCHI_PULLED_AT || null,
-    // The scheme of the RUSH Lab app that serves this site, which its links use, and the command it
-    // puts on the member's PATH (utils/labApp.js).
-    labScheme: labApp.scheme,
-    labCommand: labApp.command,
+    // The scheme of the RUSH Lab app that serves this site, which its links use (utils/labApp.js).
+    labScheme: servedApp().scheme,
   },
 
   future: {
