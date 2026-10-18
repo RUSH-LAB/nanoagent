@@ -38,7 +38,7 @@ export default function PersonEditor({person, chat, onClose}) {
 
   const remove = async () => {
     if (!canManage) return;
-    if (!clientPlatform.dialogs.confirm(`Remove ${labelOf(person)} from this workspace?`)) return;
+    if (!(await clientPlatform.dialogs.confirm(`Remove ${labelOf(person)} from this workspace?`))) return;
     setBusy(true);
     setError(null);
     try {

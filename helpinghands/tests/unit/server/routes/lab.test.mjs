@@ -4,13 +4,13 @@ import crypto from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {createRequire} from 'node:module';
 import {loadRoute, makeCtx, invoke} from '../../_harness.mjs';
-import {migratedDatabase} from '../fs/_pglite.mjs';
+import {applyMigration, migratedDatabase} from '../fs/_pglite.mjs';
 
 const require = createRequire(import.meta.url);
 const {createPostgresLab, CHUNK_BYTES} = require('../../../../src/server/postgres/lab.js');
 const {signDownloadToken, verifyDownloadToken, TOKEN_MS} = require('../../../../src/server/lab-tokens.js');
 const {isGlobalApiPath} = require('../../../../src/server/workspace-context.js');
-const {installScript} = require('../../../../src/server/lab-install.js');
+const {macScript, windowsScript} = require('../../../../src/server/lab-install.js');
 
 const routes = loadRoute('lab');
 const SECRET = 'a-test-secret-of-at-least-thirty-two-characters';
@@ -20,6 +20,7 @@ const SITE = 'https://mochi.example';
 const SCHEME = 'rushlab-dev';
 const ARM = 'aarch64-apple-darwin';
 const INTEL = 'x86_64-apple-darwin';
+const WINDOWS = 'x86_64-pc-windows-msvc';
 // More than two chunks, fed in pieces that do not line up with them.
 const BUNDLE = crypto.randomBytes(2 * CHUNK_BYTES + 12345);
 const sha256 = data => crypto.createHash('sha256').update(data).digest('hex');
@@ -159,8 +160,8 @@ describe('RUSH Lab\'s download and connect link', () => {
     assert.equal((await upload(ARM, BUNDLE, 'has space')).status, 400);
     assert.equal((await upload(ARM, Buffer.alloc(0))).status, 400);
     assert.equal((await upload(ARM, BUNDLE, 'stamp-1', {'content-length': String(200 * 1024 * 1024 + 1)})).status, 413);
-    await assert.rejects(ctx.lab.bundles.replace({target: ARM, kind: 'dmg', stamp: 'big'}, piecesOf(BUNDLE), BUNDLE.length - 1), error => error.status === 413);
-    assert.equal(await ctx.lab.bundles.bundle(ARM, 'dmg'), null);
+    await assert.rejects(ctx.lab.bundles.replace({target: ARM, kind: 'app', stamp: 'big'}, piecesOf(BUNDLE), BUNDLE.length - 1), error => error.status === 413);
+    assert.equal(await ctx.lab.bundles.bundle(ARM, 'app'), null);
   });
 
   it('stores an upload in chunks and sends it back byte for byte', async () => {
@@ -194,7 +195,7 @@ describe('RUSH Lab\'s download and connect link', () => {
     assert.equal((await upload('x86_64-unknown-linux-gnu', Buffer.from('linux bundle'))).status, 400);
     await db.exec("begin; select set_config('app.lab_upload', 'on', true)");
     try {
-      await assert.rejects(db.query("insert into lab_bundle(target, kind, upload_id, stamp, sha256, size) values ('x86_64-unknown-linux-gnu', 'dmg', gen_random_uuid(), 's', repeat('a', 64), 1)"), /lab_bundle_target_check/);
+      await assert.rejects(db.query("insert into lab_bundle(target, kind, upload_id, stamp, sha256, size) values ('x86_64-unknown-linux-gnu', 'app', gen_random_uuid(), 's', repeat('a', 64), 1)"), /lab_bundle_target_check/);
     } finally {
       await db.exec('rollback');
     }
@@ -220,6 +221,20 @@ describe('RUSH Lab\'s download and connect link', () => {
     // The dmg stays the dmg.
     assert.equal((await call({path: `/api/lab/bundles/${ARM}`})).written.headers['X-Lab-Stamp'], 'stamp-2');
     assert.equal((await call({path: `/api/lab/bundles/${ARM}/app.tar.gz`})).status, undefined);
+  });
+
+  it('serves Windows its installer, which is its update too', async () => {
+    const installer = crypto.randomBytes(5000);
+    assert.equal((await upload(WINDOWS, installer, 'stamp-1')).status, 200);
+    assert.equal((await uploadUpdate(WINDOWS, installer, 'stamp-1')).status, 200);
+    const app = await call({path: `/api/lab/bundles/${WINDOWS}`});
+    assert.equal(app.written.headers['Content-Type'], 'application/vnd.microsoft.portable-executable');
+    assert.equal(app.written.headers['Content-Disposition'], 'attachment; filename="RUSH-Lab-Setup.exe"');
+    assert.ok(app.sent.equals(installer));
+    assert.equal((await call({path: `/api/lab/updates/${WINDOWS}`})).payload.url, `${SITE}/api/lab/updates/${WINDOWS}/app.tar.gz`);
+    const update = await call({path: `/api/lab/updates/${WINDOWS}/app.tar.gz`});
+    assert.equal(update.written.headers['Content-Disposition'], 'attachment; filename="RUSH-Lab-Setup.exe"');
+    assert.ok(update.sent.equals(installer));
   });
 
   it('refuses an update without its signature, or one that names no version', async () => {
@@ -254,7 +269,19 @@ describe('RUSH Lab\'s download and connect link', () => {
     assert.match(script, /^APP='\/Applications\/RUSH Lab\.app'$/m);
     assert.match(script, /quit app id "lab\.mochi\.lab"/);
     execFileSync('sh', ['-n'], {input: script});
-    assert.throws(() => installScript("https://x.org'; rm -rf ~"), /not a site/);
+    assert.throws(() => macScript("https://x.org'; rm -rf ~"), /not a site/);
+  });
+
+  it('serves anyone the script that installs the app on Windows from this site, which PowerShell reads', async () => {
+    const {written} = await call({path: '/install.ps1'});
+    assert.equal(written.status, 200);
+    assert.match(written.headers['Content-Type'], /^text\/plain/);
+    const script = String(written.body);
+    assert.ok(script.includes(`\n$Site = '${SITE}'\n`));
+    assert.ok(script.includes(`"$Site/api/lab/bundles/${WINDOWS}"`));
+    // Run in the member's own window, it throws rather than exits, which would close it.
+    assert.doesNotMatch(script, /(^|[;{]\s*)exit\b/im);
+    assert.throws(() => windowsScript("https://x.org'; Remove-Item ~"), /not a site/);
   });
 
   it('cuts a download short when an upload replaces the bundle it is sending', async () => {
@@ -267,7 +294,7 @@ describe('RUSH Lab\'s download and connect link', () => {
         let first = true;
         for await (const data of real.chunks(bundle)) {
           yield data;
-          if (first) await real.replace({target: INTEL, kind: 'dmg', stamp: 'stamp-2'}, [Buffer.from('new')], 1024);
+          if (first) await real.replace({target: INTEL, kind: 'app', stamp: 'stamp-2'}, [Buffer.from('new')], 1024);
           first = false;
         }
       },
@@ -289,15 +316,35 @@ describe('RUSH Lab\'s download and connect link', () => {
     await db.exec('set role mochi_runtime');
     try {
       await db.exec("begin; select set_config('app.user_id', 'alice', true)");
-      await assert.rejects(db.query("insert into lab_bundle(target, kind, upload_id, stamp, sha256, size) values ($1, 'dmg', gen_random_uuid(), 's', $2, 1)", [INTEL, 'a'.repeat(64)]));
+      await assert.rejects(db.query("insert into lab_bundle(target, kind, upload_id, stamp, sha256, size) values ($1, 'app', gen_random_uuid(), 's', $2, 1)", [INTEL, 'a'.repeat(64)]));
       await db.exec('rollback');
       await db.exec("begin; select set_config('app.user_id', 'alice', true)");
       assert.deepEqual((await db.query('delete from lab_bundle returning target')).rows, []);
       await db.exec('rollback');
       // Anyone reads them, signed in or not (migration 0039).
-      assert.deepEqual((await db.query('select target, kind from lab_bundle order by target, kind')).rows.map(row => `${row.target} ${row.kind}`), [`${ARM} dmg`, `${ARM} update`, `${INTEL} dmg`]);
+      assert.deepEqual((await db.query('select target, kind from lab_bundle order by target, kind')).rows.map(row => `${row.target} ${row.kind}`), [`${ARM} app`, `${ARM} update`, `${INTEL} app`, `${WINDOWS} app`, `${WINDOWS} update`]);
     } finally {
       await db.exec('reset role');
     }
+  });
+});
+
+describe('migration 0043', () => {
+  it('calls each Mac\'s dmg its app, as the tables\' owner under row-level security', async () => {
+    const {db} = await migratedDatabase({until: '0043'});
+    await db.exec(`
+      begin; select set_config('app.lab_upload', 'on', true);
+      insert into lab_bundle_chunk(upload_id, seq, data) values ('00000000-0000-4000-8000-000000000001', 0, 'x');
+      insert into lab_bundle(target, kind, upload_id, stamp, sha256, size) values ('${ARM}', 'dmg', '00000000-0000-4000-8000-000000000001', 's', repeat('a', 64), 1);
+      commit;
+      create role lab_owner;
+      alter table lab_bundle owner to lab_owner;
+      set role lab_owner;
+    `);
+    await applyMigration(db, '0043_lab_windows.sql');
+    await db.exec('reset role');
+    assert.deepEqual((await db.query('select target, kind from lab_bundle')).rows, [{target: ARM, kind: 'app'}]);
+    assert.equal((await db.query('select count(*)::int as n from lab_bundle_chunk')).rows[0].n, 1);
+    assert.deepEqual((await db.query("select policyname from pg_policies where tablename = 'lab_bundle' order by policyname")).rows.map(row => row.policyname), ['lab_bundle_delete', 'lab_bundle_insert', 'lab_bundle_read']);
   });
 });

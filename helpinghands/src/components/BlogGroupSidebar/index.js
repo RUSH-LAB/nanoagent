@@ -88,7 +88,7 @@ function GroupSwitcher({navigation}) {
   };
 
   const addGroup = async () => {
-    const title = clientPlatform.dialogs.prompt('New group name')?.trim();
+    const title = (await clientPlatform.dialogs.prompt('New group name'))?.trim();
     if (!title || navigation.groups.some(group => group.title.toLocaleLowerCase() === title.toLocaleLowerCase())) return;
     if (await saveGroups([...navigation.groups, {title, count: 0}])) {
       clientPlatform.location.assign(`${navigation.collectionHref}?group=${encodeURIComponent(title)}`);

@@ -6,6 +6,7 @@ import {formatAuthorList} from '@site/src/utils/authors';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
 import pageStyles from '@site/src/css/page.module.css';
+import {clientPlatform} from '@site/src/platform/client';
 
 function RecommendationsDashboard() {
   const [recommendations, setRecommendations] = useState([]);
@@ -58,10 +59,10 @@ function RecommendationsDashboard() {
       if (resp.ok && data.success) {
         setAddedSet((prev) => new Set([...prev, idx]));
       } else {
-        alert(`Failed to add: ${data.error || 'Unknown error'}`);
+        await clientPlatform.dialogs.alert(`Failed to add: ${data.error || 'Unknown error'}`);
       }
     } catch (err) {
-      alert(`Network error: ${err.message}`);
+      await clientPlatform.dialogs.alert(`Network error: ${err.message}`);
     } finally {
       setAddingIdx(null);
     }

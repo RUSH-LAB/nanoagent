@@ -24,6 +24,8 @@ use std::thread;
 use std::time::Duration;
 
 use lab::Lab;
+#[cfg(target_os = "macos")]
+use tauri::menu::MenuItemKind;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
@@ -275,6 +277,30 @@ fn main() {
                     }
                 }
             });
+
+            // ⌘R reloads the window's page, from View → Reload in macOS's standard menu, which has no
+            // Reload of its own. WebView2 reloads on Ctrl+R itself.
+            #[cfg(target_os = "macos")]
+            {
+                let menu = Menu::default(app.handle())?;
+                let view = menu
+                    .items()?
+                    .into_iter()
+                    .find_map(|item| match item {
+                        MenuItemKind::Submenu(submenu) if submenu.text().ok().as_deref() == Some("View") => Some(submenu),
+                        _ => None,
+                    })
+                    .ok_or("macOS's standard menu has no View")?;
+                let reload = MenuItem::with_id(app, "reload", "Reload", true, Some("CmdOrCtrl+R"))?;
+                view.prepend_items(&[&reload, &PredefinedMenuItem::separator(app)?])?;
+                app.set_menu(menu)?;
+                let reloading = window.clone();
+                app.on_menu_event(move |_, event| {
+                    if event.id().as_ref() == "reload" {
+                        let _ = reloading.reload();
+                    }
+                });
+            }
 
             let open = MenuItem::with_id(app, "open", format!("Open {name}"), true, None::<&str>)?;
             let new_terminal = MenuItem::with_id(app, "terminal", "New Terminal", true, None::<&str>)?;

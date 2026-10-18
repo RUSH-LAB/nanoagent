@@ -21,9 +21,9 @@
  * whoever published it, so publishing takes an account signed in with GitHub.
  */
 const {publishFromGithub} = require('../market-publish');
+const {MARKET_ROUTE: ROUTE} = require('./paths');
 
 const PLUGIN_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const ROUTE = /^\/api\/market(?:\/([^/]+)(?:\/(package|source))?)?$/;
 
 function sendPackage(res, data, filename) {
   res.writeHead(200, {

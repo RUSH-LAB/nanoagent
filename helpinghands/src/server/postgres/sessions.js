@@ -25,7 +25,7 @@ class SessionError extends Error {
  * chat in it again. A session answers one message at a time, its run kept
  * (migration 0028) from its message until its turn, answered or not, is in the
  * chat (app-runs.js). A session with a member's draft of a plugin, `draft`,
- * is apart from those with the plugin they installed (migration 0043).
+ * is apart from those with the plugin they installed (migration 0044).
  * Row-level security keeps every session to its own member and workspace.
  */
 function createPostgresSessions({pool}) {

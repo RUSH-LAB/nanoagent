@@ -218,7 +218,7 @@ it never starts the supervisor):
   opens the app with `openDraft` instead of `open` then, in a session with the draft. The run, its
   agent folder (`home/<user>/agent/<id>/`) and its metering are an app run's; its turn's
   `version` is null, as no marketplace version has its sha256.
-- Sessions: `plugin_session.draft` (migration 0043). A draft's sessions are listed, started,
+- Sessions: `plugin_session.draft` (migration 0044). A draft's sessions are listed, started,
   read, archived and run at `/api/app-drafts/{id}/sessions...`, an installed plugin's at
   `/api/apps/{id}/sessions...`, and neither reaches the other's (`postgres/sessions.js` takes
   `draft` beside the plugin id), so a draft of a plugin the member installed keeps a history of
@@ -269,7 +269,7 @@ Track B (drafts):
 
 - `helpinghands/src/runner/lab.mjs`, `relay.mjs`, `protocol.js`
 - `helpinghands/src/server/runner.js`, `workspace-apps.js`, `routes/apps.js`, `routes/ai.js`,
-  `app-runs.js`, `postgres/sessions.js`, `postgres/migrations/0043_plugin_session_draft.sql` (new)
+  `app-runs.js`, `postgres/sessions.js`, `postgres/migrations/0044_plugin_session_draft.sql` (new)
 - `helpinghands/src/hooks/useWorkspaceDrafts.js` (new), `src/pages/apps/index.js`,
   `src/components/PluginSidebar/index.js`, `navigation.js`,
   `src/components/PluginFrame/host.js`, `src/pages/api-docs/index.js`

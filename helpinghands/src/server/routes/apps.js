@@ -3,6 +3,7 @@ const {APPS_NEED_FS, followRun, openEventStream} = require('./ai');
 const {agentFolder} = require('../fs/agent-sync');
 const {FsError} = require('../fs/store');
 const {RUNNER_OFFLINE} = require('../ai');
+const {APP_UI_ROUTE: UI_ROUTE} = require('./paths');
 
 // Apps: the marketplace plugins a member installed (workspace-apps.js), which
 // they install, tag and uninstall at /api/apps/{id}, and the caller's own folder
@@ -39,7 +40,6 @@ const ROUTES = new Set(['/api/apps', '/api/app-installs', '/api/app-drafts', '/a
 const PLUGIN_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const APP_ROUTE = /^\/api\/apps\/([^/]+)$/;
 const DRAFT_ROUTE = /^\/api\/app-drafts\/([^/]+)$/;
-const UI_ROUTE = /^\/api\/apps\/([^/]+)\/ui\/([^/]+)\/([^/]+)\/(.+)$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const UI_VERSION = /^[0-9a-f]{16}$/;
 const SESSIONS_ROUTE = /^\/api\/(apps|app-drafts)\/([^/]+)\/sessions(?:\/([^/]+)(\/run)?)?$/;

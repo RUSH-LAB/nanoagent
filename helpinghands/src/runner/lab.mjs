@@ -6,6 +6,7 @@
  *   mochi-lab/stamp          names this build
  *   mochi-lab/config.json    desktop/config.yaml: the app's name, label, scheme and site, the files folders, Python's version
  *   mochi-lab/bin/{node,uv}  the runtimes, first on every service's PATH
+ *   mochi-lab/git/           git, next on it
  *   mochi-lab/runner/        this file, the relay (relay.mjs) and what it loads
  *   mochi-lab/nanoagent/     NanoAgent's source (site/), its uv.lock, the PI runner's bundle, its config
  *
@@ -302,21 +303,32 @@ export function writeKeys(file, changes) {
 }
 
 /**
- * What every service sees: the system basics, the bundled runtimes first on PATH (on Windows with
- * the bundled git, the only one a plugin's sandbox can run, then the system's PATH), and the folder uv
+ * What every service sees: the system basics, the bundled runtimes and git first on PATH (on Windows
+ * then the system's PATH, as the bundled git is the only one a plugin's sandbox can run), and the folder uv
  * installs Python into, the data folder's python/. NanoAgent's plugin sandbox lets plugins, and its
  * own helpers there, read that folder whole (nanoagent.plugin.sandbox), so every link uv makes in it
  * resolves inside the sandbox too.
  */
 export function systemEnv(env, bin, data) {
   const system = Object.fromEntries(SYSTEM_ENV.filter(name => env[name] !== undefined).map(name => [name, env[name]]));
-  const PATH = WINDOWS ? [bin, path.join(bin, '..', 'git', 'cmd'), env.PATH].join(';') : `${bin}:/usr/bin:/bin:/usr/sbin:/sbin`;
+  const PATH = WINDOWS ? [bin, path.join(bin, '..', 'git', 'cmd'), env.PATH].join(';') : `${bin}:${path.join(bin, '..', 'git', 'bin')}:/usr/bin:/bin:/usr/sbin:/sbin`;
   return {...system, PATH, UV_PYTHON_INSTALL_DIR: path.join(data, 'python')};
 }
 
 /**
+ * Where a connection's plugins are installed. Windows opens no path of 260 characters or more, and a
+ * plugin's environment holds files 120 deep (jsonschema_specifications' vocabularies), which the
+ * connection's folder name alone leaves no room for: there they are in a short folder of their own.
+ */
+export function installsFolder(data, connection, windows = WINDOWS) {
+  if (!windows) return path.join(connection, 'nanoagent-installs');
+  return path.join(data, 'installs', crypto.createHash('sha256').update(path.basename(connection)).digest('hex').slice(0, 12));
+}
+
+/**
  * How NanoAgent starts for a connection, in the bundle's `nanoagent` folder: its own folders in the
- * connection's, the uv cache the install's, with the member's `keys` and its bearer `token`.
+ * connection's (its plugins' installs aside, installsFolder), the uv cache the install's, with the
+ * member's `keys` and its bearer `token`.
  */
 export function nanoagentCommand({nanoagent, data, connection, port, sandbox, system, keys, token}) {
   const python = venvPython(nanoagent);
@@ -334,7 +346,7 @@ export function nanoagentCommand({nanoagent, data, connection, port, sandbox, sy
       // The member watches their own runs think, on their own keys.
       'include_reasoning=true',
       `workspaces=${JSON.stringify(path.join(connection, 'agent-workspaces'))}`,
-      `installs=${JSON.stringify(path.join(connection, 'nanoagent-installs'))}`,
+      `installs=${JSON.stringify(installsFolder(data, connection))}`,
       `uv_cache=${JSON.stringify(path.join(data, 'nanoagent-uv-cache'))}`,
       // Plugins run on the Python NanoAgent runs on; its environment holds no PATH to find `python` on.
       `plugin_python=${JSON.stringify(python)}`,

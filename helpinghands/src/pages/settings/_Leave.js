@@ -10,7 +10,7 @@ export default function Leave({workspace}) {
   const owner = workspace.role === 'owner';
 
   async function leave() {
-    if (!clientPlatform.dialogs.confirm(`Leave ${workspace.name}? You will need a new invitation to come back.`)) return;
+    if (!(await clientPlatform.dialogs.confirm(`Leave ${workspace.name}? You will need a new invitation to come back.`))) return;
     setBusy(true);
     setError(null);
     try {

@@ -267,7 +267,7 @@ A plugin a member makes in the terminal opens in RUSH Lab before it is published
   opens one through the install routes NanoAgent already has, so Plugins shows **Drafts on this
   computer**, read again when the window comes back into view, or why they could not be read. A
   draft's Dashboard says "Draft v<version>", with no Update, and its sessions are its own
-  (`/api/app-drafts/<id>/sessions`, migration 0043), apart from those with a plugin of its id the
+  (`/api/app-drafts/<id>/sessions`, migration 0044), apart from those with a plugin of its id the
   member installed.
 - Publishing stays a public GitHub repository, imported with Marketplace → Publish a plugin.
 

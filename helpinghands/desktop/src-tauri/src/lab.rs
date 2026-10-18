@@ -1,7 +1,7 @@
 //! What runs behind RUSH Lab's window and menu-bar icon: src/runner/lab.mjs, which serves every connection
 //! on this computer (a NanoAgent and a relay for each member connected here).
 //!
-//! The app bundles lab.mjs with the relay, NanoAgent, Node and uv, and on Windows git
+//! The app bundles lab.mjs with the relay, NanoAgent, Node, uv and git
 //! (scripts/stage.mjs).
 //! Each build is installed once into the data folder's app/<stamp>/mochi-lab/, the layout lab.mjs
 //! runs from, because NanoAgent's .venv is made beside it. lab.mjs runs from there while the app is
@@ -79,8 +79,7 @@ impl Lab {
             let partial = apps.join(format!("{}.partial", stamp.trim()));
             let _ = fs::remove_dir_all(&partial);
             let root = partial.join("mochi-lab");
-            let parts: &[&str] = if cfg!(windows) { &["runner", "nanoagent", "git"] } else { &["runner", "nanoagent"] };
-            for part in parts {
+            for part in ["runner", "nanoagent", "git"] {
                 copy_dir(&resources.join(part), &root.join(part)).map_err(|error| format!("installing {part}: {error}"))?;
             }
             for file in ["stamp", "config.json"] {

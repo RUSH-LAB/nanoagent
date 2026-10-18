@@ -7,7 +7,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import crypto from 'node:crypto';
 import {
-  addConnection, adoptLegacy, connectableSite, connectionId, draftSupervisor, draftsToInstall, linkMember, linkSession, keyHint, keyStatus, nanoagentCommand,
+  addConnection, adoptLegacy, connectableSite, connectionId, draftSupervisor, draftsToInstall, installsFolder, linkMember, linkSession, keyHint, keyStatus, nanoagentCommand,
   parseEnv, previewConnection, previewOutcome, providerKeys, readDrafts, relayEnv, removeDraft, removeOtherSites, rushlab, rushlabCommand, systemEnv, writeDraft, writeKeys,
 } from '../../../src/runner/lab.mjs';
 
@@ -192,7 +192,7 @@ test('writes keys readable only by this user, keeping only provider keys', () =>
 
 test('gives the services only the system basics, the bundled runtimes first on PATH', () => {
   const system = systemEnv({HOME: '/Users/m', USER: 'm', PATH: '/opt/homebrew/bin', OPENROUTER_API_KEY: 'k', SECRET: 's'}, '/app/bin', '/data');
-  assert.deepEqual(system, {HOME: '/Users/m', USER: 'm', PATH: '/app/bin:/usr/bin:/bin:/usr/sbin:/sbin', UV_PYTHON_INSTALL_DIR: '/data/python'});
+  assert.deepEqual(system, {HOME: '/Users/m', USER: 'm', PATH: '/app/bin:/app/git/bin:/usr/bin:/bin:/usr/sbin:/sbin', UV_PYTHON_INSTALL_DIR: '/data/python'});
 });
 
 test('starts a connection\'s NanoAgent sandboxed, in its own folders, with its keys and token', () => {
@@ -212,6 +212,16 @@ test('starts a connection\'s NanoAgent sandboxed, in its own folders, with its k
     'plugin_python="/app/nanoagent/.venv/bin/python"',
   ]);
   assert.deepEqual(command.env, {HOME: '/Users/m', PATH: '/app/bin', OPENROUTER_API_KEY: 'k', NANOAGENT_API_TOKEN: 't'});
+});
+
+test('installs a connection\'s plugins in its folder, or on Windows in a short folder of their own', () => {
+  const data = path.join(os.tmpdir(), 'lab.mochi.lab');
+  const connection = path.join(data, 'connections', 'rush-lab.org-alice');
+  assert.equal(installsFolder(data, connection, false), path.join(connection, 'nanoagent-installs'));
+  const windows = installsFolder(data, connection, true);
+  assert.equal(path.dirname(windows), path.join(data, 'installs'));
+  assert.match(path.basename(windows), /^[0-9a-f]{12}$/);
+  assert.notEqual(windows, installsFolder(data, path.join(data, 'connections', 'rush-lab.org-bob'), true));
 });
 
 test('tells a connection\'s relay where Mochi, NanoAgent and its files are', () => {

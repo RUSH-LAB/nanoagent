@@ -204,14 +204,14 @@ export default function DocumentEditor({
     return () => window.removeEventListener('keydown', shortcut);
   }, [save]);
 
-  const close = () => {
-    if (dirty && !clientPlatform.dialogs.confirm('Discard your unsaved changes?')) return;
+  const close = async () => {
+    if (dirty && !(await clientPlatform.dialogs.confirm('Discard your unsaved changes?'))) return;
     if (dirty) clientPlatform.storage.removeItem(storageKey);
     onCancel();
   };
 
   const reloadLatest = async () => {
-    if (!clientPlatform.dialogs.confirm('Replace this draft with the latest saved version?')) return;
+    if (!(await clientPlatform.dialogs.confirm('Replace this draft with the latest saved version?'))) return;
     setSaving(true);
     try {
       const data = await request(`${apiRoot}?path=${encodeURIComponent(document.path)}`);

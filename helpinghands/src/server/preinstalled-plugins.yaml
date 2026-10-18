@@ -3,4 +3,3 @@
 # from the marketplace is no longer installed for anyone new.
 plugins:
   - arxiv-source
-  - weather-alert

@@ -3,6 +3,7 @@ import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import pageStyles from '@site/src/css/page.module.css';
+import {clientPlatform} from '@site/src/platform/client';
 
 const PRIORITY_COLORS = {
   high: {border: '#fca5a5', badge: '#ef4444'},
@@ -81,7 +82,7 @@ function TasksApp() {
   };
 
   const deleteTask = async (id) => {
-    if (!confirm('Delete this task?')) return;
+    if (!(await clientPlatform.dialogs.confirm('Delete this task?'))) return;
     try {
       const res = await apiFetch(`${API_BASE}/api/tasks`, {
         method: 'DELETE',
