@@ -95,7 +95,7 @@ SPEC = "nanoagent.plugin/v1"
 PLUGIN_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 TASK_ID = PLUGIN_ID
 TOOL_NAME = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
-# The only ``nanoagent`` range a plugin declares: one NanoAgent minor version, such as ``~=0.5.0``.
+# The only ``nanoagent`` range a plugin declares: one NanoAgent minor version, such as ``~=0.6.0``.
 NANOAGENT_RANGE = re.compile(r"^~=\d+\.\d+\.0$")
 # How every plugin's MCP server starts, in the plugin folder, from its uv.lock.
 RUNTIME_COMMAND = ("uv", "run", "--frozen", "python", "-m", "plugin")

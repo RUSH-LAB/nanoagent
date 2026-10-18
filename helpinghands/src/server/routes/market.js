@@ -19,7 +19,9 @@
  * Nothing here runs a plugin either: whoever downloads one runs it on their own
  * machine (market-publish.js). A plugin's author is the GitHub account of
  * whoever published it, so publishing takes an account signed in with GitHub.
+ * An upload Mochi's NanoAgent now refuses is listed `refused`, with its `refusal` (market-checks.js).
  */
+const {checkedUploads} = require('../market-checks');
 const {publishFromGithub} = require('../market-publish');
 const {MARKET_ROUTE: ROUTE} = require('./paths');
 
@@ -50,7 +52,9 @@ module.exports = async function market(req, res, url, pathname, ctx) {
     const builtIn = await ai.packages();
     if (builtIn.error) return json(res, builtIn.status, {error: builtIn.error});
     const listed = builtIn.value.packages.map(entry => ({...entry, source: 'nanoagent', owner: null, mine: false}));
-    const uploaded = (await uploads.list(userId)).map(plugin => ({...plugin, mine: plugin.owner.id === userId}));
+    const checked = await checkedUploads({ai, market: uploads}, userId);
+    if (checked.error) return json(res, checked.status, {error: checked.error});
+    const uploaded = checked.value.map(plugin => ({...plugin, mine: plugin.owner.id === userId}));
     return json(res, 200, {plugins: [...listed, ...uploaded]});
   }
 

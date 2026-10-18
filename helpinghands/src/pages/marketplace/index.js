@@ -70,6 +70,7 @@ function Tile({plugin, added, onOpen}) {
         <h2 className={styles.name}>
           {plugin.name}
           {added && <span className={styles.added}>{behind(added) ? 'Update available' : 'Added'}</span>}
+          {plugin.status === 'refused' && <span className={styles.maintenance}>Under maintenance</span>}
         </h2>
         <p className={styles.author}>
           by {author.name}
@@ -121,7 +122,7 @@ function WorkspaceAction({plugin, added, workspace, slug, busy, onAdd}) {
     const appsHref = `/w/${encodeURIComponent(slug)}/apps?app=${encodeURIComponent(plugin.id)}`;
     return <Link className="button button--primary" to={appsHref}>Open</Link>;
   }
-  return <button type="button" className="button button--primary" disabled={busy} onClick={onAdd}>Install</button>;
+  return <button type="button" className="button button--primary" disabled={busy || plugin.status === 'refused'} onClick={onAdd}>Install</button>;
 }
 
 /** The rest of what the reader may do, behind one ⋯ button: `items` of {label, onSelect, danger}. */
@@ -234,6 +235,13 @@ function Detail({plugin, added, workspace, slug, onBack, onChanged, onAdded}) {
       <button type="button" className={styles.back} onClick={onBack}>← Marketplace</button>
       {state.error && <div className={styles.error}>{state.error}</div>}
       {newer?.error && <div className={styles.error}>Could not ask GitHub about newer commits: {newer.error}</div>}
+      {plugin.status === 'refused' && (
+        <div className={styles.maintenanceNotice}>
+          <strong>Under maintenance.</strong> v{plugin.version} does not run on this version of RUSH Lab, so it can't be installed
+          until {plugin.mine ? 'you publish' : 'its author publishes'} it again. NanoAgent says: {plugin.refusal}.
+          {plugin.mine && ' Fix that on GitHub, raise its version, then choose Publish again from GitHub in the ⋯ menu.'}
+        </div>
+      )}
       {newer?.commit && (
         <div className={styles.notice}>
           GitHub has <a href={`https://github.com/${plugin.repository.owner}/${plugin.repository.repo}/compare/${plugin.repository.commit}...${newer.commit}`} target="_blank" rel="noreferrer">changes to {plugin.name}</a> since

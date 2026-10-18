@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import {after, before, describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
@@ -22,8 +23,19 @@ describe('the plugin marketplace', () => {
       : {value: {repository: REPOSITORY, archive: Buffer.from(url)}}),
     newer: async repository => ({value: repository.commit === REPOSITORY.commit ? 'e'.repeat(40) : null}),
   };
+  // Mochi's NanoAgent refuses legacy's packages, published by one whose rules it no longer has,
+  // keeping how it checked each.
+  const inspections = new Map();
   const ai = {
     packages: async () => ({value: {packages: [BUILT_IN]}}),
+    inspection: async sha256 => inspections.get(sha256) ?? {error: 'not inspected', status: 404},
+    inspect: async data => {
+      const sha256 = crypto.createHash('sha256').update(data).digest('hex');
+      inspections.set(sha256, data.toString().startsWith('legacy@')
+        ? {error: 'the package is refused: unexpected run.sh', status: 422}
+        : {value: {package: {sha256}}});
+      return inspections.get(sha256);
+    },
     packageFile: async id => (id === BUILT_IN.id
       ? {value: Buffer.from('nanoagent package'), headers: new Headers({'content-disposition': 'attachment; filename="bibtex-check-0.1.0.tar.gz"'})}
       : {error: 'package not found', status: 404}),
@@ -66,6 +78,12 @@ describe('the plugin marketplace', () => {
     assert.equal(written.status, 200);
     assert.equal(written.headers['Content-Disposition'], 'attachment; filename="notes-1.0.0.tar.gz"');
     assert.equal(written.body.toString(), 'notes@1.0.0');
+  });
+
+  it('lists an upload NanoAgent now refuses as refused, saying why', async () => {
+    assert.equal((await call('alice', 'POST', '/api/market', 'legacy@1.0.0')).status, 201);
+    const listed = (await call('bob', 'GET', '/api/market')).payload.plugins.find(plugin => plugin.id === 'legacy');
+    assert.deepEqual([listed.status, listed.refusal], ['refused', 'the package is refused: unexpected run.sh']);
   });
 
   it('publishes only for an account signed in with GitHub, its author', async () => {
@@ -164,4 +182,5 @@ describe('the plugin marketplace', () => {
     }
     assert.equal((await ctx.market.list('bob')).find(plugin => plugin.id === 'mine').version, '1.0.0');
   });
+
 });

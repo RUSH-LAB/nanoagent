@@ -3,7 +3,7 @@ id: word-check
 name: Word Check
 version: 0.1.0
 status: ready
-nanoagent: ~=0.5.0
+nanoagent: ~=0.6.0
 
 runtime > nanoagent.plugin.manifest.RuntimeConfig:
   type: mcp_stdio

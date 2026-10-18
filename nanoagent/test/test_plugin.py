@@ -48,7 +48,7 @@ id: echo
 name: Echo
 version: 1.0.0
 status: ready
-nanoagent: ~=0.5.0
+nanoagent: ~=0.6.0
 runtime > nanoagent.plugin.manifest.RuntimeConfig:
   type: mcp_stdio
   command: [uv, run, --frozen, python, -m, plugin]
@@ -1023,12 +1023,12 @@ async def test_plugin_tool_images_reach_the_model_as_images() -> None:
 @pytest.mark.parametrize(
     ("versions", "problem"),
     [
-        ("~=0.3.0", "nanoagent.yaml nanoagent: the plugin runs on NanoAgent ~=0.3.0, not this NanoAgent, 0.5.0"),
-        ("~=0.6.0", "nanoagent.yaml nanoagent: the plugin runs on NanoAgent ~=0.6.0, not this NanoAgent, 0.5.0"),
-        ('">=0.5"', "nanoagent.yaml nanoagent '>=0.5' is not one NanoAgent minor version, such as ~=0.5.0"),
-        ("~=0.5.1", "nanoagent.yaml nanoagent '~=0.5.1' is not one NanoAgent minor version, such as ~=0.5.0"),
-        ("latest", "nanoagent.yaml nanoagent 'latest' is not one NanoAgent minor version, such as ~=0.5.0"),
-        ('""', "nanoagent.yaml nanoagent '' is not one NanoAgent minor version, such as ~=0.5.0"),
+        ("~=0.3.0", "nanoagent.yaml nanoagent: the plugin runs on NanoAgent ~=0.3.0, not this NanoAgent, 0.6.0"),
+        ("~=0.7.0", "nanoagent.yaml nanoagent: the plugin runs on NanoAgent ~=0.7.0, not this NanoAgent, 0.6.0"),
+        ('">=0.5"', "nanoagent.yaml nanoagent '>=0.5' is not one NanoAgent minor version, such as ~=0.6.0"),
+        ("~=0.6.1", "nanoagent.yaml nanoagent '~=0.6.1' is not one NanoAgent minor version, such as ~=0.6.0"),
+        ("latest", "nanoagent.yaml nanoagent 'latest' is not one NanoAgent minor version, such as ~=0.6.0"),
+        ('""', "nanoagent.yaml nanoagent '' is not one NanoAgent minor version, such as ~=0.6.0"),
     ],
 )
 def test_a_plugin_names_the_nanoagent_versions_it_runs_on(tmp_path: Path, versions: str, problem: str) -> None:
@@ -1036,7 +1036,7 @@ def test_a_plugin_names_the_nanoagent_versions_it_runs_on(tmp_path: Path, versio
 
     write_plugin(tmp_path)
     manifest = tmp_path / "nanoagent.yaml"
-    manifest.write_text(manifest.read_text().replace("nanoagent: ~=0.5.0", f"nanoagent: {versions}"))
+    manifest.write_text(manifest.read_text().replace("nanoagent: ~=0.6.0", f"nanoagent: {versions}"))
     with pytest.raises(PluginError) as error:
         load_manifest(tmp_path)
     assert error.value.violations == [problem]

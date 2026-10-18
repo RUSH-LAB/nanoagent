@@ -3,6 +3,14 @@
 What each NanoAgent release changes for plugins. A plugin's `nanoagent` range in `nanoagent.yaml`
 names the releases it runs on; a new minor version is one a plugin made for the last may break on.
 
+## 0.6.0
+
+A plugin no longer ships a `run.sh`: before a plugin starts, NanoAgent itself checks that uv is
+installed, that every variable `.env` names is set and that `uv.lock` matches `pyproject.toml`.
+A plugin declares `nanoagent: ~=0.6.0` and deletes its `run.sh`, which NanoAgent now refuses as
+an unexpected file. Publish it again for Mochi's marketplace to offer it: a version published for
+0.5.0 is listed under maintenance.
+
 ## 0.5.0
 
 A task may declare `runner: decide`: a model only decides, and NanoAgent calls the task's tools

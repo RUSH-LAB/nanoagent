@@ -108,7 +108,7 @@ its dependencies and its `slimconfig` source unchanged.
 ## 5. Write the manifest: `nanoagent.yaml`
 
 - `version` is PEP 440 and matches `pyproject.toml`'s `version`.
-- `nanoagent: ~=0.5.0` is the one NanoAgent minor version the plugin runs on.
+- `nanoagent: ~=0.6.0` is the one NanoAgent minor version the plugin runs on.
 - `runtime.command` is exactly `[uv, run, --frozen, python, -m, plugin]`.
 - `permissions.network.hosts` lists bare hostnames only (no scheme, port or
   path), and only the ones the plugin needs. `filesystem.write` is

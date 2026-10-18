@@ -570,6 +570,10 @@ def create_app(
             headers={"Content-Disposition": f'attachment; filename="{entry["id"]}-{entry["version"]}.tar.gz"'},
         )
 
+    # How each package POST /v1/packages/inspect checked was answered, by its sha256, while this
+    # process runs: a package never changes, and the rules only with NanoAgent.
+    inspected: dict[str, tuple[dict[str, Any], int]] = {}
+
     async def inspect_upload(request: Request) -> JSONResponse:
         """Check an uploaded package without running it: its catalog entry, or every reason it is refused."""
         if not authorized(request):
@@ -582,13 +586,21 @@ def create_app(
             return JSONResponse({"error": "package is too large"}, status_code=413)
         try:
             async with plugin_slots:
-                entry = await asyncio.to_thread(inspect_package, body)
+                answer = ({"package": await asyncio.to_thread(inspect_package, body)}, 200)
         except PackageError as error:
-            return JSONResponse(
-                {"error": f"the package is refused: {'; '.join(error.violations)}", "violations": error.violations},
-                status_code=422,
-            )
-        return JSONResponse({"package": entry})
+            refused = f"the package is refused: {'; '.join(error.violations)}"
+            answer = ({"error": refused, "violations": error.violations}, 422)
+        inspected[hashlib.sha256(body).hexdigest()] = answer
+        return JSONResponse(answer[0], status_code=answer[1])
+
+    async def inspection(request: Request) -> JSONResponse:
+        """How the package with this sha256 was checked, or 404 until one is."""
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        answer = inspected.get(request.path_params["sha256"])
+        if answer is None:
+            return JSONResponse({"error": "not inspected"}, status_code=404)
+        return JSONResponse(answer[0], status_code=answer[1])
 
     async def package_source(request: Request) -> JSONResponse:
         """Pack the plugin at ``?path=`` in a source archive and check it, running none of it."""
@@ -664,6 +676,7 @@ def create_app(
             Route("/v1/plugins", list_plugins, methods=["GET"]),
             Route("/v1/packages", list_packages, methods=["GET"]),
             Route("/v1/packages/inspect", inspect_upload, methods=["POST"]),
+            Route("/v1/packages/inspect/{sha256}", inspection, methods=["GET"]),
             Route("/v1/packages/source", package_source, methods=["POST"]),
             Route("/v1/packages/{package_id}", download_package, methods=["GET"]),
             Route("/v1/installs/{sha256}", install, methods=["GET", "PUT"]),

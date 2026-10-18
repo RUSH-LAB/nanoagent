@@ -548,6 +548,10 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
     // and checks from the plugin at `path` in a repository archive.
     packages: () => nanoFetch('/v1/packages'),
     packageFile: id => nanoFetch(`/v1/packages/${encodeURIComponent(id)}`, {bytes: true, waitMs: timeoutMs}),
+    // Check a package without running it: its catalog entry, or 422 with why NanoAgent refuses it.
+    // NanoAgent keeps each answer while it runs, by the package's sha256 (inspection, 404 until then).
+    inspect: data => nanoFetch('/v1/packages/inspect', {method: 'POST', body: data, contentType: 'application/gzip', waitMs: timeoutMs}),
+    inspection: sha256 => nanoFetch(`/v1/packages/inspect/${encodeURIComponent(sha256)}`),
     packageSource: (archive, path) => nanoFetch(`/v1/packages/source?path=${encodeURIComponent(path)}`, {
       method: 'POST', body: archive, contentType: 'application/gzip', waitMs: timeoutMs,
     }),
@@ -599,6 +603,8 @@ module.exports = {
   packages: gateway.packages,
   packageFile: gateway.packageFile,
   packageSource: gateway.packageSource,
+  inspection: gateway.inspection,
+  inspect: gateway.inspect,
   workspaceFiles: gateway.workspaceFiles,
   workspaceFile: gateway.workspaceFile,
   saveWorkspaceFile: gateway.saveWorkspaceFile,

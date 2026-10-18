@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import gzip
+import hashlib
 import io
 import shutil
 import subprocess
@@ -191,6 +192,17 @@ def test_inspects_an_upload(client: TestClient, plugin: Path) -> None:
     assert accepted.status_code == 200 and accepted.json()["package"]["id"] == "echo"
     refused = client.post("/v1/packages/inspect", content=b"not a package")
     assert refused.status_code == 422 and "not a .tar.gz" in refused.json()["violations"][0]
+
+
+def test_keeps_how_a_package_was_inspected(client: TestClient, plugin: Path) -> None:
+    data = pack(plugin)
+    sha = hashlib.sha256(data).hexdigest()
+    assert client.get(f"/v1/packages/inspect/{sha}").status_code == 404
+    accepted = client.post("/v1/packages/inspect", content=data)
+    assert client.get(f"/v1/packages/inspect/{sha}").json() == accepted.json()
+    refused = client.post("/v1/packages/inspect", content=b"not a package")
+    again = client.get(f"/v1/packages/inspect/{hashlib.sha256(b'not a package').hexdigest()}")
+    assert again.status_code == 422 and again.json() == refused.json()
 
 
 def test_packs_a_plugin_from_a_source_archive(client: TestClient, plugin: Path, tmp_path: Path) -> None:

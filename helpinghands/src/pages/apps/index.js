@@ -24,7 +24,10 @@ import styles from './styles.module.css';
  * agent's model, instructions and the checks on every tool call.
  */
 
-/** A plugin still being built: what it is, and that it cannot be used yet. */
+/**
+ * A plugin still being built, or one Mochi's NanoAgent refuses as it was published (`refused`,
+ * server/market-checks.js): what it is, and that it cannot be used yet.
+ */
 function MaintenanceNotice({app}) {
   return (
     <article className={styles.detail}>
@@ -33,7 +36,12 @@ function MaintenanceNotice({app}) {
       </header>
       <section className={styles.maintenanceNotice}>
         <strong>Under maintenance</strong>
-        <p>{app.name} is still being built, so it can't be used yet. It will open here once it is ready.</p>
+        <p>
+          {app.status === 'refused'
+            ? `${app.name} v${app.version} does not run on this version of RUSH Lab, so it can't be used until its author publishes it again. NanoAgent says: ${app.refusal}.`
+            : `${app.name} is still being built, so it can't be used yet.`}
+          {' '}It will open here once it is ready.
+        </p>
       </section>
     </article>
   );

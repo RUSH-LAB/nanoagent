@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import {after, before, describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
@@ -16,9 +17,21 @@ describe('a member\'s apps', () => {
   let db;
   let apps;
   let market;
-  // Mochi's own NanoAgent, which offers its packages.
+  // Mochi's own NanoAgent, which offers its packages and refuses one that still has a run.sh,
+  // keeping how it checked each: how many times each package was sent to it.
+  const inspections = new Map();
+  const inspected = new Map();
   const ai = {
     packages: async () => ({value: {packages: [BUILT_IN]}}),
+    inspection: async sha256 => inspections.get(sha256) ?? {error: 'not inspected', status: 404},
+    inspect: async data => {
+      const sha256 = crypto.createHash('sha256').update(data).digest('hex');
+      inspected.set(sha256, (inspected.get(sha256) ?? 0) + 1);
+      inspections.set(sha256, data.toString().includes('run.sh')
+        ? {error: 'the package is refused: unexpected run.sh', status: 422}
+        : {value: {package: {sha256}}});
+      return inspections.get(sha256);
+    },
     packageFile: async id => (id === BUILT_IN.id ? {value: Buffer.from('nanoagent package')} : {error: 'package not found', status: 404}),
   };
   // The member's computer's NanoAgent: its installs, by sha256, and every package it was sent.
@@ -154,5 +167,25 @@ describe('a member\'s apps', () => {
     assert.equal(await apps.remove(as('vic'), 'bibtex-check'), false);
     assert.equal(await apps.remove(as('bob'), 'bibtex-check'), true);
     assert.deepEqual((await apps.list(as('bob'))).value, []);
+  });
+
+  it('lists a version NanoAgent now refuses as refused, for no one to install or run, and checks each once', async () => {
+    // A package is known by its sha256, as NanoAgent keeps how it checked each.
+    const sha256 = text => crypto.createHash('sha256').update(text).digest('hex');
+    const legacy = {...UPLOAD, id: 'legacy', name: 'Legacy', sha256: sha256('legacy package')};
+    await market.publish('alice', legacy, Buffer.from('legacy package'), REPOSITORY);
+    await apps.add(as('bob'), 'legacy');
+    await apps.add(as('vic'), 'legacy');
+    await apps.pin(as('vic'), 'legacy', '1.0.0');
+    const stale = {...legacy, version: '1.1.0', sha256: sha256('legacy package with run.sh')};
+    await market.publish('alice', stale, Buffer.from('legacy package with run.sh'), REPOSITORY);
+    const offered = (await apps.catalog('carol')).value.get('legacy').entry;
+    assert.deepEqual([offered.status, offered.refusal], ['refused', 'the package is refused: unexpected run.sh']);
+    assert.deepEqual(await apps.add(as('carol'), 'legacy'), {error: 'legacy is under maintenance: the package is refused: unexpected run.sh', status: 409});
+    // Who follows the latest runs the refused version; who stays on the earlier one does not.
+    assert.deepEqual((await apps.list(as('bob'))).value.map(app => [app.version, app.status]), [['1.1.0', 'refused']]);
+    assert.deepEqual((await apps.list(as('vic'))).value.map(app => [app.version, app.status]), [['1.0.0', 'ready']]);
+    assert.deepEqual(await apps.prepare(as('bob'), computer), {value: []});
+    assert.deepEqual([inspected.get(legacy.sha256), inspected.get(stale.sha256)], [1, 1]);
   });
 });

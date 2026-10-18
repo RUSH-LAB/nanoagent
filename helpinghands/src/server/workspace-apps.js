@@ -1,5 +1,7 @@
 'use strict';
 
+const {checkUpload, checkedUploads} = require('./market-checks');
+
 /**
  * A member's apps: the marketplace plugins they installed (postgres/user-plugins.js),
  * which they run in any workspace they are in, each from an install of the
@@ -12,14 +14,17 @@
  * NanoAgent installs a package by its sha256 and keeps it until
  * it restarts; opening an app sends the package when NanoAgent has no install
  * of it, which takes as long as building the plugin's environment, once.
+ * An upload Mochi's NanoAgent refuses (market-checks.js) is `refused`: listed, never installed.
  */
 function createWorkspaceApps({ai, market, plugins}) {
   /** Every plugin a member may install, by id: `{value: Map<id, {source, entry}>}` or `{error, status}`. */
   async function catalog(userId) {
     const builtIn = await ai.packages();
     if (builtIn.error) return builtIn;
+    const uploads = await checkedUploads({ai, market}, userId);
+    if (uploads.error) return uploads;
     const offered = new Map(builtIn.value.packages.map(entry => [entry.id, {source: 'nanoagent', entry}]));
-    for (const entry of await market.list(userId)) offered.set(entry.id, {source: 'upload', entry});
+    for (const entry of uploads.value) offered.set(entry.id, {source: 'upload', entry});
     return {value: offered};
   }
 
@@ -56,14 +61,20 @@ function createWorkspaceApps({ai, market, plugins}) {
     return {...found.entry, ...added.entry, sha256: added.sha256, source, tags, ...versionOf(added)};
   }
 
+  /** `app`, for an upload checked at the version the caller runs (market-checks.js): `{value}` or `{error, status}`. */
+  const checked = (userId, app) => (app.source === 'upload' && app.status !== 'unavailable'
+    ? checkUpload({ai, market}, userId, app)
+    : {value: app});
+
   /**
-   * The caller's apps, each as `app` has it; one that left the marketplace is
+   * The caller's apps, each as `app` has it and `checked`; one that left the marketplace is
    * listed as `unavailable`, for them to remove.
    */
   async function list(context) {
     const offered = await catalog(context.userId);
     if (offered.error) return offered;
-    return {value: (await plugins.list(context)).map(added => app(added, offered.value.get(added.id)))};
+    const apps = await Promise.all((await plugins.list(context)).map(added => checked(context.userId, app(added, offered.value.get(added.id)))));
+    return apps.find(result => result.error) ?? {value: apps.map(result => result.value)};
   }
 
   return Object.freeze({
@@ -92,7 +103,8 @@ function createWorkspaceApps({ai, market, plugins}) {
       if (offered.error) return offered;
       const found = offered.value.get(id);
       if (!found) return {error: `No plugin named ${id} in the marketplace`, status: 404};
-      return {value: app(await plugins.add(context, id, found.source), found)};
+      if (found.entry.status === 'refused') return {error: `${id} is under maintenance: ${found.entry.refusal}`, status: 409};
+      return checked(context.userId, app(await plugins.add(context, id, found.source), found));
     },
 
     /**
@@ -108,7 +120,7 @@ function createWorkspaceApps({ai, market, plugins}) {
       }
       const offered = await catalog(context.userId);
       if (offered.error) return offered;
-      return {value: app(await plugins.get(context, id), offered.value.get(id))};
+      return checked(context.userId, app(await plugins.get(context, id), offered.value.get(id)));
     },
 
     /** Replace the tags the caller files their plugin `id` under: whether they have one. */

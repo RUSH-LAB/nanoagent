@@ -308,6 +308,8 @@ serves packages, and runs one only once it is installed (above):
   loaded in a separate Python process with an empty environment, so a manifest
   cannot interpolate the host's secrets. The reply is the plugin's catalog
   entry, or 422 with every broken rule.
+- `GET /v1/packages/inspect/{sha256}` answers as that check did for the package
+  with that sha256, kept while NanoAgent runs, or 404 until it is checked.
 - `POST /v1/packages/source?path=<folder>` packs a plugin from its source: the
   body is a repository archive (GitHub's `.tar.gz` of one commit, its files
   under one top folder), and `path` the plugin's folder in it. Only that folder

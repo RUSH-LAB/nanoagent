@@ -144,6 +144,7 @@ async function main() {
     };
     let offered = null;
     let installed = null;
+    let inspected = null;
 
     // One check per method of the client, in order; a method without one fails the run.
     const checks = {
@@ -216,6 +217,17 @@ async function main() {
         const packed = ok(await gateway.packageSource(archive, folder));
         assert.equal(packed.package.id, PLUGIN);
         assert.ok(Buffer.from(packed.data, 'base64').length > 0);
+      },
+      async inspect() {
+        // A fresh NanoAgent has checked nothing.
+        assert.equal((await gateway.inspection(offered.sha256)).status, 404);
+        inspected = ok(await gateway.inspect(ok(await gateway.packageFile(PLUGIN))));
+        assert.equal(inspected.package.id, PLUGIN);
+      },
+      async inspection() {
+        // It then answers as it checked the package; production's, which has no such route, 404.
+        const kept = await gateway.inspection(offered.sha256);
+        if (kept.status !== 404) assert.deepEqual(ok(kept), inspected);
       },
       async install() {
         // A fresh NanoAgent has installed nothing.

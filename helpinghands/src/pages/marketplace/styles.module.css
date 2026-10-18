@@ -183,6 +183,16 @@
   font-size: 0.8rem;
 }
 
+.maintenance {
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  background: var(--ifm-color-warning-contrast-background);
+  color: var(--ifm-color-warning-contrast-foreground);
+  font-size: 0.65rem;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
 .official {
   padding: 0 0.45rem;
   border-radius: 999px;
@@ -223,6 +233,15 @@
 
 .back:hover {
   text-decoration: underline;
+}
+
+.maintenanceNotice {
+  margin: 1rem 0;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--ifm-color-warning-light);
+  border-radius: 8px;
+  background: var(--ifm-color-warning-contrast-background);
+  font-size: 0.875rem;
 }
 
 .notice {
