@@ -39,7 +39,7 @@ export default function AgentEditor({agent, onSave, onDelete, onClose}) {
   };
 
   const remove = async () => {
-    if (!agent || !clientPlatform.dialogs.confirm(`Delete ${agent.name} and its chat history?`)) return;
+    if (!agent || !(await clientPlatform.dialogs.confirm(`Delete ${agent.name} and its chat history?`))) return;
     setBusy(true);
     setError(null);
     try {

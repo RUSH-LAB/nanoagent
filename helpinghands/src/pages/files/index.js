@@ -184,8 +184,8 @@ function FileManager() {
     return () => window.removeEventListener(DOCUMENT_SYNC_EVENT, onSync);
   }, [refreshHeld, scope]);
 
-  const select = useCallback(path => {
-    if (dirty && !clientPlatform.dialogs.confirm('Discard your unsaved changes?')) return;
+  const select = useCallback(async path => {
+    if (dirty && !(await clientPlatform.dialogs.confirm('Discard your unsaved changes?'))) return;
     setSelectedPath(path);
   }, [dirty]);
 
@@ -288,7 +288,7 @@ function FileManager() {
 
   const createDocument = useCallback(async () => {
     if (!apiRoot || !canEdit) return;
-    const value = clientPlatform.dialogs.prompt('New document path', 'notes/new-page.md')?.trim();
+    const value = (await clientPlatform.dialogs.prompt('New document path', 'notes/new-page.md'))?.trim();
     if (!value) return;
     const path = /\.mdx?$/i.test(value) ? value : `${value}.md`;
     setBusy(true);
@@ -311,7 +311,7 @@ function FileManager() {
 
   const renameDocument = useCallback(async () => {
     if (!apiRoot || !loadedPath || !canEdit) return;
-    const value = clientPlatform.dialogs.prompt('Move or rename document', loadedPath)?.trim();
+    const value = (await clientPlatform.dialogs.prompt('Move or rename document', loadedPath))?.trim();
     if (!value || value === loadedPath) return;
     const nextPath = /\.mdx?$/i.test(value) ? value : `${value}.md`;
     setBusy(true);
@@ -335,7 +335,7 @@ function FileManager() {
 
   const deleteDocument = useCallback(async () => {
     if (!apiRoot || !loadedPath || !canDelete) return;
-    if (!clientPlatform.dialogs.confirm(`Delete ${loadedPath}? Its saved versions will be retained until cleanup.`)) return;
+    if (!(await clientPlatform.dialogs.confirm(`Delete ${loadedPath}? Its saved versions will be retained until cleanup.`))) return;
     setBusy(true);
     setMessage(null);
     try {
@@ -382,7 +382,7 @@ function FileManager() {
   }, [assetFile, assetPath, assetRoot, canEdit]);
 
   const deleteAsset = useCallback(async path => {
-    if (!assetRoot || !canDelete || !clientPlatform.dialogs.confirm(`Delete asset ${path}?`)) return;
+    if (!assetRoot || !canDelete || !(await clientPlatform.dialogs.confirm(`Delete asset ${path}?`))) return;
     setBusy(true);
     try {
       await request(`${assetRoot}?path=${encodeURIComponent(path)}`, {method: 'DELETE'});

@@ -3,6 +3,7 @@ import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import pageStyles from '@site/src/css/page.module.css';
+import {clientPlatform} from '@site/src/platform/client';
 
 const COLORS = ['#fef3c7', '#dbeafe', '#dcfce7', '#fce7f3', '#e0e7ff', '#fef9c3', '#fed7aa', '#d1fae5'];
 
@@ -270,7 +271,7 @@ function WhiteboardApp() {
   }
 
   async function handleDeleteBoard() {
-    if (!confirm('Delete this whiteboard?')) return;
+    if (!(await clientPlatform.dialogs.confirm('Delete this whiteboard?'))) return;
     try {
       await apiFetch(`${API_BASE}/api/whiteboard?id=${encodeURIComponent(boardId)}`, {method: 'DELETE'});
       setElements([]);

@@ -100,7 +100,7 @@ function BookSwitcher(): ReactNode {
   };
 
   const addBook = async () => {
-    const title = clientPlatform.dialogs.prompt('New book name')?.trim();
+    const title = (await clientPlatform.dialogs.prompt('New book name'))?.trim();
     if (!title) return;
     const base = slugifyDocumentTitle(title) || 'book';
     const keys = new Set((site?.collections ?? []).map(collection => collection.key));

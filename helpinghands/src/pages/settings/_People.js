@@ -114,10 +114,10 @@ export default function People({workspace}) {
     `${person.username} is now ${role === 'editor' ? 'an' : 'a'} ${role}.`,
   );
 
-  const remove = (person) => {
+  const remove = async (person) => {
     // Removal is not undoable from this page: readmitting someone is an invite,
     // and their channel membership does not come back with them.
-    const sure = clientPlatform.dialogs.confirm(
+    const sure = await clientPlatform.dialogs.confirm(
       `Remove ${person.username} from ${workspace.name}?\n\n` +
       'They lose access to every channel here. What they have already said stays.',
     );

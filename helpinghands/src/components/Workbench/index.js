@@ -15,6 +15,7 @@ import Explorer, {ContextMenu} from './Explorer';
 import QuickOpen from './QuickOpen';
 import {basename, buildTree, comparePath, dirname, join, movedPath, tabChanges, within} from './tree';
 import {editorViews} from './viewState';
+import {clientPlatform} from '@site/src/platform/client';
 import styles from './styles.module.css';
 
 /**
@@ -406,9 +407,9 @@ export default function Workbench({workspace}) {
   };
 
   // `discard` closes a tab with unsaved edits without asking.
-  const close = (path, {discard = false} = {}) => {
+  const close = async (path, {discard = false} = {}) => {
     const tab = tabsRef.current.find(item => item.path === path);
-    if (!discard && tab && unsaved(tab) && !window.confirm(`Discard unsaved changes to ${basename(path)}?`)) return;
+    if (!discard && tab && unsaved(tab) && !(await clientPlatform.dialogs.confirm(`Discard unsaved changes to ${basename(path)}?`))) return;
     const index = tabsRef.current.findIndex(item => item.path === path);
     const remaining = tabsRef.current.filter(item => item.path !== path);
     tab?.live?.close();
@@ -508,11 +509,11 @@ export default function Workbench({workspace}) {
     run(() => api.moveEntry(from, to), () => { followMoves([[from, to]]); expandTo(folder); });
   };
 
-  const remove = node => {
+  const remove = async node => {
     const folder = node.type === 'folder';
     const unsaved = [...dirtyPaths].filter(path => within(path, node.path));
     const warning = unsaved.length ? `\n\nUnsaved changes in ${unsaved.map(basename).join(', ')} will be lost.` : '';
-    if (!window.confirm(`Delete ${folder ? `the folder ${node.path} and everything in it` : node.path}?${warning}`)) return;
+    if (!(await clientPlatform.dialogs.confirm(`Delete ${folder ? `the folder ${node.path} and everything in it` : node.path}?${warning}`))) return;
     run(() => (folder ? api.deleteFolder(node.path) : api.deleteFile(node.path)), () => {
       const remaining = tabsRef.current.filter(tab => !within(tab.path, node.path));
       for (const tab of tabsRef.current) {
@@ -577,7 +578,7 @@ export default function Workbench({workspace}) {
       toast.error(error.message);
       return;
     }
-    const answer = window.prompt(
+    const answer = await clientPlatform.dialogs.prompt(
       `Share ${node.path} with which members? Enter their emails, separated by commas.\n\n`
         + members.map(member => member.email).join('\n'),
     );
@@ -597,8 +598,8 @@ export default function Workbench({workspace}) {
       && other.kind === 'folder' && other.deletedAt === node.deletedAt))))
     .catch(error => toast.error(error.message));
   const restoreNode = node => run(() => api.restore(node.id), () => { openTrash(); expandTo(dirname(node.path)); });
-  const purgeTrash = () => {
-    if (!window.confirm('Permanently delete everything in the trash? This cannot be undone.')) return;
+  const purgeTrash = async () => {
+    if (!(await clientPlatform.dialogs.confirm('Permanently delete everything in the trash? This cannot be undone.'))) return;
     run(() => api.emptyTrash(), () => setTrash([]));
   };
 

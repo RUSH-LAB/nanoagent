@@ -3,6 +3,7 @@ import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import pageStyles from '@site/src/css/page.module.css';
+import {clientPlatform} from '@site/src/platform/client';
 
 const MODES = {browse: 'Browse', create: 'Create', review: 'Review'};
 
@@ -93,7 +94,7 @@ function FlashcardsApp() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this flashcard?')) return;
+    if (!(await clientPlatform.dialogs.confirm('Delete this flashcard?'))) return;
     try {
       const res = await apiFetch(`${API_BASE}/api/flashcards`, {
         method: 'DELETE',
