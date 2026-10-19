@@ -100,6 +100,9 @@ export function nodeMap(tree) {
 /** The explorer's id for the root folder, whose path is ''; no path starts with '/'. */
 export const ROOT = '/';
 
+/** Whether `path` is `home` or a member's home in it, which never share a row with what they hold. */
+const isHomeFolder = path => /^home(\/[^/]+)?$/.test(path);
+
 /**
  * The explorer's items by id, for headless-tree (Explorer.js): `ROOT` and each
  * node by its path, with `children` as ids and `label` the name it shows.
@@ -107,13 +110,20 @@ export const ROOT = '/';
  * VS Code's compact folders do: the row is the innermost folder's, labelled
  * with the chain of names (`src/components/ui`), so opening, dropping and
  * creating there act on the innermost folder.
+ *
+ * With `home` (`{userId, names}`, member names by id), the member's own home,
+ * `home/<userId>`, comes first as My files, shown even before it holds
+ * anything, then the workspace's files, then what other members shared from
+ * their homes, as Shared with me, each home under its member's name
+ * (docs/plans/filesystem-layout.md).
  */
-export function treeIndex(tree, {compact = true} = {}) {
+export function treeIndex(tree, {compact = true, home = null} = {}) {
   const items = new Map();
   const add = (node, label) => {
     let shown = node;
     let name = label;
-    while (compact && shown.type === 'folder' && shown.path && shown.children.length === 1 && shown.children[0].type === 'folder') {
+    while (compact && shown.type === 'folder' && shown.path && !isHomeFolder(shown.path)
+      && shown.children.length === 1 && shown.children[0].type === 'folder') {
       shown = shown.children[0];
       name = `${name}/${shown.name}`;
     }
@@ -123,6 +133,16 @@ export function treeIndex(tree, {compact = true} = {}) {
     return id;
   };
   add(tree, '');
+  if (!home) return items;
+  const mine = `home/${home.userId}`;
+  if (!items.has(mine)) items.set(mine, {type: 'folder', path: mine, name: home.userId, children: []});
+  items.get(mine).label = 'My files';
+  const root = items.get(ROOT);
+  const homes = items.get('home');
+  const shared = (homes?.children ?? []).filter(id => id !== mine);
+  for (const id of shared) items.get(id).label = home.names.get(basename(id)) ?? 'A former member';
+  if (homes) Object.assign(homes, {label: 'Shared with me', children: shared});
+  root.children = [mine, ...root.children.filter(id => id !== 'home'), ...(shared.length ? ['home'] : [])];
   return items;
 }
 

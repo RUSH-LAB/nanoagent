@@ -225,12 +225,12 @@ const resolve = (updater, current) => (typeof updater === 'function' ? updater(c
 const command = (key, handler, options = {}) => ({hotkey: `MetaOrControl+${key}`, preventDefault: true, handler, ...options});
 
 export default function Explorer({
-  tree, expanded, selection, focused, reveal, activePath, dirtyPaths, held = new Map(), cut = new Set(), editing, readOnly,
+  tree, home = null, expanded, selection, focused, reveal, activePath, dirtyPaths, held = new Map(), cut = new Set(), editing, readOnly,
   onExpanded, onSelection, onFocused, onOpen, onCommitEdit, onCancelEdit, onRetypeEdit, onContextMenu, onMove, onUpload,
   onRename, onDelete, onCopy, onCut, onPaste, onUndo,
 }) {
   // While an entry is being named its folder has a row of its own, so folders are not compacted.
-  const items = useMemo(() => treeIndex(tree, {compact: !editing}), [tree, editing]);
+  const items = useMemo(() => treeIndex(tree, {compact: !editing, home}), [tree, editing, home]);
   const expandedItems = useMemo(() => [...expanded], [expanded]);
   const selectedItems = useMemo(() => selection.filter(path => items.has(path)), [selection, items]);
   const nodeOf = item => item.getItemData();

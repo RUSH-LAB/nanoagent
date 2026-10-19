@@ -42,6 +42,26 @@ describe('workbench tree', () => {
     assert.equal(treeIndex(tree, {compact: false}).get('papers').label, 'papers');
   });
 
+  it('shows the member\'s home first as My files, and other members\' shared files under their names', () => {
+    const tree = buildTree([
+      ...files,
+      {path: 'home/ada/Plugins/echo/out.md', size: 1, modified: 1},
+      {path: 'home/bob/shared.md', size: 1, modified: 1},
+      {path: 'home/gone/old.md', size: 1, modified: 1},
+    ], ['home', 'home/ada']);
+    const home = {userId: 'ada', names: new Map([['ada', 'Ada'], ['bob', 'Bob']])};
+    const items = treeIndex(tree, {home});
+    assert.deepEqual(items.get(ROOT).children, ['home/ada', 'papers/attention', 'notes.txt', 'readme.md', 'home']);
+    assert.equal(items.get('home/ada').label, 'My files');
+    assert.deepEqual(items.get('home/ada').children, ['home/ada/Plugins/echo']);
+    assert.equal(items.get('home').label, 'Shared with me');
+    assert.deepEqual(items.get('home').children.map(id => items.get(id).label), ['Bob', 'A former member']);
+
+    const fresh = treeIndex(buildTree(files, []), {home});
+    assert.deepEqual(fresh.get(ROOT).children, ['home/ada', 'papers/attention', 'notes.txt', 'readme.md']);
+    assert.deepEqual([fresh.get('home/ada').label, fresh.get('home/ada').children], ['My files', []]);
+  });
+
   it('names copies as VS Code does', () => {
     assert.equal(copyName('notes.txt', new Set(['notes.txt'])), 'notes copy.txt');
     assert.equal(copyName('notes.txt', new Set(['notes.txt', 'notes copy.txt'])), 'notes copy 2.txt');

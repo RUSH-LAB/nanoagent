@@ -294,6 +294,15 @@ export default function Workbench({workspace}) {
     })();
   }, [openLive, refreshHeld, views]);
 
+  // The members' names, for whose home a folder others shared from is (tree.js treeIndex).
+  const [names, setNames] = useState(null);
+  useEffect(() => {
+    api.listMembers()
+      .then(members => setNames(new Map(members.map(member => [member.id, member.name || member.email]))))
+      .catch(error => toast.error(error.message));
+  }, [workspace.id]);
+  const home = useMemo(() => (userId && names ? {userId, names} : null), [userId, names]);
+
   // The installed plugins, for which app opens which file.
   useEffect(() => {
     apiJson(`${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/site`, {cacheMs: 5 * 60_000})
@@ -1032,6 +1041,7 @@ export default function Workbench({workspace}) {
           {tree && (
             <Explorer
               tree={tree}
+              home={home}
               expanded={expanded}
               selection={selection}
               focused={focused}
