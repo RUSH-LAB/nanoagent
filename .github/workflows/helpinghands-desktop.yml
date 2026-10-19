@@ -118,4 +118,15 @@ jobs:
               sleep 30
             done
           }
-
+          if [ "${{ matrix.target }}" = x86_64-pc-windows-msvc ]; then
+            set -- "$bundle"/nsis/*-setup.exe
+            [ "$#" -eq 1 ] || { echo "Expected one installer, found $#" >&2; exit 1; }
+            put "$1" /api/lab/bundles/${{ matrix.target }}
+            put "$1" /api/lab/updates/${{ matrix.target }} "X-Lab-Signature: $(cat "$1.sig")"
+          else
+            set -- "$bundle"/dmg/*.dmg
+            [ "$#" -eq 1 ] || { echo "Expected one dmg, found $#" >&2; exit 1; }
+            put "$1" /api/lab/bundles/${{ matrix.target }}
+            update="$bundle/macos/RUSH Lab.app.tar.gz"
+            put "$update" /api/lab/updates/${{ matrix.target }} "X-Lab-Signature: $(cat "$update.sig")"
+          fi
