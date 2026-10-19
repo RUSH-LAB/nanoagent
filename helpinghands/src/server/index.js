@@ -66,7 +66,8 @@ const openrouterKeys = createOpenRouterKeys({
   production: process.env.NODE_ENV === 'production',
 });
 // Members' own computers, which run every NanoAgent call of theirs.
-const runners = createRunners({resolveIdentity, openrouterKeys});
+// Each is told the RUSH Lab engine this site serves when it says hello (routes/lab.js).
+const runners = createRunners({resolveIdentity, openrouterKeys, engine: async () => (await postgresServices?.labBundles?.bundle('any', 'engine'))?.stamp ?? null});
 const aiSettings = require('./ai-settings');
 const workspaceSettings = postgresServices?.workspaceSettings ?? require('./workspace-settings');
 const {createObjectStorage} = require('./object-storage');
@@ -567,6 +568,8 @@ const ctx = {
     siteUrl: SITE_URL,
     scheme: servedApp().scheme,
     uploadToken: process.env.LAB_UPLOAD_TOKEN || null,
+    // Each connected computer hears of an engine as soon as it is uploaded.
+    onEngine: stamp => runners.announceEngine(stamp),
     // The member's GitHub login, which names their files' folder on their computer; null when
     // there is no such member any more.
     findMember: async userId => {

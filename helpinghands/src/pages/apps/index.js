@@ -1,9 +1,10 @@
 import React from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
+import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import {useHistory, useLocation} from '@docusaurus/router';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
-import API_BASE, {apiJson} from '@site/src/utils/api';
+import API_BASE, {apiJson, apiRequest} from '@site/src/utils/api';
 import Layout from '@theme/Layout';
 import PluginFrame from '@site/src/components/PluginFrame';
 import PluginSidebar, {pluginNavigation} from '@site/src/components/PluginSidebar';
@@ -54,20 +55,71 @@ function UnavailableNotice({app}) {
   );
 }
 
+// The states of an install (server/workspace-apps.js) that open as the plugin's page.
+const OPENS = new Set(['ready', 'update', 'needs-update', 'outdated']);
+
 /**
- * A ready app is its own page, opened once NanoAgent has it installed: the
- * first open after NanoAgent starts builds its environment, which takes a while.
- * An outdated one (`refused`, server/market-checks.js) is its page too, never
- * installed, in which the member reads their sessions and starts none.
- * One still being built is our notice. The page moving the member to another
- * version opens that version. The page opens on `session`, and `onSession`
- * hears the session it shows.
+ * What a plugin's page has above it, for its state (server/workspace-apps.js): that a newer
+ * version is out, with the button that updates to it (`onUpdate`); or that the version the
+ * member runs no longer runs here, so they read its sessions and start none, and what makes it
+ * run again: updating, or its author publishing a version that does.
  */
-function AppDetail({app, workspace, session, onSession}) {
+function VersionBar({app, slug, busy, error, onUpdate}) {
+  const update = (
+    <button type="button" className="button button--primary button--sm" disabled={busy} onClick={onUpdate}>
+      Update to v{app.latest}
+    </button>
+  );
+  const marketplace = <Link to={`/w/${encodeURIComponent(slug)}/marketplace?plugin=${encodeURIComponent(app.id)}`}>See it in the Marketplace</Link>;
+  let bar;
+  if (app.state === 'update') {
+    bar = (
+      <div className={styles.versionBar}>
+        <span>v{app.latest} of {app.name} is out. You have v{app.version}.</span>
+        {update}
+      </div>
+    );
+  } else if (app.state === 'needs-update') {
+    bar = (
+      <div className={clsx(styles.versionBar, styles.versionBarStopped)}>
+        <span><strong>Update needed.</strong> v{app.version} no longer runs here: you can read its sessions, but not start one.</span>
+        {update}
+      </div>
+    );
+  } else {
+    bar = (
+      <div className={clsx(styles.versionBar, styles.versionBarStopped)}>
+        <span>
+          <strong>Outdated.</strong> v{app.version} no longer runs here: you can read its sessions, but not start one.
+          It runs again once its author publishes a version that does.
+        </span>
+        {marketplace}
+      </div>
+    );
+  }
+  return (
+    <>
+      {bar}
+      {error && <div className={styles.error}>{error}</div>}
+    </>
+  );
+}
+
+/**
+ * An app that runs is its own page, opened once NanoAgent has it installed: the
+ * first open after NanoAgent starts builds its environment, which takes a while.
+ * One whose version no longer runs (`needs-update`, `outdated`) is its page too, never
+ * installed, in which the member reads their sessions and starts none; VersionBar says so
+ * above it, and above one a newer version is out for. One still being built is our notice.
+ * The page moving the member to another version opens that version, as updating does. The
+ * page opens on `session`, and `onSession` hears the session it shows.
+ */
+function AppDetail({app, workspace, slug, session, onSession}) {
   const [opened, setOpened] = React.useState({app: null, error: null});
   // Counts the versions the page moved to, so each opens again.
   const [moved, setMoved] = React.useState(0);
-  const opens = app.status === 'ready' || app.status === 'refused';
+  const [updating, setUpdating] = React.useState({busy: false, error: null});
+  const opens = OPENS.has(app.state);
   React.useEffect(() => {
     if (!opens) return undefined;
     let cancelled = false;
@@ -88,7 +140,26 @@ function AppDetail({app, workspace, session, onSession}) {
     prepareWorkspaceApps(workspace.id, {again: true});
     if (changed.sha256 !== opened.app.sha256) setMoved(count => count + 1);
   };
-  return <PluginFrame app={opened.app} workspace={workspace} onVersion={onVersion} session={session} onSession={onSession} />;
+  const onUpdate = async () => {
+    setUpdating({busy: true, error: null});
+    try {
+      const data = await apiRequest(`/api/workspaces/${encodeURIComponent(workspace.id)}/apps/${encodeURIComponent(app.id)}`, {
+        method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({version: app.latest}),
+      });
+      setUpdating({busy: false, error: null});
+      onVersion(data.app);
+    } catch (err) {
+      setUpdating({busy: false, error: err.message});
+    }
+  };
+  const frame = <PluginFrame app={opened.app} workspace={workspace} onVersion={onVersion} session={session} onSession={onSession} />;
+  if (app.state === 'ready') return frame;
+  return (
+    <div className={styles.barred}>
+      <VersionBar app={app} slug={slug} busy={updating.busy} error={updating.error} onUpdate={onUpdate} />
+      {frame}
+    </div>
+  );
 }
 
 function AppsColumns() {
@@ -123,7 +194,7 @@ function AppsColumns() {
   } else if (apps && navigation.requestedApp && !navigation.app) {
     content = <div className={styles.error}>No app named {navigation.requestedApp}.</div>;
   } else if (apps) {
-    content = <AppDetail key={navigation.app.id} app={navigation.app} workspace={workspace} session={session} onSession={onSession} />;
+    content = <AppDetail key={navigation.app.id} app={navigation.app} workspace={workspace} slug={slug} session={session} onSession={onSession} />;
   }
 
   return (

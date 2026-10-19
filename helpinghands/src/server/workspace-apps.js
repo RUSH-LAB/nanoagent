@@ -71,19 +71,26 @@ function createWorkspaceApps({ai, market, plugins}) {
     return {...found.entry, ...added.entry, sha256: added.sha256, source, tags, ...versionOf(added)};
   }
 
-  /** `app`, for an upload checked at the version the caller runs (market-checks.js): `{value}` or `{error, status}`. */
-  const checked = (userId, app) => (app.source === 'upload' && app.status !== 'unavailable'
-    ? checkUpload({ai, market}, userId, app)
-    : {value: app});
+  /**
+   * `added`, one of the caller's plugins, as `app` has it, checked at the version they run
+   * (market-checks.js), with its `state` (stateOf): `{value}` or `{error, status}`.
+   */
+  async function described(userId, added, found) {
+    const listed = app(added, found);
+    const result = listed.source === 'upload' && listed.status !== 'unavailable'
+      ? await checkUpload({ai, market}, userId, listed)
+      : {value: listed};
+    return result.error ? result : {value: {...result.value, state: stateOf(result.value, found)}};
+  }
 
   /**
-   * The caller's apps, each as `app` has it and `checked`; one that left the marketplace is
+   * The caller's apps, each as `described` has it; one that left the marketplace is
    * listed as `unavailable`, for them to remove.
    */
   async function list(context) {
     const offered = await catalog(context.userId);
     if (offered.error) return offered;
-    const apps = await Promise.all((await plugins.list(context)).map(added => checked(context.userId, app(added, offered.value.get(added.id)))));
+    const apps = await Promise.all((await plugins.list(context)).map(added => described(context.userId, added, offered.value.get(added.id))));
     return apps.find(result => result.error) ?? {value: apps.map(result => result.value)};
   }
 
@@ -113,8 +120,8 @@ function createWorkspaceApps({ai, market, plugins}) {
       if (offered.error) return offered;
       const found = offered.value.get(id);
       if (!found) return {error: `No plugin named ${id} in the marketplace`, status: 404};
-      if (found.entry.status === 'refused') return {error: `${id} is under maintenance: ${found.entry.refusal}`, status: 409};
-      return checked(context.userId, app(await plugins.add(context, id, found.source), found));
+      if (found.entry.status === 'refused') return {error: `${id} is outdated: no version of it runs here until its author publishes one that does (${found.entry.refusal})`, status: 409};
+      return described(context.userId, await plugins.add(context, id, found.source), found);
     },
 
     /**
@@ -130,7 +137,7 @@ function createWorkspaceApps({ai, market, plugins}) {
       }
       const offered = await catalog(context.userId);
       if (offered.error) return offered;
-      return checked(context.userId, app(await plugins.get(context, id), offered.value.get(id)));
+      return described(context.userId, await plugins.get(context, id), offered.value.get(id));
     },
 
     /**
@@ -186,6 +193,25 @@ function createWorkspaceApps({ai, market, plugins}) {
       return {value: {...result.value, source: added.source, ...(added.source === 'upload' ? versionOf(added) : {})}};
     },
   });
+}
+
+/**
+ * What the member can do with their plugin `app` (as `described` has it), whose marketplace
+ * entry, at its latest version, is `found`: one of
+ * - `ready`: the version they run runs here;
+ * - `update`: it runs, and a newer one that runs too is out;
+ * - `needs-update`: it no longer runs here (market-checks.js), and a newer one that does is out;
+ * - `outdated`: it no longer runs here, and no newer one that does is out, until its author publishes one;
+ * - `unavailable`: the marketplace no longer has it;
+ * - `maintenance`: NanoAgent is still building it.
+ * The member reads the sessions of one `needs-update` or `outdated`, and starts none.
+ */
+function stateOf(app, found) {
+  if (app.status === 'unavailable') return 'unavailable';
+  const newer = app.source === 'upload' && app.version !== app.latest && found.entry.status !== 'refused';
+  if (app.status === 'refused') return newer ? 'needs-update' : 'outdated';
+  if (app.status !== 'ready') return 'maintenance';
+  return newer ? 'update' : 'ready';
 }
 
 /** Why the plugin `id`, at a version NanoAgent refuses (`refusal`), takes no new session or message. */

@@ -42,3 +42,42 @@
   margin: 0.3rem 0 0;
 }
 
+
+/* A plugin's page with VersionBar above it: the two fill the column, as the page alone does (PluginFrame). */
+.barred {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  height: calc(100vh - var(--ifm-navbar-height) - var(--site-content-top) - 3rem);
+  min-height: 480px;
+}
+
+.barred iframe {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+
+/* That a newer version is out, or that this one no longer runs here. */
+.versionBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+  font-size: 0.875rem;
+}
+
+.versionBarStopped {
+  border-color: var(--ifm-color-warning-dark);
+  background: var(--ifm-color-warning-contrast-background);
+}
+
+[data-theme='dark'] .versionBar:not(.versionBarStopped) {
+  border-color: rgba(96, 165, 250, 0.35);
+  background: rgba(96, 165, 250, 0.1);
+}

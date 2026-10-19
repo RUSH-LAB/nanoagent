@@ -52,6 +52,8 @@ pub struct Lab {
     child: Mutex<Option<Child>>,
     /// Which run of lab.mjs is current: a switch to another engine ends the one before.
     generation: AtomicU64,
+    /// The engine the site last named that this app did not take (engine.rs).
+    declined: Mutex<String>,
     stopping: AtomicBool,
 }
 
@@ -82,6 +84,7 @@ impl Lab {
             root: Mutex::new(PathBuf::new()),
             child: Mutex::new(None),
             generation: AtomicU64::new(0),
+            declined: Mutex::new(String::new()),
             stopping: AtomicBool::new(false),
         };
         let apps = lab.apps();
@@ -148,6 +151,16 @@ impl Lab {
     /// The engine's stamp in `root`.
     pub fn stamp_of(&self, root: &Path) -> String {
         fs::read_to_string(root.join("stamp")).map(|stamp| stamp.trim().to_string()).unwrap_or_default()
+    }
+
+    /// The engine the site last named that this app did not take.
+    pub fn declined(&self) -> String {
+        self.declined.lock().unwrap().clone()
+    }
+
+    /// Take the engine `stamp` no more, until the site names another.
+    pub fn decline(&self, stamp: String) {
+        *self.declined.lock().unwrap() = stamp;
     }
 
     /// The stamp of the engine lab.mjs runs.

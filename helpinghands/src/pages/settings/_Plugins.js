@@ -12,6 +12,11 @@ function changesUrl({repository: from, latestRepository: to}) {
   return `https://github.com/${from.owner}/${from.repo}/compare/${from.commit}...${to.commit}`;
 }
 
+// The states of an install (server/workspace-apps.js) a newer version runs in, and what each says after its version.
+const UPDATES = new Set(['update', 'needs-update']);
+const VERSION_NOTES = {'needs-update': ', no longer runs here', outdated: ', outdated: no version runs here yet'};
+const versionNote = app => (app.state === 'ready' && app.latest === app.version ? ', up to date' : VERSION_NOTES[app.state] ?? '');
+
 /**
  * The plugins the member installed from the marketplace, which they use on the
  * Plugins page of every workspace they are in; they uninstall them here and
@@ -67,14 +72,14 @@ export default function Plugins({workspace}) {
                 <strong>{app.name}</strong>
                 <span>
                   {app.status === 'unavailable' ? 'No longer in the marketplace' : app.product?.tagline}
-                  {app.version && ` · v${app.version}${app.latest && app.version === app.latest ? ', up to date' : ''}`}
+                  {app.version && ` · v${app.version}${versionNote(app)}`}
                 </span>
               </div>
               <div className={styles.rowControl}>
-                {app.latest && app.version !== app.latest && changesUrl(app) && (
+                {UPDATES.has(app.state) && changesUrl(app) && (
                   <a href={changesUrl(app)} target="_blank" rel="noreferrer">What's new</a>
                 )}
-                {app.latest && app.version !== app.latest && (
+                {UPDATES.has(app.state) && (
                   <button
                     type="button"
                     className={styles.primaryButton}

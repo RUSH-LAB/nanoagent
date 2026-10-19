@@ -30,6 +30,8 @@ const SIGNATURE = signatureFor('0.20261017.183202');
 const piecesOf = (data, size = 1024 * 1024 + 7) => Array.from({length: Math.ceil(data.length / size)}, (_, i) => data.subarray(i * size, (i + 1) * size));
 
 describe('RUSH Lab\'s download and connect link', () => {
+  // The engines each connected computer was told of.
+  const announced = [];
   let db;
   let ctx;
   const as = userId => ({userId, orgId: null, account: {id: userId}});
@@ -58,6 +60,7 @@ describe('RUSH Lab\'s download and connect link', () => {
     db = database.db;
     ctx = makeCtx({lab: {
       bundles: createPostgresLab({pool: database.pool}), secret: SECRET, siteUrl: SITE, scheme: SCHEME, uploadToken: UPLOAD,
+      onEngine: stamp => announced.push(stamp),
       findMember: async userId => (userId === 'gone' ? null : {login: `${userId}-gh`}),
       sessionCookie: async token => `session=${token}; Path=/; HttpOnly`,
       createSession: async userId => (userId === 'gone' ? null : {token: `session-for-${userId}`, login: `${userId}-gh`}),
@@ -263,6 +266,7 @@ describe('RUSH Lab\'s download and connect link', () => {
     assert.equal((await engine({'x-lab-signature': SIGNATURE, 'x-lab-shell': 'not-a-tree'})).status, 400);
     assert.equal((await engine({'x-lab-signature': SIGNATURE, 'x-lab-shell': shell, authorization: 'Bearer wrong'})).status, 401);
     assert.equal((await engine({'x-lab-signature': SIGNATURE, 'x-lab-shell': shell})).status, 200);
+    assert.deepEqual(announced, ['stamp-1']);
     const {payload} = await call({path: '/api/lab/engine'});
     assert.deepEqual(payload, {stamp: 'stamp-1', shell, sha256: sha256(BUNDLE), signature: SIGNATURE, url: `${SITE}/api/lab/engine/engine.tar.gz`});
     const archive = await call({path: '/api/lab/engine/engine.tar.gz'});
@@ -354,7 +358,7 @@ describe('RUSH Lab\'s download and connect link', () => {
       assert.deepEqual((await db.query('delete from lab_bundle returning target')).rows, []);
       await db.exec('rollback');
       // Anyone reads them, signed in or not (migration 0039).
-      assert.deepEqual((await db.query('select target, kind from lab_bundle order by target, kind')).rows.map(row => `${row.target} ${row.kind}`), [`${ARM} app`, `${ARM} update`, "any engine", `${INTEL} app`, `${WINDOWS} app`, `${WINDOWS} update`]);
+      assert.deepEqual((await db.query('select target, kind from lab_bundle order by target, kind')).rows.map(row => `${row.target} ${row.kind}`), [`${ARM} app`, `${ARM} update`, 'any engine', `${INTEL} app`, `${WINDOWS} app`, `${WINDOWS} update`]);
     } finally {
       await db.exec('reset role');
     }

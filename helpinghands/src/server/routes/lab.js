@@ -121,7 +121,7 @@ async function sendBundle(res, bundles, bundle) {
 }
 
 module.exports = async function lab(req, res, url, pathname, ctx) {
-  const {json, lab: {bundles, secret, siteUrl, scheme, uploadToken, findMember, createSession, sessionCookie}} = ctx;
+  const {json, lab: {bundles, secret, siteUrl, scheme, uploadToken, onEngine, findMember, createSession, sessionCookie}} = ctx;
   const install = INSTALL_SCRIPTS.get(pathname);
   if (install) {
     if (req.method !== 'GET') return json(res, 405, {error: 'Method not allowed'});
@@ -200,7 +200,9 @@ module.exports = async function lab(req, res, url, pathname, ctx) {
       return json(res, 413, {error: `A bundle may be ${MAX_BUNDLE_BYTES / 1024 / 1024} MB at most`});
     }
     try {
-      return json(res, 200, await bundles.replace({target, kind, stamp, signature, shell}, req, MAX_BUNDLE_BYTES));
+      const stored = await bundles.replace({target, kind, stamp, signature, shell}, req, MAX_BUNDLE_BYTES);
+      if (kind === 'engine') onEngine(stamp);
+      return json(res, 200, stored);
     } catch (error) {
       if (!error.status) throw error;
       return json(res, error.status, {error: error.message});

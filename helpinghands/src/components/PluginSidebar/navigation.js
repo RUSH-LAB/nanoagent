@@ -8,6 +8,11 @@
  */
 const byName = (a, b) => a.localeCompare(b);
 
+// The badge each plugin's link has, by its state (server/workspace-apps.js), or none for one that runs as it is.
+const BADGES = {update: 'update', 'needs-update': 'update', outdated: 'outdated', maintenance: 'maintenance', unavailable: 'maintenance'};
+// The states in which the version the member runs runs.
+const RUNS = new Set(['ready', 'update']);
+
 export function pluginNavigation(apps, search, base) {
   const params = new URLSearchParams(search);
   const tags = [...new Set(apps.flatMap(item => item.tags))].sort(byName);
@@ -20,10 +25,10 @@ export function pluginNavigation(apps, search, base) {
     .sort((a, b) => byName(a.name, b.name));
 
   // Like a book's landing page, a tag opens on a plugin: the one asked for,
-  // else the first that is ready, else the first.
+  // else the first that runs, else the first.
   const app = params.get('app')
     ? plugins.find(item => item.id === params.get('app')) ?? null
-    : plugins.find(item => item.status === 'ready') ?? plugins[0] ?? null;
+    : plugins.find(item => RUNS.has(item.state)) ?? plugins[0] ?? null;
 
   return {
     app,
@@ -40,8 +45,7 @@ export function pluginNavigation(apps, search, base) {
     links: plugins.map(item => ({
       id: item.id,
       title: item.name,
-      // An outdated plugin (`refused`) opens as one that runs, its page saying so; one not ready otherwise is under maintenance.
-      badge: item.status === 'ready' || item.status === 'refused' ? null : 'maintenance',
+      badge: BADGES[item.state] ?? null,
       permalink: appHref(item),
     })),
     appHref,

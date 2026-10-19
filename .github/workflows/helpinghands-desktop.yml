@@ -15,8 +15,9 @@ name: Helping Hands desktop app
 # each app. On Windows the update is the installer itself. Every app takes the newest engine its
 # site serves for its shell (src-tauri/src/engine.rs), signed with the same key.
 
-# The release pull request into production builds the engine and every app, and checks each app
-# installs and runs on its target, so it is merged only once they pass. The push merging makes
+# The release pull request into production builds the engine, and checks it on each target: in
+# every app it builds, when it changes the shell (desktop/), and otherwise in the app rush-lab.org
+# serves, each installed and run as a member does, so it is merged only once they pass. The push merging makes
 # builds nothing: it uploads what that pull request built (scripts/release/promote-lab.mjs), the
 # engine, and each app only when the release changed the shell (desktop/), so a release that changes
 # only the engine reaches members in minutes, with no new app. Either runs only when something the
@@ -49,6 +50,25 @@ defaults:
     working-directory: helpinghands
 
 jobs:
+  # Whether this changes the shell, the app's own files (desktop/): a pull request against the
+  # production it merges into; a run by hand always builds the apps.
+  changes:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      shell: ${{ steps.shell.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: shell
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ] && git diff --quiet HEAD^1 HEAD -- desktop; then
+            echo changed=false >> "$GITHUB_OUTPUT"
+          else
+            echo changed=true >> "$GITHUB_OUTPUT"
+          fi
+
   engine:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
@@ -78,7 +98,8 @@ jobs:
           if-no-files-found: error
 
   app:
-    if: github.event_name != 'push'
+    needs: changes
+    if: needs.changes.outputs.shell == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -135,6 +156,42 @@ jobs:
         working-directory: helpinghands/desktop
         timeout-minutes: 30
         run: node scripts/check-install.mjs ${{ matrix.target }}
+
+  # The engine in the app rush-lab.org serves, which this shell is, on each target.
+  engine-check:
+    needs: [changes, engine]
+    if: needs.changes.outputs.shell == 'false'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: helpinghands/package-lock.json
+      - uses: actions/download-artifact@v4
+        with:
+          name: rush-lab-engine
+          path: ${{ runner.temp }}/engine
+      - name: rush-lab.org's app
+        shell: bash
+        run: curl -fsSL -o "$RUNNER_TEMP/app" "https://rush-lab.org/api/lab/bundles/${{ matrix.target }}"
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install, run the engine and quit
+        working-directory: helpinghands/desktop
+        timeout-minutes: 30
+        run: node scripts/check-install.mjs ${{ matrix.target }} --app "${{ runner.temp }}/app" --engine "${{ runner.temp }}/engine"
 
   # What merging the release pull request uploads: what that pull request's run built and checked,
   # the engine, and the apps when this release changed the shell.

@@ -1,7 +1,8 @@
 //! RUSH Lab's engine: what the app runs (lab.mjs, the relay and NanoAgent, scripts/engine.mjs),
 //! one archive for every target, apart from the app around it, its shell. The app is built with one
 //! engine and keeps the newest its site serves for its shell (GET /api/lab/engine,
-//! server/routes/lab.js): at its start, before lab.mjs runs, and every CHECK_EVERY after, when it
+//! server/routes/lab.js): at its start, before lab.mjs runs, and whenever the site tells the relay
+//! of another (an `engine` frame, which lab.mjs writes to the data folder's `engine`), when it
 //! switches to it once nothing runs here (lab.rs). An engine is taken only when its archive's
 //! sha256 is the one the site names and its signature checks out against the app's update key
 //! (plugins.updater.pubkey in tauri.conf.json), the key its updates are signed with.
@@ -20,7 +21,8 @@ use tauri::{AppHandle, Url};
 
 use crate::lab::Lab;
 
-const CHECK_EVERY: Duration = Duration::from_secs(10 * 60);
+/// How often the data folder's `engine` is read.
+const WATCH: Duration = Duration::from_secs(2);
 /// How long the check at the app's start may take, before lab.mjs runs the engine it has.
 const START_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long downloading an engine may take.
@@ -145,11 +147,16 @@ pub fn take_at_start(app: &AppHandle, lab: &Lab, site: &Url) {
     }
 }
 
-/// Every CHECK_EVERY, install the newer engine `site` serves for this shell, if there is one, and
-/// switch to it once nothing runs here.
+/// Each time the site names another engine than the one running (the data folder's `engine`),
+/// install the one it serves, when it is newer and for this shell, and switch to it once nothing
+/// runs here.
 pub fn keep_current(app: AppHandle, lab: Arc<Lab>, site: Url) {
     thread::spawn(move || loop {
-        thread::sleep(CHECK_EVERY);
+        thread::sleep(WATCH);
+        let named = fs::read_to_string(lab.data.join("engine")).map(|stamp| stamp.trim().to_string()).unwrap_or_default();
+        if named.is_empty() || named == lab.stamp() || named == lab.declined() {
+            continue;
+        }
         let fetched = tauri::async_runtime::block_on(async {
             match newer(&lab, &site, DOWNLOAD_TIMEOUT).await? {
                 Some(served) => fetch(&app, &lab, &served).await.map(Some),
@@ -164,8 +171,12 @@ pub fn keep_current(app: AppHandle, lab: Arc<Lab>, site: Url) {
                 lab.log(&format!("Switching to the engine {}.", lab.stamp_of(&root)));
                 lab.switch(root);
             }
-            Ok(None) => {}
-            Err(message) => lab.log(&format!("Could not take the engine {site} serves: {message}")),
+            // Not newer, or for another shell: not asked again until the site names another.
+            Ok(None) => lab.decline(named),
+            Err(message) => {
+                lab.log(&format!("Could not take the engine {site} serves: {message}"));
+                lab.decline(named);
+            }
         }
     });
 }
