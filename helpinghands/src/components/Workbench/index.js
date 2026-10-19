@@ -15,7 +15,7 @@ import {appFor} from './apps';
 import Explorer, {ContextMenu} from './Explorer';
 import QuickOpen from './QuickOpen';
 import Search from './Search';
-import {basename, buildTree, comparePath, copyName, dirname, join, movedPath, nodeMap, tabChanges, topmost, within} from './tree';
+import {basename, buildTree, comparePath, copyName, dirname, join, movedPath, nodeMap, tabChanges, topmost, trashRows, within} from './tree';
 import {uploadsOf} from './upload';
 import {closeIn, dropPaths, moveAll, moveTab, newGroup, showIn} from './groups';
 import {editorViews} from './viewState';
@@ -832,9 +832,9 @@ export default function Workbench({workspace}) {
   };
 
   const openTrash = () => api.listTrash()
-    .then(nodes => setTrash(nodes.filter(node => !nodes.some(other => other !== node && within(node.path, other.path)
-      && other.kind === 'folder' && other.deletedAt === node.deletedAt))))
+    .then(setTrash)
     .catch(error => toast.error(error.message));
+  const trashed = useMemo(() => (trash ? trashRows(trash, home) : []), [trash, home]);
   const restoreNode = node => run(() => api.restore(node.id), () => { openTrash(); expandTo(dirname(node.path)); });
   const purgeTrash = async () => {
     if (!(await clientPlatform.dialogs.confirm('Permanently delete everything in the trash? This cannot be undone.'))) return;
@@ -1075,19 +1075,26 @@ export default function Workbench({workspace}) {
               <div className={styles.explorerHeader}>
                 <span className={styles.explorerTitle}>
                   Trash
-                  {trash.length > 0 && <span className={styles.explorerCount}>{trash.length}</span>}
+                  {trashed.length > 0 && <span className={styles.explorerCount}>{trashed.length}</span>}
                 </span>
                 {!readOnly && trash.length > 0 && workspace.role === 'owner' && (
                   <button type="button" className={clsx(styles.textButton, styles.textButtonDanger)} onClick={purgeTrash}>Empty</button>
                 )}
               </div>
-              {trash.length === 0 && <p className={styles.trashNote}>The trash is empty.</p>}
-              {trash.map(node => (
-                <div key={node.id} className={styles.trashRow} title={node.path}>
-                  <span className={styles.rowName}>{node.path}{node.kind === 'folder' ? '/' : ''}</span>
-                  {!readOnly && <button type="button" className={styles.textButton} onClick={() => restoreNode(node)}>Restore</button>}
-                </div>
-              ))}
+              {trashed.length === 0 && <p className={styles.trashNote}>The trash is empty.</p>}
+              <div className={styles.trashList}>
+                {trashed.map(({node, name, where, count}) => (
+                  <div key={node.id} className={styles.trashRow} title={node.path}>
+                    <span className={styles.trashText}>
+                      <span className={styles.trashName}>{name}{node.kind === 'folder' ? '/' : ''}</span>
+                      <span className={styles.trashWhere}>
+                        {where || 'The workspace'}{count > 1 ? ` · ${count} deleted here; Restore brings back the newest` : ''}
+                      </span>
+                    </span>
+                    {!readOnly && <button type="button" className={styles.textButton} onClick={() => restoreNode(node)}>Restore</button>}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

@@ -147,6 +147,34 @@ export function treeIndex(tree, {compact = true, home = null} = {}) {
 }
 
 /**
+ * The trash as rows, newest first, one per thing deleted: a node inside a
+ * deleted folder that went with it, or before it, is the folder's row, and of
+ * several deleted at one path only the newest has a row, with `count` saying
+ * how many there are. Each row is `{node, name, where, count}`: `where` is the
+ * folder it was in, `home/<userId>` named home and another member's home by
+ * their name, as `home` (treeIndex's) names them.
+ */
+export function trashRows(nodes, home) {
+  const newest = [...nodes].sort((a, b) => new Date(b.deletedAt) - new Date(a.deletedAt));
+  const inside = node => newest.some(other => other.kind === 'folder' && node.path.startsWith(`${other.path}/`)
+    && new Date(other.deletedAt) >= new Date(node.deletedAt));
+  const rows = new Map();
+  for (const node of newest.filter(each => !inside(each))) {
+    if (rows.has(node.path)) rows.get(node.path).count += 1;
+    else rows.set(node.path, {node, name: basename(node.path), where: placeOf(dirname(node.path), home), count: 1});
+  }
+  return [...rows.values()];
+}
+
+/** How the trash names the folder `path`: home for the member's own, a member's name for theirs. */
+function placeOf(path, home) {
+  const [top, owner, ...rest] = path.split('/');
+  if (top !== 'home' || !owner || !home) return path;
+  const name = owner === home.userId ? 'home' : `${home.names.get(owner) ?? 'A former member'}'s home`;
+  return [name, ...rest].join('/');
+}
+
+/**
  * A free name for a copy of `name` in a folder holding `taken` names, as VS
  * Code names one: `notes copy.txt`, then `notes copy 2.txt` and on; a folder
  * or a name without an extension gets the suffix at its end.
