@@ -106,8 +106,10 @@ At launch the app (`src-tauri/src/main.rs`, `lab.rs`):
    which passes `--login`).
 5. Runs `node lab.mjs` from there, its output in `logs/lab.log`, and starts it again 30 s after
    it exits. Quitting sends it SIGTERM, which stops every connection, and SIGKILL after 60 s.
-6. A release keeps itself the build its window's site serves (`src-tauri/src/update.rs`): at launch
-   and every hour it asks `GET /api/lab/updates/<target>`, and a newer version is downloaded,
+6. A release keeps itself the build its window's site serves (`src-tauri/src/update.rs`): it follows
+   `GET /api/lab/releases` (`src-tauri/src/releases.rs`), which names the build and engine the site
+   serves as it opens and as each is uploaded, and each time it names another version it asks
+   `GET /api/lab/updates/<target>`, and a newer version is downloaded,
    checked against the update key and the version it was signed for, and installed over the app. It opens that build,
    its window hidden, once nothing runs here and its window is closed: lab.mjs keeps the data
    folder's `busy` while any relay has a request of RUSH's going, a held run until RUSH

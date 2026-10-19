@@ -376,7 +376,7 @@ const PUBLIC_PATHS = new Set([
  * a session; its sign-in sends a visitor without a session to the sign-in page
  * itself; and the release job uploads with the upload token (routes/lab.js).
  */
-const PUBLIC_PATTERNS = [/^\/api\/invite\/[^/]+$/, /^\/api\/apps\/[^/]+\/ui\/.+$/, /^\/api\/lab\/(?:session|sign-in|window-sign-in|bundles\/[^/]+|updates\/[^/]+(?:\/app\.tar\.gz)?|engine(?:\/engine\.tar\.gz)?)$/];
+const PUBLIC_PATTERNS = [/^\/api\/invite\/[^/]+$/, /^\/api\/apps\/[^/]+\/ui\/.+$/, /^\/api\/lab\/(?:session|sign-in|window-sign-in|bundles\/[^/]+|updates\/[^/]+(?:\/app\.tar\.gz)?|engine(?:\/engine\.tar\.gz)?|releases)$/];
 
 /** Whether `pathname` may be served without a session. */
 function isPublicPath(pathname) {

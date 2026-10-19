@@ -53,8 +53,6 @@ function fakeNanoAgent() {
 
 describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => {
   let mochi; let site; let nano; let nanoUrl; let runners; let relays; let sockets;
-  // The engine the site serves, which a computer is told at its hello.
-  let engine = null;
   // Upgraded sockets leave the HTTP server's books, so the suite drops them itself.
   const dropComputers = () => sockets.forEach(socket => socket.destroy());
 
@@ -65,7 +63,6 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
       resolveIdentity: async ({headers}) => (headers.authorization === 'Bearer member-token' && !headers.cookie
         ? {ok: true, identity: {userId: 'u1'}}
         : {ok: false, status: 401, error: 'Not signed in'}),
-      engine: async () => engine,
     });
     mochi = http.createServer((req, res) => res.writeHead(404).end());
     mochi.on('upgrade', (req, socket, head) => {
@@ -108,17 +105,6 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     assert.deepEqual(deltas, ['hello ', 'world']);
     assert.equal(nano.seen[0].url, '/v1/runs');
     assert.equal(nano.seen[0].authorization, 'Bearer nano-secret');
-  });
-
-  it('tells a computer the engine the site serves at its hello, and each one uploaded after', async () => {
-    engine = '2026-10-19T00-00-00-000Z-abc';
-    const heard = [];
-    await dialIn('member-token', {onEvent: event => { if (event.event === 'engine') heard.push(event.stamp); }});
-    await until(() => heard.length === 1);
-    runners.announceEngine('2026-10-20T00-00-00-000Z-def');
-    await until(() => heard.length === 2);
-    assert.deepEqual(heard, ['2026-10-19T00-00-00-000Z-abc', '2026-10-20T00-00-00-000Z-def']);
-    engine = null;
   });
 
   it('carries a package\'s bytes intact', async () => {
