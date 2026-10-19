@@ -6,14 +6,18 @@ follows, its `spec`, and runs on every release that runs that spec (`nanoagent.p
 ## 0.7.0
 
 A plugin declares the spec it follows, not the NanoAgent it was made for: `spec:
-nanoagent.plugin/v1` in `nanoagent.yaml` replaces `nanoagent: ~=0.6.0`, and its files name the
-spec's classes, `nanoagent.plugin.v1.*` for `nanoagent.plugin.manifest.*`. A spec never changes
-once released: a change a plugin could break on is a new spec, beside the last, which NanoAgent
-keeps running. `nanoagent plugin migrate <folder>` moves a plugin made for 0.6 or earlier onto
-`nanoagent.plugin/v1` (and deletes a 0.5 plugin's `run.sh`). Publish it again for RUSH's
+nanoagent.plugin/v0001` in `nanoagent.yaml` replaces `nanoagent: ~=0.6.0`, and its files name the
+spec's classes, `nanoagent.plugin.v0001.*` for `nanoagent.plugin.manifest.*`. Each spec is a
+folder of its own, `nanoagent/plugin/v0001/`, holding its rules (the contract's, the verifier's
+and a decide task's among them), its classes and the page its plugins are shown in (`page/`,
+`index.html` and the UI kit), and importing nothing of NanoAgent's but
+`nanoagent.plugin.manifest`. A released spec's folder never changes but to close a security hole:
+a change a plugin could break on is the next folder, `v0002`, and NanoAgent keeps running the
+last for at least three minor releases. `nanoagent plugin migrate <folder>` moves a plugin made
+for 0.6 or earlier onto `nanoagent.plugin/v0001` (and deletes a 0.5 plugin's `run.sh`). Publish it again for RUSH's
 marketplace to offer it: a version published before 0.7.0 is listed under maintenance.
 
-- `nanoagent.plugin/v1` is 0.6.0's plugin rules less the template's. Every v1 plugin still has a
+- `nanoagent.plugin/v0001` is 0.6.0's plugin rules less the template's. Every v0001 plugin still has a
   `LICENSE`, but the rules that follow what `nanoagent plugin new` writes (what `LICENSE`,
   `README.md`, `pyproject.toml` and `.gitignore` hold, nothing else at the top level, `tests/`, a
   ready plugin's product page not the template's placeholder) are checked only by `nanoagent
@@ -21,6 +25,11 @@ marketplace to offer it: a version published before 0.7.0 is listed under mainte
   plugin is installed, its package inspected (`POST /v1/packages/inspect`) or its tools called.
 - A catalog entry's `spec` is the plugin's own.
 - `load_listing` and `PluginListing` are gone.
+- `PUT /v1/views/<sha256>` opens a package for its page alone, loading and running none of it, so
+  a package NanoAgent refuses still shows its page at `/v1/installs/<sha256>/ui/...`: its spec's
+  page, or the newest spec's when NanoAgent does not run its spec. The page kit
+  reads a plugin the host says is `status: refused` as closed: its Dashboard lists and opens its
+  sessions, which show their chat and results, and starts none, and no message can be sent.
 
 ## 0.6.0
 

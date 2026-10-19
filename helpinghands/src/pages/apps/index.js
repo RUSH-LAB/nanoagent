@@ -13,7 +13,7 @@ import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 import styles from './styles.module.css';
 
 /**
- * The plugins the member installed from the marketplace: `nanoagent.plugin/v1`
+ * The plugins the member installed from the marketplace: `nanoagent.plugin/v0001`
  * packages, which NanoAgent runs in its sandbox.
  *
  * Choosing an app shows its own front end, the page in its ui/ folder, in a
@@ -39,18 +39,6 @@ function MaintenanceNotice({app}) {
   );
 }
 
-/** A plugin Mochi's NanoAgent no longer runs as it was published (`refused`, server/market-checks.js). */
-function OutdatedNotice({app}) {
-  return (
-    <article className={styles.detail}>
-      <header className={styles.detailHeader}>
-        <h1>{app.name}</h1>
-      </header>
-      <p className={styles.muted}>Outdated: it opens again once its author publishes a version for this RUSH Lab.</p>
-    </article>
-  );
-}
-
 /** A plugin the member installed that the marketplace no longer has. */
 function UnavailableNotice({app}) {
   return (
@@ -69,6 +57,8 @@ function UnavailableNotice({app}) {
 /**
  * A ready app is its own page, opened once NanoAgent has it installed: the
  * first open after NanoAgent starts builds its environment, which takes a while.
+ * An outdated one (`refused`, server/market-checks.js) is its page too, never
+ * installed, in which the member reads their sessions and starts none.
  * One still being built is our notice. The page moving the member to another
  * version opens that version.
  */
@@ -76,9 +66,9 @@ function AppDetail({app, workspace}) {
   const [opened, setOpened] = React.useState({app: null, error: null});
   // Counts the versions the page moved to, so each opens again.
   const [moved, setMoved] = React.useState(0);
-  const ready = app.status === 'ready';
+  const opens = app.status === 'ready' || app.status === 'refused';
   React.useEffect(() => {
-    if (!ready) return undefined;
+    if (!opens) return undefined;
     let cancelled = false;
     apiJson(`${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/apps/${encodeURIComponent(app.id)}`, {fresh: true}).then(
       result => !cancelled && setOpened(result.ok
@@ -87,10 +77,9 @@ function AppDetail({app, workspace}) {
       () => !cancelled && setOpened({app: null, error: 'Could not reach the API server'}),
     );
     return () => { cancelled = true; };
-  }, [ready, workspace.id, app.id, app.name, moved]);
+  }, [opens, workspace.id, app.id, app.name, moved]);
   if (app.status === 'unavailable') return <UnavailableNotice app={app} />;
-  if (app.status === 'refused') return <OutdatedNotice app={app} />;
-  if (!ready) return <MaintenanceNotice app={app} />;
+  if (!opens) return <MaintenanceNotice app={app} />;
   if (opened.error) return <div className={styles.error}>{opened.error}</div>;
   if (!opened.app) return <p className={styles.muted}>Preparing {app.name}…</p>;
   const onVersion = changed => {

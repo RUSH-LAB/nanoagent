@@ -3,6 +3,7 @@ const fallbackProfiles = require('../../ai-profiles.json');
 const {budgetRefusal} = require('../ai-metering');
 const {completionPayload} = require('../ai');
 const aiSettings = require('../ai-settings');
+const {outdated} = require('../workspace-apps');
 // Route module organized from server/index.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
@@ -364,6 +365,9 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
         throw error;
       }
       // The app runs as the member installed it: NanoAgent's install of its package.
+      const refusal = await ctx.workspaceApps.refusal(req.context, composed.request.app);
+      if (refusal.error) return json(res, refusal.status, {error: refusal.error});
+      if (refusal.value) return json(res, 409, {error: outdated(composed.request.app, refusal.value)});
       const opened = await ctx.workspaceApps.open(req.context, composed.request.app, ai);
       if (opened.error) return json(res, opened.status, {error: opened.error});
       composed.request.install = opened.value.sha256;

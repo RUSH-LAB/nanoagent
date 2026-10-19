@@ -541,6 +541,10 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
     installPackage: (sha256, data) => nanoFetch(`/v1/installs/${encodeURIComponent(sha256)}`, {
       method: 'PUT', body: data, contentType: 'application/gzip', waitMs: installTimeoutMs,
     }),
+    // A package's page alone, for one NanoAgent refuses to install: nothing of it runs.
+    viewPackage: (sha256, data) => nanoFetch(`/v1/views/${encodeURIComponent(sha256)}`, {
+      method: 'PUT', body: data, contentType: 'application/gzip', waitMs: timeoutMs,
+    }),
     installUiFile: (sha256, version, path) => nanoFetch(
       `/v1/installs/${encodeURIComponent(sha256)}/ui/${encodeURIComponent(version)}/${encodedPath(path)}`, {bytes: true},
     ),
@@ -600,6 +604,7 @@ module.exports = {
   install: gateway.install,
   installPackage: gateway.installPackage,
   installUiFile: gateway.installUiFile,
+  viewPackage: gateway.viewPackage,
   packages: gateway.packages,
   packageFile: gateway.packageFile,
   packageSource: gateway.packageSource,

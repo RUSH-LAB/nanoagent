@@ -1,6 +1,6 @@
 # {{name}}
 
-A `nanoagent.plugin/v1` plugin, created by `nanoagent plugin new` with the
+A `nanoagent.plugin/v0001` plugin, created by `nanoagent plugin new` with the
 structure of NanoAgent's reference plugin,
 [arxiv-source](https://github.com/zeyuyang8/arxiv-source).
 

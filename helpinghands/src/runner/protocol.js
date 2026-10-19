@@ -32,8 +32,9 @@ const PATH = '/api/runner';
 const HOLD_MS = 10 * 60_000;
 
 // What Mochi may ask the computer's NanoAgent: runs, installs and their pages,
-// and the run folders' files (server/ai.js). Only the marketplace's packages
-// stay on Mochi's own NanoAgent.
+// views (the page alone of a package it refuses to install), and the run
+// folders' files (server/ai.js). Only the marketplace's packages stay on
+// Mochi's own NanoAgent.
 const SEGMENT = '[^/?]+';
 const ROUTES = [
   ['GET', '/v1/profiles'],
@@ -43,6 +44,7 @@ const ROUTES = [
   ['GET', `/v1/installs/${SEGMENT}`],
   ['PUT', `/v1/installs/${SEGMENT}`],
   ['GET', `/v1/installs/${SEGMENT}/ui/${SEGMENT}/[^?]+`],
+  ['PUT', `/v1/views/${SEGMENT}`],
   ['POST', `/v1/workspaces/${SEGMENT}/installs/${SEGMENT}/runs`],
   ['GET', `/v1/workspaces/${SEGMENT}/files`],
   ['GET', `/v1/workspaces/${SEGMENT}/files/[^?]+`],

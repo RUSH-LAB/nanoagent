@@ -1,4 +1,4 @@
-_ > nanoagent.plugin.v1.ProductConfig:
+_ > nanoagent.plugin.v0001.ProductConfig:
 tagline: "One line on what {{name}} does for you"
 summary: "A few sentences on what {{name}} is and who it is for."
 highlights:

@@ -3,7 +3,7 @@
 A session checks the plugin's environment once (:func:`preflight`), starts its MCP server once and keeps it for every call,
 so a plugin can hold state (a browser, a game) for the whole of one task run. Each call re-checks
 the plugin rules, builds its input and output into their contract classes (see
-:mod:`nanoagent.plugin.contract`) and runs the verifier on both. A tool that fails raises; the
+:mod:`nanoagent.plugin.v0001.contract`) and runs the verifier on both. A tool that fails raises; the
 MCP server reports it as an error result, and the call raises it again here.
 :func:`call_tool` is a session of one call.
 """

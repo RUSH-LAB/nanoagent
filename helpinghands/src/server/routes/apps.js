@@ -4,6 +4,7 @@ const {agentFolder} = require('../fs/agent-sync');
 const {FsError} = require('../fs/store');
 const {RUNNER_OFFLINE} = require('../ai');
 const {APP_UI_ROUTE: UI_ROUTE} = require('./paths');
+const {outdated} = require('../workspace-apps');
 
 // Apps: the marketplace plugins a member installed (workspace-apps.js), which
 // they install, tag and uninstall at /api/apps/{id}, and the caller's own folder
@@ -128,6 +129,10 @@ async function sessionRoute(req, res, ctx, app, id, run) {
     }
     if (id === null && req.method === 'POST') {
       requireWorkspacePermission(req.context, 'apps:use');
+      // A version NanoAgent refuses keeps its sessions to read, and starts none.
+      const refusal = await ctx.workspaceApps.refusal(req.context, app);
+      if (refusal.error) return json(res, refusal.status, {error: refusal.error});
+      if (refusal.value) return json(res, 409, {error: outdated(app, refusal.value)});
       return json(res, 200, {session: await ctx.sessions.create(req.context, app)});
     }
     if (id !== null && req.method === 'GET') {

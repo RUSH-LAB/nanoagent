@@ -108,7 +108,7 @@ its dependencies and its `slimconfig` source unchanged.
 ## 5. Write the manifest: `nanoagent.yaml`
 
 - `version` is PEP 440 and matches `pyproject.toml`'s `version`.
-- `spec: nanoagent.plugin/v1` is the plugin format it follows. Every NanoAgent
+- `spec: nanoagent.plugin/v0001` is the plugin format it follows. Every NanoAgent
   that runs that spec runs the plugin, so it never needs a new version just
   because NanoAgent has one.
 - `runtime.command` is exactly `[uv, run, --frozen, python, -m, plugin]`.
@@ -124,7 +124,7 @@ its dependencies and its `slimconfig` source unchanged.
     It may never copy from the reference tool's output.
 
 Follow slimconfig's rules: the file keeps its class headers (such as
-`_ > nanoagent.plugin.v1.ManifestConfig:`), sets every field, and adds
+`_ > nanoagent.plugin.v0001.ManifestConfig:`), sets every field, and adds
 no other field.
 
 ## 6. Write the verifier and its tests

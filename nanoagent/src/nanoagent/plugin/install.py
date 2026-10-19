@@ -17,6 +17,10 @@ A host runs only what it installed here. :meth:`Installs.install` takes a packag
    packages with no such wheel), built with a cache of its own. The first sync copies, so the
    environment the build writes into holds no link into the shared cache.
 
+:meth:`Installs.view` opens a package for its page alone, loading and running none of it, so a
+package this host refuses (one made for a spec it does not run) still shows the sessions people had
+with it. Views are kept while the process runs.
+
 A sha256 names one package's exact bytes, so an install never changes. A finished install is kept
 on disk for the Python it was built on: when the process starts again, its caller installs again
 and gets the kept one without a sync. Starting removes the installs no caller can get back as they
@@ -44,7 +48,7 @@ from packaging.tags import Tag
 from packaging.utils import InvalidWheelFilename, parse_wheel_filename
 
 from nanoagent.plugin import sandbox
-from nanoagent.plugin.manifest import PAGE, PluginManifest, load_manifest, page_files, ui_files
+from nanoagent.plugin.manifest import SPEC, PluginError, PluginManifest, load_manifest, page_files, plugin_spec, spec_module, ui_files
 from nanoagent.plugin.package import PackageError, catalog_entry, inspect_package, unpack
 from nanoagent.plugin.python import PluginPython
 
@@ -69,17 +73,19 @@ INSTALLED = "installed"
 # cannot match with another package): Windows opens no path of 260 characters or more, and the full 64
 # put a plugin's editable-install .pth beyond it, so Python never found the plugin's own code.
 FOLDER_HEX = 32
+# Where views are opened, under the installs' root: removed on starting, as no install is there.
+VIEWS = "views"
 
 
 class InstallError(RuntimeError):
     """A package that follows the rules but could not be installed here."""
 
 
-def ui_version(manifest: PluginManifest) -> str:
-    """A digest of the page as served, the plugin's ``ui/`` in :data:`PAGE`: its files' URLs carry
-    it, so a browser may keep them forever."""
+def ui_version(root: Path, page: Path) -> str:
+    """A digest of the page as served, the ``ui/`` of the plugin folder ``root`` in its spec's page
+    folder ``page``: its files' URLs carry it, so a browser may keep them forever."""
     digest = hashlib.sha256()
-    for base, files in ((PAGE, page_files()), (manifest.root / "ui", ui_files(manifest.root / "ui"))):
+    for base, files in ((page, page_files(page)), (root / "ui", ui_files(root / "ui"))):
         for path in files:
             digest.update(path.relative_to(base).as_posix().encode() + b"\0" + path.read_bytes() + b"\0")
     return digest.hexdigest()[:16]
@@ -90,6 +96,31 @@ class Installed:
     manifest: PluginManifest
     # The catalog entry, with the package's sha256 and size and the uiVersion its ui/ files carry.
     entry: dict[str, Any]
+
+    @property
+    def page(self) -> Path:
+        """The page folder of the plugin's spec, which its ui/ is served in."""
+        return spec_module(self.manifest.spec).PAGE
+
+
+@dataclass(frozen=True)
+class Viewed:
+    """A package opened for its page alone: its plugin folder, of which only ``ui/`` is served, in ``page``."""
+
+    root: Path
+    page: Path
+    ui_version: str
+
+
+def view_page(root: Path) -> Path:
+    """The page folder a viewed plugin folder ``root`` is shown in: its spec's when this NanoAgent
+    runs that spec, and otherwise, as for a package made before plugins declared their spec, the
+    newest spec's, :data:`SPEC`'s."""
+    try:
+        spec = plugin_spec(root)
+    except PluginError:
+        spec = SPEC
+    return spec_module(spec).PAGE
 
 
 def install_marker(folder: Path, python: PluginPython) -> str:
@@ -135,6 +166,7 @@ class Installs:
                 shutil.rmtree(folder)
         subprocess.run(["uv", "cache", "prune", "--quiet"], env={**os.environ, "UV_CACHE_DIR": str(self.cache)}, check=True)
         self._installed: dict[str, Installed] = {}
+        self._viewed: dict[str, Viewed] = {}
         # One lock per sha256, so a package installs once however many ask at the same time.
         self._locks: defaultdict[str, threading.Lock] = defaultdict(threading.Lock)
         self._guard = threading.Lock()
@@ -177,9 +209,36 @@ class Installs:
                 shutil.rmtree(folder, ignore_errors=True)
                 raise
             (folder / INSTALLED).touch()
-            installed = Installed(manifest, {**entry, "uiVersion": ui_version(manifest)})
+            installed = Installed(manifest, {**entry, "uiVersion": ui_version(manifest.root, spec_module(manifest.spec).PAGE)})
             self._installed[sha256] = installed
             return installed
+
+    def viewed(self, sha256: str) -> Viewed | None:
+        return self._viewed.get(sha256)
+
+    def view(self, sha256: str, data: bytes) -> Viewed:
+        """Open the package ``data``, known by ``sha256``, for its page alone; opening it again returns it as it is."""
+        if not SHA256.fullmatch(sha256):
+            raise PackageError([f"{sha256!r} is not a sha256"])
+        if hashlib.sha256(data).hexdigest() != sha256:
+            raise PackageError(["the package's sha256 is not the one it was sent as"])
+        with self._guard:
+            lock = self._locks[sha256]
+        folder = self.root / VIEWS / sha256[:FOLDER_HEX]
+        with lock:
+            if sha256 in self._viewed:
+                return self._viewed[sha256]
+            shutil.rmtree(folder, ignore_errors=True)
+            folder.mkdir(parents=True)
+            try:
+                plugin = folder / unpack(data, folder)
+            except BaseException:
+                shutil.rmtree(folder, ignore_errors=True)
+                raise
+            page = view_page(plugin)
+            viewed = Viewed(plugin, page, ui_version(plugin, page))
+            self._viewed[sha256] = viewed
+            return viewed
 
     def _sync(self, plugin: Path) -> None:
         shared = {"UV_CACHE_DIR": str(self.cache), "UV_LINK_MODE": "copy"}

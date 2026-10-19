@@ -40,7 +40,7 @@ from typing import Any
 
 from slimconfig import Output, output_schema
 
-from nanoagent.plugin.verifier import FORBIDDEN_NAMES
+from nanoagent.plugin.v0001.verifier import FORBIDDEN_NAMES
 
 CONTRACT = "contract.py"
 MODULE = "contract"  # the name nanoagent.yaml, the server and the verifier import it by

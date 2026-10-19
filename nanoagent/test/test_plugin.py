@@ -13,6 +13,7 @@ import pytest
 
 from nanoagent.plugin import call_tool, load_manifest, plugin_tools
 from nanoagent.plugin.authoring import check_plugin
+from nanoagent.plugin.manifest import SPECS
 
 
 CONTRACT = """from dataclasses import dataclass
@@ -44,22 +45,22 @@ TOOLS = {Tool.ECHO: (EchoInput, EchoOutput)}
 TASKS = {Task.ECHO: (EchoInput, EchoOutput)}
 """
 
-MANIFEST = """_ > nanoagent.plugin.v1.ManifestConfig:
+MANIFEST = """_ > nanoagent.plugin.v0001.ManifestConfig:
 id: echo
 name: Echo
 version: 1.0.0
 status: ready
-spec: nanoagent.plugin/v1
-runtime > nanoagent.plugin.v1.RuntimeConfig:
+spec: nanoagent.plugin/v0001
+runtime > nanoagent.plugin.v0001.RuntimeConfig:
   type: mcp_stdio
   command: [uv, run, --frozen, python, -m, plugin]
-permissions > nanoagent.plugin.v1.PermissionsConfig:
-  network > nanoagent.plugin.v1.NetworkConfig: {hosts: []}
-  filesystem > nanoagent.plugin.v1.FilesystemConfig: {write: [workspace]}
-tools > dict[contract.Tool, nanoagent.plugin.v1.ToolConfig]:
+permissions > nanoagent.plugin.v0001.PermissionsConfig:
+  network > nanoagent.plugin.v0001.NetworkConfig: {hosts: []}
+  filesystem > nanoagent.plugin.v0001.FilesystemConfig: {write: [workspace]}
+tools > dict[contract.Tool, nanoagent.plugin.v0001.ToolConfig]:
   echo:
     description: Echo input
-tasks > dict[contract.Task, nanoagent.plugin.v1.TaskConfig]:
+tasks > dict[contract.Task, nanoagent.plugin.v0001.TaskConfig]:
   echo:
     description: Echo input
     runner: tool
@@ -69,7 +70,7 @@ tasks > dict[contract.Task, nanoagent.plugin.v1.TaskConfig]:
 """
 
 
-PRODUCT = """_ > nanoagent.plugin.v1.ProductConfig:
+PRODUCT = """_ > nanoagent.plugin.v0001.ProductConfig:
 tagline: Echo what you say
 summary: It repeats its input.
 highlights: [Exact, Instant]
@@ -162,11 +163,11 @@ def write_plugin(root: Path) -> Path:
 
 
 def test_loads_strict_plugin_manifest(tmp_path: Path) -> None:
-    from nanoagent.plugin.v1 import RUNTIME_COMMAND
+    from nanoagent.plugin.v0001 import RUNTIME_COMMAND
 
     manifest = load_manifest(write_plugin(tmp_path).parent)
     assert manifest.command == RUNTIME_COMMAND
-    assert manifest.public()["spec"] == "nanoagent.plugin/v1"
+    assert manifest.public()["spec"] == "nanoagent.plugin/v0001"
 
 
 def test_rejects_missing_standard_file(tmp_path: Path) -> None:
@@ -989,7 +990,7 @@ def test_plugin_new_creates_a_plugin_with_the_standard_layout(tmp_path: Path, mo
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
     assert main(["new", str(tmp_path / "my-notes")]) == 0
     manifest = check_plugin(tmp_path / "my-notes")
-    assert (manifest.id, manifest.name, manifest.spec) == ("my-notes", "My Notes", "nanoagent.plugin/v1")
+    assert (manifest.id, manifest.name, manifest.spec) == ("my-notes", "My Notes", "nanoagent.plugin/v0001")
     assert _layout(tmp_path / "my-notes") == {*STANDARD_FILES, *STANDARD_FOLDERS}
     assert not any((tmp_path / "my-notes" / name).exists() for name in AGENT_INSTRUCTIONS)
     license_text = (tmp_path / "my-notes" / "LICENSE").read_text()
@@ -1060,12 +1061,12 @@ async def test_plugin_tool_images_reach_the_model_as_images() -> None:
 @pytest.mark.parametrize(
     ("line", "problem"),
     [
-        ("spec: nanoagent.plugin/v9", "nanoagent.yaml spec 'nanoagent.plugin/v9' is not one this NanoAgent runs: nanoagent.plugin/v1"),
-        ("", "nanoagent.yaml declares no spec, the plugin format it follows: this NanoAgent runs nanoagent.plugin/v1"),
+        ("spec: nanoagent.plugin/v0002", "nanoagent.yaml spec 'nanoagent.plugin/v0002' is not one this NanoAgent runs: nanoagent.plugin/v0001"),
+        ("", "nanoagent.yaml declares no spec, the plugin format it follows: this NanoAgent runs nanoagent.plugin/v0001"),
         (
             "nanoagent: ~=0.6.0",
             "nanoagent.yaml names the NanoAgent it was made for, nanoagent: ~=0.6.0, from before plugins declared their"
-            " spec; `nanoagent plugin migrate <folder>` moves it to nanoagent.plugin/v1",
+            " spec; `nanoagent plugin migrate <folder>` moves it to nanoagent.plugin/v0001",
         ),
     ],
 )
@@ -1073,7 +1074,7 @@ def test_a_plugin_declares_a_spec_this_nanoagent_runs(tmp_path: Path, line: str,
     from nanoagent.plugin import PluginError
 
     manifest = write_plugin(tmp_path)
-    manifest.write_text(manifest.read_text().replace("spec: nanoagent.plugin/v1", line))
+    manifest.write_text(manifest.read_text().replace("spec: nanoagent.plugin/v0001", line))
     with pytest.raises(PluginError) as error:
         load_manifest(tmp_path)
     assert error.value.violations == [problem]
@@ -1083,9 +1084,9 @@ def test_migrate_moves_a_plugin_made_before_specs_onto_v1(tmp_path: Path) -> Non
     from nanoagent.cli.plugin import main
 
     manifest = write_plugin(tmp_path)
-    manifest.write_text(manifest.read_text().replace("spec: nanoagent.plugin/v1", "nanoagent: ~=0.5.0").replace("nanoagent.plugin.v1.", "nanoagent.plugin.manifest."))
+    manifest.write_text(manifest.read_text().replace("spec: nanoagent.plugin/v0001", "nanoagent: ~=0.5.0").replace("nanoagent.plugin.v0001.", "nanoagent.plugin.manifest."))
     product = tmp_path / "product" / "product.yaml"
-    product.write_text(product.read_text().replace("nanoagent.plugin.v1.", "nanoagent.plugin.manifest."))
+    product.write_text(product.read_text().replace("nanoagent.plugin.v0001.", "nanoagent.plugin.manifest."))
     (tmp_path / "run.sh").write_text("#!/bin/sh\nexec uv run --frozen python -m plugin\n")
     assert main(["migrate", str(tmp_path)]) == 0
     assert manifest.read_text() == MANIFEST and product.read_text() == PRODUCT
@@ -1169,17 +1170,62 @@ def test_ui_scripts_draw_only_their_output(tmp_path: Path) -> None:
     ]
 
 
-def test_serves_the_plugin_page_in_nanoagents_own_kit(tmp_path: Path) -> None:
-    from nanoagent.plugin.manifest import PAGE
+def test_serves_the_plugin_page_in_its_specs_own_kit(tmp_path: Path) -> None:
+    from nanoagent.plugin.v0001 import PAGE
     from nanoagent.web.app import _ui_file
 
     write_plugin(tmp_path)
     manifest = load_manifest(tmp_path)
-    assert _ui_file(manifest, "") == PAGE / "index.html"
-    assert _ui_file(manifest, "kit/dom.js") == PAGE / "kit" / "dom.js"
-    assert _ui_file(manifest, "kit/server.py") is None
-    assert _ui_file(manifest, "renderers.js") == (tmp_path / "ui" / "renderers.js").resolve()
-    assert _ui_file(manifest, "../nanoagent.yaml") is None
+    assert _ui_file(manifest.root, PAGE, "") == PAGE / "index.html"
+    assert _ui_file(manifest.root, PAGE, "kit/dom.js") == PAGE / "kit" / "dom.js"
+    assert _ui_file(manifest.root, PAGE, "kit/server.py") is None
+    assert _ui_file(manifest.root, PAGE, "renderers.js") == (tmp_path / "ui" / "renderers.js").resolve()
+    assert _ui_file(manifest.root, PAGE, "../nanoagent.yaml") is None
+
+
+def test_a_plugin_loads_and_shows_under_the_spec_it_declares(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import types
+
+    from nanoagent.plugin import manifest as manifests
+    from nanoagent.web.app import _ui_file
+
+    page = tmp_path / "v0002-page"
+    (page / "kit").mkdir(parents=True)
+    (page / "index.html").write_text("v0002's page")
+    v0002 = types.ModuleType("nanoagent_test_v0002")
+    v0002.PAGE = page
+    v0002.load = lambda root: ("loaded by v0002", root)
+    monkeypatch.setitem(sys.modules, v0002.__name__, v0002)
+    monkeypatch.setitem(manifests.SPECS, "nanoagent.plugin/v0002", v0002.__name__)
+    write_plugin(tmp_path / "echo")
+    old = load_manifest(tmp_path / "echo")
+    manifest = tmp_path / "echo" / "nanoagent.yaml"
+    manifest.write_text(manifest.read_text().replace("spec: nanoagent.plugin/v0001", "spec: nanoagent.plugin/v0002"))
+
+    assert load_manifest(tmp_path / "echo") == ("loaded by v0002", (tmp_path / "echo").resolve())
+    assert old.spec == "nanoagent.plugin/v0001"
+    assert _ui_file(old.root, manifests.spec_module("nanoagent.plugin/v0002").PAGE, "") == page / "index.html"
+    assert _ui_file(old.root, manifests.spec_module(old.spec).PAGE, "") != page / "index.html"
+
+
+@pytest.mark.parametrize("spec", sorted(SPECS))
+def test_a_spec_is_its_own_folder_importing_only_the_manifest(spec: str) -> None:
+    import ast
+    import importlib
+
+    module = importlib.import_module(SPECS[spec])
+    folder = Path(module.__file__).parent
+    assert module.SPEC == spec and module.PAGE == folder / "page" and (module.PAGE / "index.html").is_file()
+    assert {"load", "verifier_problems", "VERIFIER_IMPORTS"} <= set(vars(module))
+    imported = set()
+    for path in folder.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module)
+            elif isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+    outside = {name for name in imported if name.split(".")[0] == "nanoagent" and not name.startswith(SPECS[spec])}
+    assert outside == {"nanoagent.plugin.manifest"}
 
 
 @pytest.mark.parametrize(

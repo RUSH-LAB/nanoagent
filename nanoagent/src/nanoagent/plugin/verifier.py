@@ -1,30 +1,15 @@
-"""The deterministic verifier every plugin ships as the ``verifier/`` package.
+"""Running a plugin's deterministic verifier, under the rules of the spec the plugin follows.
 
-A verifier is plain code, never a model: the same input (and the same workspace files) must
-always give the same verdict. ``verifier/__init__.py`` defines three functions, each returning
-``valid``/``score``/``message``/``details``; other modules in ``verifier/`` are imported
-relatively (``from .ids import ARXIV_ID``), and the plugin's contract as ``contract``:
-
-    def verify_input(tool, value): ...                                  # tool: its name
-    def verify_output(tool, input_value, output_value, workspace): ...  # workspace: the folder path
-    def verify_task(task, arguments, output, reference, workspace): ...  # once the task is done
-
-Every value is an instance of its contract class (see :mod:`nanoagent.plugin.contract`), already
-checked against its type: a verifier checks what a value means, never its shape.
-``verify_input`` / ``verify_output`` check each tool call; ``verify_task`` checks a task's
-``output``, against ``reference``: the pinned output of the task's reference tool, or None. A result's
-``details`` may hold contract instances and Enum members; they are recorded as their JSON.
-
-Determinism is enforced twice. :func:`check_verifier` reads every module before anything runs:
-each may import only :data:`ALLOWED_IMPORTS`, ``contract`` and its own package, and may not reach builtins that
-load or run code, private attributes, or file-writing methods. Each call then runs in a fresh process (the ``verifier`` helper,
-:mod:`nanoagent.helpers.verifier`) with networking and process launching disabled and new imports
-blocked, and the function is called twice: two different verdicts fail the run.
+What a verifier is, the functions ``verifier/__init__.py`` defines and what its modules may
+import and use, is the spec's (for v0001, :mod:`nanoagent.plugin.v0001.verifier`). Each call
+re-reads the package under those rules, then runs in a fresh process (the ``verifier`` helper,
+:mod:`nanoagent.helpers.verifier`) with networking and process launching disabled and only the
+spec's ``VERIFIER_IMPORTS`` importable, and the function is called twice: two different verdicts
+fail the run. Each argument with a contract class is built into that class first.
 """
 
 from __future__ import annotations
 
-import ast
 import json
 import subprocess
 from dataclasses import asdict, dataclass
@@ -33,77 +18,11 @@ from typing import TYPE_CHECKING, Any
 
 from nanoagent import helpers
 from nanoagent.plugin import sandbox
+from nanoagent.plugin.manifest import spec_module
 
 if TYPE_CHECKING:
     from nanoagent.plugin.manifest import PluginManifest
 
-# Pure, deterministic standard-library modules: no clock, randomness, environment, network or
-# processes.
-ALLOWED_IMPORTS = frozenset(
-    {
-        "__future__",
-        "collections",
-        "dataclasses",
-        "decimal",
-        "difflib",
-        "enum",
-        "fractions",
-        "functools",
-        "hashlib",
-        "itertools",
-        "json",
-        "math",
-        "operator",
-        "pathlib",
-        "re",
-        "statistics",
-        "string",
-        "textwrap",
-        "typing",
-        "unicodedata",
-    }
-)
-# Builtins that load or run code, reach hidden state, or read the terminal.
-FORBIDDEN_NAMES = frozenset(
-    {
-        "__import__",
-        "breakpoint",
-        "compile",
-        "delattr",
-        "eval",
-        "exec",
-        "getattr",
-        "globals",
-        "input",
-        "locals",
-        "open",
-        "setattr",
-        "vars",
-    }
-)
-# Attributes that write files, or reach a module an allowed one imported (`pathlib.os`).
-FORBIDDEN_ATTRIBUTES = frozenset(
-    {
-        "builtins",
-        "chmod",
-        "hardlink_to",
-        "mkdir",
-        "os",
-        "rename",
-        "rmdir",
-        "shutil",
-        "socket",
-        "subprocess",
-        "symlink_to",
-        "sys",
-        "touch",
-        "unlink",
-        "write_bytes",
-        "write_text",
-    }
-)
-# The two functions and their positional parameters.
-SIGNATURES = {"verify_input": 2, "verify_output": 4, "verify_task": 5}
 TIMEOUT = 60.0
 
 
@@ -130,74 +49,8 @@ class Verification:
         return asdict(self)
 
 
-def check_verifier(folder: Path) -> None:
-    """Fail unless the package ``folder`` reads as a deterministic verifier (see the module docstring)."""
-    problems = verifier_problems(folder)
-    if problems:
-        raise ValueError(f"{folder} is not a deterministic verifier: " + "; ".join(problems))
-
-
-def verifier_problems(folder: Path) -> list[str]:
-    """Every way the package ``folder`` falls short of a deterministic verifier."""
-    init = folder / "__init__.py"
-    if not init.is_file():
-        return ["verifier/ has no __init__.py"]
-    problems: list[str] = []
-    for module in sorted(folder.rglob("*.py")):
-        name = f"verifier/{module.relative_to(folder).as_posix()}"
-        try:
-            tree = ast.parse(module.read_text(encoding="utf-8"), filename=str(module))
-        except SyntaxError as error:
-            problems.append(f"{name}:{error.lineno}: not valid Python")
-            continue
-        problems += [f"{name}:{problem}" for problem in _problems(tree)]
-        if module == init:
-            problems += [f"{name}: {problem}" for problem in _missing_functions(tree)]
-    return problems
-
-
-def _problems(tree: ast.Module) -> list[str]:
-    problems: list[str] = []
-    for node in ast.walk(tree):
-        line = getattr(node, "lineno", 0)
-        modules: list[str] = []
-        if isinstance(node, ast.Import):
-            modules = [alias.name for alias in node.names]
-        elif isinstance(node, ast.ImportFrom):
-            if node.level == 0:
-                modules = [node.module or ""]
-            problems += [
-                f"{line}: imports {alias.name!r}"
-                for alias in node.names
-                if alias.name.startswith("_") or alias.name in FORBIDDEN_ATTRIBUTES
-            ]
-        problems += [
-            f"{line}: imports {module!r}"
-            for module in modules
-            if module.split(".")[0] not in ALLOWED_IMPORTS | {"contract"}
-        ]
-        if isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
-            problems.append(f"{line}: uses {node.id}()")
-        if isinstance(node, ast.Attribute) and (
-            node.attr.startswith("_") or node.attr in FORBIDDEN_ATTRIBUTES
-        ):
-            problems.append(f"{line}: uses .{node.attr}")
-    return problems
-
-
-def _missing_functions(tree: ast.Module) -> list[str]:
-    functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
-    problems: list[str] = []
-    for name, count in SIGNATURES.items():
-        function = functions.get(name)
-        if function is None:
-            problems.append(f"defines no {name}()")
-        elif len(function.args.posonlyargs + function.args.args) != count:
-            problems.append(f"{name}() must take {count} positional argument(s)")
-    return problems
-
 def verify_input(manifest: PluginManifest, tool: str, value: dict[str, Any]) -> Verification:
-    return _call(manifest.root, "verify_input", [tool, value], [None, manifest.tool(tool).input_class], None)
+    return _call(manifest, "verify_input", [tool, value], [None, manifest.tool(tool).input_class], None)
 
 
 def verify_output(
@@ -209,7 +62,7 @@ def verify_output(
 ) -> Verification:
     definition = manifest.tool(tool)
     return _call(
-        manifest.root,
+        manifest,
         "verify_output",
         [tool, input_value, output_value, str(workspace.resolve())],
         [None, definition.input_class, definition.output_class, None],
@@ -228,7 +81,7 @@ def verify_task(
     definition = manifest.task(task)
     pinned = None if definition.reference is None else manifest.tool(definition.reference).output_class
     return _call(
-        manifest.root,
+        manifest,
         "verify_task",
         [task, arguments, output, reference, str(workspace.resolve())],
         [None, definition.input_class, definition.output_class, pinned, None],
@@ -237,19 +90,23 @@ def verify_task(
 
 
 def _call(
-    root: Path, name: str, arguments: list[Any], classes: list[str | None], workspace: Path | None
+    manifest: PluginManifest, name: str, arguments: list[Any], classes: list[str | None], workspace: Path | None
 ) -> Verification:
     """Run ``name`` in the sandbox; each argument with a class is built into that contract class.
     The verifier may read ``workspace``, the run's folder, and write nothing."""
-    folder = root.resolve() / "verifier"
-    check_verifier(folder)
+    root = manifest.root.resolve()
+    folder = root / "verifier"
+    rules = spec_module(manifest.spec)
+    problems = rules.verifier_problems(folder)
+    if problems:
+        raise ValueError(f"{folder} is not a deterministic verifier: " + "; ".join(problems))
     request = {
         "verifier": str(folder),
-        "contract": str(root.resolve() / "contract.py"),
+        "contract": str(root / "contract.py"),
         "function": name,
         "arguments": arguments,
         "classes": classes,
-        "modules": sorted(ALLOWED_IMPORTS),
+        "modules": sorted(rules.VERIFIER_IMPORTS),
     }
     readable = [] if workspace is None else [workspace]
     with sandbox.launch(helpers.command("verifier"), root=root, env={}, readable=readable) as (argv, env):

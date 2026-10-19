@@ -38,7 +38,7 @@ from omegaconf import OmegaConf
 from packaging.requirements import InvalidRequirement, Requirement
 from slimconfig import merge_specs
 
-from nanoagent.plugin.contract import CONTRACT
+from nanoagent.plugin.v0001.contract import CONTRACT
 from nanoagent.plugin.manifest import MANIFEST, SPEC, SPECS, TOOL_ARTIFACTS, PluginError, PluginManifest, load_manifest
 
 # What `nanoagent plugin new` copies.

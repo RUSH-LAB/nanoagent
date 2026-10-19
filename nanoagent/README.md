@@ -15,17 +15,19 @@ uv run nanoagent --help
 ## Plugins
 
 Every plugin declares the plugin format it follows, its spec, in `nanoagent.yaml`:
-`spec: nanoagent.plugin/v1`. A spec never changes once released, so a plugin keeps
-running on every NanoAgent that runs its spec, whatever else a release changes.
-NanoAgent runs every spec in `nanoagent.plugin.manifest.SPECS`, each with its own
-module of rules and the classes its files name (`nanoagent.plugin.v1`, so
-`_ > nanoagent.plugin.v1.ManifestConfig:`). A change a plugin could break on (its
-rules, the contract, the verifier, the UI kit or the `nanoagent.ui/v1` bridge) is a
-new spec beside the last, and NanoAgent keeps running the last; it refuses a
-plugin whose spec it does not run, saying which it runs. A plugin made for
-NanoAgent 0.6 or earlier, which named the NanoAgent it was made for
-(`nanoagent: ~=0.6.0`), moves onto `nanoagent.plugin/v1` with
-`nanoagent plugin migrate <folder>`.
+`spec: nanoagent.plugin/v0001`. Each spec is a folder of its own,
+`src/nanoagent/plugin/v0001/`, holding the whole of it: its rules, the classes a
+plugin's files name (`_ > nanoagent.plugin.v0001.ManifestConfig:`) and the page the
+plugin is shown in, `page/` (`index.html` and the UI kit `kit/`). NanoAgent runs
+every spec in `nanoagent.plugin.manifest.SPECS`, and a released spec's folder never
+changes but to close a security hole, so a plugin keeps loading, running and
+looking the same on every NanoAgent that runs its spec, whatever else a release
+changes. A change a plugin could break on (its rules, the contract, the verifier
+or the UI kit) is a new spec, the next folder (`v0002`), and NanoAgent keeps the
+last for at least three minor releases; it refuses a plugin whose spec it does not
+run, saying which it runs. A plugin made for NanoAgent 0.6 or earlier, which named
+the NanoAgent it was made for (`nanoagent: ~=0.6.0`), moves onto
+`nanoagent.plugin/v0001` with `nanoagent plugin migrate <folder>`.
 
 A plugin is a folder with this standard layout
 (`nanoagent.plugin.authoring.STANDARD_FILES` / `STANDARD_FOLDERS`):
@@ -46,8 +48,8 @@ ui/              # how the page draws task outputs: renderers.js and renderers.c
 product/         # the product page: product.yaml and icon.svg
 ```
 
-The rules come in two sets. A spec's rules, in the docstring of its module
-(`nanoagent.plugin.v1`), are what running and listing a plugin rely on: a
+The rules come in two sets. A spec's rules, in the docstring of its package
+(`nanoagent.plugin.v0001`), are what running and listing a plugin rely on: a
 `.env` holding names only, a `contract.py` of declarations only (snake_case
 tools, kebab-case tasks, classes named `...Input` and `...Output`), a
 `nanoagent.yaml` that fills the spec's `ManifestConfig` under slimconfig's
@@ -218,9 +220,9 @@ protocol `nanoagent.ui/v1`. The bridge's methods are `describe`, `prompt`,
 A plugin's `ui/` says how to draw its outputs, and nothing else: an output is
 drawn from its JSON Schema (an object as labelled fields, a list of objects as
 a table, a list as a list, text, links, numbers, yes or no) unless
-`ui/renderers.js` draws its class. NanoAgent serves the page from
-`src/nanoagent/plugin/page/` (`index.html` and the shared UI kit `kit/`), so
-every plugin gets the kit of the NanoAgent serving it, and refuses a plugin
+`ui/renderers.js` draws its class. NanoAgent serves the page from the plugin's
+spec, `src/nanoagent/plugin/v0001/page/` (`index.html` and the UI kit `kit/`),
+so every plugin gets the kit of the spec it was made for, and refuses a plugin
 unless:
 
 - `ui/renderers.js` and `ui/renderers.css` exist, and `ui/` holds no

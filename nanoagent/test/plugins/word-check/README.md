@@ -1,6 +1,6 @@
 # Word Check
 
-NanoAgent's test fixture: a `nanoagent.plugin/v1` plugin, created by
+NanoAgent's test fixture: a `nanoagent.plugin/v0001` plugin, created by
 `nanoagent plugin new`, with one `runner: decide` task. A word is `known` when
 a reference word equals it, `changed` when one equals it ignoring case, `new`
 when none does, and `unreadable` when it is not all letters.

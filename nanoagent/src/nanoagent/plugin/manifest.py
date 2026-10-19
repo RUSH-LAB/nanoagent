@@ -1,11 +1,32 @@
 """A plugin as NanoAgent's hosts see it, whichever spec it follows, and the loader that dispatches on its spec.
 
 A plugin is a folder whose ``nanoagent.yaml`` declares the plugin format it follows, its
-``spec``, such as ``spec: nanoagent.plugin/v1``. :data:`SPECS` holds every spec this NanoAgent
-runs, each with the module that holds its rules and the classes its files name (such as
-:mod:`nanoagent.plugin.v1`). A spec never changes once released, so a plugin keeps running on
-every NanoAgent that lists its spec, whatever else changes between releases; one that names no
-spec this NanoAgent runs is refused, saying which it runs.
+``spec``, such as ``spec: nanoagent.plugin/v0001``. :data:`SPECS` holds every spec this
+NanoAgent runs, each with its folder, a package beside this module (such as
+:mod:`nanoagent.plugin.v0001`) that is the whole spec: the rules a plugin is loaded under, the
+classes its files name, and the page it is shown in. A spec's package defines:
+
+    SPEC              its name, the key in SPECS
+    PAGE              its page folder: index.html and the UI kit, kit/
+    VERIFIER_IMPORTS  the modules a call of the plugin's verifier may import
+    verifier_problems(folder)  every way the plugin's verifier/ breaks the spec's rules
+    load(root)        the plugin folder as a PluginManifest, or PluginError
+
+and imports nothing of NanoAgent's but this module. So a plugin keeps loading, running and
+looking as it did on every NanoAgent that lists its spec, whatever else changes between
+releases; one that names no spec this NanoAgent runs is refused, saying which it runs.
+
+How specs change:
+
+- A released spec's folder never changes, with one exception: a rule that closes a security
+  hole tightens it in place, in a CHANGELOG entry of its own, and a published plugin that breaks
+  the tightened rule is refused until its author publishes it again.
+- Anything else a plugin could break on, a rule, a class its files name or the page kit's
+  modules, is a new spec: the next folder (``v0002`` after ``v0001``), copied from the newest,
+  added to SPECS, made :data:`SPEC`, with ``nanoagent plugin migrate`` moving a plugin from the
+  spec before it (:mod:`nanoagent.plugin.authoring`).
+- A spec stays in SPECS for at least three NanoAgent minor releases after the next one is
+  released; its removal is a CHANGELOG entry of its own.
 
 :func:`load_manifest` loads a plugin under its spec's rules into one :class:`PluginManifest`,
 what the runtime, the verifier and the web host read, or raises :class:`PluginError` listing
@@ -19,6 +40,7 @@ import importlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 from omegaconf import OmegaConf
@@ -26,14 +48,12 @@ from slimconfig import merge_specs
 
 PLUGIN_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 MANIFEST = "nanoagent.yaml"
-# Every spec this NanoAgent runs, and the module that loads a plugin following it.
-SPECS = {"nanoagent.plugin/v1": "nanoagent.plugin.v1"}
-# The spec `nanoagent plugin new` writes and `nanoagent plugin migrate` moves a plugin to.
-SPEC = "nanoagent.plugin/v1"
+# Every spec this NanoAgent runs, and its package.
+SPECS = {"nanoagent.plugin/v0001": "nanoagent.plugin.v0001"}
+# The newest spec: the one `nanoagent plugin new` writes and `nanoagent plugin migrate` moves a plugin to.
+SPEC = "nanoagent.plugin/v0001"
 # The tool NanoAgent gives an agent task's agent, taking the task's output (nanoagent.plugin.tasks).
 SUBMIT = "submit"
-# The frame NanoAgent serves every plugin's ui/ in: index.html and the shared UI kit, kit/.
-PAGE = Path(__file__).with_name("page")
 # What git, uv, Python and the test tools create in a checkout, and the coding agents' instructions
 # (AGENTS.md, CLAUDE.md, GEMINI.md, which RUSH Lab writes into a project): allowed at the top level
 # and anywhere else, never checked, never packed.
@@ -168,14 +188,19 @@ class PluginManifest:
         }
 
 
+def spec_module(spec: str) -> ModuleType:
+    """The package of ``spec``, one of :data:`SPECS`."""
+    return importlib.import_module(SPECS[spec])
+
+
 def is_page_path(relative: str) -> bool:
-    """Whether ``relative``, a path in ``ui/``, is :data:`PAGE`'s: ``index.html`` or in ``kit/``."""
+    """Whether ``relative``, a path in ``ui/``, is the page's: ``index.html`` or in ``kit/``."""
     return relative == "index.html" or relative.split("/", 1)[0] == "kit"
 
 
-def page_files() -> list[Path]:
-    """:data:`PAGE`'s files: ``index.html`` and ``kit/``."""
-    return [PAGE / "index.html", *sorted(path for path in (PAGE / "kit").rglob("*") if path.is_file() and not TOOL_ARTIFACTS & set(path.parts))]
+def page_files(page: Path) -> list[Path]:
+    """The files of a spec's page folder ``page``: ``index.html`` and ``kit/``."""
+    return [page / "index.html", *sorted(path for path in (page / "kit").rglob("*") if path.is_file() and not TOOL_ARTIFACTS & set(path.parts))]
 
 
 def ui_files(ui: Path) -> list[Path]:
@@ -216,4 +241,4 @@ def load_manifest(source: str | Path) -> PluginManifest:
     root = Path(source).expanduser().resolve()
     if not root.is_dir():
         raise FileNotFoundError(f"plugin folder not found: {root}")
-    return importlib.import_module(SPECS[plugin_spec(root)]).load(root)
+    return spec_module(plugin_spec(root)).load(root)

@@ -40,6 +40,7 @@ function fakeApps(overrides = {}) {
     add: async (context, id) => { calls.push(['add', id]); return {value: APP}; },
     tag: async (context, id, tags) => { calls.push(['tag', id, tags]); return id === 'echo'; },
     remove: async (context, id) => { calls.push(['remove', id]); return id === 'echo'; },
+    refusal: async () => ({value: null}),
     open: async (context, id) => {
       calls.push(['open', id]);
       return {value: {...APP, id, uiVersion: '0123456789abcdef'}};
@@ -321,6 +322,18 @@ describe('an app\'s sessions', () => {
     assert.deepEqual(ctx.sessions.created, ['echo']);
     const read = await invoke(routes, {method: 'GET', path: `${PATH}/${SESSION}`, ctx, requestContext: context});
     assert.deepEqual(read.payload.session.calls, []);
+  });
+
+  it('starts no session with a version NanoAgent refuses, whose sessions it still lists, reads and archives', async () => {
+    const ctx = ctxWith({});
+    ctx.workspaceApps.refusal = async () => ({value: 'the package is refused: made for 0.6'});
+    const started = await invoke(routes, {method: 'POST', path: PATH, ctx, requestContext: context});
+    assert.equal(started.status, 409);
+    assert.match(started.payload.error, /^echo is outdated: /);
+    assert.deepEqual(ctx.sessions.created, []);
+    assert.equal((await invoke(routes, {method: 'GET', path: PATH, ctx, requestContext: context})).status, 200);
+    assert.equal((await invoke(routes, {method: 'GET', path: `${PATH}/${SESSION}`, ctx, requestContext: context})).status, 200);
+    assert.equal((await invoke(routes, {method: 'PATCH', path: `${PATH}/${SESSION}`, body: {archived: true}, ctx, requestContext: context})).status, 200);
   });
 
   it('refuses to change a session, and any id that is not one', async () => {

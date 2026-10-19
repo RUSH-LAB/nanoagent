@@ -40,8 +40,8 @@ export function pluginNavigation(apps, search, base) {
     links: plugins.map(item => ({
       id: item.id,
       title: item.name,
-      // A plugin Mochi's NanoAgent no longer runs is outdated; one not ready otherwise is under maintenance.
-      badge: item.status === 'ready' ? null : item.status === 'refused' ? 'outdated' : 'maintenance',
+      // An outdated plugin (`refused`) opens as one that runs, its page saying so; one not ready otherwise is under maintenance.
+      badge: item.status === 'ready' || item.status === 'refused' ? null : 'maintenance',
       permalink: appHref(item),
     })),
     appHref,

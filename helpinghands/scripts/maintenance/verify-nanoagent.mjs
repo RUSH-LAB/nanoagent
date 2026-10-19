@@ -242,9 +242,9 @@ async function main() {
         installed = plugin;
       },
       async installUiFile() {
-        // The page is NanoAgent's own (plugin/page/); the plugin's ui/ holds the rest.
+        // The page is the plugin's spec's (plugin/v0001/page/); the plugin's ui/ holds the rest.
         const page = ok(await gateway.installUiFile(offered.sha256, installed.uiVersion, 'index.html'));
-        assert.deepEqual(page, fs.readFileSync(path.join(nanoagentProject, 'src', 'nanoagent', 'plugin', 'page', 'index.html')));
+        assert.deepEqual(page, fs.readFileSync(path.join(nanoagentProject, 'src', 'nanoagent', 'plugin', 'v0001', 'page', 'index.html')));
         const files = fs.readdirSync(ui, {recursive: true}).filter(file => fs.statSync(path.join(ui, file)).isFile());
         assert.ok(files.length > 0, `${folder}/ui holds no file`);
         for (const file of files) {

@@ -100,7 +100,7 @@ A page is served from one URL folder, `ui/{uiVersion}/`, holding NanoAgent's pag
 plugin's renderers:
 
 ```
-src/nanoagent/plugin/page/   NanoAgent's, served to every plugin
+src/nanoagent/plugin/v0001/page/   the spec's, served to every v0001 plugin
   index.html     loads kit/kit.css, preloads renderers.css, loads kit/boot.js as a module
   kit/
     boot.js        mounts the page with renderers.js's default export

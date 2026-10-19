@@ -24,9 +24,10 @@ import { currentSession, metricsLine } from "./session.js";
  *   One entry per task id: its chip's `label` and `title`, and `draw`, which draws what the task
  *   returned. `send` sends a message as if the person typed it, e.g. from a card's button.
  * @param {(node: Node) => void} options.show Draws a task's result beside the chat.
+ * @param {boolean} [options.closed] Whether the conversation is only read: it has no message box.
  * @returns {{element: HTMLElement, busy: () => boolean}} `busy` is true while a message is being answered.
  */
-export function chatPanel({ intro, placeholder, tasks, show }) {
+export function chatPanel({ intro, placeholder, tasks, show, closed = false }) {
   const log = h("div", { class: "chat-log", role: "log", "aria-live": "polite" }, intro);
   const input = h("textarea", { class: "input", rows: 2, placeholder, "aria-label": placeholder });
   const sendButton = h("button", { type: "button", class: "button primary", text: "Send" });
@@ -101,7 +102,7 @@ export function chatPanel({ intro, placeholder, tasks, show }) {
   };
   async function submit(typed) {
     const text = (typed ?? input.value).trim();
-    if (!text || sendButton.disabled) return;
+    if (!text || sendButton.disabled || closed) return;
     if (typed === undefined) input.value = "";
     await answer(text, (onEvent) => startRun("prompt", { text }, onEvent));
   }
@@ -285,8 +286,9 @@ export function chatPanel({ intro, placeholder, tasks, show }) {
   const running = currentSession()?.running;
   if (running) answer(running.prompt, (onEvent) => startRun("follow", {}, onEvent));
 
+  const box = closed ? null : h("div", { class: "chat-input" }, input, h("div", { class: "chat-buttons" }, stop, sendButton));
   return {
     busy: () => sendButton.disabled,
-    element: h("section", { class: "chat", "aria-label": "Chat" }, log, h("div", { class: "chat-input" }, input, h("div", { class: "chat-buttons" }, stop, sendButton))),
+    element: h("section", { class: "chat", "aria-label": "Chat" }, log, box),
   };
 }

@@ -66,7 +66,7 @@ class PluginRunConfig(Config):
     plugin: str = MISSING
     # One of the plugin's tasks whose runner is `tool`.
     task: str = MISSING
-    # The task's input: a JSON file of its contract input class (see nanoagent.plugin.contract).
+    # The task's input: a JSON file of its contract input class (see nanoagent.plugin.v0001.contract).
     arguments: str = MISSING
     # Files the task reads, copied to workspace/inputs/<file name>; [] for none.
     inputs: list[str] = MISSING

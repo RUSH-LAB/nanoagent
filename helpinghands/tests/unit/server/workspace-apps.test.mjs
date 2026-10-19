@@ -47,6 +47,10 @@ describe('a member\'s apps', () => {
       installs.set(sha256, plugin);
       return {value: {plugin}};
     },
+    viewPackage: async (sha256, data) => {
+      sent.push([sha256, data.toString()]);
+      return {value: {view: {sha256, uiVersion: 'fedcba9876543210'}}};
+    },
   };
 
   let pool;
@@ -187,5 +191,16 @@ describe('a member\'s apps', () => {
     assert.deepEqual((await apps.list(as('vic'))).value.map(app => [app.version, app.status]), [['1.0.0', 'ready']]);
     assert.deepEqual(await apps.prepare(as('bob'), computer), {value: []});
     assert.deepEqual([inspected.get(legacy.sha256), inspected.get(stale.sha256)], [1, 1]);
+    // Opened, the refused version is its page alone, to read its sessions; it takes no run.
+    sent.length = 0;
+    const opened = (await apps.open(as('bob'), 'legacy', computer)).value;
+    assert.deepEqual(
+      [opened.version, opened.sha256, opened.uiVersion, opened.status, opened.refusal, opened.name],
+      ['1.1.0', stale.sha256, 'fedcba9876543210', 'refused', 'the package is refused: unexpected run.sh', 'Legacy'],
+    );
+    assert.deepEqual(sent, [[stale.sha256, 'legacy package with run.sh']]);
+    assert.deepEqual(await apps.refusal(as('bob'), 'legacy'), {value: 'the package is refused: unexpected run.sh'});
+    assert.deepEqual(await apps.refusal(as('vic'), 'legacy'), {value: null});
+    assert.deepEqual(await apps.refusal(as('vic'), 'bibtex-check'), {error: 'You have not installed a plugin named bibtex-check', status: 404});
   });
 });

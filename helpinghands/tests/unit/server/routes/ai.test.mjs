@@ -317,6 +317,9 @@ describe('POST /api/ai/stream', () => {
     open: async (_context, id) => (id === 'arxiv-source'
       ? {value: {id, sha256: SHA}}
       : {error: `This workspace has no plugin named ${id}`, status: 404}),
+    refusal: async (_context, id) => (id === 'arxiv-source'
+      ? {value: null}
+      : {error: `This workspace has no plugin named ${id}`, status: 404}),
   };
 
   /** A ctx with the workspace's one app, sessions, and plugin runs. */
@@ -422,6 +425,14 @@ describe('POST /api/ai/stream', () => {
     const r = await ask({body: {prompt: 'p', appId: 'echo', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
     assert.equal(r.status, 404);
     assert.equal(r.payload.error, 'This workspace has no plugin named echo');
+  });
+
+  it('runs no app prompt on a version NanoAgent refuses', async () => {
+    const ctx = appCtx();
+    ctx.workspaceApps = {...workspaceApps, refusal: async () => ({value: 'the package is refused: made for 0.6'}), open: async () => assert.fail('must not open it')};
+    const r = await ask({body: {prompt: 'p', appId: 'arxiv-source', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
+    assert.equal(r.status, 409);
+    assert.match(r.payload.error, /^arxiv-source is outdated: .*sessions can be read but not continued \(the package is refused: made for 0\.6\)$/);
   });
 
   it('refuses an app prompt without the workspace file system, to a viewer as to an editor', async () => {

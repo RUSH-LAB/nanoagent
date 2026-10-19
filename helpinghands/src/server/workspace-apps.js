@@ -14,7 +14,9 @@ const {checkUpload, checkedUploads} = require('./market-checks');
  * NanoAgent installs a package by its sha256 and keeps it until
  * it restarts; opening an app sends the package when NanoAgent has no install
  * of it, which takes as long as building the plugin's environment, once.
- * An upload Mochi's NanoAgent refuses (market-checks.js) is `refused`: listed, never installed.
+ * An upload Mochi's NanoAgent refuses (market-checks.js) is `refused`: listed, never installed,
+ * and opened as its page alone (NanoAgent's view of the package), so the member reads the
+ * sessions they had with it and starts none until they run a version NanoAgent accepts.
  */
 function createWorkspaceApps({ai, market, plugins}) {
   /** Every plugin a member may install, by id: `{value: Map<id, {source, entry}>}` or `{error, status}`. */
@@ -39,6 +41,14 @@ function createWorkspaceApps({ai, market, plugins}) {
     if (!data.value) return {error: `${entry.id} is no longer in the marketplace`, status: 404};
     const put = await on.installPackage(entry.sha256, data.value);
     return put.error ? put : {value: put.value.plugin};
+  }
+
+  /** The view of the upload `entry`'s package on the NanoAgent `on`: its page alone, `{value: {uiVersion}}`. */
+  async function viewed(on, userId, entry) {
+    const data = (await market.get(userId, entry.id, entry.version))?.package;
+    if (!data) return {error: `${entry.id} ${entry.version} is no longer in the marketplace`, status: 404};
+    const put = await on.viewPackage(entry.sha256, data);
+    return put.error ? put : {value: put.value.view};
   }
 
   /**
@@ -123,6 +133,18 @@ function createWorkspaceApps({ai, market, plugins}) {
       return checked(context.userId, app(await plugins.get(context, id), offered.value.get(id)));
     },
 
+    /**
+     * Why the caller's plugin `id` may not run as they have it: `{value}`, NanoAgent's refusal
+     * of the upload's version they run (market-checks.js), or null for one that runs; or `{error, status}`.
+     */
+    async refusal(context, id) {
+      const added = await plugins.get(context, id);
+      if (!added) return {error: `You have not installed a plugin named ${id}`, status: 404};
+      if (added.source !== 'upload') return {value: null};
+      const checked = await checkUpload({ai, market}, context.userId, {id, version: added.version, sha256: added.sha256});
+      return checked.error ? checked : {value: checked.value.status === 'refused' ? checked.value.refusal : null};
+    },
+
     /** Replace the tags the caller files their plugin `id` under: whether they have one. */
     tag: (context, id, tags) => plugins.tag(context, id, tags),
 
@@ -133,7 +155,8 @@ function createWorkspaceApps({ai, market, plugins}) {
      * The caller's app `id`, installed and ready to run on the NanoAgent `on`
      * (the member's own computer's): its catalog entry, with the `sha256` its runs and page are
      * addressed by and its `uiVersion`, and for an upload `versionOf` it; or
-     * `{error, status}`, 404 for a plugin the caller did not install.
+     * `{error, status}`, 404 for a plugin the caller did not install. An upload whose version
+     * NanoAgent refuses is its page alone, `refused` with its `refusal`, and never installed.
      */
     async open(context, id, on) {
       const added = await plugins.get(context, id);
@@ -146,6 +169,18 @@ function createWorkspaceApps({ai, market, plugins}) {
         entry = builtIn.value.packages.find(found => found.id === id);
         if (!entry) return {error: `${id} is no longer in the marketplace`, status: 404};
       }
+      if (added.source === 'upload') {
+        const checked = await checkUpload({ai, market}, context.userId, entry);
+        if (checked.error) return checked;
+        if (checked.value.status === 'refused') {
+          const view = await viewed(on, context.userId, entry);
+          if (view.error) return view;
+          return {value: {
+            ...added.entry, sha256: added.sha256, uiVersion: view.value.uiVersion, status: 'refused', refusal: checked.value.refusal,
+            source: added.source, ...versionOf(added),
+          }};
+        }
+      }
       const result = await installed(on, context.userId, added.source, entry);
       if (result.error) return result;
       return {value: {...result.value, source: added.source, ...(added.source === 'upload' ? versionOf(added) : {})}};
@@ -153,4 +188,7 @@ function createWorkspaceApps({ai, market, plugins}) {
   });
 }
 
-module.exports = {createWorkspaceApps};
+/** Why the plugin `id`, at a version NanoAgent refuses (`refusal`), takes no new session or message. */
+const outdated = (id, refusal) => `${id} is outdated: this version no longer runs here, so its sessions can be read but not continued (${refusal})`;
+
+module.exports = {createWorkspaceApps, outdated};

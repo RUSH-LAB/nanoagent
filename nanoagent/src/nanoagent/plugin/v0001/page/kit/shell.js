@@ -82,10 +82,10 @@ function homePage(plugin, ...children) {
  * A session: a chat with the plugin's agent on the left, and on the right the result of the task
  * picked in it. Each of the agent's tools is one of the plugin's tasks, and each task it runs shows
  * as a result card: its output, drawn by the plugin's renderer for its output class or from its
- * JSON Schema, and its verdict.
+ * JSON Schema, and its verdict. With `closed`, the chat is only read.
  * @returns {{element: HTMLElement, busy: () => boolean}} `busy` is true while its chat is being answered.
  */
-function sessionPage(plugin, renderers) {
+function sessionPage(plugin, renderers, closed) {
   const results = resultsPane();
   const tasks = Object.fromEntries(
     plugin.tasks.map((task) => [
@@ -100,7 +100,7 @@ function sessionPage(plugin, renderers) {
     h("h1", { text: plugin.name }),
     h("p", { class: "muted", text: plugin.product.summary }),
   );
-  const chat = chatPanel({ intro, placeholder: `Tell ${plugin.name} what you need`, tasks, show: results.show });
+  const chat = chatPanel({ intro, placeholder: `Tell ${plugin.name} what you need`, tasks, show: results.show, closed });
   return { element: h("div", { class: "chat-page" }, chat.element, results.element), busy: chat.busy };
 }
 
@@ -131,7 +131,7 @@ function withTimeout(promise, ms, message) {
 /**
  * The tabs over every plugin's page: its Dashboard, and its Session, the session open in it or,
  * with none open, a new one.
- * @returns {{element: HTMLElement, select: (tab: "dashboard"|"session") => void, onPick: (tab: string) => void}}
+ * @returns {{element: HTMLElement, select: (tab: "dashboard"|"session") => void, reveal: (tab: string, shown: boolean) => void, onPick: (tab: string) => void}}
  */
 function frameTabs() {
   const tabs = {};
@@ -146,6 +146,9 @@ function frameTabs() {
     select(tab) {
       for (const [id, button] of Object.entries(tabs)) button.setAttribute("aria-selected", String(id === tab));
     },
+    reveal(tab, shown) {
+      tabs[tab].hidden = !shown;
+    },
   };
   return frame;
 }
@@ -153,9 +156,9 @@ function frameTabs() {
 /**
  * Connect to the host and show the page: asks the host to `describe` the plugin, applies its
  * theme (and follows `host.theme`), then shows the Dashboard, where people resume a session or
- * start a new one. A session is the chat; the host keeps its conversation, so a resumed session
- * shows it again. A page opened outside a host, or a host that doesn't answer within 10 s, gets a
- * plain message instead.
+ * start a new one; for a version the host no longer runs, only resume one, to read it. A session
+ * is the chat; the host keeps its conversation, so a resumed session shows it again. A page opened
+ * outside a host, or a host that doesn't answer within 10 s, gets a plain message instead.
  * @param {Record<string, (value: unknown, context: {task: object, verdict: object, send: (text: string) => void}) => Node>} renderers
  *   ui/renderers.js's default export: a renderer per output class name.
  */
@@ -184,8 +187,10 @@ export async function mountApp(renderers) {
     return;
   }
 
+  // A version the host no longer runs (`status` "refused") keeps its sessions to read, and starts none.
+  const closed = plugin.status === "refused";
   const tabs = frameTabs();
-  const board = dashboard({ onOpen: (opened) => openSession(opened) });
+  const board = dashboard({ onOpen: (opened) => openSession(opened), closed });
   const home = homePage(plugin, board.element);
   const page = h("div", { class: "kit-session", hidden: true });
   let open = false;
@@ -217,16 +222,19 @@ export async function mountApp(renderers) {
       }
     }
     if (!shown) {
-      shown = { session, ...sessionPage(plugin, renderers) };
+      shown = { session, ...sessionPage(plugin, renderers, closed) };
       pages.add(shown);
       page.append(shown.element);
     }
     for (const one of pages) one.element.hidden = one !== shown;
     open = true;
+    tabs.reveal("session", true);
     show("session");
   }
 
   root.replaceChildren(tabs.element, home, page);
+  // With no new session to start, Session shows only once one is opened.
+  tabs.reveal("session", !closed);
   show("dashboard");
   board.refresh();
 }

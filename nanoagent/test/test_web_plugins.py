@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import sys
+import tarfile
 import time
 from pathlib import Path
 
@@ -372,6 +374,41 @@ def test_serves_the_plugin_front_end_confined_to_the_bridge(client: TestClient) 
     assert client.get(f"/v1/installs/{SHA}/ui/{plugin['uiVersion']}/index.html").status_code == 404
     client.headers.pop("Authorization")
     assert client.get(f"{ui}/index.html").status_code == 401
+
+
+def _made_for_0_5(root: Path) -> bytes:
+    """The echo plugin packed as NanoAgent 0.5 made it, before plugins declared their spec."""
+    write_plugin(root)
+    manifest = root / "nanoagent.yaml"
+    manifest.write_text(manifest.read_text().replace("spec: nanoagent.plugin/v0001", "nanoagent: ~=0.5.0").replace("nanoagent.plugin.v0001.", "nanoagent.plugin.manifest."))
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        archive.add(root, arcname="echo")
+    return buffer.getvalue()
+
+
+def test_views_the_page_of_a_package_it_refuses_running_none_of_it(client: TestClient, tmp_path: Path) -> None:
+    from nanoagent.web.app import UI_POLICY
+
+    data = _made_for_0_5(tmp_path / "old" / "echo")
+    sha = hashlib.sha256(data).hexdigest()
+    assert client.put(f"/v1/installs/{sha}", content=data).status_code == 422
+    viewed = client.put(f"/v1/views/{sha}", content=data)
+    assert viewed.status_code == 200, viewed.text
+    version = viewed.json()["view"]["uiVersion"]
+    assert viewed.json()["view"] == {"sha256": sha, "uiVersion": version} and len(version) == 16
+    assert client.put(f"/v1/views/{sha}", content=data).json()["view"]["uiVersion"] == version
+    ui = f"/v1/installs/{sha}/ui/{version}"
+    page = client.get(f"{ui}/index.html")
+    assert page.status_code == 200 and page.headers["content-security-policy"] == UI_POLICY
+    assert client.get(f"{ui}/renderers.js").text == (tmp_path / "old" / "echo" / "ui" / "renderers.js").read_text()
+    assert client.get(f"{ui}/../nanoagent.yaml").status_code == 404
+    # Nothing of it is installed, so nothing of it runs.
+    assert client.get(f"/v1/installs/{sha}").status_code == 404
+    assert client.post(f"/v1/workspaces/alice/installs/{sha}/runs", json={"input": "x"}).status_code == 404
+    assert client.put(f"/v1/views/{SHA}", content=data).status_code == 422
+    client.headers.pop("Authorization")
+    assert client.put(f"/v1/views/{sha}", content=data).status_code == 401
 
 
 def test_a_reference_tool_sees_the_workspace_files(tmp_path: Path) -> None:

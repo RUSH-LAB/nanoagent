@@ -115,6 +115,12 @@ function callsTable(calls) {
   });
 }
 
+/** What the dashboard's list says with no session in view. */
+function emptyText(archived, closed) {
+  if (archived) return closed ? "Every session is archived." : "Every session is archived. Start a new one with New session.";
+  return closed ? "No sessions." : "No sessions yet. Start one with New session.";
+}
+
 /**
  * The dashboard: the person's sessions with this plugin, newest first, and what they cost in
  * all; from here they start a new session or resume one, open a session's runs, and archive a
@@ -123,14 +129,15 @@ function callsTable(calls) {
  * @param {object} options
  * @param {(session: object|null) => void} options.onOpen With what `session.resume` answered,
  *   or null for a new session.
+ * @param {boolean} [options.closed] Whether no new session may start: the sessions are only read.
  * @returns {{element: HTMLElement, refresh: () => Promise<void>}} `refresh` lists the sessions again.
  */
-export function dashboard({ onOpen }) {
+export function dashboard({ onOpen, closed = false }) {
   const stats = h("dl", { class: "session-stats" });
   const status = h("p", { class: "error-text", role: "alert" });
   const list = h("ul", { class: "session-list" });
   const heading = h("h2", { text: "Sessions" });
-  const newButton = h("button", { type: "button", class: "button small", onclick: () => onOpen(null) }, icon("plus", { size: 16 }), "New session");
+  const newButton = h("button", { type: "button", class: "button small", hidden: closed, onclick: () => onOpen(null) }, icon("plus", { size: 16 }), "New session");
   const viewButton = h("button", { type: "button", class: "button small ghost", hidden: true });
   let archivedView = false;
   viewButton.addEventListener("click", () => {
@@ -225,7 +232,7 @@ export function dashboard({ onOpen }) {
     list.replaceChildren(
       ...(newest.length
         ? newest.map(row)
-        : [h("li", { class: "session-empty", text: archived.length ? "Every session is archived. Start a new one with New session." : "No sessions yet. Start one with New session." })]),
+        : [h("li", { class: "session-empty", text: emptyText(archived.length, closed) })]),
     );
   }
 

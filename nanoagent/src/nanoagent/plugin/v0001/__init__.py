@@ -1,11 +1,15 @@
-"""``nanoagent.plugin/v1``, the plugin format a ``nanoagent.yaml`` declares with ``spec: nanoagent.plugin/v1``.
+"""``nanoagent.plugin/v0001``, the plugin format a ``nanoagent.yaml`` declares with ``spec: nanoagent.plugin/v0001``.
 
-A spec never changes once released. Every NanoAgent that lists it in
-:data:`nanoagent.plugin.manifest.SPECS` loads a v1 plugin under exactly these rules, and the
-classes ``nanoagent.yaml`` and ``product/product.yaml`` name stay here as they are: a change a v1
-plugin could break on is a new spec beside this one. These are the rules running and listing a
-plugin rely on; what NanoAgent's template holds a plugin to as it is made and published is
-:mod:`nanoagent.plugin.authoring`'s.
+This folder is the whole spec: its rules (this module, :mod:`.contract`, :mod:`.verifier` and
+:mod:`.dataflow`), the classes ``nanoagent.yaml`` and ``product/product.yaml`` name, and the page
+every v0001 plugin is shown in, :data:`PAGE` (``page/``: ``index.html`` and the UI kit ``kit/``).
+It imports nothing of NanoAgent's but :mod:`nanoagent.plugin.manifest`, the shape every spec
+loads a plugin into. Once released it never changes but to close a security hole (see
+:mod:`nanoagent.plugin.manifest`), so every NanoAgent that lists it in
+:data:`nanoagent.plugin.manifest.SPECS` loads and shows a v0001 plugin exactly as the first did;
+a change a v0001 plugin could break on is a new spec, a folder beside this one. These are the
+rules running and listing a plugin rely on; what NanoAgent's template holds a plugin to as it is
+made and published is :mod:`nanoagent.plugin.authoring`'s.
 
 :func:`load` loads a plugin folder only when every rule holds, and otherwise raises
 :class:`PluginError` listing every broken rule at once:
@@ -14,11 +18,11 @@ plugin rely on; what NanoAgent's template holds a plugin to as it is made and pu
    :data:`REQUIRED_FOLDERS`, and ``src/`` holds at least one file.
 2. ``.env`` lists the environment variables the plugin needs: one ``NAME`` per line, no values.
 3. ``contract.py`` declares every tool's and task's typed input and output, and nothing but
-   declarations (see :mod:`nanoagent.plugin.contract`). A tool is named in snake_case
+   declarations (see :mod:`.contract`). A tool is named in snake_case
    (:data:`TOOL_NAME`) and a task in kebab-case, like a plugin id; every input class's name ends
    in ``Input`` and every output class's in ``Output``.
 4. ``nanoagent.yaml`` fills :class:`ManifestConfig` under slimconfig's rules: it names its class
-   (``_ > nanoagent.plugin.v1.ManifestConfig:``), sets every field and no other, and its
+   (``_ > nanoagent.plugin.v0001.ManifestConfig:``), sets every field and no other, and its
    ``tools`` and ``tasks`` are tables keyed by the contract's ``Tool`` and ``Task``. Its ``spec``
    is :data:`SPEC`, ``version`` is a PEP 440 version, and ``runtime.command`` is
    :data:`RUNTIME_COMMAND`, the plugin's own MCP server run from its locked environment.
@@ -29,14 +33,14 @@ plugin rely on; what NanoAgent's template holds a plugin to as it is made and pu
    that) or ``decide`` (a model only decides: every tool argument and every output field is
    chosen from an Enum or bool, or copied or picked from a value of exactly its type in the
    task's input or an earlier output of one of the task's tools, never the reference tool's;
-   see :mod:`nanoagent.plugin.dataflow`). A ``reference`` tool, when set, takes the task's input
+   see :mod:`.dataflow`). A ``reference`` tool, when set, takes the task's input
    and is not one of the task's tools: NanoAgent runs it before the task and pins its output for
    :func:`verify_task`.
-6. ``verifier/`` is a deterministic verifier package (see :mod:`nanoagent.plugin.verifier`).
+6. ``verifier/`` is a deterministic verifier package (see :mod:`.verifier`).
 7. ``ui/`` is how the plugin's page draws its outputs: ``ui/renderers.js``, ``ui/renderers.css``
    and the static files they load, only :data:`UI_SUFFIXES` and at most :data:`UI_MAX_BYTES` in
-   total. Every plugin's page is NanoAgent's, :data:`PAGE` (``index.html`` and the shared UI kit
-   ``kit/``, whose modules are part of this spec): a chat with the plugin's agent, in which each
+   total. Every plugin's page is this spec's, :data:`PAGE` (``index.html`` and the UI kit
+   ``kit/``): a chat with the plugin's agent, in which each
    task it runs shows its output, drawn by ``renderers.js`` or from the output's JSON Schema. So
    ``ui/`` holds no ``index.html`` or ``kit/``, and no ``app.js`` or ``app.css``, a page of its
    own. A host shows the page in a sandboxed frame that talks to NanoAgent only through the
@@ -51,7 +55,7 @@ plugin rely on; what NanoAgent's template holds a plugin to as it is made and pu
    Content-Security-Policy for the page (``nanoagent.web.app.UI_POLICY``) refuses it the network.
 8. ``product/`` is the plugin's product page, what a catalog shows people before they open it,
    and holds :data:`PRODUCT_FILES`. ``product.yaml`` fills :class:`ProductConfig`
-   (``_ > nanoagent.plugin.v1.ProductConfig:``): a tagline, a summary, 2 to 4 highlights and 2 to
+   (``_ > nanoagent.plugin.v0001.ProductConfig:``): a tagline, a summary, 2 to 4 highlights and 2 to
    5 steps, none blank. ``icon.svg`` is the app's icon: an SVG of at most :data:`ICON_MAX_BYTES`
    that draws only, with no script, event handler, embedded content or link outside itself.
 
@@ -75,11 +79,8 @@ from omegaconf import MISSING
 from packaging.version import InvalidVersion, Version
 from slimconfig import Config, load_config, output_schema
 
-from nanoagent.plugin.contract import CONTRACT, contract_module, contract_problems, read_contract
-from nanoagent.plugin.dataflow import unfillable
 from nanoagent.plugin.manifest import (
     MANIFEST,
-    PAGE,
     PLUGIN_ID,
     SUBMIT,
     Permissions,
@@ -91,19 +92,25 @@ from nanoagent.plugin.manifest import (
     is_page_path,
     ui_files,
 )
-from nanoagent.plugin.verifier import verifier_problems
+from nanoagent.plugin.v0001.contract import CONTRACT, contract_module, contract_problems, read_contract
+from nanoagent.plugin.v0001.dataflow import unfillable
+from nanoagent.plugin.v0001.verifier import ALLOWED_IMPORTS, verifier_problems
 
-SPEC = "nanoagent.plugin/v1"
+SPEC = "nanoagent.plugin/v0001"
+# The page every v0001 plugin is shown in: index.html and the UI kit, kit/ (rule 7).
+PAGE = Path(__file__).with_name("page")
+# What NanoAgent lets a verifier call import as it runs (rule 6).
+VERIFIER_IMPORTS = ALLOWED_IMPORTS
 TASK_ID = PLUGIN_ID
 TOOL_NAME = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 # How every plugin's MCP server starts, in the plugin folder, from its uv.lock.
 RUNTIME_COMMAND = ("uv", "run", "--frozen", "python", "-m", "plugin")
 ENV_NAME = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 HOSTNAME = re.compile(r"^[^/:\s]+$")  # a hostname only: no scheme, port, or path
-# What running and listing a plugin read: every v1 plugin has these at its root.
+# What running and listing a plugin read: every v0001 plugin has these at its root.
 REQUIRED_FILES = (
     MANIFEST,
-    CONTRACT,  # every tool's and task's typed input and output (see nanoagent.plugin.contract)
+    CONTRACT,  # every tool's and task's typed input and output (see .contract)
     "README.md",
     "LICENSE",  # the terms the plugin is shared under
     "pyproject.toml",
@@ -112,8 +119,8 @@ REQUIRED_FILES = (
 )
 REQUIRED_FOLDERS = (
     "src",
-    "verifier",  # the deterministic verifier package (see nanoagent.plugin.verifier)
-    "ui",  # how the plugin's page draws its outputs, ui/renderers.js, served in NanoAgent's PAGE
+    "verifier",  # the deterministic verifier package (see .verifier)
+    "ui",  # how the plugin's page draws its outputs, ui/renderers.js, served in PAGE
     "product",  # the product page a catalog shows: product.yaml and icon.svg
 )
 PRODUCT = "product/product.yaml"
