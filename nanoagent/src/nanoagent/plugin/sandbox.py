@@ -194,7 +194,8 @@ def _seatbelt(
         **({"UV_PYTHON_INSTALL_DIR": os.environ["UV_PYTHON_INSTALL_DIR"]} if os.environ.get("UV_PYTHON_INSTALL_DIR") else {}),
         **env,
     }
-    return ["/usr/bin/sandbox-exec", "-p", profile, "/usr/bin/env", "-C", str(root), *argv], inside
+    # In `root`, through sh: macOS's env has -C only since macOS 15.
+    return ["/usr/bin/sandbox-exec", "-p", profile, "/bin/sh", "-c", 'cd -- "$0" && exec "$@"', str(root), *argv], inside
 
 
 # CPython makes os.mkdir(path, 0o700), which tempfile.mkdtemp calls, a folder whose only permission

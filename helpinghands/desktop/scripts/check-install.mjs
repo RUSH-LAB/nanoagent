@@ -43,6 +43,10 @@ const bundleFolder = path.join(desktop, 'src-tauri', 'target', target ?? '', 're
 const appFolder = windows ? path.join(process.env.LOCALAPPDATA, productName) : `/Applications/${productName}.app`;
 const data = windows ? path.join(process.env.LOCALAPPDATA, label) : path.join(os.homedir(), 'Library', 'Application Support', label);
 
+// Windows PowerShell, which a member runs the command in, with its own modules: this process's
+// PSModulePath, when CI's PowerShell 7 started it, names PowerShell 7's, which it cannot load.
+const powershell = {program: 'powershell.exe', env: Object.fromEntries(Object.entries(process.env).filter(([name]) => name.toLowerCase() !== 'psmodulepath'))};
+
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const say = message => console.log(`${new Date().toISOString()} ${message}`);
 
@@ -112,10 +116,10 @@ function ask(relay, route) {
 /** The command the site gives, run as a member runs it, while this process goes on serving the site it downloads from. */
 async function install(site) {
   const [program, args] = windows
-    ? ['powershell.exe', ['-NoProfile', '-Command', `irm ${site}/install.ps1 | iex`]]
+    ? [powershell.program, ['-NoProfile', '-Command', `irm ${site}/install.ps1 | iex`]]
     : ['/bin/sh', ['-c', `curl -fsSL ${site}/install.sh | sh`]];
   const [code, signal] = await new Promise((resolve, reject) => {
-    spawn(program, args, {stdio: 'inherit'}).on('error', reject).on('exit', (...exit) => resolve(exit));
+    spawn(program, args, {stdio: 'inherit', ...(windows && {env: powershell.env})}).on('error', reject).on('exit', (...exit) => resolve(exit));
   });
   if (code !== 0) throw new Error(`the install command exited with ${code ?? signal}`);
 }
@@ -132,7 +136,7 @@ function setup() {
 /** Every process running from the app or its data folder: `pid path` lines. */
 function running() {
   const lines = windows
-    ? execFileSync('powershell.exe', ['-NoProfile', '-Command', 'Get-Process | Where-Object Path | ForEach-Object { "$($_.Id) $($_.Path)" }'], {encoding: 'utf8'})
+    ? execFileSync(powershell.program, ['-NoProfile', '-Command', 'Get-Process | Where-Object Path | ForEach-Object { "$($_.Id) $($_.Path)" }'], {encoding: 'utf8', env: powershell.env})
     : execFileSync('/bin/ps', ['-axo', 'pid=,command='], {encoding: 'utf8'});
   const inside = folder => line => line.toLowerCase().includes(`${folder}${path.sep}`.toLowerCase());
   return lines.split(/\r?\n/).map(line => line.trim()).filter(line => [appFolder, data].some(folder => inside(folder)(line)));
