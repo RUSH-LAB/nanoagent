@@ -34,13 +34,12 @@ owner.
   .chat/.names/, .chat/.dms/            its registries
   home/<userId>/                        Explorer: home; others' shared nodes under Shared with me
     <anything the member keeps>
-    Plugins/<plugin>/
+    plugins/<plugin>/
       files/                            what each run of <plugin> is given and writes (fs/agent-sync.js)
-      chats/<YYYY-MM-DD> <title>/
+      chats/<yyyy_mm_dd>_<title>/       e.g. 2026_10_19_find_the_paper
         chat.json                       every turn, as the plugin's page shows it
         turns/<n>/graph.json            each turn's provenance graph
         turns/<n>/messages.json         what its model saw and did, as an ATIF trajectory
-    From earlier runs/                  what runs left before plugins had folders
     .apps/<app>/<key>.json              bookmarks, tasks, notes, quicknotes, flashcards, reading lists
 ```
 
@@ -88,10 +87,13 @@ starts a new folder.
    they had before is renamed for the new one rather than downloaded again
    (`memberFiles`, src/runner/lab.mjs). A run's conflicted copy is named as
    the sync's is: `name (conflicted copy <plugin> run <YYYY-MM-DD>[ n]).ext`.
-   Migration 0047 put each plugin's chats and files in its one folder,
-   `Plugins/<plugin>/chats/` and `Plugins/<plugin>/files/`. `Plugins` keeps
-   its capital: renaming a folder only by case breaks RUSH Lab's sync on macOS
-   and Windows, whose disks treat the two names as one.
+   Migration 0047 put each plugin's chats and files in its one folder, and
+   0048 named the folders Mochi makes in lowercase words joined by _
+   (`plugins/`, `chats/2026_10_19_find_the_paper/`) and moved what runs left
+   before plugins had folders (`From earlier runs/`) to the trash. A release
+   applies 0045 to 0048 at once, so a member's computer goes from `agent/` to
+   `plugins/` and never syncs a rename by case alone, which macOS and Windows
+   disks cannot tell apart.
 6. **Drop `plugin_session.chat`**, which nothing reads or writes since 0046,
    when the owner decides, after step 4 is verified on production.
 

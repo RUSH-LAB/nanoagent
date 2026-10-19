@@ -4,9 +4,9 @@
  * A plugin session's chat, kept as files in its member's home
  * (docs/plans/filesystem-layout.md):
  *
- *   home/<user>/Plugins/<plugin>/chats/<YYYY-MM-DD> <title>/chat.json                 the turns, as the plugin's page shows them
- *   home/<user>/Plugins/<plugin>/chats/<YYYY-MM-DD> <title>/turns/<n>/graph.json      a turn's provenance graph
- *   home/<user>/Plugins/<plugin>/chats/<YYYY-MM-DD> <title>/turns/<n>/messages.json   what its model saw and did, as an ATIF trajectory
+ *   home/<user>/plugins/<plugin>/chats/<yyyy_mm_dd>_<title>/chat.json                 the turns, as the plugin's page shows them
+ *   home/<user>/plugins/<plugin>/chats/<yyyy_mm_dd>_<title>/turns/<n>/graph.json      a turn's provenance graph
+ *   home/<user>/plugins/<plugin>/chats/<yyyy_mm_dd>_<title>/turns/<n>/messages.json   what its model saw and did, as an ATIF trajectory
  *
  * beside the plugin's files/, which its runs are given (fs/agent-sync.js), so a run never sees its chats.
  *
@@ -20,10 +20,10 @@ const json = value => `${JSON.stringify(value, null, 2)}\n`;
 const folderOf = path => path.slice(0, path.lastIndexOf('/'));
 const turnFolder = (folder, index) => `${folder}/turns/${String(index).padStart(3, '0')}`;
 
-/** A folder name for a chat started on `at` and titled `title`: no slash, no leading dot. */
+/** A folder name for a chat started on `at` and titled `title`, in lowercase words joined by _: 2026_10_19_find_the_paper. */
 function chatName(at, title) {
-  const name = String(title).replace(/[/\\]/g, '-').replace(/\s+/g, ' ').replace(/^[\s.]+/, '').trim().slice(0, NAME_MAX).trim();
-  return `${new Date(at).toISOString().slice(0, 10)} ${name || 'Chat'}`;
+  const words = String(title).toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, NAME_MAX).replace(/^_+|_+$/g, '');
+  return `${new Date(at).toISOString().slice(0, 10).replaceAll('-', '_')}_${words || 'chat'}`;
 }
 
 /** The chat file `chatFile` in the transaction `tree`, `{node, chat}`, or null when it is gone. */
@@ -35,9 +35,9 @@ async function open(tree, chatFile) {
 
 /** A free folder for a new chat of `pluginId` in `userId`'s home. */
 async function newFolder(tree, {userId, pluginId, at, title}) {
-  const base = `home/${userId}/Plugins/${pluginId}/chats/${chatName(at, title)}`;
+  const base = `home/${userId}/plugins/${pluginId}/chats/${chatName(at, title)}`;
   for (let count = 1; ; count += 1) {
-    const folder = count === 1 ? base : `${base} ${count}`;
+    const folder = count === 1 ? base : `${base}_${count}`;
     if (!await tree.nodeAt(folder)) return folder;
   }
 }

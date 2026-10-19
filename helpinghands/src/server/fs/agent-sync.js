@@ -5,7 +5,7 @@
  *
  * NanoAgent runs a plugin in a scratch folder made for that one run: before it,
  * the folder is filled from the member's folder for that plugin,
- * `home/<user>/Plugins/<plugin>/files/`, and from nothing else; after it,
+ * `home/<user>/plugins/<plugin>/files/`, and from nothing else; after it,
  * what the run created, changed, or deleted is written back there, as that
  * member, and the folder is removed. The file system is where the files live;
  * NanoAgent keeps nothing between runs.
@@ -19,7 +19,7 @@ const crypto = require('crypto');
 const {FsError} = require('./store');
 
 const sha256 = body => crypto.createHash('sha256').update(body).digest('hex');
-const pluginFolder = (scope, pluginId) => `home/${scope.userId}/Plugins/${pluginId}/files`;
+const pluginFolder = (scope, pluginId) => `home/${scope.userId}/plugins/${pluginId}/files`;
 const collided = error => error instanceof FsError && error.status === 409;
 
 function unwrap(result, doing) {

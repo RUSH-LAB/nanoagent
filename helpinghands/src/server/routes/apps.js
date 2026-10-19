@@ -8,7 +8,7 @@ const {outdated} = require('../workspace-apps');
 
 // Apps: the marketplace plugins a member installed (workspace-apps.js), which
 // they install, tag and uninstall at /api/apps/{id}, and the caller's own folder
-// for each app, `home/<user>/Plugins/<app>/files/` in the workspace file system, where
+// for each app, `home/<user>/plugins/<app>/files/` in the workspace file system, where
 // that app leaves its files (/api/agent-files?plugin=<app>).
 // Opening an app (GET /api/apps/{id}) has the NanoAgent on the member's own
 // computer install its package, by sha256; its own page (its ui/ folder) comes

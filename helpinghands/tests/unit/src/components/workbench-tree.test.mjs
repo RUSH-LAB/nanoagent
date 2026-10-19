@@ -45,7 +45,7 @@ describe('workbench tree', () => {
   it('shows the member\'s home first, as home, and other members\' shared files under their names', () => {
     const tree = buildTree([
       ...files,
-      {path: 'home/ada/Plugins/echo/out.md', size: 1, modified: 1},
+      {path: 'home/ada/plugins/echo/out.md', size: 1, modified: 1},
       {path: 'home/bob/shared.md', size: 1, modified: 1},
       {path: 'home/gone/old.md', size: 1, modified: 1},
     ], ['home', 'home/ada']);
@@ -53,7 +53,7 @@ describe('workbench tree', () => {
     const items = treeIndex(tree, {home});
     assert.deepEqual(items.get(ROOT).children, ['home/ada', 'papers/attention', 'notes.txt', 'readme.md', 'home']);
     assert.equal(items.get('home/ada').label, 'home');
-    assert.deepEqual(items.get('home/ada').children, ['home/ada/Plugins/echo']);
+    assert.deepEqual(items.get('home/ada').children, ['home/ada/plugins/echo']);
     assert.equal(items.get('home').label, 'Shared with me');
     assert.deepEqual(items.get('home').children.map(id => items.get(id).label), ['Bob', 'A former member']);
 

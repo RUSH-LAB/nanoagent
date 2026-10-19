@@ -17,7 +17,7 @@ const WORKSPACE_ROLES = Object.freeze(['owner', 'editor', 'viewer']);
 const LEGACY_ROLE_MAP = Object.freeze({owner: 'owner', admin: 'editor', member: 'viewer'});
 
 // `apps:use` is running the workspace's apps in the member's own sessions, on
-// their own files (home/<user>/Plugins/<plugin>/files/), which every member may.
+// their own files (home/<user>/plugins/<plugin>/files/), which every member may.
 const PERMISSIONS = Object.freeze({
   owner: new Set([
     'workspace:manage', 'members:manage', 'content:read', 'content:create',
