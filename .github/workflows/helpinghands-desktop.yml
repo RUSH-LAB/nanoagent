@@ -1,8 +1,10 @@
 name: Helping Hands desktop app
 
 # Builds RUSH Lab, the Tauri app (helpinghands/desktop) members download from the site, for each
-# kind of Mac and for x86-64 Windows. Each target builds on its own runner, as the app bundles that
-# system's runtimes (scripts/stage.mjs).
+# kind of Mac and for x86-64 Windows, and its engine, what the app runs (lab.mjs, the relay and
+# NanoAgent, desktop/scripts/engine.mjs), one archive for every target. Each target's app builds on
+# its own runner, as the app bundles that system's runtimes (scripts/stage.mjs); the engine builds
+# on Linux in about a minute.
 #
 # The Mac app is ad-hoc signed (signingIdentity "-" in tauri.conf.json), not notarized: the first time
 # it opens from the dmg, macOS blocks it until the member clicks Open Anyway in System Settings ->
@@ -10,13 +12,16 @@ name: Helping Hands desktop app
 # SmartScreen asks before an installer downloaded in a browser runs. It is a release (npm run
 # build:release): it updates itself from the site it serves (src-tauri/src/update.rs), with the
 # update this job signs with the app's update key (TAURI_SIGNING_PRIVATE_KEY) and uploads beside
-# each app. On Windows the update is the installer itself.
+# each app. On Windows the update is the installer itself. Every app takes the newest engine its
+# site serves for its shell (src-tauri/src/engine.rs), signed with the same key.
 
-# The release pull request into production builds the app and checks it installs and runs on each
-# target, so it is merged only once it passes; the push to production that merging makes builds it
-# again and uploads it. Either runs only when something the app is built or installed from changed:
-# desktop/ (the app, its scripts and config.yaml), the runner, the install scripts, and the
-# NanoAgent that stage.mjs bundles. devmode pushes build nothing.
+# The release pull request into production builds the engine and every app, and checks each app
+# installs and runs on its target, so it is merged only once they pass. The push merging makes
+# builds nothing: it uploads what that pull request built (scripts/release/promote-lab.mjs), the
+# engine, and each app only when the release changed the shell (desktop/), so a release that changes
+# only the engine reaches members in minutes, with no new app. Either runs only when something the
+# app or its engine is built or installed from changed: desktop/ (the app, its scripts and
+# config.yaml), the runner, the install scripts, and NanoAgent. devmode pushes build nothing.
 on:
   workflow_dispatch:
   pull_request:
@@ -24,6 +29,7 @@ on:
     paths: &app
       - '.github/workflows/helpinghands-desktop.yml'
       - 'helpinghands/desktop/**'
+      - 'helpinghands/scripts/release/**'
       - 'helpinghands/src/runner/**'
       - 'helpinghands/src/server/lab-install.js'
       - 'helpinghands/src/server/lab-app.js'
@@ -43,11 +49,36 @@ defaults:
     working-directory: helpinghands
 
 jobs:
-  # Each dmg and update, uploaded on a push to production to the RUSH it deploys, which serves them
-  # to members (routes/lab.js). That RUSH may still be deploying the commit that serves the upload,
-  # so each is tried for 15 minutes; the pull request and a run by hand only build and check, and
-  # keep them as a workflow artifact.
+  engine:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: helpinghands/desktop/package-lock.json
+      # The uv the engine is locked with, downloaded once.
+      - uses: actions/cache@v4
+        with:
+          path: helpinghands/desktop/.cache
+          key: desktop-cache-engine-${{ hashFiles('helpinghands/desktop/config.yaml') }}
+      - run: npm ci
+        working-directory: helpinghands/desktop
+      - run: node scripts/engine.mjs dist/engine
+        working-directory: helpinghands/desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rush-lab-engine
+          path: helpinghands/desktop/dist/engine/
+          if-no-files-found: error
+
   app:
+    if: github.event_name != 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -70,6 +101,15 @@ jobs:
             helpinghands/package-lock.json
             helpinghands/desktop/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
+      # The Rust build, and the runtimes and git staging downloads and builds, kept between runs.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: helpinghands/desktop/src-tauri -> target
+          key: ${{ matrix.target }}
+      - uses: actions/cache@v4
+        with:
+          path: helpinghands/desktop/.cache
+          key: desktop-cache-${{ matrix.target }}-${{ hashFiles('helpinghands/desktop/config.yaml') }}
       - run: npm ci
         working-directory: helpinghands/desktop
       - run: npm run build:release -- --target ${{ matrix.target }}
@@ -80,6 +120,8 @@ jobs:
         with:
           name: rush-lab-${{ matrix.target }}
           path: |
+            helpinghands/desktop/src-tauri/resources/stamp
+            helpinghands/desktop/src-tauri/resources/shell
             helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
             helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
             helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz.sig
@@ -93,44 +135,43 @@ jobs:
         working-directory: helpinghands/desktop
         timeout-minutes: 30
         run: node scripts/check-install.mjs ${{ matrix.target }}
+
+  # What merging the release pull request uploads: what that pull request's run built and checked,
+  # the engine, and the apps when this release changed the shell.
+  release:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Download what the release pull request built
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          head=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" --jq '.[0].head.sha')
+          if [ -z "$head" ]; then
+            echo "${{ github.sha }} was merged by no pull request, so nothing it built was checked" >&2
+            exit 1
+          fi
+          run=$(gh run list -R "${{ github.repository }}" -w helpinghands-desktop.yml -c "$head" -e pull_request -s success -L 1 --json databaseId --jq '.[0].databaseId')
+          if [ -z "$run" ]; then
+            echo "The release pull request's head $head has no successful desktop run to upload" >&2
+            exit 1
+          fi
+          gh run download "$run" -R "${{ github.repository }}" -D "$RUNNER_TEMP/built"
       - name: Upload to RUSH
-        if: github.event_name == 'push'
-        working-directory: helpinghands/desktop
-        # bash on Windows too, where a step's shell is otherwise PowerShell.
-        shell: bash
         env:
           LAB_UPLOAD_TOKEN: ${{ secrets.LAB_UPLOAD_TOKEN }}
         run: |
-          if [ -z "$LAB_UPLOAD_TOKEN" ]; then
-            echo "The LAB_UPLOAD_TOKEN secret is not set" >&2
-            exit 1
-          fi
-          bundle=src-tauri/target/${{ matrix.target }}/release/bundle
-          stamp=$(cat src-tauri/resources/stamp)
-          # put <file> <route> [header]: PUT the file to rush-lab.org's route, for 15 minutes.
-          put() {
-            deadline=$(( $(date +%s) + 900 ))
-            until curl -fsS -X PUT --data-binary @"$1" \
-                -H "Authorization: Bearer $LAB_UPLOAD_TOKEN" -H "X-Lab-Stamp: $stamp" ${3:+-H "$3"} \
-                "https://rush-lab.org$2"; do
-              if [ "$(date +%s)" -ge "$deadline" ]; then
-                echo "RUSH did not take $1 within 15 minutes" >&2
-                exit 1
-              fi
-              sleep 30
-            done
-          }
-          # The app members download, and the update the app takes, which on Windows is its installer.
-          case "${{ matrix.target }}" in
-            *-windows-*) app=$(ls "$bundle"/nsis/*-setup.exe); update=$app ;;
-            *) app=$(ls "$bundle"/dmg/*.dmg); update=$(ls "$bundle"/macos/*.app.tar.gz) ;;
-          esac
-          put "$app" "/api/lab/bundles/${{ matrix.target }}"
-          put "$update" "/api/lab/updates/${{ matrix.target }}" "X-Lab-Signature: $(cat "$update.sig")"
-          # Done only once the site serves this build.
-          served=$(curl -fsS -o /dev/null -D - "https://rush-lab.org/api/lab/bundles/${{ matrix.target }}" | tr -d '\r' | awk 'tolower($1) == "x-lab-stamp:" { print $2 }')
-          if [ "$served" != "$stamp" ]; then
-            echo "rush-lab.org serves $served, not the uploaded $stamp" >&2
-            exit 1
-          fi
-
+          # The apps only when this release changed the shell (desktop/), against production before it.
+          if git diff --quiet HEAD^1 HEAD -- desktop; then apps=; else apps=--apps; fi
+          node scripts/release/promote-lab.mjs "$RUNNER_TEMP/built" $apps

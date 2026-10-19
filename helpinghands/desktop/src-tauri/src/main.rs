@@ -11,6 +11,7 @@
 //! serves (update.rs). The scheme is config.json's: rushlab for RUSH Lab, rushlab-dev for RUSH Lab
 //! Dev.
 
+mod engine;
 mod lab;
 mod setup;
 #[cfg(target_os = "macos")]
@@ -192,6 +193,7 @@ fn main() {
             app.manage(Site(site.clone()));
             app.manage(setup::Setup::new());
             let update_site = site.clone();
+            let engine_site = site.clone();
             let handle = app.handle().clone();
             let opener = app.handle().clone();
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(site))
@@ -304,6 +306,7 @@ fn main() {
                 }
                 setup::installing(&handle);
                 let lab = Arc::new(Lab::install(&handle).unwrap_or_else(|message| fail(&handle, format!("{name} could not be installed: {message}"))));
+                engine::take_at_start(&handle, &lab, &engine_site);
                 if let Err(error) = handle.autolaunch().enable() {
                     fail(&handle, format!("{name} could not set itself to open at login: {error}"));
                 }
@@ -311,6 +314,7 @@ fn main() {
                 let _ = std::fs::remove_file(lab.data.join(setup::FILE));
                 setup::follow(handle.clone(), lab.data.clone());
                 lab.start();
+                engine::keep_current(handle.clone(), lab.clone(), engine_site);
                 if let Some(target) = update_target {
                     update::keep_updated(handle.clone(), lab.clone(), update_site, target);
                 }

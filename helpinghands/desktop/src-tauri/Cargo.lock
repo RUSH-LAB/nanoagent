@@ -2220,14 +2220,21 @@ dependencies = [
 name = "mochi-lab-desktop"
 version = "0.0.0"
 dependencies = [
+ "base64 0.22.1",
  "block2",
+ "flate2",
  "libc",
+ "minisign-verify",
  "objc2",
  "objc2-authentication-services",
  "objc2-foundation",
+ "reqwest",
+ "rustls",
  "serde",
  "serde_json",
+ "sha2",
  "signal-hook",
+ "tar",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",

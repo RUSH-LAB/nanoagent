@@ -5,14 +5,21 @@
  * and steps, with config.yaml's `dev` block (desktop/scripts/stage.mjs --dev) instead of a
  * release's --release: its own name, identifier and data folder, link scheme and folders, and this checkout's `npm start` as its only site. It never
  * updates itself, and nothing here touches RUSH Lab. npm run desktop:dev:build only builds it.
+ *
+ * When the RUSH Lab Dev installed here is already this checkout's shell (desktop/scripts/shell.mjs),
+ * only its engine changed: that is built (desktop/scripts/engine.mjs), signed with the update key in
+ * ~/.tauri/rush-lab-updater.key, sent to the local site, and RUSH Lab Dev opened again, which takes
+ * it at its start (src-tauri/src/engine.rs), with no app build.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import process from 'node:process';
-import {execFileSync} from 'node:child_process';
+import {execFileSync, spawn} from 'node:child_process';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {readConfig} from '../../desktop/scripts/config.mjs';
-import {environmentFor} from './start-local.mjs';
+import {shellId} from '../../desktop/scripts/shell.mjs';
+import {environmentFor, LOCAL_UPLOAD_TOKEN} from './start-local.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const desktop = path.join(root, 'desktop');
@@ -27,6 +34,8 @@ const installed = `/Applications/${config.product_name}.app`;
 // On Windows, where the NSIS installer puts the app for this user (tauri.conf.json: nsis installMode currentUser),
 // and the data folder NanoAgent and its services run from, which RUSH Lab Dev's quitting must reach as well.
 const ownFolders = [config.product_name, config.label].map(name => path.join(process.env.LOCALAPPDATA || '', name));
+const engineFolder = path.join(desktop, 'dist', 'engine');
+const updateKey = path.join(os.homedir(), '.tauri', 'rush-lab-updater.key');
 // lab.mjs takes up to a minute to stop (src-tauri/src/lab.rs STOP_TIMEOUT).
 const QUIT_TIMEOUT_MS = 90_000;
 
@@ -74,6 +83,52 @@ function processIds() {
 }
 const running = () => processIds().length > 0;
 
+/** The shell of the RUSH Lab Dev installed here, or null when none is. */
+function installedShell() {
+  const file = mac ? path.join(installed, 'Contents', 'Resources', 'shell') : path.join(ownFolders[0], 'shell');
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim() : null;
+}
+
+/** On Windows, the installed RUSH Lab Dev's program: the one in its folder that is neither a runtime nor its uninstaller. */
+function installedExe() {
+  const programs = fs.readdirSync(ownFolders[0]).filter(name => name.endsWith('.exe') && !['node.exe', 'uv.exe', 'uninstall.exe'].includes(name.toLowerCase()));
+  if (programs.length !== 1) throw new Error(`${ownFolders[0]} has ${programs.length} programs of ${config.product_name}, not one`);
+  return path.join(ownFolders[0], programs[0]);
+}
+
+/** Build the engine, signed with the update key, and send it to the local site at `site`. */
+async function sendEngine(site) {
+  if (!fs.existsSync(updateKey)) throw new Error(`RUSH Lab Dev's engine is signed with the update key, and ${updateKey} is missing`);
+  execFileSync(process.execPath, [path.join(desktop, 'scripts', 'engine.mjs'), engineFolder], {stdio: 'inherit', cwd: root, env: {...process.env, TAURI_SIGNING_PRIVATE_KEY: fs.readFileSync(updateKey, 'utf8')}});
+  const archive = fs.readFileSync(path.join(engineFolder, 'engine.tar.gz'));
+  const response = await fetch(new URL('/api/lab/engine', site), {
+    method: 'PUT',
+    body: archive,
+    headers: {
+      Authorization: `Bearer ${LOCAL_UPLOAD_TOKEN}`,
+      'X-Lab-Stamp': fs.readFileSync(path.join(engineFolder, 'stamp'), 'utf8').trim(),
+      'X-Lab-Signature': fs.readFileSync(path.join(engineFolder, 'engine.tar.gz.sig'), 'utf8').trim(),
+      'X-Lab-Shell': fs.readFileSync(path.join(engineFolder, 'shell'), 'utf8').trim(),
+    },
+  });
+  if (!response.ok) throw new Error(`${site} did not take the engine: ${response.status} ${await response.text()}`);
+}
+
+/** Quit the RUSH Lab Dev running, waiting until it and everything it started has stopped. */
+async function quitDev() {
+  // A second copy opened only shows the first, so the one running quits for the new build.
+  if (running()) {
+    if (mac) run('osascript', ['-e', `quit app id "${config.label}"`]);
+    // /T takes a process's children with it, so one listed may be gone by its turn.
+    else for (const id of processIds()) if (processIds().includes(id)) run('taskkill', ['/PID', id, '/T', '/F']);
+  }
+  const deadline = Date.now() + QUIT_TIMEOUT_MS;
+  while (running()) {
+    if (Date.now() > deadline) throw new Error(`${config.product_name} did not quit: quit it from its icon, then run this again`);
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+}
+
 async function main() {
   // The site npm start serves (start-local.mjs) must be the one RUSH Lab Dev is built for.
   const port = String(environmentFor().SITE_PORT || 3000);
@@ -86,18 +141,16 @@ async function main() {
   } catch {
     throw new Error(`Nothing answers at ${config.site_url}: start RUSH with npm start first`);
   }
+  if (installedShell() === shellId()) {
+    console.log(`${config.product_name} is this checkout's shell: sending its engine to ${config.site_url}`);
+    await sendEngine(site);
+    await quitDev();
+    if (mac) run('open', [installed]);
+    else spawn(installedExe(), [], {detached: true, stdio: 'ignore'}).unref();
+    return;
+  }
   const output = buildDev();
-  // A second copy opened only shows the first, so the one running quits for the new build.
-  if (running()) {
-    if (mac) run('osascript', ['-e', `quit app id "${config.label}"`]);
-    // /T takes a process's children with it, so one listed may be gone by its turn.
-    else for (const id of processIds()) if (processIds().includes(id)) run('taskkill', ['/PID', id, '/T', '/F']);
-  }
-  const deadline = Date.now() + QUIT_TIMEOUT_MS;
-  while (running()) {
-    if (Date.now() > deadline) throw new Error(`${config.product_name} did not quit: quit it from its icon, then run this again`);
-    await new Promise(resolve => setTimeout(resolve, 500));
-  }
+  await quitDev();
   if (windows) {
     // /S installs with no questions; /R opens the app once it is installed.
     run(output, ['/S', '/R']);

@@ -22,13 +22,17 @@ const nanoagentStartupTimeoutMs = 30_000;
  * .env and the shell may hold none. It is the site RUSH Lab Dev serves, so its
  * links are that app's (MOCHI_LOCAL_SITE, src/server/lab-app.js).
  */
+/** What uploads to npm start's site take: it serves only this computer. */
+export const LOCAL_UPLOAD_TOKEN = 'local-site';
+
 export function environmentFor({base = process.env, envFile = localEnvFile} = {}) {
   if (!fs.existsSync(envFile)) throw new Error('Run npm run db:setup before npm start');
   const file = parseEnv(fs.readFileSync(envFile, 'utf8'));
   const env = {...file, ...base, EDITOR_PORT: base.EDITOR_PORT || '3001'};
   const named = ['DATABASE_URL', 'DATABASE_MIGRATION_URL'].filter(key => env[key]);
   if (named.length) throw new Error(`${named.join(' and ')} must not be set: npm start runs on the local database. Run npm run db:setup`);
-  return {...env, DATABASE_URL: LOCAL_RUNTIME_URL, DATABASE_MIGRATION_URL: LOCAL_OWNER_URL, PG_SSL: 'disable', MOCHI_LOCAL_SITE: '1'};
+  // The local site takes RUSH Lab Dev's engine from npm run desktop:dev (LOCAL_UPLOAD_TOKEN).
+  return {...env, DATABASE_URL: LOCAL_RUNTIME_URL, DATABASE_MIGRATION_URL: LOCAL_OWNER_URL, PG_SSL: 'disable', MOCHI_LOCAL_SITE: '1', LAB_UPLOAD_TOKEN: LOCAL_UPLOAD_TOKEN};
 }
 
 export function portIsAvailable(port, host = 'localhost') {

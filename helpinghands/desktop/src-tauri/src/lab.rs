@@ -1,16 +1,18 @@
 //! What runs behind RUSH Lab's window and menu-bar icon: src/runner/lab.mjs, which serves every connection
 //! on this computer (a NanoAgent and a relay for each member connected here).
 //!
-//! The app bundles lab.mjs with the relay, NanoAgent, Node, uv and git
-//! (scripts/stage.mjs).
-//! Each build is installed once into the data folder's app/<stamp>/mochi-lab/, the layout lab.mjs
-//! runs from, because NanoAgent's .venv is made beside it. lab.mjs runs from there while the app is
-//! open, and starts again when it exits; quitting the app stops it.
+//! The app bundles Node, uv and git (its shell), and the engine it was built with: lab.mjs with the
+//! relay and NanoAgent (scripts/stage.mjs, scripts/engine.mjs). Each engine is installed once into
+//! the data folder's app/<stamp>/mochi-lab/, with the shell's own files beside it, the layout
+//! lab.mjs runs from, because NanoAgent's .venv is made beside it. The app runs the newest engine
+//! it has for its shell, the one it was built with or a newer one its site served (engine.rs).
+//! lab.mjs runs from there while the app is open, and starts again when it exits; quitting the app
+//! stops it.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -41,9 +43,15 @@ pub struct Config {
 pub struct Lab {
     /// ~/Library/Application Support/<label>/, on Windows %LOCALAPPDATA%\<label>\: lab.mjs's data folder.
     pub data: PathBuf,
-    /// This build's files, installed: app/<stamp>/mochi-lab/.
-    root: PathBuf,
+    /// The app's bundled files.
+    resources: PathBuf,
+    /// The shell this app is (scripts/shell.mjs), which an engine must be made for.
+    pub shell: String,
+    /// The engine lab.mjs runs, installed: app/<stamp>/mochi-lab/.
+    root: Mutex<PathBuf>,
     child: Mutex<Option<Child>>,
+    /// Which run of lab.mjs is current: a switch to another engine ends the one before.
+    generation: AtomicU64,
     stopping: AtomicBool,
 }
 
@@ -56,71 +64,133 @@ pub fn config(app: &AppHandle) -> Result<Config, String> {
 }
 
 impl Lab {
-    /// Install this build, once, removing the others; before that, stop and remove the RUSH Lab the
-    /// one-line install had launchd run, whose connections this one serves from now.
+    /// Install the engine this app was built with, once, and pick the newest installed for its
+    /// shell, removing the others; before that, stop and remove the RUSH Lab the one-line install
+    /// had launchd run, whose connections this one serves from now.
     pub fn install(app: &AppHandle) -> Result<Self, String> {
         let resources = app.path().resource_dir().map_err(|error| error.to_string())?;
         let config = config(app)?;
         let data = app.path().local_data_dir().map_err(|error| error.to_string())?.join(&config.label);
         #[cfg(target_os = "macos")]
         remove_launch_agent(app, &config)?;
-        let stamp_file = resources.join("stamp");
-        let stamp = fs::read_to_string(&stamp_file).map_err(|error| format!("{}: {error}", stamp_file.display()))?;
-        let apps = data.join("app");
-        let installed = apps.join(stamp.trim());
-        if !installed.exists() {
-            let partial = apps.join(format!("{}.partial", stamp.trim()));
+        let read = |file: &str| fs::read_to_string(resources.join(file)).map(|text| text.trim().to_string()).map_err(|error| format!("{file}: {error}"));
+        let (stamp, shell) = (read("stamp")?, read("shell")?);
+        let lab = Self {
+            data: data.clone(),
+            resources: resources.clone(),
+            shell,
+            root: Mutex::new(PathBuf::new()),
+            child: Mutex::new(None),
+            generation: AtomicU64::new(0),
+            stopping: AtomicBool::new(false),
+        };
+        let apps = lab.apps();
+        let bundled = apps.join(&stamp);
+        if !lab.made_for_shell(&bundled) {
+            let partial = apps.join(format!("{stamp}.partial"));
             let _ = fs::remove_dir_all(&partial);
             let root = partial.join("mochi-lab");
-            for part in ["runner", "nanoagent", "git"] {
+            for part in ["runner", "nanoagent"] {
                 copy_dir(&resources.join(part), &root.join(part)).map_err(|error| format!("installing {part}: {error}"))?;
             }
-            for file in ["stamp", "config.json"] {
+            for file in ["stamp", "shell"] {
                 fs::copy(resources.join(file), root.join(file)).map_err(|error| format!("installing {file}: {error}"))?;
             }
-            // The bundled runtimes are beside this executable.
-            let current = std::env::current_exe().map_err(|error| error.to_string())?;
-            let bin = current.parent().ok_or("the executable has no folder")?;
-            fs::create_dir_all(root.join("bin")).map_err(|error| error.to_string())?;
-            for name in [exe("node"), exe("uv")] {
-                fs::copy(bin.join(&name), root.join("bin").join(&name)).map_err(|error| format!("installing {name}: {error}"))?;
-            }
-            for entry in fs::read_dir(&apps).map_err(|error| error.to_string())?.flatten() {
-                let old = entry.path();
-                if old != partial {
-                    let removed = if old.is_dir() && !old.is_symlink() { fs::remove_dir_all(&old) } else { fs::remove_file(&old) };
-                    removed.map_err(|error| format!("removing {}: {error}", old.display()))?;
+            lab.add_shell(&root)?;
+            let _ = fs::remove_dir_all(&bundled);
+            fs::rename(&partial, &bundled).map_err(|error| error.to_string())?;
+        }
+        // Stamps start with their build's time, so the newest sorts last.
+        let newest = fs::read_dir(&apps)
+            .map_err(|error| error.to_string())?
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|folder| lab.made_for_shell(folder))
+            .max()
+            .ok_or("no engine is installed")?;
+        fs::create_dir_all(data.join("logs")).map_err(|error| error.to_string())?;
+        lab.run_from(newest.join("mochi-lab"));
+        Ok(lab)
+    }
+
+    /// The data folder's app/, where each engine is installed.
+    pub fn apps(&self) -> PathBuf {
+        self.data.join("app")
+    }
+
+    /// Whether `folder` (app/<stamp>) is an engine installed whole, for this shell.
+    fn made_for_shell(&self, folder: &Path) -> bool {
+        let named = folder.file_name().and_then(|name| name.to_str()).is_some_and(|name| !name.ends_with(".partial"));
+        named && fs::read_to_string(folder.join("mochi-lab/shell")).is_ok_and(|shell| shell.trim() == self.shell)
+    }
+
+    /// Add the shell's files beside the engine in `root`: its config.json, its git, and the runtimes.
+    pub fn add_shell(&self, root: &Path) -> Result<(), String> {
+        copy_dir(&self.resources.join("git"), &root.join("git")).map_err(|error| format!("installing git: {error}"))?;
+        fs::copy(self.resources.join("config.json"), root.join("config.json")).map_err(|error| format!("installing config.json: {error}"))?;
+        // The bundled runtimes are beside this executable.
+        let current = std::env::current_exe().map_err(|error| error.to_string())?;
+        let bin = current.parent().ok_or("the executable has no folder")?;
+        fs::create_dir_all(root.join("bin")).map_err(|error| error.to_string())?;
+        for name in [exe("node"), exe("uv")] {
+            fs::copy(bin.join(&name), root.join("bin").join(&name)).map_err(|error| format!("installing {name}: {error}"))?;
+        }
+        Ok(())
+    }
+
+    /// Run the engine in `root` from now on, removing the others: before lab.mjs starts (`switch`
+    /// once it runs).
+    pub fn run_from(&self, root: PathBuf) {
+        *self.root.lock().unwrap() = root;
+        self.remove_others();
+    }
+
+    /// The engine's stamp in `root`.
+    pub fn stamp_of(&self, root: &Path) -> String {
+        fs::read_to_string(root.join("stamp")).map(|stamp| stamp.trim().to_string()).unwrap_or_default()
+    }
+
+    /// The stamp of the engine lab.mjs runs.
+    pub fn stamp(&self) -> String {
+        self.stamp_of(&self.root.lock().unwrap())
+    }
+
+    /// Remove every engine in app/ but the one lab.mjs runs.
+    fn remove_others(&self) {
+        let current = self.root.lock().unwrap().parent().map(Path::to_path_buf);
+        for entry in fs::read_dir(self.apps()).into_iter().flatten().flatten() {
+            let old = entry.path();
+            if Some(&old) != current.as_ref() {
+                let removed = if old.is_dir() && !old.is_symlink() { fs::remove_dir_all(&old) } else { fs::remove_file(&old) };
+                if let Err(error) = removed {
+                    self.log(&format!("Could not remove {}: {error}", old.display()));
                 }
             }
-            fs::rename(&partial, &installed).map_err(|error| error.to_string())?;
         }
-        fs::create_dir_all(data.join("logs")).map_err(|error| error.to_string())?;
-        Ok(Self {
-            root: installed.join("mochi-lab"),
-            data,
-            child: Mutex::new(None),
-            stopping: AtomicBool::new(false),
-        })
     }
 
     fn node(&self) -> Command {
-        let mut command = Command::new(self.root.join("bin").join(exe("node")));
-        command.arg(self.root.join("runner/lab.mjs")).current_dir(self.root.join("runner"));
+        let root = self.root.lock().unwrap().clone();
+        let mut command = Command::new(root.join("bin").join(exe("node")));
+        command.arg(root.join("runner/lab.mjs")).current_dir(root.join("runner"));
         // Without a console window: this app has none, and Windows would open one for node.
         #[cfg(windows)]
         std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);
         command
     }
 
-    /// Run lab.mjs, its output in logs/lab.log, starting it again RESTART after it exits, until `stop`.
+    /// Run lab.mjs, its output in logs/lab.log, starting it again RESTART after it exits, until `stop`
+    /// or a `switch`.
     pub fn start(self: &Arc<Self>) {
         let lab = self.clone();
+        let generation = self.generation.load(Ordering::SeqCst);
         thread::spawn(move || {
             let log = lab.data.join("logs/lab.log");
+            let ended = || lab.stopping.load(Ordering::SeqCst) || lab.generation.load(Ordering::SeqCst) != generation;
             loop {
-                // Under the lock `stop` takes, so nothing starts once it has.
+                // Under the lock `stop` and `switch` take, so nothing starts once they have.
                 let mut slot = lab.child.lock().unwrap();
-                if lab.stopping.load(Ordering::SeqCst) {
+                if ended() {
                     return;
                 }
                 let spawned = fs::OpenOptions::new().create(true).append(true).open(&log).and_then(|out| {
@@ -137,7 +207,7 @@ impl Lab {
                                 Some(Ok(Some(status))) => break format!("lab.mjs exited ({status})"),
                                 Some(Ok(None)) => thread::sleep(POLL),
                                 Some(Err(error)) => break format!("lab.mjs could not be watched: {error}"),
-                                // Stopped by `stop`.
+                                // Stopped by `stop` or `switch`.
                                 None => return,
                             }
                         }
@@ -147,40 +217,42 @@ impl Lab {
                         format!("could not start lab.mjs: {error}")
                     }
                 };
-                if lab.stopping.load(Ordering::SeqCst) {
+                if ended() {
                     return;
                 }
                 append(&log, &format!("{message}; starting it again in {}s.", RESTART.as_secs()));
                 let deadline = Instant::now() + RESTART;
-                while Instant::now() < deadline && !lab.stopping.load(Ordering::SeqCst) {
+                while Instant::now() < deadline && !ended() {
                     thread::sleep(POLL);
                 }
             }
         });
     }
 
-    /// Quit: SIGTERM so lab.mjs stops every connection cleanly, SIGKILL after STOP_TIMEOUT. Windows
-    /// has no signals, so there lab.mjs is killed with every service it started.
+    /// Quit: stop lab.mjs (`end`), and start it no more.
     pub fn stop(&self) {
         let mut slot = self.child.lock().unwrap();
         self.stopping.store(true, Ordering::SeqCst);
-        let Some(mut child) = slot.take() else { return };
+        let Some(child) = slot.take() else { return };
         drop(slot);
-        #[cfg(unix)]
-        {
-            unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
-            let deadline = Instant::now() + STOP_TIMEOUT;
-            while Instant::now() < deadline && child.try_wait().ok().flatten().is_none() {
-                thread::sleep(Duration::from_millis(100));
-            }
+        end(child);
+    }
+
+    /// Run the engine in `root` in place of the one running: lab.mjs stops as at quitting, starts
+    /// again from `root`, and the engine before is removed.
+    pub fn switch(self: &Arc<Self>, root: PathBuf) {
+        let mut slot = self.child.lock().unwrap();
+        if self.stopping.load(Ordering::SeqCst) {
+            return;
         }
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            let _ = Command::new("taskkill").args(["/PID", &child.id().to_string(), "/T", "/F"]).creation_flags(0x0800_0000).output();
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        let child = slot.take();
+        drop(slot);
+        if let Some(child) = child {
+            end(child);
         }
-        let _ = child.kill();
-        let _ = child.wait();
+        self.run_from(root);
+        self.start();
     }
 
     /// Whether nothing runs here: lab.mjs keeps the data folder's `busy` while any connection's relay
@@ -227,6 +299,27 @@ fn remove_launch_agent(app: &AppHandle, config: &Config) -> Result<(), String> {
         }
     }
     fs::remove_file(&plist).map_err(|error| format!("removing {}: {error}", plist.display()))
+}
+
+
+/// Stop lab.mjs: SIGTERM so it stops every connection cleanly, SIGKILL after STOP_TIMEOUT. Windows
+/// has no signals, so there lab.mjs is killed with every service it started.
+fn end(mut child: Child) {
+    #[cfg(unix)]
+    {
+        unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
+        let deadline = Instant::now() + STOP_TIMEOUT;
+        while Instant::now() < deadline && child.try_wait().ok().flatten().is_none() {
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = Command::new("taskkill").args(["/PID", &child.id().to_string(), "/T", "/F"]).creation_flags(0x0800_0000).output();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn exe(name: &str) -> String {

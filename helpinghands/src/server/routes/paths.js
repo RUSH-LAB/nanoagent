@@ -9,7 +9,7 @@
 // The marketplace (market.js): every plugin, one plugin, its package, and its source on GitHub.
 const MARKET_ROUTE = /^\/api\/market(?:\/([^/]+)(?:\/(package|source))?)?$/;
 // RUSH Lab's connect link, session, sign-in, downloads and updates (lab.js).
-const LAB_ROUTE = /^\/api\/lab\/(?:(connect)|(session)|(sign-in)|(window-sign-in)|bundles\/([^/]+)|updates\/([^/]+)(\/app\.tar\.gz)?)$/;
+const LAB_ROUTE = /^\/api\/lab\/(?:(connect)|(session)|(sign-in)|(window-sign-in)|bundles\/([^/]+)|updates\/([^/]+)(\/app\.tar\.gz)?|(engine)(\/engine\.tar\.gz)?)$/;
 // A plugin's page, from whichever workspace opens it (apps.js).
 const APP_UI_ROUTE = /^\/api\/apps\/([^/]+)\/ui\/([^/]+)\/([^/]+)\/(.+)$/;
 

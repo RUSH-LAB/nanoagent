@@ -27,7 +27,8 @@
       "resources/runner/": "runner/",
       "resources/nanoagent/": "nanoagent/",
       "resources/config.json": "config.json",
-      "resources/stamp": "stamp"
+      "resources/stamp": "stamp",
+      "resources/shell": "shell"
     },
     "icon": [
       "icons/32x32.png",
