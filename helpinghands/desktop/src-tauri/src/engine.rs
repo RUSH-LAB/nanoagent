@@ -1,14 +1,14 @@
 //! RUSH Lab's engine: what the app runs (lab.mjs, the relay and NanoAgent, scripts/engine.mjs),
 //! one archive for every target, apart from the app around it, its shell. The app is built with one
 //! engine and keeps the newest its site serves for its shell (GET /api/lab/engine,
-//! server/routes/lab.js): at its start, before lab.mjs runs, and whenever the site tells the relay
-//! of another (an `engine` frame, which lab.mjs writes to the data folder's `engine`), when it
-//! switches to it once nothing runs here (lab.rs). An engine is taken only when its archive's
+//! server/routes/lab.js): at its start, before lab.mjs runs, and whenever the site names another
+//! (releases.rs), when it switches to it once nothing runs here (lab.rs). An engine is taken only when its archive's
 //! sha256 is the one the site names and its signature checks out against the app's update key
 //! (plugins.updater.pubkey in tauri.conf.json), the key its updates are signed with.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -21,8 +21,6 @@ use tauri::{AppHandle, Url};
 
 use crate::lab::Lab;
 
-/// How often the data folder's `engine` is read.
-const WATCH: Duration = Duration::from_secs(2);
 /// How long the check at the app's start may take, before lab.mjs runs the engine it has.
 const START_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long downloading an engine may take.
@@ -47,19 +45,19 @@ fn update_key(app: &AppHandle) -> Result<String, String> {
 
 /// A client for the site, on the TLS the updater uses (rustls with ring), which it installs as the
 /// process's when nothing has yet.
-fn client() -> reqwest::Client {
+pub fn client() -> reqwest::ClientBuilder {
     if rustls::crypto::CryptoProvider::get_default().is_none() {
         // Fails only when another thread has just installed one, which serves as well.
         let _ = rustls::crypto::ring::default_provider().install_default();
     }
-    reqwest::Client::new()
+    reqwest::Client::builder()
 }
 
 /// The engine `site` serves, when it is for `lab`'s shell and newer than the one it runs.
 async fn newer(lab: &Lab, site: &Url, timeout: Duration) -> Result<Option<Served>, String> {
     let mut endpoint = site.clone();
     endpoint.set_path("/api/lab/engine");
-    let response = client().get(endpoint).timeout(timeout).send().await.map_err(|error| error.to_string())?;
+    let response = client().build().map_err(|error| error.to_string())?.get(endpoint).timeout(timeout).send().await.map_err(|error| error.to_string())?;
     if response.status() == reqwest::StatusCode::NO_CONTENT {
         return Ok(None);
     }
@@ -73,6 +71,8 @@ async fn newer(lab: &Lab, site: &Url, timeout: Duration) -> Result<Option<Served
 /// Download `served`, check it, and install it beside the engine `lab` runs: its folder.
 async fn fetch(app: &AppHandle, lab: &Lab, served: &Served) -> Result<PathBuf, String> {
     let archive = client()
+        .build()
+        .map_err(|error| error.to_string())?
         .get(&served.url)
         .timeout(DOWNLOAD_TIMEOUT)
         .send()
@@ -130,7 +130,7 @@ fn unpack(archive: &[u8], to: &Path) -> Result<(), String> {
 
 /// At the app's start, before lab.mjs runs: install the newer engine `site` serves for this shell,
 /// if there is one, and run it. When the site cannot say in START_TIMEOUT, lab.mjs runs the engine
-/// it has, and the check every CHECK_EVERY carries on.
+/// it has, until the site names one again (releases.rs).
 pub fn take_at_start(app: &AppHandle, lab: &Lab, site: &Url) {
     match tauri::async_runtime::block_on(async {
         match newer(lab, site, START_TIMEOUT).await? {
@@ -147,35 +147,34 @@ pub fn take_at_start(app: &AppHandle, lab: &Lab, site: &Url) {
     }
 }
 
-/// Each time the site names another engine than the one running (the data folder's `engine`),
-/// install the one it serves, when it is newer and for this shell, and switch to it once nothing
-/// runs here.
-pub fn keep_current(app: AppHandle, lab: Arc<Lab>, site: Url) {
-    thread::spawn(move || loop {
-        thread::sleep(WATCH);
-        let named = fs::read_to_string(lab.data.join("engine")).map(|stamp| stamp.trim().to_string()).unwrap_or_default();
-        if named.is_empty() || named == lab.stamp() || named == lab.declined() {
-            continue;
-        }
-        let fetched = tauri::async_runtime::block_on(async {
-            match newer(&lab, &site, DOWNLOAD_TIMEOUT).await? {
-                Some(served) => fetch(&app, &lab, &served).await.map(Some),
-                None => Ok(None),
+/// Each time the site names another engine than the one running (`named`, releases.rs), install
+/// the one it serves, when it is newer and for this shell, and switch to it once nothing runs here.
+pub fn keep_current(app: AppHandle, lab: Arc<Lab>, site: Url, named: Receiver<String>) {
+    thread::spawn(move || {
+        for named in named {
+            if named == lab.stamp() || named == lab.declined() {
+                continue;
             }
-        });
-        match fetched {
-            Ok(Some(root)) => {
-                while !lab.idle() {
-                    thread::sleep(IDLE_POLL);
+            let fetched = tauri::async_runtime::block_on(async {
+                match newer(&lab, &site, DOWNLOAD_TIMEOUT).await? {
+                    Some(served) => fetch(&app, &lab, &served).await.map(Some),
+                    None => Ok(None),
                 }
-                lab.log(&format!("Switching to the engine {}.", lab.stamp_of(&root)));
-                lab.switch(root);
-            }
-            // Not newer, or for another shell: not asked again until the site names another.
-            Ok(None) => lab.decline(named),
-            Err(message) => {
-                lab.log(&format!("Could not take the engine {site} serves: {message}"));
-                lab.decline(named);
+            });
+            match fetched {
+                Ok(Some(root)) => {
+                    while !lab.idle() {
+                        thread::sleep(IDLE_POLL);
+                    }
+                    lab.log(&format!("Switching to the engine {}.", lab.stamp_of(&root)));
+                    lab.switch(root);
+                }
+                // Not newer, or for another shell: not asked again until the site names another.
+                Ok(None) => lab.decline(named),
+                Err(message) => {
+                    lab.log(&format!("Could not take the engine {site} serves: {message}"));
+                    lab.decline(named);
+                }
             }
         }
     });

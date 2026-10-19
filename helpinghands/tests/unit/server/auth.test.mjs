@@ -52,7 +52,7 @@ const authModule = loadAuth({DATABASE_FILE: undefined, ...GITHUB});
 
 describe('isPublicPath', () => {
   // RUSH Lab asks for its update and its engine before anyone signs in on it.
-  for (const p of ['/api/health', '/install.sh', '/install.ps1', '/api/lab/updates/aarch64-apple-darwin', '/api/lab/engine', '/api/lab/engine/engine.tar.gz']) {
+  for (const p of ['/api/health', '/install.sh', '/install.ps1', '/api/lab/updates/aarch64-apple-darwin', '/api/lab/engine', '/api/lab/engine/engine.tar.gz', '/api/lab/releases']) {
     it(`treats ${p} as public`, () => {
       assert.equal(authModule.isPublicPath(p), true);
     });

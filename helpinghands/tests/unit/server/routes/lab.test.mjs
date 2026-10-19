@@ -30,8 +30,6 @@ const SIGNATURE = signatureFor('0.20261017.183202');
 const piecesOf = (data, size = 1024 * 1024 + 7) => Array.from({length: Math.ceil(data.length / size)}, (_, i) => data.subarray(i * size, (i + 1) * size));
 
 describe('RUSH Lab\'s download and connect link', () => {
-  // The engines each connected computer was told of.
-  const announced = [];
   let db;
   let ctx;
   const as = userId => ({userId, orgId: null, account: {id: userId}});
@@ -60,7 +58,6 @@ describe('RUSH Lab\'s download and connect link', () => {
     db = database.db;
     ctx = makeCtx({lab: {
       bundles: createPostgresLab({pool: database.pool}), secret: SECRET, siteUrl: SITE, scheme: SCHEME, uploadToken: UPLOAD,
-      onEngine: stamp => announced.push(stamp),
       findMember: async userId => (userId === 'gone' ? null : {login: `${userId}-gh`}),
       sessionCookie: async token => `session=${token}; Path=/; HttpOnly`,
       createSession: async userId => (userId === 'gone' ? null : {token: `session-for-${userId}`, login: `${userId}-gh`}),
@@ -266,7 +263,6 @@ describe('RUSH Lab\'s download and connect link', () => {
     assert.equal((await engine({'x-lab-signature': SIGNATURE, 'x-lab-shell': 'not-a-tree'})).status, 400);
     assert.equal((await engine({'x-lab-signature': SIGNATURE, 'x-lab-shell': shell, authorization: 'Bearer wrong'})).status, 401);
     assert.equal((await engine({'x-lab-signature': SIGNATURE, 'x-lab-shell': shell})).status, 200);
-    assert.deepEqual(announced, ['stamp-1']);
     const {payload} = await call({path: '/api/lab/engine'});
     assert.deepEqual(payload, {stamp: 'stamp-1', shell, sha256: sha256(BUNDLE), signature: SIGNATURE, url: `${SITE}/api/lab/engine/engine.tar.gz`});
     const archive = await call({path: '/api/lab/engine/engine.tar.gz'});
@@ -287,6 +283,31 @@ describe('RUSH Lab\'s download and connect link', () => {
         await db.exec('rollback');
       }
     }
+  });
+
+  it('streams what it serves to each app following it: as it opens, and as each update or engine is uploaded', async () => {
+    const writes = [];
+    const releases = () => writes.filter(write => write.startsWith('event: release\n')).map(write => JSON.parse(write.split('data: ')[1]));
+    let res;
+    const following = call({path: '/api/lab/releases', onRequest: (_, response) => {
+      res = response;
+      res.write = chunk => writes.push(String(chunk));
+    }});
+    while (!writes.length) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(res.written.headers['Content-Type'], 'text/event-stream');
+    const [before] = releases();
+    await uploadUpdate(ARM, BUNDLE, 'stamp-streamed', signatureFor('0.20261019.120000'));
+    await upload(ARM, BUNDLE, 'stamp-streamed');
+    await call({method: 'PUT', path: '/api/lab/engine', body: BUNDLE, headers: {authorization: `Bearer ${UPLOAD}`, 'x-lab-stamp': 'engine-streamed', 'x-lab-signature': SIGNATURE, 'x-lab-shell': 'b'.repeat(40)}});
+    const heard = releases();
+    // An app's own upload, its dmg or installer, is no update.
+    assert.equal(heard.length, 3);
+    assert.deepEqual(heard[1], {...before, updates: {...before.updates, [ARM]: '0.20261019.120000'}});
+    assert.deepEqual(heard[2], {...heard[1], engine: 'engine-streamed'});
+    res.emit('close');
+    await following;
+    assert.equal(res.writableEnded, true);
+    assert.equal(isGlobalApiPath('/api/lab/releases'), true);
   });
 
   it('answers 404 for a target with no bundle', async () => {

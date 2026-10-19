@@ -20,6 +20,10 @@
  *   GET /api/lab/engine                anyone: what the app asks (desktop/src-tauri/src/engine.rs),
  *                                      {stamp, shell, sha256, signature, url}, 204 while there is none
  *   GET /api/lab/engine/engine.tar.gz  anyone: that engine's archive
+ *   GET /api/lab/releases              anyone: what the app follows (desktop/src-tauri/src/releases.rs), a
+ *                                      stream of `release` events, {engine, updates: {target: version}},
+ *                                      each null while there is none: one as it opens, and one as each
+ *                                      update or engine is uploaded
  *   GET /install.sh                    anyone: the script that installs the app on a Mac (lab-install.js),
  *                                      curl -fsSL <SITE_URL>/install.sh | sh
  *   GET /install.ps1                   anyone: the script that installs the app on Windows (lab-install.js),
@@ -77,10 +81,25 @@ const SIGNATURE = /^[A-Za-z0-9+/]{1,4096}={0,2}$/;
 const SHELL = /^[0-9a-f]{40}$/;
 // The app's sign-in state: random, which it names its sign-in by.
 const STATE = /^[A-Za-z0-9_-]{16,128}$/;
+// The stream of releases outlives the server's idle limit; the heartbeat keeps proxies from closing it.
+const HEARTBEAT_MS = 25_000;
+// The responses of the apps following the releases.
+const followers = new Set();
 
 /** The version an update's signature (its .sig) was made for, which its trusted comment names, or null. */
 function signedVersion(signature) {
   return /^trusted comment: .*\tversion:(\d+\.\d+\.\d+)$/m.exec(Buffer.from(signature, 'base64').toString('utf8'))?.[1] ?? null;
+}
+
+/** What this site serves, as a `release` event: its engine's stamp and each target's update's version, null while it has none. */
+async function release(bundles) {
+  const engine = await bundles.bundle(ENGINE, 'engine');
+  const updates = {};
+  for (const target of TARGETS) {
+    const update = await bundles.bundle(target, 'update');
+    updates[target] = update ? signedVersion(update.signature) : null;
+  }
+  return `event: release\ndata: ${JSON.stringify({engine: engine?.stamp ?? null, updates})}\n\n`;
 }
 
 /** Whether `header` is `Bearer <token>`, compared in constant time. */
@@ -121,7 +140,7 @@ async function sendBundle(res, bundles, bundle) {
 }
 
 module.exports = async function lab(req, res, url, pathname, ctx) {
-  const {json, lab: {bundles, secret, siteUrl, scheme, uploadToken, onEngine, findMember, createSession, sessionCookie}} = ctx;
+  const {json, lab: {bundles, secret, siteUrl, scheme, uploadToken, findMember, createSession, sessionCookie}} = ctx;
   const install = INSTALL_SCRIPTS.get(pathname);
   if (install) {
     if (req.method !== 'GET') return json(res, 405, {error: 'Method not allowed'});
@@ -130,7 +149,7 @@ module.exports = async function lab(req, res, url, pathname, ctx) {
   }
   const match = ROUTE.exec(pathname);
   if (!match) return;
-  const [, connect, session, signIn, windowSignIn, appTarget, updateTarget, updateArchive, engine, engineArchive] = match;
+  const [, connect, session, signIn, windowSignIn, appTarget, updateTarget, updateArchive, engine, engineArchive, releases] = match;
   const kind = engine ? 'engine' : updateTarget ? 'update' : 'app';
   const target = engine ? ENGINE : appTarget ?? updateTarget;
   const archive = updateArchive ?? engineArchive;
@@ -180,6 +199,23 @@ module.exports = async function lab(req, res, url, pathname, ctx) {
     return res.end(JSON.stringify({session: created.token, member: {id: userId, login: created.login}}));
   }
 
+  if (releases) {
+    if (req.method !== 'GET') return json(res, 405, {error: 'Method not allowed'});
+    if (!bundles) return json(res, 503, {error: 'RUSH Lab bundles need PostgreSQL (DATABASE_URL)'});
+    // Listened for first: an app gone while the stream opens still stops it.
+    const closed = new Promise(resolve => res.on('close', resolve));
+    const first = await release(bundles);
+    res.writeHead(200, {'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no'});
+    req.setTimeout(0);
+    res.write(first);
+    followers.add(res);
+    const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), HEARTBEAT_MS);
+    await closed;
+    clearInterval(heartbeat);
+    followers.delete(res);
+    return res.end();
+  }
+
   if (archive && req.method !== 'GET') return json(res, 405, {error: 'Method not allowed'});
 
   if (req.method === 'PUT') {
@@ -201,7 +237,11 @@ module.exports = async function lab(req, res, url, pathname, ctx) {
     }
     try {
       const stored = await bundles.replace({target, kind, stamp, signature, shell}, req, MAX_BUNDLE_BYTES);
-      if (kind === 'engine') onEngine(stamp);
+      // Each app following the releases hears of it at once.
+      if (kind !== 'app') {
+        const news = await release(bundles);
+        for (const follower of followers) follower.write(news);
+      }
       return json(res, 200, stored);
     } catch (error) {
       if (!error.status) throw error;

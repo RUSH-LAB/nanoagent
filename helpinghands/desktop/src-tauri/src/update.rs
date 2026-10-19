@@ -1,12 +1,14 @@
 //! RUSH Lab keeps itself the build its site serves (GET /api/lab/updates/<target>,
-//! server/routes/lab.js). Every CHECK_EVERY it asks for that build; one with a newer version (a
-//! release's is its build's time, scripts/release.mjs) is downloaded, checked against the update
+//! server/routes/lab.js). Each time the site names another version than this one's (releases.rs) it
+//! asks for that build; one with a newer version (a release's is its build's time,
+//! scripts/release.mjs) is downloaded, checked against the update
 //! key (plugins.updater.pubkey in tauri.conf.json) and the version it was signed for, and installed
 //! once nothing runs here and the app's window is closed, so an update never stops a run or a page
 //! a member is on. On macOS it is installed over this app, which then opens it; on Windows its
 //! installer quits this app and opens the one it installed. Only a release (npm run build:release)
 //! updates itself.
 
+use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -16,26 +18,33 @@ use tauri_plugin_updater::UpdaterExt;
 
 use crate::lab::Lab;
 
-const CHECK_EVERY: Duration = Duration::from_secs(60 * 60);
 const IDLE_POLL: Duration = Duration::from_secs(30);
 
 /// Managed once an update is installed: quitting then opens it (main.rs).
 pub struct Installed;
 
-/// Keep this app the build `site` serves for `target`.
-pub fn keep_updated(app: AppHandle, lab: Arc<Lab>, site: Url, target: String) {
-    thread::spawn(move || loop {
-        match tauri::async_runtime::block_on(install(&app, &lab, &site, &target)) {
-            Ok(false) => {}
-            Ok(true) => {
-                lab.log("Opening the RUSH Lab installed.");
-                app.manage(Installed);
-                app.exit(0);
-                return;
+/// Keep this app the build `site` serves for `target`, each time the site names a version (`named`).
+pub fn keep_updated(app: AppHandle, lab: Arc<Lab>, site: Url, target: String, named: Receiver<String>) {
+    thread::spawn(move || {
+        let running = app.package_info().version.to_string();
+        // The version the site served last that is no newer than this one: not asked again until it names another.
+        let mut declined = String::new();
+        for version in named {
+            if version == running || version == declined {
+                continue;
             }
-            Err(message) => lab.log(&format!("RUSH Lab could not update itself: {message}")),
+            match tauri::async_runtime::block_on(install(&app, &lab, &site, &target)) {
+                Ok(false) => declined = version,
+                Ok(true) => {
+                    lab.log("Opening the RUSH Lab installed.");
+                    app.manage(Installed);
+                    app.exit(0);
+                    return;
+                }
+                // Asked again when the site next names it, as it does each time its stream opens.
+                Err(message) => lab.log(&format!("RUSH Lab could not update itself: {message}")),
+            }
         }
-        thread::sleep(CHECK_EVERY);
     });
 }
 

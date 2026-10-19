@@ -26,6 +26,8 @@ function answerMetrics({model, cost, usage, metrics}) {
 const LOST = 'RUSH Lab stopped while answering, so this message was not answered. Send it again.';
 const NOT_BACK = `RUSH Lab was not back within ${HOLD_MS / 60_000} minutes, so this message was not answered. Send it again.`;
 const FAILED = 'AI request failed. Please try again later.';
+// How long writing a run's files back waits for the member's computer to connect again.
+const RECONNECT_MS = 30_000;
 
 /**
  * The plugin runs going on, at most one per session. A run is not the
@@ -164,7 +166,7 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
     let unsaved = null;
     if (folder) {
       try {
-        await agentSync.finish(context, await runners.aiFor(row.userId), row.pluginId, folder);
+        await writeBack(context, row, folder);
       } catch (error) {
         unsaved = `What the run did could not be written back to your folder for this plugin: ${error.message}`;
       }
@@ -193,13 +195,29 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
     else run.send('done', {...completionPayload(result), metrics, version: ended ? ended.version : null});
   }
 
+  /**
+   * Write what the run `row` did in `folder` back to the member's folder for the plugin, on their
+   * computer's NanoAgent once it is connected: a connection that dropped is back within seconds.
+   * When it drops while this is going, the write starts again on the one it comes back as.
+   */
+  async function writeBack(context, row, folder) {
+    for (let again = false; ; again = true) {
+      const ai = await runners.connectedAi(row.userId, RECONNECT_MS);
+      try {
+        return await agentSync.finish(context, ai, row.pluginId, folder);
+      } catch (error) {
+        if (again || ai === await runners.aiFor(row.userId)) throw error;
+      }
+    }
+  }
+
   /** End the run `row`, which no process is doing any more, as not answered, for `reason`. */
   async function interrupt(row, reason) {
     const context = contextOf(row);
     let error = reason;
     if (row.folder) {
       try {
-        await agentSync.finish(context, await runners.aiFor(row.userId), row.pluginId, {workspace: row.folder, sent: row.sent});
+        await writeBack(context, row, {workspace: row.folder, sent: row.sent});
       } catch (problem) {
         error = `${reason} What it did could not be written back to your folder for this plugin: ${problem.message}`;
       }

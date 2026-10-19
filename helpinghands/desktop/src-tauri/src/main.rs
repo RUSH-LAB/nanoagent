@@ -13,6 +13,7 @@
 
 mod engine;
 mod lab;
+mod releases;
 mod setup;
 #[cfg(target_os = "macos")]
 mod sign_in;
@@ -194,6 +195,7 @@ fn main() {
             app.manage(setup::Setup::new());
             let update_site = site.clone();
             let engine_site = site.clone();
+            let releases_site = site.clone();
             let handle = app.handle().clone();
             let opener = app.handle().clone();
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(site))
@@ -314,10 +316,14 @@ fn main() {
                 let _ = std::fs::remove_file(lab.data.join(setup::FILE));
                 setup::follow(handle.clone(), lab.data.clone());
                 lab.start();
-                engine::keep_current(handle.clone(), lab.clone(), engine_site);
-                if let Some(target) = update_target {
-                    update::keep_updated(handle.clone(), lab.clone(), update_site, target);
-                }
+                let (engines, named_engines) = std::sync::mpsc::channel();
+                engine::keep_current(handle.clone(), lab.clone(), engine_site, named_engines);
+                let update = update_target.map(|target| {
+                    let (versions, named_versions) = std::sync::mpsc::channel();
+                    update::keep_updated(handle.clone(), lab.clone(), update_site, target.clone(), named_versions);
+                    (target, versions)
+                });
+                releases::follow(lab.clone(), releases_site, engines, update);
                 handle.manage(lab);
             });
 

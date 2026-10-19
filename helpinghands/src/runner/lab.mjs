@@ -481,8 +481,6 @@ async function main() {
   const pidFile = path.join(data, 'services.pid');
   // There while any connection's relay has a request going.
   const busyFile = path.join(data, 'busy');
-  // The engine the site said it serves, which the app watches for (desktop/src-tauri/src/engine.rs).
-  const engineFile = path.join(data, 'engine');
   // What this is doing to set the computer up, which the app's window shows (desktop/src-tauri/src/setup.rs):
   // {stage, error}, `stage` python, nanoagent or connect, `error` why it stopped there, or null.
   const setupFile = path.join(data, 'setup.json');
@@ -811,9 +809,6 @@ async function main() {
         openPage(keyless ? `${site.replace(/\/$/, '')}/settings#ai` : site);
       } else if (event.event === 'disconnected') {
         log(`Disconnected from ${site}: ${event.reason}`, id);
-      } else if (event.event === 'engine') {
-        // The app takes it from the site when it is newer, for its shell (desktop/src-tauri/src/engine.rs).
-        fs.writeFileSync(engineFile, `${event.stamp}\n`);
       } else if (event.event === 'keys') {
         applyKeys(connection, event.changes).then(
           () => tellRelay(connection, {id: event.id, error: null}),
