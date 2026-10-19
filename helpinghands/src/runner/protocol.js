@@ -25,6 +25,8 @@
  *                      {type: 'release', id}        RUSH has kept what the held request did
  *                      {type: 'abort', id}
  *                      {type: 'keys', id, changes}  {ENV_NAME: key, or null to remove it}
+ *                      {type: 'engine', stamp}      the RUSH Lab engine the site serves, at the computer's
+ *                                                    hello and as each is uploaded (desktop/src-tauri/src/engine.rs)
  */
 
 const PATH = '/api/runner';

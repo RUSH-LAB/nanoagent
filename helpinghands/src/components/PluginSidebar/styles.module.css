@@ -21,7 +21,7 @@
   }
 }
 
-.maintenance {
+.badge {
   flex: none;
   margin-left: auto;
   padding: 0 0.4rem;
@@ -30,6 +30,16 @@
   color: var(--ifm-color-warning-contrast-foreground);
   font-size: 0.65rem;
   line-height: 1.5;
+}
+
+.badgeUpdate {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+[data-theme='dark'] .badgeUpdate {
+  background: rgba(96, 165, 250, 0.16);
+  color: #93c5fd;
 }
 
 .marketplace {

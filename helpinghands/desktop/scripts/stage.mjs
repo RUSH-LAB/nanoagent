@@ -3,13 +3,11 @@
  * Stages everything the desktop app bundles, for the target Tauri is building
  * (TAURI_ENV_TARGET_TRIPLE, which Tauri sets for beforeBuildCommand):
  *
- *   src-tauri/resources/runner/     the relay that lends this computer's NanoAgent to RUSH, and in plugin-project/
- *                                   what `<command> new` writes into a plugin project: project.md and the publish-plugin skill
- *   src-tauri/resources/nanoagent/  NanoAgent's source (site/), its uv.lock, the PI runner's bundle, and the config the app runs
+ *   src-tauri/resources/runner/, nanoagent/, stamp, shell   the engine the app is built with (scripts/engine.mjs),
+ *                                   which it runs until its site serves a newer one for its shell
  *   src-tauri/resources/config.json this folder's config.yaml, as JSON (scripts/config.mjs): lab.mjs loads only
  *                                   Node's own modules; with --release (npm run build:release), the target it
  *                                   updates itself as; with --dev (npm run desktop:dev), RUSH Lab Dev's
- *   src-tauri/resources/stamp       names this staging; the app installs each stamp once
  *   src-tauri/resources/git/        git: on macOS built from source, on Windows MinGit with busybox-w32 as its shell
  *   src-tauri/binaries/{node,uv}-<target>   the runtimes, downloaded and checksum-verified
  */
@@ -18,14 +16,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {readConfig} from './config.mjs';
+import {run, stageEngine, tar} from './engine.mjs';
 
 const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const mochiRoot = path.dirname(desktop);
-const repoRoot = path.dirname(mochiRoot);
-const nanoagentRoot = path.resolve(mochiRoot, '..', 'nanoagent');
 const resources = path.join(desktop, 'src-tauri', 'resources');
 const binaries = path.join(desktop, 'src-tauri', 'binaries');
 const cache = path.join(desktop, '.cache');
@@ -40,18 +35,8 @@ const TARGETS = {
   'x86_64-unknown-linux-gnu': {node: 'linux-x64', archive: 'tar.gz', exe: ''},
   'x86_64-pc-windows-msvc': {node: 'win-x64', archive: 'zip', exe: '.exe'},
 };
-// Never bundled from a checkout: environments, caches, and run output are rebuilt where they run.
-const SKIP = new Set(['node_modules', '.venv', '__pycache__', '.pytest_cache', '.ruff_cache', 'outputs', '.DS_Store', '.lake']);
-
-function run(command, args, options = {}) {
-  console.log(`$ ${command} ${args.join(' ')}`);
-  // npm is npm.cmd on Windows, which only a shell runs.
-  execFileSync(command, args, {stdio: 'inherit', shell: process.platform === 'win32', ...options});
-}
-
-function copy(from, to) {
-  fs.cpSync(from, to, {recursive: true, filter: source => !SKIP.has(path.basename(source))});
-}
+// This computer's target, for the uv the engine is locked with (fetchUv).
+const HOSTS = {'darwin arm64': 'aarch64-apple-darwin', 'darwin x64': 'x86_64-apple-darwin', 'linux x64': 'x86_64-unknown-linux-gnu', 'win32 x64': 'x86_64-pc-windows-msvc'};
 
 function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
@@ -85,8 +70,7 @@ async function fetchVerified(url, expected) {
   const unpacked = path.join(cache, `${path.basename(url)}.d`);
   fs.rmSync(unpacked, {recursive: true, force: true});
   fs.mkdirSync(unpacked);
-  // Windows' own tar: a GNU tar earlier on PATH (Git Bash) reads the drive letter as a remote host.
-  run(process.platform === 'win32' ? path.join(process.env.SystemRoot, 'System32', 'tar.exe') : 'tar', ['-xf', file, '-C', unpacked]);
+  run(tar(), ['-xf', file, '-C', unpacked]);
   return unpacked;
 }
 
@@ -103,14 +87,16 @@ async function stageNode(target, platform) {
   fs.copyFileSync(binary, path.join(binaries, `node-${target}${platform.exe}`));
 }
 
-async function stageUv(target, platform) {
+/** uv for `target` (this computer's by default), downloaded into the cache and checked: its program. */
+export async function fetchUv(target = HOSTS[`${process.platform} ${process.arch}`]) {
+  const platform = TARGETS[target];
+  if (!platform) throw new Error(`uv for ${process.platform} ${process.arch} is not one the app knows`);
   const archive = `uv-${target}.${platform.archive}`;
   const url = `https://github.com/astral-sh/uv/releases/download/${config.uv_version}/${archive}`;
   const sumFile = path.join(cache, `${archive}-${config.uv_version}.sha256`);
   await download(`${url}.sha256`, sumFile);
   const unpacked = await fetchVerified(url, fs.readFileSync(sumFile, 'utf8').split(/\s+/)[0]);
-  const binary = platform.exe ? path.join(unpacked, 'uv.exe') : path.join(unpacked, `uv-${target}`, 'uv');
-  fs.copyFileSync(binary, path.join(binaries, `uv-${target}${platform.exe}`));
+  return platform.exe ? path.join(unpacked, 'uv.exe') : path.join(unpacked, `uv-${target}`, 'uv');
 }
 
 /**
@@ -163,49 +149,6 @@ async function stageMacGit(target, arch) {
   fs.cpSync(built, path.join(resources, 'git'), {recursive: true, dereference: true});
 }
 
-// lab.mjs, the relay and the protocol it shares with RUSH's server; Node's own modules are all they load.
-// Beside project.md, the preface `<command> new` writes into a plugin project, goes the publish-plugin skill it follows.
-function stageRunner() {
-  copy(path.join(mochiRoot, 'src', 'runner'), path.join(resources, 'runner'));
-  fs.copyFileSync(path.join(repoRoot, 'docs', 'instructions', 'skills', 'publish-plugin', 'SKILL.md'), path.join(resources, 'runner', 'plugin-project', 'SKILL.md'));
-}
-
-/**
- * NanoAgent's package ships as its source, in resources/nanoagent/site/, and its dependencies are
- * installed from the uv.lock resolved here, on first launch. Beside them go the PI runner's two
- * bundled files and the config lab.mjs runs, at the paths that config names them by.
- */
-async function stageNanoAgent(uv) {
-  const out = path.join(resources, 'nanoagent');
-  copy(path.join(nanoagentRoot, 'src', 'nanoagent'), path.join(out, 'site', 'nanoagent'));
-  // NanoAgent is a library and keeps no lock; the app pins the versions resolved for this build,
-  // which it installs with `uv sync --frozen` on first launch. Locking reads NanoAgent's version
-  // from its source, so it runs on a copy with the source, and only the lock ships.
-  const locking = path.join(cache, 'nanoagent-lock');
-  fs.rmSync(locking, {recursive: true, force: true});
-  for (const entry of ['pyproject.toml', 'README.md', 'LICENSE', 'src']) {
-    copy(path.join(nanoagentRoot, entry), path.join(locking, entry));
-  }
-  run(uv, ['lock'], {cwd: locking});
-  for (const entry of ['pyproject.toml', 'uv.lock']) {
-    copy(path.join(locking, entry), path.join(out, entry));
-  }
-  // Built as the Dockerfile builds it, with dev dependencies; only the bundle ships.
-  const runner = path.join(cache, 'pi-runner');
-  fs.rmSync(runner, {recursive: true, force: true});
-  for (const entry of ['package.json', 'package-lock.json', 'tsconfig.json', 'build.mjs', 'src']) {
-    copy(path.join(nanoagentRoot, 'js', 'pi-runner', entry), path.join(runner, entry));
-  }
-  run('npm', ['ci', '--include=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--loglevel=error'], {cwd: runner});
-  run('npm', ['run', 'build'], {cwd: runner});
-  for (const file of ['index.js', 'models.js']) {
-    copy(path.join(runner, 'dist', file), path.join(out, 'js', 'pi-runner', 'dist', file));
-  }
-  for (const file of ['deploy/railway/nanoagent.yaml', 'deploy/railway/profiles']) {
-    copy(path.join(nanoagentRoot, file), path.join(out, file));
-  }
-}
-
 async function main() {
   const target = process.env.TAURI_ENV_TARGET_TRIPLE;
   const platform = TARGETS[target];
@@ -220,19 +163,19 @@ async function main() {
   fs.mkdirSync(resources, {recursive: true});
   fs.mkdirSync(binaries, {recursive: true});
   await stageNode(target, platform);
-  await stageUv(target, platform);
-  stageRunner();
+  const uv = path.join(binaries, `uv-${target}${platform.exe}`);
+  fs.copyFileSync(await fetchUv(target), uv);
   if (platform.exe) await stageGit();
   if (platform.arch) await stageMacGit(target, platform.arch);
-  await stageNanoAgent(path.join(binaries, `uv-${target}${platform.exe}`));
+  stageEngine(resources, uv);
   // A release updates itself from its site (src-tauri/src/update.rs); any other build stays as built.
   if (release) config.update_target = target;
   fs.writeFileSync(path.join(resources, 'config.json'), `${JSON.stringify(config, null, 2)}\n`);
-  const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {cwd: mochiRoot, encoding: 'utf8'}).trim();
-  fs.writeFileSync(path.join(resources, 'stamp'), `${new Date().toISOString().replace(/[:.]/g, '-')}-${commit}\n`);
 }
 
-main().catch(error => {
-  console.error(`Staging failed: ${error.message}`);
-  process.exit(1);
-});
+if (process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(process.argv[1])) {
+  main().catch(error => {
+    console.error(`Staging failed: ${error.message}`);
+    process.exit(1);
+  });
+}

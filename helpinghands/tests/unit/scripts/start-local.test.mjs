@@ -25,6 +25,7 @@ describe('local process supervisor configuration', () => {
     assert.equal(env.PG_SSL, 'disable');
     assert.equal(env.EDITOR_PORT, '4101');
     assert.equal(env.MOCHI_LOCAL_SITE, '1');
+    assert.equal(env.LAB_UPLOAD_TOKEN, 'local-site');
   });
 
   it('refuses any other database URL, in .env or the shell', () => {

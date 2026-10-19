@@ -120,7 +120,7 @@ function socketFetch(entry) {
  * `openrouterKeys` (openrouter-keys.js), when RUSH gives members an OpenRouter
  * key: a computer that connects without one is given one.
  */
-function createRunners({resolveIdentity, openrouterKeys = null}) {
+function createRunners({resolveIdentity, openrouterKeys = null, engine}) {
   const connected = new Map();
   const pages = new Map();
   // Held calls whose computer went away, by id: {userId, call, timer}, until it is back.
@@ -150,7 +150,10 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
         entry.greeted = true;
         entry.device = typeof frame.device === 'string' ? frame.device.slice(0, 100) : null;
         entry.keys = keyList(frame.keys);
-        if (first) giveKey(userId, entry);
+        if (first) {
+          giveKey(userId, entry);
+          tellEngine(entry);
+        }
         const runs = Array.isArray(frame.runs) ? frame.runs.filter(id => typeof id === 'string') : [];
         entry.runs = new Set(runs);
         claimAway(userId);
@@ -191,6 +194,13 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
       claimAway(userId);
     });
     socket.on('error', () => socket.terminate());
+  }
+
+  /** Tell the computer the engine this site serves, if there is one (desktop/src-tauri/src/engine.rs). */
+  function tellEngine(entry) {
+    engine().then(stamp => {
+      if (stamp && !entry.closed) entry.socket.send(JSON.stringify({type: 'engine', stamp}));
+    }, error => console.error('[runner] Could not read the RUSH Lab engine:', error.message));
   }
 
   /** An OpenRouter key from RUSH, saved on the member's computer when it holds none of its own. */
@@ -303,6 +313,13 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
      */
     onRuns(listener) {
       onRuns = listener;
+    },
+
+    /** Tell every computer connected the engine `stamp` is uploaded. */
+    announceEngine(stamp) {
+      for (const entry of connected.values()) {
+        if (entry.greeted && !entry.closed) entry.socket.send(JSON.stringify({type: 'engine', stamp}));
+      }
     },
 
     /** Tell the member's computer RUSH has kept what the held request `id` did, if it is connected. */

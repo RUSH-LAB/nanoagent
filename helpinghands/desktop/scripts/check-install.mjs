@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 /**
- * node scripts/check-install.mjs <target>: RUSH Lab, as built for <target> (npm run build:release),
- * installed and run as a member does, on this computer, which CI runs on each target's own runner.
+ * node scripts/check-install.mjs <target> [--app <file>] [--engine <folder>]: RUSH Lab, as built for
+ * <target> (npm run build:release), or the app <file> (rush-lab.org's, for a release that changes
+ * only the engine), installed and run as a member does, on this computer, which CI runs on each
+ * target's own runner. With --engine, the second install runs the engine in <folder>
+ * (scripts/engine.mjs) in place of the app's own, installed as the app installs one its site serves
+ * (src-tauri/src/engine.rs, lab.rs).
  * It serves the build as the site serves it, from a site of its own on 127.0.0.1, and twice runs
  * the command the site gives (curl -fsSL <site>/install.sh | sh on macOS, irm <site>/install.ps1 | iex
  * on Windows), the second replacing the RUSH Lab the first opened, as an update does. Each time it
@@ -35,7 +39,8 @@ const MEMBER = {id: 'check', login: 'check'};
 const TOKEN = crypto.randomBytes(16).toString('hex');
 
 const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const target = process.argv[2];
+const [target, ...flags] = process.argv.slice(2);
+const flag = name => (flags.includes(name) ? path.resolve(flags[flags.indexOf(name) + 1]) : null);
 const windows = process.platform === 'win32';
 const {productName, label} = releaseApp();
 const bundleFolder = path.join(desktop, 'src-tauri', 'target', target ?? '', 'release', 'bundle', windows ? 'nsis' : 'dmg');
@@ -124,6 +129,35 @@ async function install(site) {
   if (code !== 0) throw new Error(`the install command exited with ${code ?? signal}`);
 }
 
+/**
+ * Install the engine in `folder` beside the app's own, as the app installs one its site serves:
+ * unpacked into the data folder's app/<stamp>/mochi-lab/, with the shell's config.json, git and
+ * runtimes beside it, so the app runs it, the newest for its shell, at its next start.
+ */
+function placeEngine(folder) {
+  const stamp = fs.readFileSync(path.join(folder, 'stamp'), 'utf8').trim();
+  const resources = windows ? appFolder : path.join(appFolder, 'Contents', 'Resources');
+  const bin = windows ? appFolder : path.join(appFolder, 'Contents', 'MacOS');
+  const shell = fs.readFileSync(path.join(resources, 'shell'), 'utf8').trim();
+  const engineShell = fs.readFileSync(path.join(folder, 'shell'), 'utf8').trim();
+  if (engineShell !== shell) throw new Error(`the engine is for shell ${engineShell}, and the app is ${shell}`);
+  const root = path.join(data, 'app', stamp, 'mochi-lab');
+  fs.mkdirSync(root, {recursive: true});
+  const tar = windows ? path.join(process.env.SystemRoot, 'System32', 'tar.exe') : 'tar';
+  execFileSync(tar, ['-xzf', path.join(folder, 'engine.tar.gz'), '-C', root]);
+  fs.cpSync(path.join(resources, 'git'), path.join(root, 'git'), {recursive: true, verbatimSymlinks: true});
+  fs.copyFileSync(path.join(resources, 'config.json'), path.join(root, 'config.json'));
+  fs.mkdirSync(path.join(root, 'bin'));
+  for (const name of windows ? ['node.exe', 'uv.exe'] : ['node', 'uv']) fs.copyFileSync(path.join(bin, name), path.join(root, 'bin', name));
+  return stamp;
+}
+
+/** Whether lab.mjs said, at its last start, that it runs the engine `stamp`. */
+function runs(stamp) {
+  const lines = fs.readFileSync(path.join(data, 'logs', 'lab.log'), 'utf8').split('\n').filter(line => / \S+ \d{4}-\d\d-\d\dT[\d-]+Z-[0-9a-f]+$/.test(line));
+  return lines.at(-1)?.endsWith(` ${stamp}`) ?? false;
+}
+
 /** What lab.mjs says it is setting up (src/runner/lab.mjs's setup.json), or null. */
 function setup() {
   try {
@@ -170,15 +204,28 @@ function printLogs() {
 }
 
 async function main() {
-  if (!target) throw new Error('usage: node scripts/check-install.mjs <target>');
-  const bundles = fs.readdirSync(bundleFolder).filter(name => name.endsWith(windows ? '-setup.exe' : '.dmg'));
-  if (bundles.length !== 1) throw new Error(`expected one build in ${bundleFolder}, found ${bundles.length}`);
+  if (!target) throw new Error('usage: node scripts/check-install.mjs <target> [--app <file>] [--engine <folder>]');
+  let app = flag('--app');
+  if (!app) {
+    const bundles = fs.readdirSync(bundleFolder).filter(name => name.endsWith(windows ? '-setup.exe' : '.dmg'));
+    if (bundles.length !== 1) throw new Error(`expected one build in ${bundleFolder}, found ${bundles.length}`);
+    app = path.join(bundleFolder, bundles[0]);
+  }
+  const engine = flag('--engine');
   let relay = null;
-  const site = await serve(path.join(bundleFolder, bundles[0]), socket => { relay = socket; });
+  let engineStamp = null;
+  const site = await serve(app, socket => { relay = socket; });
   try {
     for (const round of [1, 2]) {
       say(`Install ${round}: ${site.site}`);
       relay = null;
+      if (round === 2 && engine) {
+        // The engine goes in while the app is not running, as the install puts the app back.
+        quit();
+        await waitFor(`${productName} did not quit`, QUIT_TIMEOUT_MS, () => running().length === 0);
+        engineStamp = placeEngine(engine);
+        say(`Placed the engine ${engineStamp}.`);
+      }
       await install(site.site);
       // The app removes the last run's setup.json, and lab.mjs writes `python` once it has removed
       // connections to other sites, this site's from the round before among them.
@@ -196,6 +243,7 @@ async function main() {
         throw new Error(`NanoAgent answered /v1/profiles through the relay with ${status}: ${body}`);
       }
       say(`NanoAgent answered through the relay, its default profile ${catalog.defaultProfile}.`);
+      if (engineStamp && !runs(engineStamp)) throw new Error(`${productName} did not run the engine ${engineStamp}`);
     }
     say(`Quitting ${productName}…`);
     quit();

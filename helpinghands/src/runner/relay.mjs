@@ -171,6 +171,8 @@ export function connect({
         drop(held, frame.id);
         report();
         onRelease?.();
+      } else if (frame.type === 'engine') {
+        onEvent({event: 'engine', stamp: String(frame.stamp)});
       } else if (frame.type === 'keys') {
         saveKeys(frame.changes).then(
           () => send({type: 'saved', id: frame.id}),

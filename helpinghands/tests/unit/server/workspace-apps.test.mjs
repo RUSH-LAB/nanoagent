@@ -125,12 +125,12 @@ describe('a member\'s apps', () => {
     installs.set(next.sha256, {...next, uiVersion: 'fedcba9876543210'});
     assert.equal((await apps.open(as('bob'), 'notes', computer)).value.version, '1.1.0');
     const [, notes] = (await apps.list(as('bob'))).value;
-    assert.deepEqual([notes.version, notes.latest, notes.autoUpdate, notes.sha256], ['1.1.0', '1.1.0', true, next.sha256]);
+    assert.deepEqual([notes.version, notes.latest, notes.autoUpdate, notes.sha256, notes.state], ['1.1.0', '1.1.0', true, next.sha256, 'ready']);
   });
 
   it('keeps a member on the version they choose until they update it', async () => {
     const pinned = await apps.pin(as('bob'), 'notes', '1.0.0');
-    assert.deepEqual([pinned.value.version, pinned.value.latest, pinned.value.autoUpdate], ['1.0.0', '1.1.0', false]);
+    assert.deepEqual([pinned.value.version, pinned.value.latest, pinned.value.autoUpdate, pinned.value.state], ['1.0.0', '1.1.0', false, 'update']);
     const opened = (await apps.open(as('bob'), 'notes', computer)).value;
     assert.deepEqual([opened.sha256, opened.latest, opened.autoUpdate, opened.repository, opened.latestRepository],
       [UPLOAD.sha256, '1.1.0', false, REPOSITORY, REPOSITORY]);
@@ -185,10 +185,11 @@ describe('a member\'s apps', () => {
     await market.publish('alice', stale, Buffer.from('legacy package with run.sh'), REPOSITORY);
     const offered = (await apps.catalog('carol')).value.get('legacy').entry;
     assert.deepEqual([offered.status, offered.refusal], ['refused', 'the package is refused: unexpected run.sh']);
-    assert.deepEqual(await apps.add(as('carol'), 'legacy'), {error: 'legacy is under maintenance: the package is refused: unexpected run.sh', status: 409});
-    // Who follows the latest runs the refused version; who stays on the earlier one does not.
-    assert.deepEqual((await apps.list(as('bob'))).value.map(app => [app.version, app.status]), [['1.1.0', 'refused']]);
-    assert.deepEqual((await apps.list(as('vic'))).value.map(app => [app.version, app.status]), [['1.0.0', 'ready']]);
+    assert.deepEqual(await apps.add(as('carol'), 'legacy'), {error: 'legacy is outdated: no version of it runs here until its author publishes one that does (the package is refused: unexpected run.sh)', status: 409});
+    // Who follows the latest runs the refused version, outdated; who stays on the earlier one
+    // does not, and has no update to it.
+    assert.deepEqual((await apps.list(as('bob'))).value.map(app => [app.version, app.status, app.state]), [['1.1.0', 'refused', 'outdated']]);
+    assert.deepEqual((await apps.list(as('vic'))).value.map(app => [app.version, app.status, app.state]), [['1.0.0', 'ready', 'ready']]);
     assert.deepEqual(await apps.prepare(as('bob'), computer), {value: []});
     assert.deepEqual([inspected.get(legacy.sha256), inspected.get(stale.sha256)], [1, 1]);
     // Opened, the refused version is its page alone, to read its sessions; it takes no run.
@@ -202,5 +203,10 @@ describe('a member\'s apps', () => {
     assert.deepEqual(await apps.refusal(as('bob'), 'legacy'), {value: 'the package is refused: unexpected run.sh'});
     assert.deepEqual(await apps.refusal(as('vic'), 'legacy'), {value: null});
     assert.deepEqual(await apps.refusal(as('vic'), 'bibtex-check'), {error: 'You have not installed a plugin named bibtex-check', status: 404});
+    // Once its author publishes a version that runs, staying on the refused one needs an update to it.
+    await apps.pin(as('bob'), 'legacy', '1.1.0');
+    await market.publish('alice', {...legacy, version: '1.2.0', sha256: sha256('legacy package 1.2')}, Buffer.from('legacy package 1.2'), REPOSITORY);
+    assert.deepEqual((await apps.list(as('bob'))).value.map(app => [app.version, app.latest, app.state]), [['1.1.0', '1.2.0', 'needs-update']]);
+    assert.deepEqual((await apps.list(as('vic'))).value.map(app => [app.version, app.latest, app.state]), [['1.0.0', '1.2.0', 'update']]);
   });
 });

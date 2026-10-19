@@ -54,20 +54,50 @@ function UnavailableNotice({app}) {
   );
 }
 
+// The states of an install (server/workspace-apps.js) that open as the plugin's page, and of
+// those the ones whose version no longer runs here.
+const OPENS = new Set(['ready', 'update', 'needs-update', 'outdated']);
+const STOPPED = new Set(['needs-update', 'outdated']);
+
 /**
- * A ready app is its own page, opened once NanoAgent has it installed: the
- * first open after NanoAgent starts builds its environment, which takes a while.
- * An outdated one (`refused`, server/market-checks.js) is its page too, never
- * installed, in which the member reads their sessions and starts none.
- * One still being built is our notice. The page moving the member to another
- * version opens that version. The page opens on `session`, and `onSession`
- * hears the session it shows.
+ * Above the page of a plugin whose version no longer runs here, that the member reads its
+ * sessions and starts none, and what makes it run again: updating it, with the button the
+ * page has for it (kit/shell.js), or its author publishing a version that does.
  */
-function AppDetail({app, workspace, session, onSession}) {
+function StoppedNotice({app, slug}) {
+  return (
+    <div className={styles.stoppedNotice}>
+      {app.state === 'needs-update' ? (
+        <span>
+          <strong>Update needed.</strong> v{app.version} no longer runs here: you can read its sessions, but start one
+          only once you update it to v{app.latest}.
+        </span>
+      ) : (
+        <span>
+          <strong>Outdated.</strong> v{app.version} no longer runs here: you can read its sessions, but not start one.
+          It runs again once its author publishes a version that does.
+        </span>
+      )}
+      {app.state === 'outdated' && (
+        <Link to={`/w/${encodeURIComponent(slug)}/marketplace?plugin=${encodeURIComponent(app.id)}`}>See it in the Marketplace</Link>
+      )}
+    </div>
+  );
+}
+
+/**
+ * An app that runs is its own page, opened once NanoAgent has it installed: the
+ * first open after NanoAgent starts builds its environment, which takes a while.
+ * One whose version no longer runs (`needs-update`, `outdated`) is its page too, never
+ * installed, in which the member reads their sessions and starts none, StoppedNotice above
+ * it saying so. One still being built is our notice. The page moving the member to another
+ * version opens that version. The page opens on `session`, and `onSession` hears the session it shows.
+ */
+function AppDetail({app, workspace, slug, session, onSession}) {
   const [opened, setOpened] = React.useState({app: null, error: null});
   // Counts the versions the page moved to, so each opens again.
   const [moved, setMoved] = React.useState(0);
-  const opens = app.status === 'ready' || app.status === 'refused';
+  const opens = OPENS.has(app.state);
   React.useEffect(() => {
     if (!opens) return undefined;
     let cancelled = false;
@@ -88,7 +118,14 @@ function AppDetail({app, workspace, session, onSession}) {
     prepareWorkspaceApps(workspace.id, {again: true});
     if (changed.sha256 !== opened.app.sha256) setMoved(count => count + 1);
   };
-  return <PluginFrame app={opened.app} workspace={workspace} onVersion={onVersion} session={session} onSession={onSession} />;
+  const frame = <PluginFrame app={opened.app} workspace={workspace} onVersion={onVersion} session={session} onSession={onSession} />;
+  if (!STOPPED.has(app.state)) return frame;
+  return (
+    <div className={styles.stopped}>
+      <StoppedNotice app={app} slug={slug} />
+      {frame}
+    </div>
+  );
 }
 
 function AppsColumns() {
@@ -123,7 +160,7 @@ function AppsColumns() {
   } else if (apps && navigation.requestedApp && !navigation.app) {
     content = <div className={styles.error}>No app named {navigation.requestedApp}.</div>;
   } else if (apps) {
-    content = <AppDetail key={navigation.app.id} app={navigation.app} workspace={workspace} session={session} onSession={onSession} />;
+    content = <AppDetail key={navigation.app.id} app={navigation.app} workspace={workspace} slug={slug} session={session} onSession={onSession} />;
   }
 
   return (

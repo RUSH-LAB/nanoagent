@@ -51,7 +51,8 @@ const GITHUB = {GITHUB_CLIENT_ID: 'test-client', GITHUB_CLIENT_SECRET: 'test-sec
 const authModule = loadAuth({DATABASE_FILE: undefined, ...GITHUB});
 
 describe('isPublicPath', () => {
-  for (const p of ['/api/health', '/install.sh', '/install.ps1']) {
+  // RUSH Lab asks for its update and its engine before anyone signs in on it.
+  for (const p of ['/api/health', '/install.sh', '/install.ps1', '/api/lab/updates/aarch64-apple-darwin', '/api/lab/engine', '/api/lab/engine/engine.tar.gz']) {
     it(`treats ${p} as public`, () => {
       assert.equal(authModule.isPublicPath(p), true);
     });
@@ -65,7 +66,7 @@ describe('isPublicPath', () => {
     });
   }
 
-  for (const p of ['/api/users', '/api/users/me', '/api/logs', '/api/preferences', '/api/feed', '/api/feed/rss', '/api/feed/atom', '/api/workspaces/ws/feed/rss', '/api/authx', '/']) {
+  for (const p of ['/api/users', '/api/users/me', '/api/logs', '/api/preferences', '/api/feed', '/api/feed/rss', '/api/feed/atom', '/api/workspaces/ws/feed/rss', '/api/authx', '/api/lab/engine/other', '/']) {
     it(`treats ${p} as requiring a session`, () => {
       assert.equal(authModule.isPublicPath(p), false);
     });

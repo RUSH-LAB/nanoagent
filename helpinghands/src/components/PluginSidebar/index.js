@@ -25,7 +25,7 @@ function PluginList({navigation, marketplaceHref}) {
               to={plugin.permalink}
             >
               <span className={styles.taxonomyTitle}>{plugin.title}</span>
-              {plugin.badge && <span className={own.maintenance}>{plugin.badge}</span>}
+              {plugin.badge && <span className={clsx(own.badge, plugin.badge === 'update' && own.badgeUpdate)}>{plugin.badge}</span>}
             </Link>
           </li>
         ))}

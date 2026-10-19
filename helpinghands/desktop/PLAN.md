@@ -234,6 +234,10 @@ the one command the app puts on their PATH: `command` in `config.yaml`, `rushlab
 - `GET /api/lab/updates/<target>`, for anyone, is what the app's updater asks: `{version, url,
   signature}`, the version the signature names, or 204 while there is none.
   `GET /api/lab/updates/<target>/app.tar.gz` streams the update.
+- `PUT /api/lab/engine`, with `X-Lab-Stamp`, `X-Lab-Signature` and `X-Lab-Shell`, is how a release
+  uploads the engine, what every target's app runs (`scripts/engine.mjs`). `GET /api/lab/engine`, for
+  anyone, is what the app asks (`src-tauri/src/engine.rs`): `{stamp, shell, sha256, signature, url}`,
+  or 204 while there is none; `GET /api/lab/engine/engine.tar.gz` streams it (migration 0051).
 
 The targets are `aarch64-apple-darwin` and `x86_64-apple-darwin`. Each keeps only its newest dmg
 and update, in PostgreSQL (migrations 0034, 0035, 0038 and 0040, `src/server/postgres/lab.js`) as rows of 4 MiB, so

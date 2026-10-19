@@ -64,14 +64,14 @@ const publish = url => send('/api/market', {
   method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({url}),
 });
 
-/** Whether the member's install of `plugin`, `added`, runs an older version than its latest, and that one runs. */
-const updatable = (plugin, added) => Boolean(added?.latest && added.version !== added.latest && plugin.status !== 'refused');
+/** Whether a newer version that runs is out for the member's install `added` (its state, server/workspace-apps.js). */
+const updatable = added => added?.state === 'update' || added?.state === 'needs-update';
 
 /** The sidebar's views: what each lists, of the plugins and the member's installs. */
 const VIEWS = [
   {id: 'discover', title: 'Discover', shows: () => true},
   {id: 'installed', title: 'Installed', installs: true, shows: (plugin, added) => Boolean(added)},
-  {id: 'updates', title: 'Updates', installs: true, shows: updatable},
+  {id: 'updates', title: 'Updates', installs: true, shows: (plugin, added) => updatable(added)},
   {id: 'mine', title: 'Published by You', shows: plugin => plugin.mine},
 ];
 
@@ -111,7 +111,7 @@ function MarketSidebar({views, view, href, publishLink, collapsed, onCollapse}) 
 
 /** A card's one action: update an install a newer version is out for, open an install, or install. */
 function CardAction({plugin, added, slug, busy, onInstall, onUpdate}) {
-  if (updatable(plugin, added)) {
+  if (updatable(added)) {
     return (
       <button type="button" className={clsx('button button--primary button--sm', styles.action)} disabled={busy} onClick={onUpdate}>
         Update
@@ -138,9 +138,9 @@ function CardAction({plugin, added, slug, busy, onInstall, onUpdate}) {
 }
 
 /** What the member's install is at: the version they run and the one it moves to, or that it is current. */
-function InstallState({plugin, added}) {
+function InstallState({added}) {
   if (!added) return null;
-  if (updatable(plugin, added)) return <span className={styles.stateUpdate}>v{added.version} → v{added.latest}</span>;
+  if (updatable(added)) return <span className={styles.stateUpdate}>v{added.version} → v{added.latest}</span>;
   return <span className={styles.stateInstalled}>Installed{added.version ? ` · v${added.version}` : ''}</span>;
 }
 
@@ -161,7 +161,7 @@ function Card({plugin, added, slug, busy, href, onInstall, onUpdate}) {
           <span className={styles.tagline}>{plugin.product.tagline}</span>
           <span className={styles.meta}>
             by {author.name}
-            <InstallState plugin={plugin} added={added} />
+            <InstallState added={added} />
           </span>
         </span>
       </Link>
@@ -298,7 +298,7 @@ function Detail({plugin, added, slug, back, busy, onInstall, onUpdate, act, onCh
     act(() => send(`/api/market/${plugin.id}`, {method: 'DELETE'}), () => onChanged(null));
   };
 
-  const update = updatable(plugin, added);
+  const update = updatable(added);
   const appsHref = `/w/${encodeURIComponent(slug)}/apps?app=${encodeURIComponent(plugin.id)}`;
   const more = [
     ...(plugin.mine && plugin.repository ? [{label: 'Publish again from GitHub', onSelect: republish}] : []),
@@ -339,7 +339,7 @@ function Detail({plugin, added, slug, back, busy, onInstall, onUpdate, act, onCh
   return (
     <section className={styles.detail}>
       <Link className={styles.back} to={back.to}>← {back.title}</Link>
-      {update && added.status === 'refused' && (
+      {added?.state === 'needs-update' && (
         <div className={styles.updateNotice}>
           Your version, v{added.version}, no longer runs here. Update to v{added.latest} to use {plugin.name} again.
         </div>

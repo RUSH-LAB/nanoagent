@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import {pluginNavigation} from '../../../../src/components/PluginSidebar/navigation.js';
 
 const apps = [
-  {id: 'bibtex-check', name: 'Bibtex Check', tags: ['Research', 'Writing'], status: 'in-development'},
-  {id: 'arxiv-source', name: 'arXiv', tags: ['Research'], status: 'ready'},
-  {id: 'meal-suggestion', name: 'Meal Suggestion', tags: ['Life'], status: 'ready'},
-  {id: 'nasdaq-drawdown', name: 'Nasdaq Drawdown', tags: [], status: 'ready'},
+  {id: 'bibtex-check', name: 'Bibtex Check', tags: ['Research', 'Writing'], status: 'in-development', state: 'maintenance'},
+  {id: 'arxiv-source', name: 'arXiv', tags: ['Research'], status: 'ready', state: 'ready'},
+  {id: 'meal-suggestion', name: 'Meal Suggestion', tags: ['Life'], status: 'ready', state: 'ready'},
+  {id: 'nasdaq-drawdown', name: 'Nasdaq Drawdown', tags: [], status: 'ready', state: 'ready'},
 ];
 const base = '/w/lab/apps';
 
@@ -27,9 +27,12 @@ describe('plugin navigation', () => {
     assert.equal(pluginNavigation(apps, '?tag=Writing', base).app.id, 'bibtex-check');
   });
 
-  it('lists an outdated plugin as one that runs, its page saying it is outdated', () => {
-    const outdated = apps.map(item => (item.id === 'arxiv-source' ? {...item, status: 'refused'} : item));
-    assert.equal(pluginNavigation(outdated, '', base).links[0].badge, null);
+  it('badges a plugin by its state, and opens on one that runs', () => {
+    const states = {'arxiv-source': 'outdated', 'meal-suggestion': 'needs-update', 'nasdaq-drawdown': 'update'};
+    const nav = pluginNavigation(apps.map(item => ({...item, state: states[item.id] ?? item.state})), '', base);
+    assert.deepEqual(nav.links.map(link => [link.id, link.badge]),
+      [['arxiv-source', 'outdated'], ['bibtex-check', 'maintenance'], ['meal-suggestion', 'update'], ['nasdaq-drawdown', 'update']]);
+    assert.equal(nav.app.id, 'nasdaq-drawdown');
   });
 
   it('lists every plugin with the chosen tag, and keeps the tag when one opens', () => {
