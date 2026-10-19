@@ -10,7 +10,7 @@
  * its profiles through the relay, as Mochi does. Then it quits RUSH Lab and fails if anything it
  * started is still running. When a step fails, it prints the app's logs.
  */
-import {execFileSync, spawnSync} from 'node:child_process';
+import {execFileSync, spawn, spawnSync} from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -109,13 +109,15 @@ function ask(relay, route) {
   });
 }
 
-/** The command the site gives, run as a member runs it. */
-function install(site) {
+/** The command the site gives, run as a member runs it, while this process goes on serving the site it downloads from. */
+async function install(site) {
   const [program, args] = windows
     ? ['powershell.exe', ['-NoProfile', '-Command', `irm ${site}/install.ps1 | iex`]]
     : ['/bin/sh', ['-c', `curl -fsSL ${site}/install.sh | sh`]];
-  const run = spawnSync(program, args, {stdio: 'inherit'});
-  if (run.status !== 0) throw new Error(`the install command exited with ${run.status ?? run.signal}`);
+  const [code, signal] = await new Promise((resolve, reject) => {
+    spawn(program, args, {stdio: 'inherit'}).on('error', reject).on('exit', (...exit) => resolve(exit));
+  });
+  if (code !== 0) throw new Error(`the install command exited with ${code ?? signal}`);
 }
 
 /** What lab.mjs says it is setting up (src/runner/lab.mjs's setup.json), or null. */
@@ -173,7 +175,7 @@ async function main() {
     for (const round of [1, 2]) {
       say(`Install ${round}: ${site.site}`);
       relay = null;
-      install(site.site);
+      await install(site.site);
       // The app removes the last run's setup.json, and lab.mjs writes `python` once it has removed
       // connections to other sites, this site's from the round before among them.
       await waitFor(`${productName} did not start setting up Python`, QUIT_TIMEOUT_MS, () => setup()?.stage === 'python');

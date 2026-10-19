@@ -86,6 +86,7 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Install, run and quit
         working-directory: helpinghands/desktop
+        timeout-minutes: 30
         run: node scripts/check-install.mjs ${{ matrix.target }}
       - name: Upload to Mochi
         if: github.event_name == 'push' && github.ref == 'refs/heads/production'
