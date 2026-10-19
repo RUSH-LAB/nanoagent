@@ -133,7 +133,13 @@ function createRunners({resolveIdentity, openrouterKeys = null, engine}) {
     // `runs`: the held requests the computer said it has, once it has said hello.
     const entry = {socket, page: crypto.randomUUID(), device: null, since: new Date().toISOString(), keys: [], pending: new Map(), closed: false, runs: null};
     entry.gateway = createNanoAgentGateway({endpoint: {url: 'http://runner'}, fetchImpl: socketFetch(entry), local: true});
-    connected.get(userId)?.socket.close(REPLACED, 'Another RUSH Lab signed in as this account');
+    // The connection before is done with now, not once its socket closes: one that died closes
+    // only after a while, and the hello this one sends takes up its held calls (claimAway).
+    const previous = connected.get(userId);
+    if (previous) {
+      detach(userId, previous);
+      previous.socket.close(REPLACED, 'Another RUSH Lab signed in as this account');
+    }
     connected.set(userId, entry);
     pages.set(entry.page, entry);
     const ping = setInterval(() => socket.ping(), PING_MS);
@@ -170,32 +176,44 @@ function createRunners({resolveIdentity, openrouterKeys = null, engine}) {
     });
     socket.on('close', () => {
       clearInterval(ping);
-      entry.closed = true;
-      for (const [id, call] of entry.pending) {
-        if (!call.hold) {
-          call.fail(gone('RUSH Lab disconnected'));
-          continue;
-        }
-        entry.pending.delete(id);
-        const timer = setTimeout(() => call.fail(gone(`RUSH Lab disconnected, and was not back within ${HOLD_MS / 60_000} minutes`)), HOLD_MS);
-        // Waiting keeps no process up: one shutting down lets its calls go.
-        timer.unref();
-        // A call that ends while its computer is away (it is cancelled) is not waited for any more.
-        call.leftAway = () => {
-          clearTimeout(timer);
-          away.delete(id);
-          call.leftAway = null;
-        };
-        away.set(id, {userId, call});
-      }
-      if (connected.get(userId) === entry) connected.delete(userId);
-      pages.delete(entry.page);
-      // The computer may be back already, its hello heard before this socket's close.
-      claimAway(userId);
+      detach(userId, entry);
     });
-    socket.on('error', () => socket.terminate());
+    socket.on('error', error => {
+      console.error('[runner] A computer\'s connection failed:', error.message);
+      socket.terminate();
+    });
   }
 
+  /**
+   * `entry` is not the member's connection any more: its calls fail, but a held one waits for the
+   * computer to come back, for HOLD_MS. Once only: at its socket's close, or sooner when another
+   * connection of the member's replaces it.
+   */
+  function detach(userId, entry) {
+    if (entry.closed) return;
+    entry.closed = true;
+    for (const [id, call] of entry.pending) {
+      if (!call.hold) {
+        call.fail(gone('RUSH Lab disconnected'));
+        continue;
+      }
+      entry.pending.delete(id);
+      const timer = setTimeout(() => call.fail(gone(`RUSH Lab disconnected, and was not back within ${HOLD_MS / 60_000} minutes`)), HOLD_MS);
+      // Waiting keeps no process up: one shutting down lets its calls go.
+      timer.unref();
+      // A call that ends while its computer is away (it is cancelled) is not waited for any more.
+      call.leftAway = () => {
+        clearTimeout(timer);
+        away.delete(id);
+        call.leftAway = null;
+      };
+      away.set(id, {userId, call});
+    }
+    if (connected.get(userId) === entry) connected.delete(userId);
+    pages.delete(entry.page);
+    // The computer may be back already, its hello heard before this socket's close.
+    claimAway(userId);
+  }
   /** Tell the computer the engine this site serves, if there is one (desktop/src-tauri/src/engine.rs). */
   function tellEngine(entry) {
     engine().then(stamp => {
@@ -269,6 +287,21 @@ function createRunners({resolveIdentity, openrouterKeys = null, engine}) {
     /** The NanoAgent of the computer whose connection has the `page` id, else null. */
     byPage(page) {
       return pages.get(page)?.gateway ?? null;
+    },
+
+    /**
+     * The NanoAgent of the member's computer once it is connected and has said hello, waiting up
+     * to `ms` for it to connect again (its relay does within seconds of a dropped connection);
+     * the one that refuses every call when it does not.
+     */
+    async connectedAi(userId, ms) {
+      const deadline = Date.now() + ms;
+      for (;;) {
+        const entry = connected.get(userId);
+        if (entry && !entry.closed && entry.runs) return entry.gateway;
+        if (Date.now() >= deadline) return offline;
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
     },
 
     /** Whether the member's computer is connected, what it calls itself, and which keys it holds. */

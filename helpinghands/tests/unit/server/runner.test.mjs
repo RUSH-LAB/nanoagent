@@ -322,6 +322,27 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     await first.cancel({userId: 'u1', workspaceId: 'lab'}, SESSION);
   });
 
+  it('takes a held run up on the computer\'s new connection, every delta once, before its old socket has closed', async () => {
+    const held = new Map();
+    const told = [];
+    runners.onRuns((userId, ids) => told.push(...ids));
+    await dialIn('member-token', {held});
+    const deltas = [];
+    const running = (await runners.aiFor('u1')).stream({input: 'slow', run: {id: 'run-1'}, onDelta: text => deltas.push(text)});
+    await until(() => deltas.length === 1);
+    // The relay connects again while RUSH still has the first socket, as when that one died: it
+    // reads nothing more, so its close is not heard for a while.
+    sockets[0].pause();
+    relays.push(connect({site, nanoagent: nanoUrl, nanoagentToken: 'nano-secret', token: 'member-token', device: 'laptop', held, onEvent: () => {}}));
+    await until(() => [...held.values()].some(run => run.send));
+    await until(() => runners.status('u1').connected);
+    nano.finishers[0]();
+    assert.equal((await running).text, 'hello world');
+    assert.deepEqual(deltas, ['hello ', 'world']);
+    // RUSH knew the run: nothing took it up from its first frame.
+    assert.deepEqual(told, []);
+  });
+
   it('fails a held run at once when a new RUSH Lab without it says hello before the old one\'s socket closes', async () => {
     await dialIn('member-token', {held: new Map()});
     const deltas = [];

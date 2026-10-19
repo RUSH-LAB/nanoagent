@@ -20,7 +20,7 @@ const until = async test => {
 };
 
 /** Runs as a RUSH started since sees them: `rows` already in PostgreSQL, none of them this process's. */
-function restarted(rows = [{id: 'run-1', folder: 'folder-1', sent: {'a.md': {rev: 1, contentHash: 'x'}}}], stream = null) {
+function restarted(rows = [{id: 'run-1', folder: 'folder-1', sent: {'a.md': {rev: 1, contentHash: 'x'}}}], stream = null, {finish = null, connection = null} = {}) {
   const ctx = makeCtx();
   const sessions = fakeSessions();
   for (const row of rows) {
@@ -42,8 +42,14 @@ function restarted(rows = [{id: 'run-1', folder: 'folder-1', sent: {'a.md': {rev
   };
   const runs = createAppRuns({
     sessions,
-    agentSync: {prepare: async () => assert.fail('a run taken up again has its folder'), finish: async (_scope, _ai, pluginId, folder) => finished.push({pluginId, ...folder})},
-    runners: {aiFor: async () => ai, release: (userId, id) => released.push([userId, id])},
+    agentSync: {
+      prepare: async () => assert.fail('a run taken up again has its folder'),
+      finish: async (_scope, used, pluginId, folder) => {
+        await finish?.(used);
+        finished.push({pluginId, ...folder});
+      },
+    },
+    runners: {aiFor: async () => connection?.() ?? ai, connectedAi: async () => connection?.() ?? ai, release: (userId, id) => released.push([userId, id])},
     aiMeter: ctx.aiMeter,
   });
   return {runs, sessions, finished, released, asked, usage: ctx.calls.aiUsage};
@@ -66,6 +72,34 @@ describe('plugin runs a restarted RUSH finds', () => {
     assert.equal(sessions.rows.size, 0);
     assert.deepEqual(released, [['test-user', 'run-1']]);
     assert.equal(usage[0].sessionId, SESSION);
+  });
+
+  it('writes a run\'s files back again on the connection its computer comes back as, when it dropped meanwhile', async () => {
+    let current = {name: 'first'};
+    const used = [];
+    const {runs, sessions, finished} = restarted(undefined, null, {
+      connection: () => current,
+      finish: async ai => {
+        used.push(ai.name);
+        if (ai.name !== 'first') return;
+        current = {name: 'second'};
+        throw new Error('Could not reach NanoAgent');
+      },
+    });
+    // The run itself streams on the computer's NanoAgent before it dropped.
+    current.stream = async request => { request.onDelta('Saved'); return {text: 'Saved it.'}; };
+    await runs.adopt('test-user', ['run-1']);
+    await until(() => sessions.turns.length === 1);
+    assert.deepEqual(used, ['first', 'second']);
+    assert.equal(finished.length, 1);
+    assert.equal(sessions.turns[0].error, null);
+  });
+
+  it('says a run\'s files were not written back when that fails on a connection that stayed', async () => {
+    const {runs, sessions} = restarted(undefined, null, {finish: async () => { throw new Error('the disk is full'); }});
+    await runs.adopt('test-user', ['run-1']);
+    await until(() => sessions.turns.length === 1);
+    assert.equal(sessions.turns[0].error, 'What the run did could not be written back to your folder for this plugin: the disk is full');
   });
 
   it('keeps a run\'s graph and trajectory with its turn, sending the page the graph only', async () => {

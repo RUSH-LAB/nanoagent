@@ -968,7 +968,7 @@ export function appRunsFor(ctx, {agentSync = {prepare: async () => ({workspace: 
   const runs = createAppRuns({
     sessions: ctx.sessions,
     agentSync,
-    runners: {aiFor: async () => ctx.ai, release: (userId, id) => released.push([userId, id])},
+    runners: {aiFor: async () => ctx.ai, connectedAi: async () => ctx.ai, release: (userId, id) => released.push([userId, id])},
     aiMeter: ctx.aiMeter,
   });
   return Object.assign(Object.create(runs), {released});
