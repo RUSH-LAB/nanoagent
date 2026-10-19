@@ -7,7 +7,6 @@
   "requires": ["blobs", "cache", "content:read", "network", "records"],
   "options": {},
   "opens": [
-    {"path": "apps/bibliography/", "page": "bibliography"},
     {"extension": ".bib", "page": "bibliography"}
   ]
 }

@@ -52,13 +52,13 @@ describe('plugin runs as file system clients', () => {
   });
   after(() => db?.close());
 
-  it('gives a run the member\'s agent folder, keeps what it wrote, and removes its folder', async () => {
+  it('gives a run the member\'s folder for its plugin, keeps what it wrote, and removes its folder', async () => {
     const nano = fakeNanoAgent();
     const sync = createAgentSync({fs});
     await fs.mkdir(alice, 'home/alice');
     await fs.setAccess(alice, 'home/alice', 'private');
-    await fs.write(alice, 'home/alice/agent/echo/input.txt', 'question');
-    await fs.write(alice, 'home/alice/agent/echo/stale.txt', 'old');
+    await fs.write(alice, 'home/alice/Plugins/echo/input.txt', 'question');
+    await fs.write(alice, 'home/alice/Plugins/echo/stale.txt', 'old');
 
     let used;
     await runIn(sync, alice, nano, async workspace => {
@@ -70,10 +70,10 @@ describe('plugin runs as file system clients', () => {
       folder.delete('stale.txt');
     });
 
-    assert.equal((await fs.read(alice, 'home/alice/agent/echo/answers/out.md')).body.toString(), '# Answer');
-    assert.equal((await fs.read(alice, 'home/alice/agent/echo/input.txt')).body.toString(), 'question, edited');
-    assert.equal(await fs.stat(alice, 'home/alice/agent/echo/stale.txt'), null);
-    assert.equal(await fs.stat(as('bob'), 'home/alice/agent/echo/answers/out.md'), null);
+    assert.equal((await fs.read(alice, 'home/alice/Plugins/echo/answers/out.md')).body.toString(), '# Answer');
+    assert.equal((await fs.read(alice, 'home/alice/Plugins/echo/input.txt')).body.toString(), 'question, edited');
+    assert.equal(await fs.stat(alice, 'home/alice/Plugins/echo/stale.txt'), null);
+    assert.equal(await fs.stat(as('bob'), 'home/alice/Plugins/echo/answers/out.md'), null);
     assert.deepEqual(nano.removed, [used]);
     assert.equal(nano.folders.size, 0);
   });
@@ -89,32 +89,32 @@ describe('plugin runs as file system clients', () => {
   it('keeps the member\'s edits made during the run', async () => {
     const nano = fakeNanoAgent();
     const sync = createAgentSync({fs});
-    await fs.write(alice, 'home/alice/agent/echo/both.md', 'start');
-    await fs.write(alice, 'home/alice/agent/echo/kept.md', 'start');
+    await fs.write(alice, 'home/alice/Plugins/echo/both.md', 'start');
+    await fs.write(alice, 'home/alice/Plugins/echo/kept.md', 'start');
     let used;
     await runIn(sync, alice, nano, async workspace => {
       used = workspace;
       // The member writes while the run goes on.
-      await fs.write(alice, 'home/alice/agent/echo/both.md', 'member');
-      await fs.write(alice, 'home/alice/agent/echo/kept.md', 'member');
-      await fs.write(alice, 'home/alice/agent/echo/added.md', 'member');
+      await fs.write(alice, 'home/alice/Plugins/echo/both.md', 'member');
+      await fs.write(alice, 'home/alice/Plugins/echo/kept.md', 'member');
+      await fs.write(alice, 'home/alice/Plugins/echo/added.md', 'member');
       nano.of(workspace).set('both.md', Buffer.from('agent'));
       nano.of(workspace).delete('kept.md');
     });
-    assert.equal((await fs.read(alice, 'home/alice/agent/echo/both.md')).body.toString(), 'member');
-    assert.equal((await fs.read(alice, `home/alice/agent/echo/both (agent run ${used.slice(0, 8)}).md`)).body.toString(), 'agent');
-    assert.equal((await fs.read(alice, 'home/alice/agent/echo/kept.md')).body.toString(), 'member');
-    assert.equal((await fs.read(alice, 'home/alice/agent/echo/added.md')).body.toString(), 'member');
+    assert.equal((await fs.read(alice, 'home/alice/Plugins/echo/both.md')).body.toString(), 'member');
+    assert.equal((await fs.read(alice, `home/alice/Plugins/echo/both (agent run ${used.slice(0, 8)}).md`)).body.toString(), 'agent');
+    assert.equal((await fs.read(alice, 'home/alice/Plugins/echo/kept.md')).body.toString(), 'member');
+    assert.equal((await fs.read(alice, 'home/alice/Plugins/echo/added.md')).body.toString(), 'member');
   });
 
   it('writes nothing back from a listing NanoAgent cut short', async () => {
     const nano = fakeNanoAgent();
     nano.truncated = true;
-    await fs.write(alice, 'home/alice/agent/echo/safe.md', 'here');
+    await fs.write(alice, 'home/alice/Plugins/echo/safe.md', 'here');
     await assert.rejects(() => runIn(createAgentSync({fs}), alice, nano, async workspace => {
       nano.of(workspace).clear();
     }), /only part/);
-    assert.equal((await fs.read(alice, 'home/alice/agent/echo/safe.md')).body.toString(), 'here');
+    assert.equal((await fs.read(alice, 'home/alice/Plugins/echo/safe.md')).body.toString(), 'here');
     assert.equal(nano.folders.size, 0);
   });
 
@@ -125,7 +125,7 @@ describe('plugin runs as file system clients', () => {
       nano.of(workspace).set('partial.txt', Buffer.from('half done'));
       throw new Error('cancelled');
     }), /cancelled/);
-    assert.equal((await fs.read(alice, 'home/alice/agent/echo/partial.txt')).body.toString(), 'half done');
+    assert.equal((await fs.read(alice, 'home/alice/Plugins/echo/partial.txt')).body.toString(), 'half done');
     assert.equal(nano.folders.size, 0);
   });
 
@@ -134,7 +134,7 @@ describe('plugin runs as file system clients', () => {
     const nano = fakeNanoAgent();
     await runIn(createAgentSync({fs}), bob, nano, async workspace => { nano.of(workspace).set('note.md', Buffer.from('mine')); });
     assert.equal((await fs.stat(bob, 'home/bob')).access, 'private');
-    assert.equal(await fs.stat(alice, 'home/bob/agent/echo/note.md'), null);
+    assert.equal(await fs.stat(alice, 'home/bob/Plugins/echo/note.md'), null);
   });
 });
 
@@ -146,7 +146,7 @@ describe('plugin folders', () => {
     const nano = fakeNanoAgent();
     const sync = createAgentSync({fs});
     try {
-      await fs.write(alice, 'home/alice/agent/echo/mine.md', 'echo');
+      await fs.write(alice, 'home/alice/Plugins/echo/mine.md', 'echo');
       await fs.write(alice, 'home/alice/files/kept.md', 'member');
       let seen;
       await runIn(sync, alice, nano, async workspace => {
@@ -154,8 +154,8 @@ describe('plugin folders', () => {
         nano.of(workspace).set('out.md', Buffer.from('other'));
       }, 'other');
       assert.deepEqual(seen, []);
-      assert.equal((await fs.read(alice, 'home/alice/agent/other/out.md')).body.toString(), 'other');
-      assert.equal((await fs.read(alice, 'home/alice/agent/echo/mine.md')).body.toString(), 'echo');
+      assert.equal((await fs.read(alice, 'home/alice/Plugins/other/out.md')).body.toString(), 'other');
+      assert.equal((await fs.read(alice, 'home/alice/Plugins/echo/mine.md')).body.toString(), 'echo');
     } finally {
       await db.close();
     }

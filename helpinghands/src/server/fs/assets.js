@@ -3,11 +3,11 @@
 /**
  * Uploaded files (asset-store.js) and plugin blobs served from the workspace
  * file system. An asset is any file that is not Markdown, at its own path; a
- * plugin's blob is a file under `.plugins/<plugin>/`, and its key is the node id.
+ * plugin's blob is a file under `.plugins/<plugin>/blobs/`, and its key is the node id.
  */
 const crypto = require('crypto');
 const {contentTypeForAsset} = require('../asset-paths');
-const {isMarkdown} = require('./store');
+const {isAppState, isMarkdown} = require('./store');
 
 const describe = node => ({
   id: node.id,
@@ -22,7 +22,7 @@ function createFsAssetStore({fs}) {
   return Object.freeze({
     async list(context) {
       return (await fs.list(context))
-        .filter(node => node.kind === 'file' && !isMarkdown(node.path) && !node.path.startsWith('.'))
+        .filter(node => node.kind === 'file' && !isMarkdown(node.path) && !isAppState(node.path))
         .map(describe);
     },
     async read(context, {id, path}) {
@@ -41,7 +41,7 @@ function createFsAssetStore({fs}) {
 /** The blob capability a plugin is handed (plugin-api.js), kept in the file system. */
 function fsBlobs(name, {orgId, userId, fs}) {
   const context = {workspaceId: orgId, userId};
-  const folder = `.plugins/${String(name).replace(/[^\w.-]/g, '_')}`;
+  const folder = `.plugins/${String(name).replace(/[^\w.-]/g, '_')}/blobs`;
   return Object.freeze({
     provider: 'fs',
     async put(bytes, extension = '') {

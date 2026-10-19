@@ -6,7 +6,7 @@
  * Documents keep their ids, authors, timestamps, visibility, and trash state,
  * and their saved versions become the node's earlier revisions in fs_change.
  * Uploaded assets keep their ids and bytes; a plugin's blob, which has no path
- * of its own, goes under `.plugins/blobs/`. App records (store_item, and the
+ * of its own, goes under `.plugins/.imported/`. App records (store_item, and the
  * bibliography's `reference` rows) become the JSON files fs/records.js reads,
  * members' own under their private home folder; internal state such as page
  * analytics stays where it is. Chat becomes the files fs/chat.js reads: a
@@ -81,7 +81,7 @@ async function plan(client, workspaceId) {
     if (sha256(body) !== asset.sha256) throw new Error(`Asset ${asset.id} bytes do not match their recorded SHA-256`);
     const logical = cleanAssetPath(asset.path) && asset.path !== asset.id
       ? asset.path
-      : `.plugins/blobs/${asset.id}${path.posix.extname(asset.object_key)}`;
+      : `.plugins/.imported/${asset.id}${path.posix.extname(asset.object_key)}`;
     const file = {
       id: asset.id,
       path: logical,
@@ -165,7 +165,7 @@ async function plan(client, workspaceId) {
     return file;
   };
   for (const channel of channels) {
-    const folder = `chat/${channel.id}`;
+    const folder = `.chat/${channel.id}`;
     const members = channelMembers.filter(each => each.channel_id === channel.id);
     if (channel.kind !== 'public') {
       sharedRoots.set(folder, {id: crypto.randomUUID(), members: members.map(each => each.user_id)});
@@ -186,9 +186,9 @@ async function plan(client, workspaceId) {
         createdAt: message.created_at, editedAt: message.edited_at, deletedAt: message.deleted_at,
       }, message.user_id, message.created_at);
     }
-    if (channel.name) chatFile(`chat/.names/${encodeURIComponent(channel.name)}.json`, {channelId: channel.id}, channel.created_by, channel.created_at);
+    if (channel.name) chatFile(`.chat/.names/${encodeURIComponent(channel.name)}.json`, {channelId: channel.id}, channel.created_by, channel.created_at);
     if (channel.kind === 'dm' && channel.dm_key) {
-      const registry = chatFile(`chat/.dms/${encodeURIComponent(channel.dm_key)}.json`, {channelId: channel.id}, channel.created_by, channel.created_at);
+      const registry = chatFile(`.chat/.dms/${encodeURIComponent(channel.dm_key)}.json`, {channelId: channel.id}, channel.created_by, channel.created_at);
       sharedRoots.set(registry.path, {id: registry.id, members: members.map(each => each.user_id)});
     }
   }

@@ -68,14 +68,14 @@ describe('RUSH Lab\'s folder of the member\'s own files', () => {
   });
 
   it('keeps <root>/<slug>/ in sync both ways with the member\'s home, and nothing else', async () => {
-    mochi.write('ws-1', 'home/alice/agent/echo/out.md', 'from a run');
+    mochi.write('ws-1', 'home/alice/Plugins/echo/out.md', 'from a run');
     mochi.write('ws-1', 'home/bob/secret.md', 'not hers');
     mochi.write('ws-1', 'books/shared.md', 'shared');
     const files = syncFiles({site, token: 't', userId: 'alice', root, log: () => {}});
     try {
       const folder = path.join(root, 'comp-480-580');
-      await until(async () => await read(path.join(folder, 'agent/echo/out.md')) === 'from a run');
-      assert.deepEqual((await fs.readdir(folder)).sort(), ['.mochi', 'agent']);
+      await until(async () => await read(path.join(folder, 'Plugins/echo/out.md')) === 'from a run');
+      assert.deepEqual((await fs.readdir(folder)).sort(), ['.mochi', 'Plugins']);
       await fs.writeFile(path.join(folder, 'notes.md'), 'mine');
       await files.sync();
       await until(() => mochi.files.get('ws-1').get('home/alice/notes.md')?.body.toString() === 'mine');
@@ -92,7 +92,7 @@ describe('RUSH Lab\'s folder of the member\'s own files', () => {
       assert.deepEqual(await fs.readdir(root), ['comp-480']);
       const state = JSON.parse(await fs.readFile(path.join(root, 'comp-480', '.mochi', 'state.json'), 'utf8'));
       assert.equal(state.workspace, 'ws-1');
-      assert.deepEqual(Object.keys(state.files).sort(), ['agent/echo/out.md', 'notes.md']);
+      assert.deepEqual(Object.keys(state.files).sort(), ['Plugins/echo/out.md', 'notes.md']);
     } finally {
       files.stop();
     }

@@ -18,7 +18,7 @@
  * PostgreSQL LISTEN/NOTIFY instead.
  */
 const crypto = require('crypto');
-const {FsError} = require('./store');
+const {FsError, isShownChange} = require('./store');
 
 const BATCH_MS = 300;
 
@@ -49,7 +49,7 @@ function createFsHub({fs, batchMs = BATCH_MS}) {
     try {
       for (;;) {
         const page = await fs.changes(stream.scope, {since: stream.cursor});
-        changes.push(...page.changes);
+        changes.push(...page.changes.filter(isShownChange));
         stream.cursor = page.cursor;
         if (!page.more) break;
       }

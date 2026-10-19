@@ -1,6 +1,6 @@
 'use strict';
 const {APPS_NEED_FS, followRun, openEventStream} = require('./ai');
-const {agentFolder} = require('../fs/agent-sync');
+const {pluginFolder} = require('../fs/agent-sync');
 const {FsError} = require('../fs/store');
 const {RUNNER_OFFLINE} = require('../ai');
 const {APP_UI_ROUTE: UI_ROUTE} = require('./paths');
@@ -8,7 +8,7 @@ const {outdated} = require('../workspace-apps');
 
 // Apps: the marketplace plugins a member installed (workspace-apps.js), which
 // they install, tag and uninstall at /api/apps/{id}, and the caller's own folder
-// for each app, `home/<user>/agent/<app>/` in the workspace file system, where
+// for each app, `home/<user>/Plugins/<app>/` in the workspace file system, where
 // that app leaves its files (/api/agent-files?plugin=<app>).
 // Opening an app (GET /api/apps/{id}) has the NanoAgent on the member's own
 // computer install its package, by sha256; its own page (its ui/ folder) comes
@@ -261,7 +261,7 @@ module.exports = async function app_routes(req, res, url, pathname, ctx) {
   const scope = req.context;
   const plugin = url.searchParams.get('plugin');
   if (!plugin || !PLUGIN_ID.test(plugin)) return json(res, 400, {error: 'plugin is required'});
-  const folder = agentFolder(scope, plugin);
+  const folder = pluginFolder(scope, plugin);
   if (req.method === 'GET' && pathname === '/api/agent-files') {
     requireWorkspacePermission(scope, 'content:read');
     const files = (await fs.list(scope, {prefix: folder})).filter(node => node.kind === 'file');

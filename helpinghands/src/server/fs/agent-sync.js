@@ -5,7 +5,7 @@
  *
  * NanoAgent runs a plugin in a scratch folder made for that one run: before it,
  * the folder is filled from the member's folder for that plugin,
- * `home/<user>/agent/<plugin>/`, and from nothing else; after it,
+ * `home/<user>/Plugins/<plugin>/`, and from nothing else; after it,
  * what the run created, changed, or deleted is written back there, as that
  * member, and the folder is removed. The file system is where the files live;
  * NanoAgent keeps nothing between runs.
@@ -18,7 +18,7 @@ const crypto = require('crypto');
 const {FsError} = require('./store');
 
 const sha256 = body => crypto.createHash('sha256').update(body).digest('hex');
-const agentFolder = (scope, pluginId) => `home/${scope.userId}/agent/${pluginId}`;
+const pluginFolder = (scope, pluginId) => `home/${scope.userId}/Plugins/${pluginId}`;
 const collided = error => error instanceof FsError && error.status === 409;
 
 function unwrap(result, doing) {
@@ -37,7 +37,7 @@ function conflictPath(path, workspace) {
 function createAgentSync({fs}) {
   /** Copy the member's folder for `pluginId` into the run's folder: what was sent, by path, with its revision. */
   async function push(scope, ai, pluginId, workspace) {
-    const folder = agentFolder(scope, pluginId);
+    const folder = pluginFolder(scope, pluginId);
     const sent = new Map();
     for (const file of await fs.readMany(scope, {prefix: folder})) {
       const relative = file.path.slice(folder.length + 1);
@@ -59,7 +59,7 @@ function createAgentSync({fs}) {
 
   /** Write what the run changed in its folder back into the member's folder for `pluginId`. */
   async function pull(scope, ai, pluginId, workspace, sent) {
-    const folder = agentFolder(scope, pluginId);
+    const folder = pluginFolder(scope, pluginId);
     const listing = unwrap(await ai.workspaceFiles(workspace), 'list its workspace');
     if (listing.truncated) {
       throw new Error(`NanoAgent listed only part of the run's folder (${listing.files.length} files); nothing was written back`);
@@ -113,4 +113,4 @@ function createAgentSync({fs}) {
   });
 }
 
-module.exports = {agentFolder, conflictPath, createAgentSync};
+module.exports = {conflictPath, createAgentSync, pluginFolder};

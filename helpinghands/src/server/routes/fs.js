@@ -32,6 +32,7 @@
  *   POST   crdt?path=                 apply an editor's Yjs update; the merged text is a new revision
  *   DELETE follow?stream=&node=       stop sending a stream a file's updates
  */
+const {isAppState, isShownChange} = require('../fs/store');
 const {lineMatches} = require('../fs/textSearch');
 
 const ROUTE = /^\/api\/fs\/(tree|stat|file|folder|move|node|restore|trash|access|share|history|revision|changes|events|crdt|follow|search)$/;
@@ -93,6 +94,18 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
   const param = name => url.searchParams.get(name);
   const changed = () => invalidateCache?.(cacheKey(scope.workspaceId, ''));
   const permit = permission => requireWorkspacePermission(scope, permission);
+  // App state is written only by the service that owns it (fs/store.js isAppState), and every
+  // member, viewers included, may change what is inside their own home, though not publish it.
+  const ownHome = path => typeof path === 'string' && path.startsWith(`home/${scope.userId}/`);
+  const refuseAppState = (...paths) => {
+    const appState = paths.find(path => typeof path === 'string' && isAppState(path));
+    if (appState) throw Object.assign(new Error(`${appState} is app state, which only its app changes`), {status: 403, code: 'app-state'});
+  };
+  const permitChange = (permission, ...paths) => {
+    refuseAppState(...paths);
+    if (!paths.every(ownHome)) permit(permission);
+  };
+  const visible = node => !isAppState(node.path);
 
   try {
     if (req.method === 'GET' && action === 'tree') {
@@ -100,7 +113,7 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
       const nodes = param('deleted') === '1'
         ? await fs.trash(scope)
         : await fs.list(scope, {prefix: param('prefix')});
-      return json(res, 200, {nodes});
+      return json(res, 200, {nodes: nodes.filter(visible)});
     }
 
     if (req.method === 'GET' && action === 'stat') {
@@ -122,7 +135,7 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
     }
 
     if (req.method === 'PUT' && action === 'file') {
-      permit('content:edit');
+      permitChange('content:edit', param('path'));
       const body = await readRawBody(req);
       const baseRev = param('baseRev');
       const node = await fs.write(scope, param('path'), body, {
@@ -137,22 +150,22 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
     }
 
     if (req.method === 'POST' && action === 'folder') {
-      permit('content:edit');
+      permitChange('content:edit', param('path'));
       const node = await fs.mkdir(scope, param('path'));
       changed();
       return json(res, 200, {node});
     }
 
     if (req.method === 'POST' && action === 'move') {
-      permit('content:edit');
       const {from, to, baseRev} = await readBody(req) ?? {};
+      permitChange('content:edit', from, to);
       const node = await fs.move(scope, from, to, {baseRev});
       changed();
       return json(res, 200, {node});
     }
 
     if (req.method === 'DELETE' && action === 'node') {
-      permit('content:delete');
+      permitChange('content:delete', param('path'));
       const baseRev = param('baseRev');
       const node = await fs.remove(scope, param('path'), {...(baseRev === null ? {} : {baseRev: Number(baseRev)})});
       if (!node) return json(res, 404, {error: 'Not found', code: 'not-found'});
@@ -178,6 +191,7 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
     if (req.method === 'PUT' && action === 'access') {
       permit('content:publish');
       const {path, access, members} = await readBody(req) ?? {};
+      refuseAppState(path);
       if (members !== undefined && (!Array.isArray(members) || members.some(member => typeof member !== 'string'))) {
         return json(res, 400, {error: 'members must be a list of user ids', code: 'bad-members'});
       }
@@ -228,7 +242,7 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
     }
 
     if (action === 'crdt' && req.method === 'POST') {
-      permit('content:edit');
+      permitChange('content:edit', param('path'));
       const update = await readRawBody(req);
       const {node, changes} = await crdt.merge(scope, param('path'), update);
       fsHub.broadcast(scope.workspaceId, node.id, changes, node.rev);
@@ -278,7 +292,7 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
       let count = 0;
       for (const file of await fs.readMany(scope, {text: SEARCH_FILE_LIMIT})) {
         const matches = lineMatches(file.body.toString('utf8'), q, options, SEARCH_MATCH_LIMIT + 1 - count);
-        if (!matches.length) continue;
+        if (!matches.length || isAppState(file.path)) continue;
         files.push({path: file.path, rev: file.rev, matches: matches.map(match => preview(match))});
         count += matches.length;
         if (count > SEARCH_MATCH_LIMIT) break;
@@ -289,7 +303,8 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
 
     if (req.method === 'GET' && action === 'changes') {
       permit('content:read');
-      return json(res, 200, await fs.changes(scope, {since: param('since'), limit: param('limit')}));
+      const page = await fs.changes(scope, {since: param('since'), limit: param('limit')});
+      return json(res, 200, {...page, changes: page.changes.filter(isShownChange)});
     }
   } catch (error) {
     return fail(json, res, error);

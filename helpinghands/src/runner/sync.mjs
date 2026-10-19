@@ -12,7 +12,7 @@
  *
  * Every file takes part, text or binary, except anything with a path segment
  * starting with a dot, on either side: .mochi/ itself, editor swap files, and
- * the workspace's .plugins/.
+ * the apps' own state in the workspace (.apps/, .chat/, .plugins/).
  *
  * Paths in `onlineOnly` stay in the workspace without a local copy. A synced
  * file under one is synced once more, so a pending local edit is uploaded,

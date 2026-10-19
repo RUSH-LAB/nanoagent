@@ -154,8 +154,8 @@ describe('NanoAgent apps', () => {
     assert.equal(added.status, 404);
   });
 
-  it('lists only the caller\'s own agent folder', async () => {
-    const fs = fakeFs({'home/test-user/agent/echo/attention/ms.tex': '\\section{}', 'home/other/agent/echo/x.md': 'not yours'});
+  it('lists only the caller\'s own folder for the plugin', async () => {
+    const fs = fakeFs({'home/test-user/Plugins/echo/attention/ms.tex': '\\section{}', 'home/other/Plugins/echo/x.md': 'not yours'});
     const listed = await invoke(routes, {method: 'GET', path: '/api/agent-files', query: '?plugin=echo', ctx: ctxWith({}, fs), requestContext: context});
     assert.equal(listed.status, 200);
     assert.deepEqual(listed.payload, {files: [{path: 'attention/ms.tex', size: 10}]});
@@ -169,7 +169,7 @@ describe('NanoAgent apps', () => {
   });
 
   it('serves text as plain text and never as HTML', async () => {
-    const fs = fakeFs({'home/test-user/agent/echo/attention/ms.tex': '\\section{Intro}', 'home/test-user/agent/echo/page.html': '<script>x</script>'});
+    const fs = fakeFs({'home/test-user/Plugins/echo/attention/ms.tex': '\\section{Intro}', 'home/test-user/Plugins/echo/page.html': '<script>x</script>'});
     for (const path of ['attention/ms.tex', 'page.html']) {
       const served = await invoke(routes, {method: 'GET', path: '/api/agent-files/content', query: `?plugin=echo&path=${path}`, ctx: ctxWith({}, fs), requestContext: context});
       assert.equal(served.res.written.status, 200);
@@ -179,7 +179,7 @@ describe('NanoAgent apps', () => {
   });
 
   it('sends a viewable file as an attachment when asked to download it', async () => {
-    const fs = fakeFs({'home/test-user/agent/echo/notes/a.txt': 'text'});
+    const fs = fakeFs({'home/test-user/Plugins/echo/notes/a.txt': 'text'});
     const served = await invoke(routes, {
       method: 'GET', path: '/api/agent-files/content', query: '?plugin=echo&path=notes/a.txt&download=1', ctx: ctxWith({}, fs), requestContext: context,
     });
@@ -191,7 +191,7 @@ describe('NanoAgent apps', () => {
     assert.equal(result.status, 404);
   });
 
-  it('saves a file to the caller\'s agent folder, refusing to replace one when creating', async () => {
+  it('saves a file to the caller\'s folder for the plugin, refusing to replace one when creating', async () => {
     const fs = fakeFs();
     const ctx = ctxWith({}, fs);
     ctx.readRawBody = async () => Buffer.from('hello');
@@ -202,12 +202,12 @@ describe('NanoAgent apps', () => {
     assert.deepEqual(created.payload, {path: 'notes/a.md', size: 5});
     await invoke(routes, {method: 'PUT', path: '/api/agent-files/content', query: '?plugin=echo&path=notes/a.md', ctx, requestContext: context});
     assert.deepEqual(fs.writes, [
-      ['home/test-user/agent/echo/notes/a.md', 'hello', {baseRev: 0}],
-      ['home/test-user/agent/echo/notes/a.md', 'hello', {}],
+      ['home/test-user/Plugins/echo/notes/a.md', 'hello', {baseRev: 0}],
+      ['home/test-user/Plugins/echo/notes/a.md', 'hello', {}],
     ]);
   });
 
-  it('lets a viewer change their own agent folder', async () => {
+  it('lets a viewer change their own folder for the plugin', async () => {
     const result = await invoke(routes, {method: 'PUT', path: '/api/agent-files/content', query: '?plugin=echo&path=a.txt', ctx: ctxWith({}, fakeFs()), requestContext: {...context, role: 'viewer'}});
     assert.equal(result.status, 200);
   });

@@ -29,7 +29,8 @@ syncs within a second of a local change and checks the server every 30 seconds.
 - Every file in the workspace is a file at the same path, text or binary.
   Markdown keeps its frontmatter.
 - Anything with a path segment starting with a dot stays on its own side:
-  `.mochi/` locally, `.plugins/` in the workspace.
+  `.mochi/` locally, the apps' own state (`.apps/`, `.chat/`, `.plugins/`) in
+  the workspace.
 - Renaming or moving a file moves it in the workspace, keeping its history and
   who can see it. A new file inherits its folder's access.
 

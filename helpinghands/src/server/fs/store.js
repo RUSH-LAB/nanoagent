@@ -77,6 +77,11 @@ const parentOf = value => (value.includes('/') ? value.slice(0, value.lastIndexO
 const sha256 = body => crypto.createHash('sha256').update(body).digest('hex');
 const contentTypeFor = value => CONTENT_TYPES[path.posix.extname(value).toLowerCase()] ?? 'application/octet-stream';
 const isMarkdown = value => MARKDOWN.test(value);
+// App state (records, chat, plugin blobs) is under a segment starting with a dot: the services
+// that own it write it, and the Explorer and sync clients leave it out (docs/plans/filesystem-layout.md).
+const isAppState = value => value.split('/').some(part => part.startsWith('.'));
+// A change clients are told of: one not to app state, or a move out of sight, so they drop the old path.
+const isShownChange = change => !isAppState(change.path) || Boolean(change.fromPath && !isAppState(change.fromPath));
 // The content types searched as text (readMany's `text`), as the workbench opens them as text.
 const TEXT_TYPES = /^(text\/|application\/(json|yaml|javascript|x-))/;
 // node-postgres returns bytea as a Buffer; other drivers return a Uint8Array.
@@ -589,5 +594,6 @@ function createPublicFsReader({pool}) {
 }
 
 module.exports = {
-  ACCESS, CONTENT_TYPES, FsError, cleanPath, contentTypeFor, createPostgresFs, createPublicFsReader, isMarkdown, parentOf,
+  ACCESS, CONTENT_TYPES, FsError, cleanPath, contentTypeFor, createPostgresFs, createPublicFsReader, isAppState, isMarkdown,
+  isShownChange, parentOf,
 };

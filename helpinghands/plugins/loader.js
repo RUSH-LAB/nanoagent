@@ -77,7 +77,7 @@ function readManifest(dir, name) {
         ? parsed.safeComponents
         : {},
       // The files this plugin's page edits, by folder (`path`, a prefix such as
-      // "apps/bibliography/") or by `extension` (".bib"), and the workspace page
+      // "papers/") or by `extension` (".bib"), and the workspace page
       // that opens them, so the Workspace can hand a file to its app.
       opens: Array.isArray(parsed.opens)
         ? parsed.opens.filter(rule => rule && typeof rule.page === 'string'
