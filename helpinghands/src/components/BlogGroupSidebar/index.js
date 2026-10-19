@@ -174,15 +174,17 @@ export default function BlogGroupSidebar({navigation, collapsed, onCollapse}) {
     <div className={clsx(styles.sidebar, collapsed && styles.sidebarHidden)}>
       <div className={styles.sidebarControls}>
         <GroupSwitcher navigation={navigation} />
-        <button
-          className={styles.collapseButton}
-          type="button"
-          title="Collapse blog navigation"
-          aria-label="Collapse blog navigation"
-          onClick={onCollapse}
-        >
-          <DoubleChevron />
-        </button>
+        {onCollapse && (
+          <button
+            className={styles.collapseButton}
+            type="button"
+            title="Collapse blog navigation"
+            aria-label="Collapse blog navigation"
+            onClick={onCollapse}
+          >
+            <DoubleChevron />
+          </button>
+        )}
       </div>
       <CategoryTree navigation={navigation} />
     </div>

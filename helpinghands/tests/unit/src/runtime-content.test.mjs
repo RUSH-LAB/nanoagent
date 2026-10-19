@@ -15,9 +15,12 @@ describe('core runtime workspace routes', () => {
     }});
     const paths = routes.map(route => route.path);
     assert.equal(paths[0], '/w/:workspaceSlug/documents');
-    for (const page of ['settings', 'analytics', 'graph', 'tasks']) {
+    for (const page of ['analytics', 'graph', 'tasks']) {
       assert.ok(paths.includes(`/w/:workspaceSlug/${page}`));
     }
+    // The shell's sections are one route, so moving between them remounts nothing.
+    assert.ok(paths.includes('/w/:workspaceSlug/:section(apps|marketplace|workspace|settings)'));
+    assert.ok(!paths.includes('/w/:workspaceSlug/settings'));
     assert.deepEqual(data, {routeBasePath: 'w'});
   });
 });

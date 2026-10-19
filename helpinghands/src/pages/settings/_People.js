@@ -166,6 +166,7 @@ export default function People({workspace}) {
     <>
       <PaneHeading
         title="People"
+       
         aside={canManage && (
           <button
             type="button"

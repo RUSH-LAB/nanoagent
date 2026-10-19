@@ -28,7 +28,8 @@ function workspaceSlugFromPath(pathname) {
   try { return decodeURIComponent(match[1]); } catch { return null; }
 }
 
-export default function UserButton({ mobile = false }) {
+/** `compact`, at the foot of the shell's activity bar (components/Shell): the menu opens beside it. */
+export default function UserButton({ mobile = false, compact = false }) {
   const {account: user} = useAccount();
   const [open, setOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -90,14 +91,14 @@ export default function UserButton({ mobile = false }) {
 
   if (!user) {
     return (
-      <Link className={styles.button} to={settingsPath} title="Account and settings" aria-label="Account">
+      <Link className={`${styles.button} ${compact ? styles.compact : ''}`} to={settingsPath} title="Account and settings" aria-label="Account">
         <span className={styles.signedOut} aria-hidden="true" />
       </Link>
     );
   }
 
   return (
-    <div className={styles.accountMenu} ref={menuRef}>
+    <div className={`${styles.accountMenu} ${compact ? styles.compact : ''}`} ref={menuRef}>
       <button
         type="button"
         className={styles.button}
@@ -110,7 +111,7 @@ export default function UserButton({ mobile = false }) {
         <Avatar user={user} />
       </button>
       {open ? (
-        <div className={styles.menu} role="menu">
+        <div className={`${styles.menu} ${compact ? styles.compactMenu : ''}`} role="menu">
           <div className={styles.identity}>
             <strong>{label}</strong>
             {user.email && user.email !== label ? <small>{user.email}</small> : null}

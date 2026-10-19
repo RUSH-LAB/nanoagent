@@ -1,3 +1,26 @@
+/* The sidebar's foot: the collapse control, at the right. */
+.foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.35rem 0.5rem 0.5rem;
+}
+
+@media (max-width: 996px) {
+  .foot {
+    display: none;
+  }
+
+  /* Where the window is narrow, the list is the sidebar. */
+  .list.list {
+    display: block;
+    padding: 0;
+  }
+
+  .list :global(.menu__link) {
+    gap: 0.55rem;
+  }
+}
+
 .maintenance {
   flex: none;
   margin-left: auto;

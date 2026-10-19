@@ -4,6 +4,7 @@
 }
 
 .root {
+  position: relative;
   display: flex;
   width: 100%;
 }
@@ -28,6 +29,25 @@
   display: none;
 }
 
+/* The shell's side bar's title row: the section's name as a heading on the
+   hairline, so the column says what it lists. */
+.sideHeader {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: var(--site-side-header-height);
+  padding: 0 0.875rem;
+  border-bottom: 1px solid var(--site-hairline);
+  color: var(--ifm-font-color-base);
+  font-size: var(--site-side-title-size);
+  font-weight: 600;
+  letter-spacing: var(--site-side-title-tracking);
+}
+
+.sideBody {
+  min-height: 0;
+}
+
 @media (min-width: 997px) {
   .sidebarColumn {
     display: block;
@@ -46,11 +66,41 @@
     cursor: pointer;
   }
 
+  /* Closed from the shell's activity bar: no strip, the content takes it all.
+     The side bar keeps its layout, unseen, so its edge can measure it. */
+  :global([data-side-folded]) .inShell .sidebarColumn {
+    position: absolute;
+    inset: 0 auto 0 0;
+    visibility: hidden;
+  }
+
+  /* Inside the shell the side bar is as wide as its edge is dragged
+     (components/Shell/Sash.js), never so narrow its content is cut. */
+  .inShell .sidebarColumn {
+    position: relative;
+    width: var(--site-side-width);
+    min-width: min-content;
+    flex-basis: auto;
+    /* It follows its edge, and the activity bar, at once, as VS Code's does. */
+    transition: none;
+    will-change: auto;
+  }
+
+  .inShell .main {
+    max-width: none;
+  }
+
   .sidebarViewport {
     position: sticky;
     top: 0;
+    display: flex;
     height: 100%;
     max-height: 100vh;
+    flex-direction: column;
+  }
+
+  .sideBody {
+    flex: 1;
   }
 
   .content {
@@ -114,5 +164,10 @@
     display: block;
     width: 100%;
     border-bottom: 1px solid var(--ifm-toc-border-color);
+  }
+
+  :global([data-side-folded]) .sidebarColumnMobile,
+  .sideHeader {
+    display: none;
   }
 }

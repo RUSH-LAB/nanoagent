@@ -1,4 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import clsx from 'clsx';
 import {useHistory, useLocation} from '@docusaurus/router';
 import {toast} from '@site/src/components/Toast/toast';
 import API_BASE, {apiJson} from '@site/src/utils/api';
@@ -13,9 +14,14 @@ import {openLiveDocument} from './liveDocument';
 import {appFor} from './apps';
 import Explorer, {ContextMenu} from './Explorer';
 import QuickOpen from './QuickOpen';
-import {basename, buildTree, comparePath, dirname, join, movedPath, tabChanges, within} from './tree';
+import Search from './Search';
+import {basename, buildTree, comparePath, copyName, dirname, join, movedPath, nodeMap, tabChanges, topmost, within} from './tree';
+import {uploadsOf} from './upload';
+import {closeIn, dropPaths, moveAll, moveTab, newGroup, showIn} from './groups';
 import {editorViews} from './viewState';
 import {clientPlatform} from '@site/src/platform/client';
+import {useShell} from '@site/src/components/Shell/context';
+import Sash from '@site/src/components/Shell/Sash';
 import styles from './styles.module.css';
 
 /**
@@ -48,6 +54,10 @@ const PDF = /\.pdf$/i;
 const EDIT_LIMIT = 2 * 1024 * 1024;
 // How many recently opened files quick open remembers per workspace.
 const RECENT_LIMIT = 20;
+// The largest file the server takes (MAX_BODY_SIZE in src/server/server-utils.js).
+const UPLOAD_LIMIT = 10 * 1024 * 1024;
+// How many file operations ⌘Z can take back.
+const UNDO_LIMIT = 50;
 
 const unsaved = tab => tab.kind === 'text' && tab.text !== tab.saved;
 
@@ -58,6 +68,8 @@ function kindOf(file) {
 }
 
 export default function Workbench({workspace}) {
+  // Inside the shell, the explorer is the Filesystem section's side bar: the activity bar hides and shows it, and its edge sets its width.
+  const shell = useShell();
   const location = useLocation();
   const history = useHistory();
   const readOnly = workspace.role === 'viewer';
@@ -67,9 +79,30 @@ export default function Workbench({workspace}) {
   const [listing, setListing] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [expanded, setExpanded] = useState(() => new Set(JSON.parse(sessionStorage.getItem(expandedKey) ?? '[]')));
-  const [selected, setSelected] = useState(null);
+  // The explorer's selected paths, the row keys act on (`focused`), and the row to scroll to.
+  const [selection, setSelection] = useState([]);
+  const [focused, setFocused] = useState(null);
+  const [reveal, setReveal] = useState(null);
+  // What ⌘C or ⌘X took, `{mode: 'copy' | 'cut', paths}`, for ⌘V.
+  const [clipboard, setClipboard] = useState(null);
+  // File operations to take back with ⌘Z, newest last: `{label, undo, after}`.
+  const undoStack = useRef([]);
+  const uploadInput = useRef(null);
+  const uploadTarget = useRef('');
+  // Each open file's tab state, by path; `groups` (groups.js) say which editor shows which, in what order.
   const [tabs, setTabs] = useState([]);
-  const [activePath, setActivePath] = useState(null);
+  const [groups, setGroups] = useState(() => [newGroup()]);
+  const [currentGroup, setCurrentGroup] = useState(0);
+  const current = Math.min(currentGroup, groups.length - 1);
+  const activePath = groups[current].active;
+  const groupsRef = useRef(groups);
+  groupsRef.current = groups;
+  const currentRef = useRef(current);
+  currentRef.current = current;
+  // Show `path` in the group keys and clicks act on.
+  const setActivePath = path => setGroups(all => showIn(all, currentRef.current, path));
+  // Where a search result sends the editor: `{path, line, column, length}`, until the editor is there.
+  const [goto, setGoto] = useState(null);
   const [editing, setEditing] = useState(null);
   const [menu, setMenu] = useState(null);
   const [trash, setTrash] = useState(null);
@@ -80,6 +113,9 @@ export default function Workbench({workspace}) {
   const [offline, setOffline] = useState(false);
   const [plugins, setPlugins] = useState([]);
   const [quickOpen, setQuickOpen] = useState(false);
+  // What the side bar shows below its title: the explorer, or Search (⌘⇧F), and a count that moves the cursor into Search.
+  const [sideView, setSideView] = useState('files');
+  const [searchFocus, setSearchFocus] = useState(0);
   const [recent, setRecent] = useState(() => JSON.parse(localStorage.getItem(recentKey) ?? '[]'));
   const tabsRef = useRef(tabs);
   const scopeRef = useRef(scope);
@@ -88,6 +124,12 @@ export default function Workbench({workspace}) {
   const views = useMemo(() => editorViews(browserStore(), () => scopeRef.current), []);
 
   const tree = useMemo(() => (listing ? buildTree(listing.files, listing.folders) : null), [listing]);
+  const nodes = useMemo(() => (tree ? nodeMap(tree) : new Map()), [tree]);
+  const focusedNode = nodes.get(focused) ?? null;
+  const selectOnly = path => {
+    setSelection([path]);
+    setFocused(path);
+  };
   const dirtyPaths = useMemo(
     () => new Set(tabs.filter(unsaved).map(tab => tab.path)),
     [tabs],
@@ -135,9 +177,17 @@ export default function Workbench({workspace}) {
       if (key === 's') {
         event.preventDefault();
         if (activePath) save(activePath);
+      } else if (key === 'f' && event.shiftKey) {
+        event.preventDefault();
+        shell?.setOpen(true);
+        setSideView('search');
+        setSearchFocus(count => count + 1);
       } else if (key === 'p' && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         setQuickOpen(current => !current);
+      } else if (key === '\\' && activePath) {
+        event.preventDefault();
+        openToSide(activePath);
       }
     };
     window.addEventListener('keydown', shortcut);
@@ -162,8 +212,8 @@ export default function Workbench({workspace}) {
   });
 
   // Markdown opens live once this browser knows whose replica it is.
-  const openLive = useCallback(file => {
-    setTabs(current => [...current, {path: file.path, kind: 'live', loading: true}]);
+  const openLive = useCallback((file, add = tab => setTabs(current => [...current, tab])) => {
+    add({path: file.path, kind: 'live', loading: true});
     Promise.all([
       openLiveDocument({
         scope: scopeRef.current, workspaceId: workspace.id, path: file.path, readOnly,
@@ -184,16 +234,35 @@ export default function Workbench({workspace}) {
         : error.message}));
   }, [readOnly, workspace.id, views]);
 
-  const open = useCallback(file => {
-    setActivePath(file.path);
+  // A `preview` tab, as VS Code's, shows a file until another is previewed in
+  // its place; opening it otherwise, editing it or double-clicking its tab keeps it.
+  const open = useCallback((file, {preview = false, group = currentRef.current, at = null} = {}) => {
     setRecent(current => [file.path, ...current.filter(path => path !== file.path)].slice(0, RECENT_LIMIT));
-    if (tabsRef.current.some(tab => tab.path === file.path)) return;
+    if (at) setGoto({path: file.path, ...at});
+    const shown = groupsRef.current[group]?.paths ?? [];
+    const elsewhere = path => groupsRef.current.some((item, index) => index !== group && item.paths.includes(path));
+    const replaced = preview && !shown.includes(file.path)
+      ? tabsRef.current.find(tab => tab.preview && !unsaved(tab) && shown.includes(tab.path))
+      : null;
+    setCurrentGroup(group);
+    setGroups(all => showIn(all, group, file.path, {replacing: replaced?.path}));
+    if (replaced && !elsewhere(replaced.path)) {
+      replaced.live?.close();
+      views.close(replaced.path);
+      setTabs(current => current.filter(tab => tab.path !== replaced.path));
+    }
+    const existing = tabsRef.current.find(tab => tab.path === file.path);
+    if (existing) {
+      if (!preview && existing.preview) updateTab(file.path, {preview: false});
+      return;
+    }
+    const add = tab => setTabs(current => [...current, {...tab, preview}]);
     if (MARKDOWN.test(file.path) && scopeRef.current) {
-      openLive(file);
+      openLive(file, add);
       return;
     }
     const kind = kindOf(file);
-    setTabs(current => [...current, {path: file.path, kind, loading: kind === 'text', text: '', saved: ''}]);
+    add({path: file.path, kind, loading: kind === 'text', text: '', saved: ''});
     if (kind !== 'text') return;
     (async () => {
       const replica = fsReplica();
@@ -283,12 +352,21 @@ export default function Workbench({workspace}) {
       const requested = new URLSearchParams(location.search).get('path');
       const file = requested && data?.files.find(item => item.path === requested);
       if (!file) return;
-      expandTo(dirname(file.path));
-      setSelected(file);
       open(file);
     });
     // Only on arrival: later listings must not reopen the file the URL first named.
   }, [load]);
+
+  // The active file is revealed in the tree, selected, as VS Code's explorer.autoReveal
+  // does: once each time another becomes active, as soon as the listing has it.
+  const revealed = useRef(null);
+  useEffect(() => {
+    if (revealed.current === activePath || nodes.get(activePath)?.type !== 'file') return;
+    revealed.current = activePath;
+    expandTo(dirname(activePath));
+    selectOnly(activePath);
+    setReveal({path: activePath});
+  }, [activePath, nodes]);
 
   useEffect(() => {
     const search = activePath ? `?path=${encodeURIComponent(activePath)}` : '';
@@ -406,16 +484,24 @@ export default function Workbench({workspace}) {
     });
   };
 
+  // Close `path` in `group`; its tab's state goes with the last group showing it.
   // `discard` closes a tab with unsaved edits without asking.
-  const close = async (path, {discard = false} = {}) => {
+  const close = async (path, {discard = false, group = currentRef.current} = {}) => {
+    if (groupsRef.current.some((item, index) => index !== group && item.paths.includes(path))) {
+      setGroups(all => closeIn(all, group, path));
+      return true;
+    }
     const tab = tabsRef.current.find(item => item.path === path);
-    if (!discard && tab && unsaved(tab) && !(await clientPlatform.dialogs.confirm(`Discard unsaved changes to ${basename(path)}?`))) return;
-    const index = tabsRef.current.findIndex(item => item.path === path);
-    const remaining = tabsRef.current.filter(item => item.path !== path);
+    if (!discard && tab && unsaved(tab) && !(await clientPlatform.dialogs.confirm(`Discard unsaved changes to ${basename(path)}?`))) return false;
     tab?.live?.close();
     views.close(path);
-    setTabs(remaining);
-    if (activePath === path) setActivePath(remaining[Math.min(index, remaining.length - 1)]?.path ?? null);
+    setTabs(current => current.filter(item => item.path !== path));
+    setGroups(all => closeIn(all, group, path));
+    return true;
+  };
+  // Several tabs of `group`, one after another, each asking about its unsaved changes.
+  const closeAll = async (group, paths) => {
+    for (const path of paths) if (!(await close(path, {group}))) return;
   };
 
   // Renames and moves, `[from, to]` in order, carry open tabs, the selection, open folders and recent files along.
@@ -429,8 +515,11 @@ export default function Workbench({workspace}) {
       .filter(tab => !reopen.includes(tab))
       .map(tab => ({...tab, path: moved(tab.path)})));
     for (const tab of reopen) openLive({path: moved(tab.path)});
-    setActivePath(current => current && moved(current));
-    setSelected(current => current && {...current, path: moved(current.path)});
+    setGroups(all => moveAll(all, moved));
+    setGoto(current => current && {...current, path: moved(current.path)});
+    setSelection(current => current.map(moved));
+    setFocused(current => current && moved(current));
+    setClipboard(current => current && {...current, paths: current.paths.map(moved)});
     setExpanded(current => new Set([...current].map(moved)));
     setRecent(current => current.map(moved));
     return moved;
@@ -458,9 +547,8 @@ export default function Workbench({workspace}) {
       if (path === tab.path) tab.live?.close();
     }
     if (closing.length) {
-      const remaining = opened.map(({path}) => path).filter(path => !closing.includes(path));
       setTabs(current => current.filter(tab => !closing.includes(tab.path)));
-      setActivePath(current => (current && closing.includes(current) ? remaining.at(-1) ?? null : current));
+      setGroups(all => dropPaths(all, path => closing.includes(path)));
     }
     for (const {tab, path} of opened) {
       const rev = written.get(path);
@@ -504,31 +592,163 @@ export default function Workbench({workspace}) {
       .catch(error => toast.error(error.message));
   };
 
-  const move = (from, folder) => {
-    const to = join(folder, basename(from));
-    run(() => api.moveEntry(from, to), () => { followMoves([[from, to]]); expandTo(folder); });
+  /** Keep `entry` for ⌘Z: `undo` takes the operation back, then `after` runs once the listing is fresh. */
+  const pushUndo = entry => { undoStack.current = [...undoStack.current, entry].slice(-UNDO_LIMIT); };
+  const undo = () => {
+    const entry = undoStack.current.pop();
+    if (!entry) {
+      toast.info('Nothing to undo');
+      return;
+    }
+    run(entry.undo, () => {
+      entry.after?.();
+      toast.success(`Undid ${entry.label}`);
+    });
+  };
+  const several = (paths, verb) => (paths.length === 1 ? `${verb} ${basename(paths[0])}` : `${verb} ${paths.length} items`);
+
+  // Moves `paths` into `folder`, skipping any already there or that would go inside themselves.
+  const move = (paths, folder) => {
+    const moves = paths
+      .filter(from => dirname(from) !== folder && !within(folder, from))
+      .map(from => [from, join(folder, basename(from))]);
+    if (!moves.length) return;
+    const back = [...moves].reverse().map(([from, to]) => [to, from]);
+    run(async () => { for (const [from, to] of moves) await api.moveEntry(from, to); }, () => {
+      followMoves(moves);
+      expandTo(folder);
+      setSelection(moves.map(([, to]) => to));
+      pushUndo({
+        label: several(moves.map(([from]) => from), 'moving'),
+        undo: async () => { for (const [from, to] of back) await api.moveEntry(from, to); },
+        after: () => followMoves(back),
+      });
+    });
   };
 
-  const remove = async node => {
-    const folder = node.type === 'folder';
-    const unsaved = [...dirtyPaths].filter(path => within(path, node.path));
-    const warning = unsaved.length ? `\n\nUnsaved changes in ${unsaved.map(basename).join(', ')} will be lost.` : '';
-    if (!(await clientPlatform.dialogs.confirm(`Delete ${folder ? `the folder ${node.path} and everything in it` : node.path}?${warning}`))) return;
-    run(() => (folder ? api.deleteFolder(node.path) : api.deleteFile(node.path)), () => {
-      const remaining = tabsRef.current.filter(tab => !within(tab.path, node.path));
+  const remove = async paths => {
+    const doomed = topmost(paths).map(path => nodes.get(path)).filter(Boolean);
+    if (!doomed.length) return;
+    const lost = [...dirtyPaths].filter(path => doomed.some(node => within(path, node.path)));
+    const warning = lost.length ? `\n\nUnsaved changes in ${lost.map(basename).join(', ')} will be lost.` : '';
+    const what = doomed.length > 1
+      ? `these ${doomed.length} items`
+      : doomed[0].type === 'folder' ? `the folder ${doomed[0].path} and everything in it` : doomed[0].path;
+    if (!(await clientPlatform.dialogs.confirm(`Delete ${what}?${warning}\n\nIt goes to the Trash; ⌘Z brings it back.`))) return;
+    const removed = [];
+    const gone = path => doomed.some(node => within(path, node.path));
+    run(async () => { for (const node of doomed) removed.push((await api.deleteFile(node.path)).node); }, () => {
+      const remaining = tabsRef.current.filter(tab => !gone(tab.path));
       for (const tab of tabsRef.current) {
-        if (!within(tab.path, node.path)) continue;
+        if (!gone(tab.path)) continue;
         tab.live?.close();
         views.close(tab.path);
       }
       setTabs(remaining);
-      setActivePath(current => (current && within(current, node.path) ? remaining.at(-1)?.path ?? null : current));
-      setSelected(null);
+      setGroups(all => dropPaths(all, gone));
+      setSelection([]);
+      pushUndo({
+        label: several(doomed.map(node => node.path), 'deleting'),
+        undo: async () => { for (const node of removed) await api.restore(node.id); },
+      });
     });
   };
 
+  // Names taken in `folder`, for copies' names.
+  const namesIn = folder => new Set((folder ? nodes.get(folder)?.children ?? [] : tree.children).map(child => child.name));
+
+  /** Copy `node` to `to`: a file's bytes, or a folder with everything in it. */
+  const copyEntry = async (node, to) => {
+    if (node.type === 'file') {
+      await api.writeBytes(to, await api.readBytes(node.path), {create: true});
+      return;
+    }
+    await api.makeFolder(to);
+    for (const folder of listing.folders) {
+      if (folder.path !== node.path && within(folder.path, node.path)) await api.makeFolder(movedPath(folder.path, node.path, to));
+    }
+    for (const file of listing.files) {
+      if (within(file.path, node.path)) await api.writeBytes(movedPath(file.path, node.path, to), await api.readBytes(file.path), {create: true});
+    }
+  };
+
+  // Copies of `paths` in `folder`, each under its own name where that is free, else as VS Code names a copy.
+  const copyInto = (paths, folder) => {
+    const sources = topmost(paths).map(path => nodes.get(path)).filter(Boolean);
+    if (sources.some(node => node.type === 'folder' && within(folder, node.path))) {
+      toast.error('A folder cannot be copied into itself');
+      return;
+    }
+    const taken = namesIn(folder);
+    const created = [];
+    run(async () => {
+      for (const node of sources) {
+        const name = taken.has(node.name) ? copyName(node.name, taken, {folder: node.type === 'folder'}) : node.name;
+        taken.add(name);
+        await copyEntry(node, join(folder, name));
+        created.push(join(folder, name));
+      }
+    }, () => {
+      expandTo(folder);
+      setSelection(created);
+      setFocused(created[0] ?? null);
+      pushUndo({
+        label: several(created, 'copying'),
+        undo: async () => { for (const path of created) await api.deleteFile(path); },
+      });
+    });
+  };
+
+  const paste = folder => {
+    if (!clipboard) return;
+    if (clipboard.mode === 'cut') {
+      move(clipboard.paths, folder);
+      setClipboard(null);
+    } else copyInto(clipboard.paths, folder);
+  };
+
+  // Files and folders from this computer into `folder`; a file already there is replaced only when the member agrees.
+  const upload = async (entries, folder) => {
+    const {folders, files} = await uploadsOf(entries);
+    const tooLarge = files.filter(([, file]) => file.size > UPLOAD_LIMIT);
+    if (tooLarge.length) toast.error(`Too large to upload (over 10 MB): ${tooLarge.map(([path]) => path).join(', ')}`);
+    const wanted = files.filter(([, file]) => file.size <= UPLOAD_LIMIT).map(([path, file]) => [join(folder, path), file]);
+    if (!wanted.length && !folders.length) return;
+    const existing = wanted.filter(([path]) => nodes.has(path)).map(([path]) => path);
+    const replace = existing.length > 0 && await clientPlatform.dialogs.confirm(existing.length === 1
+      ? `${existing[0]} already exists. Replace it?`
+      : `${existing.length} of these files already exist:\n\n${existing.join('\n')}\n\nReplace them?`);
+    const created = [];
+    run(async () => {
+      for (const path of folders.map(name => join(folder, name))) {
+        if (nodes.has(path)) continue;
+        await api.makeFolder(path);
+        created.push(path);
+      }
+      for (const [path, file] of wanted) {
+        if (nodes.has(path) && !replace) continue;
+        await api.writeBytes(path, file, {create: !nodes.has(path)});
+        if (!nodes.has(path)) created.push(path);
+      }
+    }, () => {
+      expandTo(folder);
+      const count = wanted.filter(([path]) => replace || !nodes.has(path)).length;
+      toast.success(`Uploaded ${count} ${count === 1 ? 'file' : 'files'}`);
+      if (created.length) {
+        pushUndo({
+          label: several(topmost(created), 'uploading'),
+          undo: async () => { for (const path of topmost(created)) await api.deleteFile(path); },
+        });
+      }
+    });
+  };
+  const chooseUpload = folder => {
+    uploadTarget.current = folder;
+    uploadInput.current.click();
+  };
+
   // Where a new entry goes: the selected folder, else the selected file's folder, else the root.
-  const targetFolder = () => (selected?.type === 'folder' ? selected.path : selected ? dirname(selected.path) : '');
+  const targetFolder = () => (focusedNode?.type === 'folder' ? focusedNode.path : focusedNode ? dirname(focusedNode.path) : '');
 
   const startCreate = (mode, parent = targetFolder()) => {
     expandTo(parent);
@@ -552,9 +772,18 @@ export default function Workbench({workspace}) {
       return;
     }
     setEditing(current => (current === pending ? null : current));
-    if (edit.mode === 'rename') run(() => result, () => { followMoves([[edit.node.path, path]]); expandTo(dirname(path)); });
-    else if (edit.mode === 'folder') run(() => result, () => { expandTo(path); setSelected({type: 'folder', path}); });
-    else run(() => result, entry => { expandTo(dirname(path)); setSelected({type: 'file', ...entry}); open(entry); });
+    if (edit.mode === 'rename') {
+      const from = edit.node.path;
+      run(() => result, () => {
+        followMoves([[from, path]]);
+        expandTo(dirname(path));
+        pushUndo({label: `renaming ${basename(from)}`, undo: () => api.moveEntry(path, from), after: () => followMoves([[path, from]])});
+      });
+      return;
+    }
+    pushUndo({label: `creating ${name}`, undo: () => api.deleteFile(path)});
+    if (edit.mode === 'folder') run(() => result, () => { expandTo(path); selectOnly(path); });
+    else run(() => result, entry => { expandTo(dirname(path)); selectOnly(entry.path); open(entry); });
   };
 
   const toggle = path => setExpanded(current => {
@@ -604,14 +833,36 @@ export default function Workbench({workspace}) {
   };
 
   // The context menu: groups of actions for what was right-clicked (a file, a
-  // folder, or the empty explorer), separated as VS Code separates them.
+  // folder, several selected entries, or the empty explorer), separated as VS
+  // Code separates them.
   const showMenu = (event, node) => {
     event.preventDefault();
     const position = {x: event.clientX, y: event.clientY};
     const file = node?.type === 'file';
+    const many = node && selection.includes(node.path) && selection.length > 1 ? topmost(selection) : null;
+    const into = file ? dirname(node.path) : node?.path ?? '';
+    const pasteItem = clipboard && !readOnly ? [{label: 'Paste', shortcut: '⌘V', run: () => paste(into)}] : [];
+    if (many) {
+      const files = many.filter(path => nodes.get(path)?.type === 'file');
+      const groups = [
+        readOnly ? [] : [
+          {label: 'Cut', shortcut: '⌘X', run: () => setClipboard({mode: 'cut', paths: many})},
+          {label: 'Copy', shortcut: '⌘C', run: () => setClipboard({mode: 'copy', paths: many})},
+          ...pasteItem,
+        ],
+        files.length === many.length ? [{label: `Download ${files.length} Files`, run: () => {
+          for (const path of files) window.open(api.fileUrl(workspace.id, path, {download: true}), '_blank');
+        }}] : [],
+        [{label: 'Copy Paths', run: () => copyPath(many.join('\n'))}],
+        readOnly ? [] : [{label: `Delete ${many.length} Items`, shortcut: '⌫', danger: true, run: () => remove(many)}],
+      ].filter(group => group.length);
+      setMenu({...position, items: groups.flatMap((group, index) => (index ? ['separator', ...group] : group))});
+      return;
+    }
     const groups = [
       file ? [
         {label: 'Open', run: () => open(node)},
+        {label: 'Open to the Side', shortcut: '⌘\\', run: () => openToSide(node.path)},
         ...(appLink(node.path) ? [{label: `Open in ${appLink(node.path).title}`, run: () => navigateClient(appLink(node.path).href)}] : []),
         {label: 'Download', run: () => window.open(api.fileUrl(workspace.id, node.path, {download: true}), '_self')},
         ...(scope && kindOf(node) === 'text' ? [{
@@ -623,7 +874,14 @@ export default function Workbench({workspace}) {
       !readOnly && !file ? [
         {label: 'New File…', run: () => startCreate('file', node?.path ?? '')},
         {label: 'New Folder…', run: () => startCreate('folder', node?.path ?? '')},
+        {label: 'Upload Files…', run: () => chooseUpload(node?.path ?? '')},
       ] : [],
+      node && !readOnly ? [
+        {label: 'Cut', shortcut: '⌘X', run: () => setClipboard({mode: 'cut', paths: [node.path]})},
+        {label: 'Copy', shortcut: '⌘C', run: () => setClipboard({mode: 'copy', paths: [node.path]})},
+        ...pasteItem,
+        {label: 'Duplicate', run: () => copyInto([node.path], dirname(node.path))},
+      ] : pasteItem,
       node ? [{label: 'Copy Path', run: () => copyPath(node.path)}] : [{label: 'Refresh', run: load}],
       node && !readOnly ? Object.entries(ACCESS_LABELS).map(([access, label]) => ({
         label: `${node.access === access ? '✓ ' : ''}Visible to: ${label}`,
@@ -634,29 +892,89 @@ export default function Workbench({workspace}) {
       ) : [],
       node && !readOnly ? [
         {label: 'Rename…', shortcut: 'F2', run: () => setEditing({mode: 'rename', node, status: 'naming'})},
-        {label: 'Delete', shortcut: '⌫', danger: true, run: () => remove(node)},
+        {label: 'Delete', shortcut: '⌫', danger: true, run: () => remove([node.path])},
       ] : [],
-      !node ? [{label: 'Show Trash', run: openTrash}] : [],
+      !node ? [
+        ...(undoStack.current.length && !readOnly ? [{label: `Undo ${undoStack.current.at(-1).label}`, shortcut: '⌘Z', run: undo}] : []),
+        {label: 'Show Trash', run: openTrash},
+      ] : [],
     ].filter(group => group.length);
     const items = groups.flatMap((group, index) => (index ? ['separator', ...group] : group));
     setMenu({...position, items});
   };
   const closeMenu = useCallback(() => setMenu(null), []);
 
+  // `path` in the group beside the current one, a new group when the current is the last.
+  const openToSide = path => {
+    const file = nodes.get(path);
+    if (file?.type === 'file') open(file, {group: currentRef.current + 1});
+  };
+
+  // A breadcrumb's folder or file shown in the tree, its folders opened, the side bar shown.
+  const revealPath = path => {
+    shell?.setOpen(true);
+    expandTo(nodes.get(path)?.type === 'folder' ? path : dirname(path));
+    selectOnly(path);
+    setReveal({path});
+  };
+
+  // A tab's context menu, as VS Code's: closing it and the tabs around it, keeping it, and where it is.
+  const showTabMenu = (event, group, path) => {
+    event.preventDefault();
+    const paths = groupsRef.current[group].paths;
+    const tab = tabsRef.current.find(item => item.path === path);
+    const file = nodes.get(path)?.type === 'file';
+    const after = paths.slice(paths.indexOf(path) + 1);
+    const items = [
+      {label: 'Close', run: () => close(path, {group})},
+      {label: 'Close Others', run: () => closeAll(group, paths.filter(item => item !== path))},
+      ...(after.length ? [{label: 'Close to the Right', run: () => closeAll(group, after)}] : []),
+      {label: 'Close Saved', run: () => closeAll(group, paths.filter(item => !unsaved(tabsRef.current.find(other => other.path === item) ?? {})))},
+      {label: 'Close All', run: () => closeAll(group, paths)},
+      'separator',
+      ...(tab?.preview ? [{label: 'Keep Open', run: () => updateTab(path, {preview: false})}] : []),
+      ...(file ? [{label: 'Split Right', shortcut: '⌘\\', run: () => open(nodes.get(path), {group: group + 1})}] : []),
+      ...(file || tab?.preview ? ['separator'] : []),
+      {label: 'Copy Path', run: () => copyPath(file ? path : dirname(path))},
+      ...(file ? [{label: 'Reveal in Explorer', run: () => revealPath(path)}] : []),
+    ];
+    setMenu({x: event.clientX, y: event.clientY, items});
+  };
+
   return (
     <div className={styles.workbench}>
       <aside className={styles.explorer}>
-        <div className={styles.explorerHeader}>
-          <span>Explorer</span>
+        {shell && <Sash />}
+        <div className={clsx(styles.explorerHeader, shell && styles.sectionHeader)}>
+          <span className={styles.explorerTitle}>{shell?.title ?? 'Files'}</span>
+        </div>
+        <div className={styles.explorerToolbar}>
+          <span className={styles.fileCount}>
+            {sideView === 'search' ? 'Search' : listing && `${listing.files.length} ${listing.files.length === 1 ? 'file' : 'files'}`}
+          </span>
           <div className={styles.explorerActions}>
-            {!readOnly && (
+            <button
+              type="button"
+              title={sideView === 'search' ? 'Show the files' : 'Search in files (⌘⇧F)'}
+              aria-label="Search in files"
+              aria-pressed={sideView === 'search'}
+              onClick={() => {
+                setSideView(view => (view === 'search' ? 'files' : 'search'));
+                setSearchFocus(count => count + 1);
+              }}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M7 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM10.75 10.75 14 14" /></svg>
+            </button>
+            {sideView === 'files' && (
               <>
-                <button type="button" title="New File" aria-label="New File" onClick={() => startCreate('file')}>
-                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 1.75h5l3.25 3.25v9.25H4zM8 7.5v4M6 9.5h4" /></svg>
-                </button>
-                <button type="button" title="New Folder" aria-label="New Folder" onClick={() => startCreate('folder')}>
-                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.75 3.75h4.5l1.5 1.5h6.5v7.5H1.75zM8 7.25v4M6 9.25h4" /></svg>
-                </button>
+              {!readOnly && (
+                <>
+                  <button type="button" title="New File" aria-label="New File" onClick={() => startCreate('file')}>
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 1.75h5l3.25 3.25v9.25H4zM8 7.5v4M6 9.5h4" /></svg>
+                  </button>
+                  <button type="button" title="New Folder" aria-label="New Folder" onClick={() => startCreate('folder')}>
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.75 3.75h4.5l1.5 1.5h6.5v7.5H1.75zM8 7.25v4M6 9.25h4" /></svg>
+                  </button>
               </>
             )}
             <button type="button" title="Refresh" aria-label="Refresh" onClick={load}>
@@ -665,70 +983,143 @@ export default function Workbench({workspace}) {
             <button type="button" title="Collapse Folders" aria-label="Collapse Folders" onClick={() => setExpanded(new Set())}>
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 2.5h9v11h-9zM6 8h4" /></svg>
             </button>
-            <button type="button" title="Trash" aria-label="Trash" onClick={() => (trash ? setTrash(null) : openTrash())}>
+            <button
+              type="button"
+              title="Trash"
+              aria-label="Trash"
+              aria-pressed={Boolean(trash)}
+              onClick={() => (trash ? setTrash(null) : openTrash())}
+            >
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.75 9h5.5l.75-9" /></svg>
             </button>
+            </>
+            )}
           </div>
         </div>
-        {offline && <p className={styles.offlineNote}>Offline: showing the files kept on this computer.</p>}
-        {loadError && <p className={styles.loadError}>{loadError}</p>}
-        {tree && (
-          <Explorer
-            tree={tree}
-            expanded={expanded}
-            selected={selected}
-            activePath={activePath}
-            dirtyPaths={dirtyPaths}
-            held={held}
-            editing={editing}
+        <div className={styles.sideView} hidden={sideView !== 'search'}>
+          <Search
+            focusKey={sideView === 'search' ? searchFocus : 0}
             readOnly={readOnly}
-            onToggle={toggle}
-            onSelect={setSelected}
-            onOpen={open}
-            onCommitEdit={commitEdit}
-            onCancelEdit={() => setEditing(null)}
-            onRetypeEdit={() => setEditing(current => ({...current, status: 'naming'}))}
-            onContextMenu={showMenu}
-            onMove={move}
-            onRename={node => setEditing({mode: 'rename', node, status: 'naming'})}
-            onDelete={remove}
+            dirtyPaths={dirtyPaths}
+            onOpen={(path, at) => {
+              const file = nodes.get(path);
+              if (file?.type === 'file') open(file, {at});
+            }}
+            onReplaced={(changed, label) => pushUndo({
+              label,
+              undo: async () => { for (const file of changed) await api.saveFile(file.path, file.before, {baseRev: file.rev}); },
+            })}
           />
-        )}
-        {trash && (
-          <div className={styles.trash}>
-            <div className={styles.explorerHeader}>
-              <span>Trash</span>
-              {!readOnly && trash.length > 0 && workspace.role === 'owner' && (
-                <button type="button" className={styles.trashEmpty} onClick={purgeTrash}>Empty</button>
-              )}
-            </div>
-            {trash.length === 0 && <p className={styles.emptyTree}>The trash is empty.</p>}
-            {trash.map(node => (
-              <div key={node.id} className={styles.trashRow} title={node.path}>
-                <span className={styles.rowName}>{node.path}{node.kind === 'folder' ? '/' : ''}</span>
-                {!readOnly && <button type="button" onClick={() => restoreNode(node)}>Restore</button>}
+        </div>
+        <div className={styles.sideView} hidden={sideView !== 'files'}>
+          <button type="button" className={styles.searchButton} onClick={() => setQuickOpen(true)}>
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M7 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM10.75 10.75 14 14" /></svg>
+            <span>Search files</span>
+            <kbd>⌘P</kbd>
+          </button>
+          <input
+            ref={uploadInput}
+            type="file"
+            multiple
+            hidden
+            onChange={event => {
+              upload([...event.target.files], uploadTarget.current);
+              event.target.value = '';
+            }}
+          />
+          {offline && <p className={styles.offlineNote}>Offline: showing the files kept on this computer.</p>}
+          {loadError && <p className={styles.loadError}>{loadError}</p>}
+          {tree && (
+            <Explorer
+              tree={tree}
+              expanded={expanded}
+              selection={selection}
+              focused={focused}
+              reveal={reveal}
+              activePath={activePath}
+              dirtyPaths={dirtyPaths}
+              held={held}
+              cut={new Set(clipboard?.mode === 'cut' ? clipboard.paths : [])}
+              editing={editing}
+              readOnly={readOnly}
+              onExpanded={setExpanded}
+              onSelection={setSelection}
+              onFocused={setFocused}
+              onOpen={open}
+              onCommitEdit={commitEdit}
+              onCancelEdit={() => setEditing(null)}
+              onRetypeEdit={() => setEditing(current => ({...current, status: 'naming'}))}
+              onContextMenu={showMenu}
+              onMove={move}
+              onUpload={upload}
+              onRename={node => setEditing({mode: 'rename', node, status: 'naming'})}
+              onDelete={remove}
+              onCopy={paths => setClipboard({mode: 'copy', paths})}
+              onCut={paths => setClipboard({mode: 'cut', paths})}
+              onPaste={paste}
+              onUndo={undo}
+            />
+          )}
+          {trash && (
+            <div className={styles.trash}>
+              <div className={styles.explorerHeader}>
+                <span className={styles.explorerTitle}>
+                  Trash
+                  {trash.length > 0 && <span className={styles.explorerCount}>{trash.length}</span>}
+                </span>
+                {!readOnly && trash.length > 0 && workspace.role === 'owner' && (
+                  <button type="button" className={clsx(styles.textButton, styles.textButtonDanger)} onClick={purgeTrash}>Empty</button>
+                )}
               </div>
-            ))}
-          </div>
-        )}
+              {trash.length === 0 && <p className={styles.trashNote}>The trash is empty.</p>}
+              {trash.map(node => (
+                <div key={node.id} className={styles.trashRow} title={node.path}>
+                  <span className={styles.rowName}>{node.path}{node.kind === 'folder' ? '/' : ''}</span>
+                  {!readOnly && <button type="button" className={styles.textButton} onClick={() => restoreNode(node)}>Restore</button>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </aside>
       <section className={styles.editorArea}>
-        <Editor
-          tabs={tabs}
-          activePath={activePath}
-          readOnly={readOnly}
-          fileUrl={(path, options) => api.fileUrl(workspace.id, path, options)}
-          appLink={appLink}
-          viewOf={views.get}
-          onActivate={setActivePath}
-          onClose={close}
-          onSave={save}
-          onSaveAsNew={saveAsNew}
-          onRestore={restoreRevision}
-          onDiscard={path => close(path, {discard: true})}
-          onChange={(path, text) => updateTab(path, {text})}
-          onView={views.set}
-        />
+        {groups.map((group, index) => (
+          <div
+            key={group.id}
+            className={clsx(styles.editorGroup, groups.length > 1 && index === current && styles.editorGroupCurrent)}
+            onPointerDown={() => setCurrentGroup(index)}
+          >
+            <Editor
+              group={index}
+              tabs={group.paths.map(path => tabs.find(tab => tab.path === path)).filter(Boolean)}
+              activePath={group.active}
+              readOnly={readOnly}
+              fileUrl={(path, options) => api.fileUrl(workspace.id, path, options)}
+              appLink={appLink}
+              viewOf={views.get}
+              goto={goto}
+              onGone={() => setGoto(null)}
+              onActivate={path => {
+                setCurrentGroup(index);
+                setGroups(all => showIn(all, index, path));
+              }}
+              onPin={path => updateTab(path, {preview: false})}
+              onClose={path => close(path, {group: index})}
+              onTabMenu={(event, path) => showTabMenu(event, index, path)}
+              onMoveTab={(from, path, before) => {
+                setCurrentGroup(index);
+                setGroups(all => moveTab(all, from, path, index, before));
+              }}
+              onReveal={revealPath}
+              onSave={save}
+              onSaveAsNew={saveAsNew}
+              onRestore={restoreRevision}
+              onDiscard={path => close(path, {discard: true, group: index})}
+              onChange={(path, text) => updateTab(path, {text, preview: false})}
+              onView={views.set}
+            />
+          </div>
+        ))}
       </section>
       {menu && <ContextMenu menu={menu} onClose={closeMenu} />}
       {quickOpen && listing && (
@@ -737,8 +1128,6 @@ export default function Workbench({workspace}) {
           recent={recent}
           onPick={file => {
             setQuickOpen(false);
-            expandTo(dirname(file.path));
-            setSelected(file);
             open(file);
           }}
           onClose={() => setQuickOpen(false)}

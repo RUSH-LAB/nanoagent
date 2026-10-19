@@ -39,10 +39,13 @@ export default function SidebarTree({label, items, collapseInactive = false}) {
         {items.map(item => {
           const hasChildren = item.children.length > 0;
           const isCollapsed = collapsed.has(item.key);
+          // A category is highlighted only while it is itself the page; with one of its links
+          // the page, that link is, so the sidebar marks one place and not two.
+          const current = item.active && !item.children.some(child => child.active);
           return (
             <li key={item.key} className={clsx('menu__list-item', isCollapsed && 'menu__list-item--collapsed')}>
-              <div className={clsx('menu__list-item-collapsible', item.active && 'menu__list-item-collapsible--active')}>
-                <Link className={clsx('menu__link', styles.categoryLink, item.active && 'menu__link--active')} to={item.to}>
+              <div className={clsx('menu__list-item-collapsible', current && 'menu__list-item-collapsible--active')}>
+                <Link className={clsx('menu__link', styles.categoryLink, current && 'menu__link--active')} to={item.to}>
                   {item.icon}
                   <span className={styles.taxonomyTitle}>{item.label}</span>
                   {item.count != null && <span className={styles.itemCount}>{item.count}</span>}

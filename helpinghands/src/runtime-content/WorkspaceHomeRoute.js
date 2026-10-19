@@ -37,7 +37,7 @@ function WorkspaceHome() {
       {site.submissions && (
         <div className={styles.submissions}>
           <Link className="button button--primary button--lg" to={`/w/${encodeURIComponent(slug)}/submit`}>
-            Submit your artifact
+            Submit Your Artifact
           </Link>
         </div>
       )}

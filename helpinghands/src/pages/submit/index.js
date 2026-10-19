@@ -129,7 +129,7 @@ export default function SubmitPage() {
   return (
     <Layout title="Submit">
       <main className={styles.page}>
-        <h1>Submit your artifact</h1>
+        <h1>Submit Your Artifact</h1>
         <ErrorBoundary>
           <BrowserOnly fallback={null}>{() => <Submit />}</BrowserOnly>
         </ErrorBoundary>

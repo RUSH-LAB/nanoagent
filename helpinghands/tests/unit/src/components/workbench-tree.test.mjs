@@ -1,8 +1,8 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  basename, buildTree, comparePath, dirname, entryProblem, invalidName, join, movedPath, quickOpenRows, tabChanges, visibleRows,
-  within,
+  ROOT, basename, buildTree, comparePath, copyName, dirname, entryProblem, invalidName, join, movedPath, quickOpenRows, tabChanges,
+  topmost, treeIndex, within,
 } from '../../../../src/components/Workbench/tree.js';
 
 const files = [
@@ -32,12 +32,26 @@ describe('workbench tree', () => {
     assert.equal(tree.children[0].children[0].children[0].path, 'a/b/c.txt');
   });
 
-  it('lists only the rows of open folders, with their depth', () => {
-    const tree = buildTree(files, ['papers', 'papers/attention']);
-    const rows = visibleRows(tree, new Set(['papers']));
-    assert.deepEqual(rows.map(row => [row.node.path, row.depth]), [
-      ['papers', 0], ['papers/attention', 1], ['notes.txt', 0], ['readme.md', 0],
-    ]);
+  it('indexes the tree by path, the root as ROOT, folding single-folder chains into one row', () => {
+    const tree = buildTree(files, ['papers', 'papers/attention', 'papers/attention/figures']);
+    const items = treeIndex(tree);
+    assert.deepEqual(items.get(ROOT).children, ['papers/attention', 'notes.txt', 'readme.md']);
+    assert.equal(items.get('papers/attention').label, 'papers/attention');
+    assert.deepEqual(items.get('papers/attention').children, ['papers/attention/figures', 'papers/attention/ms.tex']);
+    assert.equal(items.has('papers'), false);
+    assert.equal(treeIndex(tree, {compact: false}).get('papers').label, 'papers');
+  });
+
+  it('names copies as VS Code does', () => {
+    assert.equal(copyName('notes.txt', new Set(['notes.txt'])), 'notes copy.txt');
+    assert.equal(copyName('notes.txt', new Set(['notes.txt', 'notes copy.txt'])), 'notes copy 2.txt');
+    assert.equal(copyName('Makefile', new Set()), 'Makefile copy');
+    assert.equal(copyName('v1.2', new Set(), {folder: true}), 'v1.2 copy');
+    assert.equal(copyName('.env', new Set()), '.env copy');
+  });
+
+  it('keeps only the topmost of nested paths', () => {
+    assert.deepEqual(topmost(['a', 'a/b.txt', 'ab', 'c/d']), ['a', 'ab', 'c/d']);
   });
 
   it('does path arithmetic', () => {

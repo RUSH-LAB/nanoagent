@@ -9,6 +9,7 @@ import {workspaceSlugFromPath} from '@site/src/utils/workspaces';
 import {useAccount} from '@site/src/utils/account';
 import {PaneHeading} from './_parts';
 import TwoColumnLayout from '@site/src/components/TwoColumnLayout';
+import {useShell} from '@site/src/components/Shell/context';
 import Ai from './_Ai';
 import Connection from './_Connection';
 import Leave from './_Leave';
@@ -55,6 +56,8 @@ function SettingsApp() {
       {id: 'plugins', label: 'Plugins'},
     ]}] : []),
   ];
+  // Where the window is narrow the sidebar shows only its controls, which the shell has none of.
+  const shell = useShell();
   const paneIds = groups.flatMap(group => group.panes.map(pane => pane.id)).join(' ');
   const [visible, setVisible] = useState('account');
   const activePane = paneIds.split(' ').includes(visible) ? visible : 'account';
@@ -73,7 +76,7 @@ function SettingsApp() {
   return (
     <TwoColumnLayout
       sidebarKey="settings"
-      showSidebarOnMobile
+      showSidebarOnMobile={!shell}
       evenGutters
       renderSidebar={({collapsed, onCollapse}) => (
         <SettingsSidebar
@@ -137,14 +140,23 @@ function SettingsApp() {
   );
 }
 
+/** The page's title and description, for its Layout here and in the shell (components/Shell/Sections.js). */
+export const page = {title: 'Settings', description: 'Your account and workspace access'};
+
+export function SettingsSection() {
+  return (
+    <ErrorBoundary>
+      <BrowserOnly fallback={<div className={styles.placeholder}>Loading...</div>}>
+        {() => <SettingsApp />}
+      </BrowserOnly>
+    </ErrorBoundary>
+  );
+}
+
 export default function SettingsPage() {
   return (
-    <Layout title="Settings" description="Your account and workspace access">
-      <ErrorBoundary>
-        <BrowserOnly fallback={<div className={styles.placeholder}>Loading...</div>}>
-          {() => <SettingsApp />}
-        </BrowserOnly>
-      </ErrorBoundary>
+    <Layout {...page}>
+      <SettingsSection />
     </Layout>
   );
 }

@@ -1,11 +1,14 @@
 import React, {type ReactNode, useCallback, useEffect, useState} from 'react';
 import clsx from 'clsx';
 import BackToTopButton from '@theme/BackToTopButton';
+import {useShell} from '@site/src/components/Shell/context';
+import Sash from '@site/src/components/Shell/Sash';
 import styles from './styles.module.css';
 
 type SidebarRenderProps = {
   collapsed: boolean;
-  onCollapse: () => void;
+  /** Null inside the shell, whose activity bar hides and shows the sidebar: the sidebar draws no collapse control. */
+  onCollapse: (() => void) | null;
 };
 
 type Props = {
@@ -26,7 +29,13 @@ function ExpandIcon(): ReactNode {
   );
 }
 
-/** A navigation sidebar beside a content area that takes the rest of the width. */
+/**
+ * A navigation sidebar beside a content area that takes the rest of the width.
+ * Inside the shell (components/Shell) the sidebar opens and closes with the
+ * activity bar, headed by the section's name, is as wide as its edge is
+ * dragged, and closed it takes no room; elsewhere it collapses to a strip by
+ * its own control, and expands from that strip.
+ */
 export default function TwoColumnLayout({
   children,
   renderSidebar,
@@ -35,15 +44,18 @@ export default function TwoColumnLayout({
   showSidebarOnMobile = false,
   evenGutters = false,
 }: Props): ReactNode {
-  const [collapsed, setCollapsed] = useState(false);
+  const shell = useShell();
+  const [ownCollapsed, setCollapsed] = useState(false);
   const toggleSidebar = useCallback(() => setCollapsed(value => !value), []);
+  // Inside the shell the side bar is folded in CSS, from the shell's data-side-folded.
+  const collapsed = shell ? false : ownCollapsed;
 
   useEffect(() => setCollapsed(false), [sidebarKey]);
 
   return (
     <div className={styles.wrapper}>
       <BackToTopButton />
-      <div className={styles.root}>
+      <div className={clsx(styles.root, shell && styles.inShell)}>
         {renderSidebar && (
           <aside
             className={clsx(
@@ -54,7 +66,10 @@ export default function TwoColumnLayout({
             )}
           >
             <div className={styles.sidebarViewport}>
-              {renderSidebar({collapsed, onCollapse: toggleSidebar})}
+              {shell?.title && <header className={styles.sideHeader}>{shell.title}</header>}
+              <div className={styles.sideBody}>
+                {renderSidebar({collapsed, onCollapse: shell ? null : toggleSidebar})}
+              </div>
               {collapsed && (
                 <button
                   className={styles.expandButton}
@@ -67,6 +82,7 @@ export default function TwoColumnLayout({
                 </button>
               )}
             </div>
+            {shell && <Sash />}
           </aside>
         )}
         <main className={clsx(styles.main, (!renderSidebar || collapsed) && styles.mainExpanded)}>

@@ -40,11 +40,26 @@
      SHOW_CHAT) no CLI mounts, so the strip is 0. */
   --site-cli-row: 2.75rem;
   --site-cli-height: 0px;
+  /* The local site's development banner above the navbar (src/theme/Root.js),
+     which publishes its measured height here; 0 everywhere else. */
+  --site-banner-height: 0px;
+  /* Inside a workspace, the activity bar's width (components/Shell), and its
+     height where the window is narrow and it runs along the bottom. */
+  --site-activity-width: 3rem;
+  /* The side bar's width, which the shell sets to the one its edge is dragged
+     to (components/Shell/Sash.js). */
+  --site-side-width: 18rem;
+  /* The title row at the top of the shell's side bar: the open section's name
+     as a heading in the side bar's own size, tracked slightly tight as Inter
+     is at heading weights, its actions at the right, on a hairline. */
+  --site-side-header-height: 2.5rem;
+  --site-side-title-size: var(--site-chrome-font-size);
+  --site-side-title-tracking: -0.01em;
   /* Everything between the navbar and the CLI bar. The one place that knows
      either height, for the pages whose body is a fixed region rather than a
      document. */
   --site-shell-height: calc(
-    100vh - var(--ifm-navbar-height, 3.75rem) - var(--site-cli-height)
+    100vh - var(--site-banner-height) - var(--ifm-navbar-height, 3.75rem) - var(--site-cli-height)
   );
   --ifm-container-width: var(--site-max-width);
   --ifm-container-width-xl: var(--site-max-width);
@@ -82,6 +97,24 @@
   --site-hairline-strong: var(--ifm-color-emphasis-400);
   --site-radius: 8px;
   --site-radius-lg: 12px;
+  /* The height every button and field in a row shares, so they line up. */
+  --site-control-height: 2rem;
+  /* Text on a primary-filled button: the primary is blue in light and white in dark. */
+  --site-on-primary: #ffffff;
+  /* Floating surfaces (menus, quick open) lift off the page by a hairline
+     and this one soft shadow, never more. */
+  --site-popover-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  /* A menu row's corners, and the size of the mark leading it. */
+  --site-menu-row-radius: 6px;
+  --site-menu-mark-size: 1.375rem;
+  /* The workspace explorer's file icons: one muted tint per kind of file, so
+     kinds read at a glance without competing with the accent. */
+  --site-file-text: #4f86a8;
+  --site-file-tex: #3d8a6a;
+  --site-file-code: #b08a16;
+  --site-file-data: #8a62b0;
+  --site-file-media: #c0563f;
+  --site-file-folder: #a9834a;
   /* Vertical offset when jumping to an anchored element; adjust to control vertical centering. */
   --anchor-scroll-margin: 30vh;
   /* RUSH Lab's setup screen (theme/Root/LabScreen.js): hairline panels, one accent for what runs. */
@@ -95,6 +128,19 @@
   --setup-done: #16a34a;
   --setup-failed: #dc2626;
   --setup-failed-soft: #fef2f2;
+}
+
+/* Inside a workspace the activity bar stands in for the navbar (components/Shell),
+   so nothing is sized below one; where the window is narrow the bar runs along
+   the bottom, and what fills the window ends above it. */
+html.site-shell {
+  --ifm-navbar-height: 0px;
+}
+
+@media (max-width: 996px) {
+  html.site-shell {
+    --site-shell-height: calc(100vh - var(--site-banner-height) - var(--site-cli-height) - var(--site-activity-width));
+  }
 }
 
 /* Between the stacking breakpoint and here, a 240px TOC plus the 300px chapter
@@ -221,6 +267,14 @@ h2[class*="title_"] a:hover {
   --setup-done: #22c55e;
   --setup-failed: #f87171;
   --setup-failed-soft: rgb(239 68 68 / 8%);
+  --site-popover-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+  --site-on-primary: var(--ifm-background-color);
+  --site-file-text: #7fb3d3;
+  --site-file-tex: #6fbf98;
+  --site-file-code: #d8b84a;
+  --site-file-data: #b99ad8;
+  --site-file-media: #e08a76;
+  --site-file-folder: #cfae7a;
 }
 
 /* Add scroll margin to all divs and KaTeX display blocks (applies site-wide, not only equations) */

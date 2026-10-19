@@ -7,6 +7,12 @@ function appsItem(workspaceSlug) {
   return {label: 'Plugins', to: appsPath, activeBasePath: appsPath, position: 'left'};
 }
 
+/** Marketplace: the plugins to install, and the updates for the ones installed. */
+function marketplaceItem(workspaceSlug) {
+  const path = `/w/${encodeURIComponent(workspaceSlug)}/marketplace`;
+  return {label: 'Marketplace', to: path, activeBasePath: path, position: 'left'};
+}
+
 /** Workspace: the files the apps saved for this member. */
 function workspaceItem(workspaceSlug) {
   const path = `/w/${encodeURIComponent(workspaceSlug)}/workspace`;
@@ -31,7 +37,7 @@ export default function useNavbarItems() {
     : !workspaceSite
       ? []
       // Book and Blog are hidden for now (FUTURE.md).
-      : [appsItem(workspaceSlug), workspaceItem(workspaceSlug)];
+      : [appsItem(workspaceSlug), marketplaceItem(workspaceSlug), workspaceItem(workspaceSlug)];
   // Content links in the config are deliberately workspace-neutral so the
   // static build can render them. Once a workspace is present in the URL,
   // keep it in every navbar destination instead of falling back to the user's

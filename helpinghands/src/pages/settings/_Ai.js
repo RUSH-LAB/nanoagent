@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useState} from 'react';
 import {apiRequest} from '@site/src/utils/api';
-import {Fact, PaneHeading, Skeleton} from './_parts';
+import {PaneHeading, Skeleton} from './_parts';
 import ApiKeys from './_ApiKeys';
 import styles from './styles.module.css';
 import ai from './ai.module.css';
@@ -13,6 +13,16 @@ const dollars = value => `$${value.toFixed(3).replace(/0$/, '')}`;
 const thousands = tokens => (tokens >= 1_000_000 ? `${Number((tokens / 1_000_000).toFixed(1))}M` : `${Math.round(tokens / 1000)}K`);
 // OpenRouter names a model "Maker: Name", and the name already says who made it.
 const shortName = label => label.slice(label.indexOf(': ') + 1).trim();
+
+/** One figure of the model's, as a tile: its name, the figure large, and its unit. */
+function Stat({label, value, unit}) {
+  return (
+    <div className={ai.stat}>
+      <dt>{label}</dt>
+      <dd><span className={ai.statValue}>{value}</span>{unit && <span className={ai.statUnit}>{unit}</span>}</dd>
+    </div>
+  );
+}
 
 /**
  * Settings → AI. Your AI runs on your own computer, in RUSH Lab: its
@@ -71,12 +81,18 @@ export default function Ai() {
         <div className={styles.groupHead}>
           <h4 className={styles.groupTitle}>Model</h4>
         </div>
-        <Fact label="Name">{known ? shortName(known.label) : model.model}</Fact>
-        <Fact label="ID"><code className={ai.modelId}>{model.model}</code></Fact>
-        {known?.contextWindow && <Fact label="Context window">{`${thousands(known.contextWindow)} tokens`}</Fact>}
-        {known?.price && <Fact label="Input">{`${dollars(known.price.input)} per 1M tokens`}</Fact>}
-        {known?.price && <Fact label="Output">{`${dollars(known.price.output)} per 1M tokens`}</Fact>}
-        {known && <Fact label="Reasoning">{known.reasoning ? 'Yes' : 'No'}</Fact>}
+        <div className={ai.modelSummary}>
+          <strong className={ai.modelName}>{known ? shortName(known.label) : model.model}</strong>
+          <code className={ai.modelId}>{model.model}</code>
+        </div>
+        {known && (
+          <dl className={ai.stats}>
+            {known.contextWindow && <Stat label="Context window" value={thousands(known.contextWindow)} unit="tokens" />}
+            {known.price && <Stat label="Input" value={dollars(known.price.input)} unit="per 1M tokens" />}
+            {known.price && <Stat label="Output" value={dollars(known.price.output)} unit="per 1M tokens" />}
+            <Stat label="Reasoning" value={known.reasoning ? 'Yes' : 'No'} />
+          </dl>
+        )}
       </section>
     </>
   );

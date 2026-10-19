@@ -19,6 +19,8 @@
  *   GET    history?path=              every revision, newest first
  *   GET    revision?path=&seq=        the bytes of one revision
  *   GET    changes?since=&limit=      the change feed sync clients follow, and catch up from after a reconnect
+ *   GET    search?q=&case=1&word=1    the lines of text files that have `q` (fs/textSearch.js), by file:
+ *                                     {files: [{path, rev, matches: [{line, column, length, preview}]}], truncated}
  *   GET    events                     the workspace's push channel (fs/events.js), server-sent events:
  *                                     `ready` {stream, cursor}, then `changes` {cursor, structural, changes}
  *                                     batches and `update` {nodeId, update, rev} for the files it follows
@@ -30,8 +32,15 @@
  *   POST   crdt?path=                 apply an editor's Yjs update; the merged text is a new revision
  *   DELETE follow?stream=&node=       stop sending a stream a file's updates
  */
-const ROUTE = /^\/api\/fs\/(tree|stat|file|folder|move|node|restore|trash|access|share|history|revision|changes|events|crdt|follow)$/;
+const {lineMatches} = require('../fs/textSearch');
+
+const ROUTE = /^\/api\/fs\/(tree|stat|file|folder|move|node|restore|trash|access|share|history|revision|changes|events|crdt|follow|search)$/;
 const HEARTBEAT_MS = 25_000;
+// A search reads text files up to the size the workbench edits (EDIT_LIMIT in components/Workbench),
+// and answers with at most this many matches, longest lines cut to PREVIEW_LENGTH around their match.
+const SEARCH_FILE_LIMIT = 2 * 1024 * 1024;
+const SEARCH_MATCH_LIMIT = 2000;
+const PREVIEW_LENGTH = 240;
 
 function fail(json, res, error) {
   if (error?.status && error?.code) {
@@ -59,6 +68,13 @@ function sendBytes(req, res, {body, contentType, etag, filename, download = fals
     'Vary': 'Origin',
   });
   res.end(body);
+}
+
+/** A match with its line cut to PREVIEW_LENGTH around it, `column` then counted in what is kept, `cut` how much went before. */
+function preview(match) {
+  if (match.preview.length <= PREVIEW_LENGTH) return {...match, cut: 0};
+  const cut = Math.max(0, Math.min(match.column - 1 - 40, match.preview.length - PREVIEW_LENGTH));
+  return {...match, preview: match.preview.slice(cut, cut + PREVIEW_LENGTH), cut};
 }
 
 module.exports = async function fs_routes(req, res, url, pathname, ctx) {
@@ -251,6 +267,24 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
       clearInterval(heartbeat);
       stream.stop();
       return res.end();
+    }
+
+    if (req.method === 'GET' && action === 'search') {
+      permit('content:read');
+      const q = param('q') ?? '';
+      if (!q) return json(res, 400, {error: 'Say what to search for', code: 'bad-query'});
+      const options = {matchCase: param('case') === '1', wholeWord: param('word') === '1'};
+      const files = [];
+      let count = 0;
+      for (const file of await fs.readMany(scope, {text: SEARCH_FILE_LIMIT})) {
+        const matches = lineMatches(file.body.toString('utf8'), q, options, SEARCH_MATCH_LIMIT + 1 - count);
+        if (!matches.length) continue;
+        files.push({path: file.path, rev: file.rev, matches: matches.map(match => preview(match))});
+        count += matches.length;
+        if (count > SEARCH_MATCH_LIMIT) break;
+      }
+      if (count > SEARCH_MATCH_LIMIT) files.at(-1).matches.pop();
+      return json(res, 200, {files, truncated: count > SEARCH_MATCH_LIMIT});
     }
 
     if (req.method === 'GET' && action === 'changes') {

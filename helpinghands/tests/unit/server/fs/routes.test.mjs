@@ -76,6 +76,20 @@ describe('file system API', () => {
     assert.equal(published.payload.node.access, 'public');
   });
 
+  it('searches the text of the files a member may read, line by line', async () => {
+    await call({method: 'PUT', path: '/api/fs/file', query: {path: 'find/one.txt', baseRev: 0}, body: 'alpha\nBeta alpha', requestContext: bob});
+    await call({method: 'PUT', path: '/api/fs/file', query: {path: 'find/pic.png', baseRev: 0}, body: 'alpha', requestContext: bob});
+    const found = await call({path: '/api/fs/search', query: {q: 'ALPHA'}, requestContext: vic});
+    assert.equal(found.status, 200);
+    const one = found.payload.files.find(file => file.path === 'find/one.txt');
+    assert.deepEqual(one.matches.map(match => [match.line, match.column]), [[1, 1], [2, 6]]);
+    assert.ok(!found.payload.files.some(file => file.path === 'find/pic.png'));
+    const exact = await call({path: '/api/fs/search', query: {q: 'ALPHA', case: '1'}, requestContext: vic});
+    assert.deepEqual(exact.payload.files.filter(file => file.path.startsWith('find/')), []);
+    const empty = await call({path: '/api/fs/search', query: {q: ''}, requestContext: vic});
+    assert.equal(empty.status, 400);
+  });
+
   it('follows the change feed from a cursor', async () => {
     const all = await call({path: '/api/fs/changes', requestContext: alice});
     const later = await call({path: '/api/fs/changes', query: {since: all.payload.cursor}, requestContext: alice});

@@ -134,10 +134,15 @@ function AppsColumns() {
   );
 }
 
+/** The page's title and description, for its Layout here and in the shell (components/Shell/Sections.js). */
+export const page = {title: 'Plugins', description: 'Apps built on NanoAgent'};
+
+export const AppsSection = AppsColumns;
+
 export default function AppsPage() {
   return (
-    <Layout title="Plugins" description="Apps built on NanoAgent">
-      <AppsColumns />
+    <Layout {...page}>
+      <AppsSection />
     </Layout>
   );
 }

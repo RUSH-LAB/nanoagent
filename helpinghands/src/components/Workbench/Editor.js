@@ -4,10 +4,11 @@ import CodeMirror from '@uiw/react-codemirror';
 import {historyField} from '@codemirror/commands';
 import {getOriginalDoc, originalDocChangeEffect, unifiedMergeView} from '@codemirror/merge';
 import {ChangeSet, Transaction} from '@codemirror/state';
-import {keymap} from '@codemirror/view';
+import {EditorView, keymap} from '@codemirror/view';
 import {yCollab, yUndoManagerKeymap} from 'y-codemirror.next';
 import {useColorMode} from '@docusaurus/theme-common';
 import {changedRange} from '@site/src/server/fs/textDiff';
+import {FileIcon} from './Explorer';
 import {languageExtensions, languageFor} from './languages';
 import {basename, dirname} from './tree';
 import {liveSelection, relativeSelection, textStateJSON} from './viewState';
@@ -35,6 +36,23 @@ function followScroll(editor, saved, onView) {
   editor.scrollDOM.addEventListener('scroll', () => onView({scrollTop: editor.scrollDOM.scrollTop}));
 }
 
+// A tab dragged to another place among the tabs, or into another editor group.
+const TAB_TYPE = 'application/x-mochi-editor-tab';
+
+/**
+ * Put `editor`'s selection on a search result, `{line, column, length}`, in
+ * the middle of the view, as VS Code opens one, then report it reached.
+ */
+function goTo(editor, {line, column, length}, onGone) {
+  const doc = editor.state.doc;
+  const at = doc.line(Math.min(Math.max(line, 1), doc.lines));
+  const from = Math.min(at.from + column - 1, at.to);
+  const to = Math.min(from + length, at.to);
+  editor.dispatch({selection: {anchor: from, head: to}, effects: EditorView.scrollIntoView(from, {y: 'center'})});
+  editor.focus();
+  onGone();
+}
+
 const reportCursor = (update, onCursor) => {
   const head = update.state.selection.main.head;
   const line = update.state.doc.lineAt(head);
@@ -45,7 +63,11 @@ const reportCursor = (update, onCursor) => {
  * A Markdown file bound to its shared document. Its undo history is the
  * document's, so it outlives the editor.
  */
-function LiveEditor({tab, saved, readOnly, language, colorMode, onCursor, onView}) {
+function LiveEditor({tab, saved, readOnly, language, colorMode, goto, onGone, onCursor, onView}) {
+  const view = useRef(null);
+  useEffect(() => {
+    if (view.current && goto?.path === tab.path) goTo(view.current, goto, onGone);
+  }, [goto, tab.path, onGone]);
   // The editor starts from the document's text; from then on the binding keeps
   // the two in step. The wrapper copies `value` into the editor only when the
   // prop changes, so it is the same string for the editor's whole life.
@@ -66,7 +88,10 @@ function LiveEditor({tab, saved, readOnly, language, colorMode, onCursor, onView
       theme={colorMode === 'dark' ? 'dark' : 'light'}
       extensions={extensions}
       editable={!readOnly}
-      onCreateEditor={editor => followScroll(editor, saved, onView)}
+      onCreateEditor={editor => {
+        view.current = editor;
+        followScroll(editor, saved, onView);
+      }}
       onUpdate={update => {
         if (!update.selectionSet && !update.docChanged) return;
         reportCursor(update, onCursor);
@@ -86,7 +111,7 @@ function LiveEditor({tab, saved, readOnly, language, colorMode, onCursor, onView
  * is the one saved elsewhere, and each change offers to keep the user's
  * (Accept) or take the saved one (Reject).
  */
-function TextEditor({tab, saved, readOnly, language, colorMode, onChange, onCursor, onView}) {
+function TextEditor({tab, saved, readOnly, language, colorMode, goto, onGone, onChange, onCursor, onView}) {
   const [initial] = useState(() => textStateJSON(saved, tab.text));
   const [original] = useState(tab.saved);
   const extensions = useMemo(
@@ -95,6 +120,9 @@ function TextEditor({tab, saved, readOnly, language, colorMode, onChange, onCurs
     [language, original],
   );
   const view = useRef(null);
+  useEffect(() => {
+    if (view.current && goto?.path === tab.path) goTo(view.current, goto, onGone);
+  }, [goto, tab.path, onGone]);
   useEffect(() => {
     const range = view.current && changedRange(view.current.state.doc.toString(), tab.text);
     if (!range) return;
@@ -119,7 +147,10 @@ function TextEditor({tab, saved, readOnly, language, colorMode, onChange, onCurs
         view.current = editor;
         followScroll(editor, saved, onView);
       }}
-      onChange={onChange}
+      // Only the member's own edits: text read in is the tab's already.
+      onChange={(value, update) => {
+        if (!update.transactions.some(transaction => transaction.annotation(Transaction.remote))) onChange(value);
+      }}
       onUpdate={update => {
         if (!update.selectionSet && !update.docChanged) return;
         reportCursor(update, onCursor);
@@ -149,7 +180,7 @@ function CompareEditor({tab, language, colorMode}) {
   );
 }
 
-function TabContent({tab, saved, readOnly, fileUrl, onChange, onCursor, onView}) {
+function TabContent({tab, saved, readOnly, fileUrl, goto, onGone, onChange, onCursor, onView}) {
   const {colorMode} = useColorMode();
   // A compare tab lies below the file it shows (tree.js comparePath).
   const file = tab.kind === 'diff' ? dirname(tab.path) : tab.path;
@@ -159,7 +190,7 @@ function TabContent({tab, saved, readOnly, fileUrl, onChange, onCursor, onView})
   if (tab.error) return <p className={styles.placeholder}>{tab.error}</p>;
   if (tab.kind === 'diff') return <CompareEditor tab={tab} language={language} colorMode={colorMode} />;
   if (tab.kind === 'live') {
-    return <LiveEditor tab={tab} saved={saved} readOnly={readOnly} language={language} colorMode={colorMode} onCursor={onCursor} onView={onView} />;
+    return <LiveEditor tab={tab} saved={saved} readOnly={readOnly} language={language} colorMode={colorMode} goto={goto} onGone={onGone} onCursor={onCursor} onView={onView} />;
   }
   if (tab.kind === 'image') return <div className={styles.media}><img src={fileUrl(tab.path)} alt={tab.path} /></div>;
   if (tab.kind === 'pdf') return <iframe className={styles.pdf} src={fileUrl(tab.path)} title={tab.path} />;
@@ -171,55 +202,120 @@ function TabContent({tab, saved, readOnly, fileUrl, onChange, onCursor, onView})
       </div>
     );
   }
-  return <TextEditor tab={tab} saved={saved} readOnly={readOnly} language={language} colorMode={colorMode} onChange={onChange} onCursor={onCursor} onView={onView} />;
+  return (
+    <TextEditor
+      tab={tab}
+      saved={saved}
+      readOnly={readOnly}
+      language={language}
+      colorMode={colorMode}
+      goto={goto}
+      onGone={onGone}
+      onChange={onChange}
+      onCursor={onCursor}
+      onView={onView}
+    />
+  );
 }
 
-function liveLabel(status) {
-  if (!status) return '';
-  if (status.state === 'offline') return status.waiting ? 'Offline: edits saved on this computer' : 'Offline';
-  if (status.state === 'saving') return 'Saving…';
-  if (status.state.startsWith('error: ')) return status.state.slice('error: '.length);
-  return 'All changes saved';
+/** What the status line says about the open file, and the tone of its dot. */
+function statusOf(tab, dirty) {
+  if (tab.kind === 'live') {
+    const status = tab.liveStatus;
+    if (!status) return null;
+    if (status.state === 'offline') return {tone: 'warning', label: status.waiting ? 'Offline: edits saved on this computer' : 'Offline'};
+    if (status.state === 'saving') return {tone: 'pending', label: 'Saving…'};
+    if (status.state.startsWith('error: ')) return {tone: 'danger', label: status.state.slice('error: '.length)};
+    return {tone: 'saved', label: 'All changes saved'};
+  }
+  if (tab.kind !== 'text') return null;
+  if (tab.saving) return {tone: 'pending', label: 'Saving…'};
+  if (dirty) return {tone: 'warning', label: 'Unsaved changes'};
+  return {tone: 'saved', label: 'Saved'};
 }
+
+const TONES = {saved: styles.toneSaved, pending: styles.tonePending, warning: styles.toneWarning, danger: styles.toneDanger};
 
 export default function Editor({
-  tabs, activePath, readOnly, fileUrl, appLink = () => null, viewOf, onActivate, onClose, onChange, onView, onSave, onSaveAsNew, onDiscard,
-  onRestore,
+  group = 0, tabs, activePath, readOnly, fileUrl, appLink = () => null, viewOf, goto = null, onGone = () => {},
+  onActivate, onPin, onClose, onTabMenu, onMoveTab, onReveal, onChange, onView, onSave, onSaveAsNew, onDiscard, onRestore,
 }) {
   const [cursor, setCursor] = useState(null);
+  const [dropBefore, setDropBefore] = useState(undefined);
   const tab = tabs.find(item => item.path === activePath);
   useEffect(() => setCursor(null), [activePath]);
+
+  // Tabs take a dragged tab before the one under the pointer, or at the end over the strip after them.
+  const dropProps = before => ({
+    onDragOver: event => {
+      if (!event.dataTransfer.types.includes(TAB_TYPE)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setDropBefore(before);
+    },
+    onDragLeave: () => setDropBefore(undefined),
+    onDrop: event => {
+      if (!event.dataTransfer.types.includes(TAB_TYPE)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setDropBefore(undefined);
+      const {from, path} = JSON.parse(event.dataTransfer.getData(TAB_TYPE));
+      if (path !== before) onMoveTab(from, path, before);
+    },
+  });
 
   if (!tabs.length) {
     return (
       <div className={styles.welcome}>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6l2 2h8v14H4z" /></svg>
-        <h2>Your workspace</h2>
-        <p>Open a file from the explorer to view or edit it.</p>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.5h6l2 2h10v11H3z" /></svg>
+        <h2>Your filesystem</h2>
+        <p>Open a file from the sidebar to view or edit it.</p>
         <dl>
-          <dt>Save</dt><dd><kbd>⌘</kbd> <kbd>S</kbd></dd>
+          <dt>Find a file</dt><dd><kbd>⌘</kbd><kbd>P</kbd></dd>
+          <dt>Search in files</dt><dd><kbd>⌘</kbd><kbd>⇧</kbd><kbd>F</kbd></dd>
+          <dt>Split the editor</dt><dd><kbd>⌘</kbd><kbd>\</kbd></dd>
+          <dt>Save</dt><dd><kbd>⌘</kbd><kbd>S</kbd></dd>
           <dt>Rename</dt><dd><kbd>F2</kbd></dd>
           <dt>Delete</dt><dd><kbd>Delete</kbd></dd>
-          <dt>More actions</dt><dd>Right-click in the explorer</dd>
+          <dt>Copy, cut, paste</dt><dd><kbd>⌘</kbd><kbd>C</kbd> <kbd>⌘</kbd><kbd>X</kbd> <kbd>⌘</kbd><kbd>V</kbd></dd>
+          <dt>Undo a file change</dt><dd><kbd>⌘</kbd><kbd>Z</kbd></dd>
+          <dt>Upload</dt><dd>Drop files on a folder</dd>
+          <dt>More actions</dt><dd>Right-click a file</dd>
         </dl>
       </div>
     );
   }
 
   const dirty = item => item.kind === 'text' && item.text !== item.saved;
+  const link = appLink(tab.path);
+  const status = statusOf(tab, dirty(tab));
   return (
     <div className={styles.editor}>
-      <div className={styles.tabs} role="tablist">
+      <div className={clsx(styles.tabs, dropBefore === null && styles.tabsDrop)} role="tablist" {...dropProps(null)}>
         {tabs.map(item => (
           <div
             key={item.path}
             role="tab"
             aria-selected={item.path === activePath}
-            className={clsx(styles.tab, item.path === activePath && styles.tabActive)}
-            title={item.path}
+            className={clsx(
+              styles.tab,
+              item.path === activePath && styles.tabActive,
+              item.preview && styles.tabPreview,
+              dropBefore === item.path && styles.tabDrop,
+            )}
+            title={item.preview ? `${item.path} (preview: double-click to keep it open)` : item.path}
+            draggable
+            onDragStart={event => {
+              event.dataTransfer.setData(TAB_TYPE, JSON.stringify({from: group, path: item.path}));
+              event.dataTransfer.effectAllowed = 'move';
+            }}
+            {...dropProps(item.path)}
             onClick={() => onActivate(item.path)}
+            onDoubleClick={() => onPin(item.path)}
+            onContextMenu={event => onTabMenu(event, item.path)}
             onAuxClick={event => { if (event.button === 1) onClose(item.path); }}
           >
+            <FileIcon name={item.kind === 'diff' ? dirname(item.path) : item.path} />
             <span className={styles.tabName}>{item.title ?? basename(item.path)}</span>
             {(item.changedElsewhere || item.deleted) && (
               <span className={styles.tabElsewhere}>{item.deleted ? 'Deleted elsewhere' : 'Changed elsewhere'}</span>
@@ -234,10 +330,16 @@ export default function Editor({
         ))}
       </div>
       <div className={styles.breadcrumbs}>
-        {tab.kind === 'diff' ? tab.title : tab.path.split('/').join(' › ')}
-        {appLink(tab.path) && (
-          <a className={styles.appLink} href={appLink(tab.path).href}>Open in {appLink(tab.path).title}</a>
-        )}
+        <ol>
+          {tab.kind === 'diff'
+            ? <li className={styles.crumbCurrent}>{tab.title}</li>
+            : tab.path.split('/').map((part, index, parts) => (
+              <li key={index} className={clsx(index === parts.length - 1 && styles.crumbCurrent)}>
+                <button type="button" title="Reveal in the explorer" onClick={() => onReveal(parts.slice(0, index + 1).join('/'))}>{part}</button>
+              </li>
+            ))}
+        </ol>
+        {link && <a className={styles.appLink} href={link.href}>Open in {link.title}</a>}
       </div>
       {tab.deleted && (
         <div className={styles.elsewhereBar} role="alert">
@@ -265,13 +367,18 @@ export default function Editor({
           saved={viewOf(tab.path)}
           readOnly={readOnly}
           fileUrl={fileUrl}
+          goto={goto}
+          onGone={onGone}
           onChange={text => onChange(tab.path, text)}
           onCursor={setCursor}
           onView={patch => onView(tab.path, patch)}
         />
       </div>
       <div className={styles.statusBar}>
-        <span>{tab.kind === 'live' ? liveLabel(tab.liveStatus) : tab.saving ? 'Saving…' : dirty(tab) ? 'Unsaved changes' : tab.kind === 'text' ? 'Saved' : ''}</span>
+        <span className={styles.statusLeft}>
+          {status && <span className={clsx(styles.statusDot, TONES[status.tone])} aria-hidden="true" />}
+          {status?.label}
+        </span>
         <span className={styles.statusRight}>
           {(tab.kind === 'text' || tab.kind === 'live') && cursor && <span>Ln {cursor.line}, Col {cursor.column}</span>}
           {(tab.kind === 'text' || tab.kind === 'live') && <span>{languageFor(tab.path).name}</span>}

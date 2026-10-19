@@ -23,10 +23,13 @@
 module.exports = function runtimeContentPlugin(_context, options = {}) {
   const routeBasePath = String(options.routeBasePath ?? 'w').replace(/^\/+|\/+$/g, '');
   const workspacePages = [
-    'analytics', 'apps', 'channels', 'compare', 'content-search', 'files', 'flashcards',
-    'glossary', 'graph', 'marketplace', 'mindmap', 'reading-lists',
-    'recommendations', 'settings', 'stats', 'submit', 'tasks', 'timeline', 'whiteboard', 'workspace',
+    'analytics', 'channels', 'compare', 'content-search', 'files', 'flashcards',
+    'glossary', 'graph', 'mindmap', 'reading-lists',
+    'recommendations', 'stats', 'submit', 'tasks', 'timeline', 'whiteboard',
   ];
+  // The sections the shell's activity bar opens are one route, so moving
+  // between them remounts nothing (components/Shell/Sections.js).
+  const shellSections = ['apps', 'marketplace', 'workspace', 'settings'];
 
   return {
     name: 'runtime-content',
@@ -50,6 +53,11 @@ module.exports = function runtimeContentPlugin(_context, options = {}) {
         path: `/${routeBasePath}/:workspaceSlug`,
         exact: true,
         component: require.resolve('./WorkspaceHomeRoute.js'),
+      });
+      actions.addRoute({
+        path: `/${routeBasePath}/:workspaceSlug/:section(${shellSections.join('|')})`,
+        exact: true,
+        component: require.resolve('../components/Shell/Sections.js'),
       });
       for (const page of workspacePages) {
         actions.addRoute({

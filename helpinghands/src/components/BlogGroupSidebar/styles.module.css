@@ -9,6 +9,11 @@
     font-size: var(--site-chrome-font-size);
   }
 
+  /* Inside the shell, as wide as its side bar is dragged (components/Shell/Sash.js). */
+  :global(html.site-shell) .sidebar {
+    width: 100%;
+  }
+
   .sidebarHidden {
     visibility: hidden;
     opacity: 0;
@@ -371,4 +376,28 @@
   .menu {
     display: none;
   }
+}
+
+/* The link that is the page: filled, bold, and marked on the tree's guide line in the
+   accent, while the links beside it stay muted, so it reads at a glance in either theme. */
+.subcategoryLink {
+  position: relative;
+  color: var(--ifm-color-emphasis-700);
+}
+
+.subcategoryLink:global(.menu__link--active) {
+  background: var(--ifm-color-emphasis-200);
+  color: var(--ifm-font-color-base);
+  font-weight: 600;
+}
+
+.subcategoryLink:global(.menu__link--active)::before {
+  position: absolute;
+  top: 0.3rem;
+  bottom: 0.3rem;
+  left: calc(0.48rem - var(--ifm-menu-link-padding-horizontal) - 0.5px);
+  width: 2px;
+  border-radius: 1px;
+  background: var(--ifm-color-primary);
+  content: '';
 }

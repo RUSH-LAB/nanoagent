@@ -33,6 +33,12 @@ body {
   width: 100%;
 }
 
+/* Inside the shell a page takes the whole width beside the activity bar. */
+.shellWrapper {
+  max-width: none;
+  margin: 0;
+}
+
 :global(.docusaurus-mt-lg) {
   margin-top: 3rem;
 }

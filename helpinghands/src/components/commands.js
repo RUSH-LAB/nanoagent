@@ -182,7 +182,7 @@ export const PAGE_COMMANDS = [
   {id: 'people', name: 'people', category: 'Tools', icon: icons.list, title: 'People', description: 'Everyone in your organization', href: '/settings#people'},
   {id: 'apps', name: 'apps', category: 'Tools', icon: icons.grid, title: 'Apps', description: 'Apps built on NanoAgent, and their tasks', href: '/apps'},
   {id: 'marketplace', name: 'marketplace', category: 'Tools', icon: icons.grid, title: 'Marketplace', description: 'Download NanoAgent plugins, or share your own', href: '/marketplace'},
-  {id: 'workspace', name: 'workspace', category: 'Tools', icon: icons.pages, title: 'Workspace', description: 'Files the apps saved for you', href: '/workspace'},
+  {id: 'workspace', name: 'workspace', category: 'Tools', icon: icons.pages, title: 'Filesystem', description: 'Files the apps saved for you', href: '/workspace'},
   {id: 'channels', name: 'channels', category: 'Tools', icon: icons.layers, title: 'Channels', description: 'Browse, rename, and archive channels', href: '/channels'},
 
   // Content activity is shared; named collections come from workspace data.

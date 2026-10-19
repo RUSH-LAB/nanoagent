@@ -30,7 +30,7 @@ export default function Leave({workspace}) {
           <span>{owner ? 'Needs another owner first. ' : ''}You will need a new invitation to come back.</span>
         </div>
         <div className={styles.rowControl}>
-          <button type="button" className={styles.secondaryButton} disabled={busy} onClick={leave}>Leave</button>
+          <button type="button" className={styles.dangerButton} disabled={busy} onClick={leave}>Leave</button>
         </div>
       </div>
       {error && <p className={`${styles.empty} ${styles.error}`} role="alert">{error}</p>}

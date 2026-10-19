@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import { Redirect, useLocation } from '@docusaurus/router';
@@ -225,10 +225,24 @@ function AuthGate({ children }) {
 // reaches rush-lab.org unless a workspace is pushed.
 function DevelopmentBanner() {
   const {pulledAt} = useDocusaurusContext().siteConfig.customFields;
+  const banner = useRef(null);
+  // Its height, wrapped or not, goes to --site-banner-height, so pages sized to
+  // the window (--site-shell-height) leave room for it.
+  useEffect(() => {
+    const element = banner.current;
+    if (!element) return undefined;
+    const root = document.documentElement.style;
+    const observer = new ResizeObserver(() => root.setProperty('--site-banner-height', `${element.offsetHeight}px`));
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      root.removeProperty('--site-banner-height');
+    };
+  }, []);
   if (process.env.NODE_ENV !== 'development') return null;
   const copy = pulledAt ? `a copy of rush-lab.org pulled ${new Date(pulledAt).toLocaleString()}` : 'a database never pulled from rush-lab.org';
   return (
-    <div role="status" className="development-banner">
+    <div ref={banner} role="status" className="development-banner">
       Local site on {copy}. Nothing here reaches rush-lab.org unless you push a workspace (npm run db:push).
     </div>
   );

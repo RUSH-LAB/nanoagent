@@ -213,7 +213,7 @@ export default function DocSidebarDesktop({path, sidebar, onCollapse, isHidden}:
     navbar: {hideOnScroll},
   } = useThemeConfig();
 
-  const handleCollapse = useCallback(() => onCollapse(), [onCollapse]);
+  const handleCollapse = useCallback(() => onCollapse?.(), [onCollapse]);
 
   return (
     <div
@@ -227,7 +227,8 @@ export default function DocSidebarDesktop({path, sidebar, onCollapse, isHidden}:
       <div className={styles.sidebarControls}>
         {/* Plugins and Workspace reuse this sidebar; only a book has books to switch. */}
         {!isHidden && path.includes('/documents/') && <BookSwitcher />}
-        <SidebarCollapseButton onClick={handleCollapse} />
+        {/* Inside the shell the activity bar hides and shows it (TwoColumnLayout). */}
+        {onCollapse && <SidebarCollapseButton onClick={handleCollapse} />}
       </div>
       <Content path={path} sidebar={sidebar} />
     </div>

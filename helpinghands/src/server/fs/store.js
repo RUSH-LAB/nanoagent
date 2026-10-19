@@ -77,6 +77,8 @@ const parentOf = value => (value.includes('/') ? value.slice(0, value.lastIndexO
 const sha256 = body => crypto.createHash('sha256').update(body).digest('hex');
 const contentTypeFor = value => CONTENT_TYPES[path.posix.extname(value).toLowerCase()] ?? 'application/octet-stream';
 const isMarkdown = value => MARKDOWN.test(value);
+// The content types searched as text (readMany's `text`), as the workbench opens them as text.
+const TEXT_TYPES = /^(text\/|application\/(json|yaml|javascript|x-))/;
 // node-postgres returns bytea as a Buffer; other drivers return a Uint8Array.
 const asBuffer = value => (value == null || Buffer.isBuffer(value) ? value : Buffer.from(value));
 
@@ -265,12 +267,14 @@ function operations(client, scope, logged = () => {}) {
     },
 
     // `markdown` keeps the read to Markdown files in the database, so the
-    // bytes of the images and other files beside them never leave it.
-    async readMany({prefix, paths, markdown = false} = {}) {
+    // bytes of the images and other files beside them never leave it; `text`
+    // keeps it to text files of at most that many bytes, for a search.
+    async readMany({prefix, paths, markdown = false, text = null} = {}) {
       const clean = cleanPrefix(prefix);
       const parameters = paths ? [paths.map(cleanPath)] : clean ? [clean] : [];
       const filter = (paths ? ' and n.path = any($1::text[])' : clean ? ` and ${underPrefix('n.path', '$1')}` : '')
-        + (markdown ? ` and n.path ~* '${MARKDOWN.source}'` : '');
+        + (markdown ? ` and n.path ~* '${MARKDOWN.source}'` : '')
+        + (text ? ` and n.content_type ~ '${TEXT_TYPES.source}' and n.size <= ${Number(text)}` : '');
       return (await client.query(
         `select ${NODE_COLUMNS}, c.body from fs_node n
            join fs_content c on c.workspace_id = n.workspace_id and c.hash = n.content_hash

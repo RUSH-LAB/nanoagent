@@ -84,15 +84,64 @@ export function quickOpenRows(files, recent, query) {
     .map(({file, indices}) => ({file, indices}));
 }
 
-/** The visible rows of the tree, depth-first, given which folders are open. */
-export function visibleRows(tree, expanded, depth = 0) {
-  const rows = [];
-  for (const node of tree.children) {
-    rows.push({node, depth});
-    if (node.type === 'folder' && expanded.has(node.path)) rows.push(...visibleRows(node, expanded, depth + 1));
-  }
-  return rows;
+/** Every node of the tree below its root, by path. */
+export function nodeMap(tree) {
+  const nodes = new Map();
+  const add = node => {
+    for (const child of node.children) {
+      nodes.set(child.path, child);
+      if (child.type === 'folder') add(child);
+    }
+  };
+  add(tree);
+  return nodes;
 }
+
+/** The explorer's id for the root folder, whose path is ''; no path starts with '/'. */
+export const ROOT = '/';
+
+/**
+ * The explorer's items by id, for headless-tree (Explorer.js): `ROOT` and each
+ * node by its path, with `children` as ids and `label` the name it shows.
+ * With `compact`, a folder whose only child is a folder shares its row, as
+ * VS Code's compact folders do: the row is the innermost folder's, labelled
+ * with the chain of names (`src/components/ui`), so opening, dropping and
+ * creating there act on the innermost folder.
+ */
+export function treeIndex(tree, {compact = true} = {}) {
+  const items = new Map();
+  const add = (node, label) => {
+    let shown = node;
+    let name = label;
+    while (compact && shown.type === 'folder' && shown.path && shown.children.length === 1 && shown.children[0].type === 'folder') {
+      shown = shown.children[0];
+      name = `${name}/${shown.name}`;
+    }
+    const children = shown.type === 'folder' ? shown.children.map(child => add(child, child.name)) : [];
+    const id = shown.path || ROOT;
+    items.set(id, {...shown, label: name, children});
+    return id;
+  };
+  add(tree, '');
+  return items;
+}
+
+/**
+ * A free name for a copy of `name` in a folder holding `taken` names, as VS
+ * Code names one: `notes copy.txt`, then `notes copy 2.txt` and on; a folder
+ * or a name without an extension gets the suffix at its end.
+ */
+export function copyName(name, taken, {folder = false} = {}) {
+  const dot = folder ? -1 : name.lastIndexOf('.');
+  const [stem, extension] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ''];
+  for (let count = 1; ; count += 1) {
+    const candidate = `${stem} copy${count > 1 ? ` ${count}` : ''}${extension}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
+/** `paths` without any that lie inside another of them, so acting on a folder covers what is in it once. */
+export const topmost = paths => paths.filter(path => !paths.some(other => other !== path && within(path, other)));
 
 /** Why `name` cannot be an entry's name, or null when it can. A `/` in it makes nested folders. */
 export function invalidName(name) {
