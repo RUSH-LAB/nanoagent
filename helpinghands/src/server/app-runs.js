@@ -84,8 +84,10 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
     // What the agent did on the way, in order, as its page showed it: each thought, and each task
     // it ran with the tools that task's agent called, its thinking and what it wrote.
     const activity = [];
-    // The run's provenance graph (nanoagent.plugin.provenance), whole once it ends.
+    // The run's provenance graph (nanoagent.plugin.provenance), whole once it ends, and what its model
+    // saw and did, as an ATIF trajectory, both kept in the session's chat folder (fs/chats.js).
     let graph = null;
+    let trajectory = null;
     let thinking = false;
     let folder = row.folder ? {workspace: row.folder, sent: row.sent} : null;
     let result;
@@ -124,11 +126,13 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
             if (event.event === 'task.delta') task[event.data.kind === 'reasoning' ? 'thinking' : 'text'] += event.data.text;
           }
           if (event.type === 'graph.completed') graph = event.graph;
+          if (event.type === 'trajectory.completed') trajectory = event.trajectory;
           if (event.type === 'tool.completed' || event.type === 'tool.failed') {
             tools.push({name: event.call.name, arguments: event.call.arguments, output: event.call.output, isError: event.type === 'tool.failed'});
             if (task) task.done = true;
           }
-          if (event.type !== 'output_text.delta') run.send('agent', event);
+          // The trajectory goes to the chat folder, not the page.
+          if (event.type !== 'output_text.delta' && event.type !== 'trajectory.completed') run.send('agent', event);
         },
       });
     } catch (error) {
@@ -140,7 +144,7 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
       try {
         await agentSync.finish(context, await runners.aiFor(row.userId), row.pluginId, folder);
       } catch (error) {
-        unsaved = `What the run did could not be written back to your agent folder: ${error.message}`;
+        unsaved = `What the run did could not be written back to your folder for this plugin: ${error.message}`;
       }
     }
     const error = result.error ?? unsaved;
@@ -149,7 +153,9 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
       await marked;
       // A task that never ended (the agent called it again, or the run stopped) is not kept, as its page dropped it.
       const kept = activity.filter(entry => entry.kind === 'thought' || entry.done).map(({id: _id, done: _done, ...entry}) => entry);
-      ended = await sessions.endRun(context, row.id, {prompt: row.prompt, answer: result.error ? '' : result.text, tools, activity: kept, graph, error: error ?? null});
+      ended = await sessions.endRun(context, row.id, {
+        prompt: row.prompt, answer: result.error ? '' : result.text, tools, activity: kept, graph, trajectory, error: error ?? null,
+      });
     } catch (problem) {
       // The computer keeps the run until it is let go, so the next Mochi to hear of it ends it.
       console.error('[apps] Could not keep a run\'s turn:', problem.message);
@@ -171,10 +177,10 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
       try {
         await agentSync.finish(context, await runners.aiFor(row.userId), row.pluginId, {workspace: row.folder, sent: row.sent});
       } catch (problem) {
-        error = `${reason} What it did could not be written back to your agent folder: ${problem.message}`;
+        error = `${reason} What it did could not be written back to your folder for this plugin: ${problem.message}`;
       }
     }
-    if (await sessions.endRun(context, row.id, {prompt: row.prompt, answer: '', tools: [], activity: [], graph: null, error})) {
+    if (await sessions.endRun(context, row.id, {prompt: row.prompt, answer: '', tools: [], activity: [], graph: null, trajectory: null, error})) {
       await charge(context, row, null, row.ran);
     }
     for (const waiter of waiting.get(row.sessionId) ?? []) {

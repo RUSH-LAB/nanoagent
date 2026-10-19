@@ -247,8 +247,13 @@ def test_runs_a_prompt_in_the_callers_workspace(client: TestClient, model: Scrip
         events = [json.loads(line[len("data: ") :]) for line in response.iter_lines() if line.startswith("data: ")]
     graphs = [event for event in events if event["type"] == "graph"]
     events = [event for event in events if event["type"] != "graph"]
-    assert [event["type"] for event in events] == ["start", "tool_start", "tool_progress", "tool", "step", "delta", "done"]
+    assert [event["type"] for event in events] == ["start", "tool_start", "tool_progress", "tool", "step", "delta", "trajectory", "done"]
     assert events[0]["profile"] == "plugin-echo"
+    # What the model saw and did, as an ATIF trajectory: the system prompt, the message, the call and the answer.
+    trajectory = events[-2]["trajectory"]
+    assert trajectory["agent"]["name"] == "nanoagent"
+    assert [step["source"] for step in trajectory["steps"]] == ["system", "user", "agent", "agent"]
+    assert trajectory["steps"][2]["tool_calls"][0]["function_name"] == "echo"
     assert events[-1]["metrics"]["ttft_s"] is not None
     # The task shows as it starts, and reports checking its result before it ends.
     call = events[3]["id"]

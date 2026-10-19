@@ -503,7 +503,7 @@ function recordPerfMetric(endpoint, ms) {
 let requestCounter = 0;
 
 // ── Shared context handed to every route module in server/routes/ ──
-// Plugin runs work on a copy of the member's agent folder (fs/agent-sync.js), and
+// Plugin runs work on a copy of the member's folder for the plugin (fs/agent-sync.js), and
 // outlive their pages and this process (app-runs.js): each computer that says
 // hello hands over the runs it holds that no call here has.
 const appRuns = postgresServices?.fs

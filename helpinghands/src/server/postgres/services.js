@@ -54,7 +54,7 @@ module.exports = Object.freeze({
   roles: createPostgresRoles({pool: database.pool}),
   market: createPostgresMarket({pool: database.pool}),
   labBundles: createPostgresLab({pool: database.pool}),
-  sessions: createPostgresSessions({pool: database.pool}),
+  sessions: createPostgresSessions({pool: database.pool, fs}),
   userPlugins: createPostgresUserPlugins({pool: database.pool}),
   submissions: createPostgresSubmissions({pool: database.pool}),
   objectDeletions: createObjectDeletionQueue({pool: database.pool}),

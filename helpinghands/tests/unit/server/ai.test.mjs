@@ -309,6 +309,7 @@ describe('NanoAgent plugin API', () => {
       sse({type: 'tool_start', runId: 'r1', id: 'call-1', name: 'echo'}),
       sse({type: 'tool_progress', runId: 'r1', id: 'call-1', name: 'echo', event: 'task.result', data: {}}),
       sse({type: 'tool', runId: 'r1', id: 'call-1', name: 'echo', arguments: {value: 'hi'}, output: '{}', is_error: false}),
+      sse({type: 'trajectory', runId: 'r1', trajectory: {steps: []}}),
       sse({type: 'done', runId: 'r1', answer: 'saved'}),
     ];
     const gateway = ai.createNanoAgentGateway({env: {}, fetchImpl: async () => response(chunks)});
@@ -319,6 +320,7 @@ describe('NanoAgent plugin API', () => {
       {type: 'tool.started', runId: 'r1', call: {id: 'call-1', name: 'echo'}},
       {type: 'tool.progress', runId: 'r1', call: {id: 'call-1', name: 'echo'}, event: 'task.result', data: {}},
     ]);
+    assert.deepEqual(events.find(event => event.type === 'trajectory.completed'), {type: 'trajectory.completed', runId: 'r1', trajectory: {steps: []}});
     const others = [];
     await gateway.stream({input: 'hi', onEvent: event => others.push(event)});
     assert.deepEqual(others.map(event => event.type), ['tool.started', 'tool.completed', 'run.completed']);

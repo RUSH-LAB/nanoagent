@@ -301,6 +301,8 @@ function publicEvent(event, {app = false} = {}) {
   if (event?.type === 'graph' && app) {
     return event.patch ? {type: 'graph.patch', runId, patch: event.patch} : {type: 'graph.completed', runId, graph: event.graph};
   }
+  // What the run's model saw and did, as an ATIF trajectory, once it ends.
+  if (event?.type === 'trajectory' && app) return {type: 'trajectory.completed', runId, trajectory: event.trajectory};
   if (event?.type === 'done') {
     const metrics = publicMetrics(event.metrics);
     return {

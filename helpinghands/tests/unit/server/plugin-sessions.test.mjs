@@ -8,18 +8,21 @@ const require = createRequire(import.meta.url);
 const {createPostgresSessions, CHAT_TURNS} = require('../../../src/server/postgres/sessions.js');
 const {createPostgresTenancy} = require('../../../src/server/postgres/tenancy.js');
 const {createPostgresMarket} = require('../../../src/server/postgres/market.js');
+const {createPostgresFs} = require('../../../src/server/fs/store.js');
 
 describe('plugin sessions over PostgreSQL', () => {
   let db;
   let sessions;
   let tenancy;
   let market;
+  let fs;
 
   before(async () => {
     let pool;
     ({db, pool} = await migratedDatabase());
     tenancy = createPostgresTenancy({pool});
-    sessions = createPostgresSessions({pool});
+    fs = createPostgresFs({pool});
+    sessions = createPostgresSessions({pool, fs});
     market = createPostgresMarket({pool});
   });
   after(async () => db?.close());
@@ -44,6 +47,32 @@ describe('plugin sessions over PostgreSQL', () => {
     assert.deepEqual(read.chat.at(-1).tools, [{name: 'download_source', arguments: {turn: CHAT_TURNS + 1}, output: '{}', isError: false}]);
     // Named for its first question.
     assert.equal(read.title, 'paper 0');
+    // Its chat file keeps every turn.
+    const day = new Date(started.createdAt).toISOString().slice(0, 10);
+    const file = await fs.read(as('alice'), `home/alice/Chats/arxiv-source/${day} paper 0/chat.json`);
+    assert.equal(JSON.parse(file.body.toString()).turns.length, CHAT_TURNS + 2);
+  });
+
+  it('keeps a chat as a folder in its member\'s home, with each turn\'s graph and trajectory, following the folder', async () => {
+    const started = await sessions.create(as('alice'), 'echo');
+    const graph = {nodes: [{id: 'n'}], edges: []};
+    const trajectory = {schema_version: 'ATIF-v1.8', session_id: 's', agent: {}, steps: [], final_metrics: {}};
+    await answered(as('alice'), 'echo', started.id, {prompt: 'one/two', answer: 'a', tools: [], graph, trajectory});
+    const day = new Date(started.createdAt).toISOString().slice(0, 10);
+    const folder = `home/alice/Chats/echo/${day} one-two`;
+    assert.deepEqual(JSON.parse((await fs.read(as('alice'), `${folder}/turns/001/graph.json`)).body.toString()), graph);
+    assert.deepEqual(JSON.parse((await fs.read(as('alice'), `${folder}/turns/001/messages.json`)).body.toString()), trajectory);
+    assert.equal(await fs.stat(as('bob'), `${folder}/chat.json`), null);
+    // The member renames the folder; the session follows it.
+    await fs.move(as('alice'), folder, 'home/alice/Chats/echo/kept');
+    await answered(as('alice'), 'echo', started.id, {prompt: 'three', answer: 'b', tools: []});
+    const read = await sessions.get(as('alice'), 'echo', started.id);
+    assert.deepEqual(read.chat.map(turn => [turn.answer, turn.graph]), [['a', graph], ['b', null]]);
+    // Deleting the chat file deletes the chat; the next turn starts another folder.
+    await fs.remove(as('alice'), 'home/alice/Chats/echo/kept/chat.json');
+    assert.deepEqual((await sessions.get(as('alice'), 'echo', started.id)).chat, []);
+    await answered(as('alice'), 'echo', started.id, {prompt: 'four', answer: 'c', tools: []});
+    assert.ok(await fs.stat(as('alice'), `${folder}/chat.json`));
   });
 
   it('keeps what the agent did on the way to each answer, each thought and task cut to 50000 characters', async () => {
@@ -114,7 +143,7 @@ describe('plugin sessions over PostgreSQL', () => {
     assert.equal(await sessions.endRun(as('alice'), 'run-a', {prompt: 'check refs.bib', answer: '', tools: [], activity: [], error: 'twice'}), false);
     const read = await sessions.get(as('alice'), 'bibtex-check', started.id);
     assert.equal(read.running, null);
-    assert.deepEqual(read.chat, [{prompt: 'check refs.bib', answer: '', tools: [], activity: [], error: 'RUSH Lab stopped while answering', version: null}]);
+    assert.deepEqual(read.chat, [{prompt: 'check refs.bib', answer: '', tools: [], activity: [], error: 'RUSH Lab stopped while answering', version: null, graph: null}]);
   });
 
   it('keeps with each turn the upload version it ran on', async () => {

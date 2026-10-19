@@ -374,6 +374,7 @@ describe('POST /api/ai/stream', () => {
         {kind: 'thought', text: 'Again.'},
       ],
       graph: {nodes: [{id: 'message', kind: 'value'}], edges: []},
+      trajectory: null,
       error: null,
     }]);
     assert.equal(ctx.calls.aiUsage[0].pluginId, 'arxiv-source');

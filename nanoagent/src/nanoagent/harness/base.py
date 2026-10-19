@@ -60,6 +60,8 @@ class RunnerResult:
     cost: float = 0.0
     error: str | None = None
     profile: dict[str, Any] | None = None
+    # NanoAgent's own result, when the run was its agent loop: what its trajectory is made from.
+    native: AgentResult | None = None
 
     @classmethod
     def from_agent_result(cls, result: AgentResult) -> RunnerResult:
@@ -71,6 +73,7 @@ class RunnerResult:
             cost=result.cost,
             error=result.error,
             profile=result.profile.to_dict() if result.profile is not None else None,
+            native=result,
         )
 
     @classmethod

@@ -20,7 +20,7 @@ const until = async test => {
 };
 
 /** Runs as a Mochi started since sees them: `rows` already in PostgreSQL, none of them this process's. */
-function restarted(rows = [{id: 'run-1', folder: 'folder-1', sent: {'a.md': {rev: 1, contentHash: 'x'}}}]) {
+function restarted(rows = [{id: 'run-1', folder: 'folder-1', sent: {'a.md': {rev: 1, contentHash: 'x'}}}], stream = null) {
   const ctx = makeCtx();
   const sessions = fakeSessions();
   for (const row of rows) {
@@ -35,6 +35,7 @@ function restarted(rows = [{id: 'run-1', folder: 'folder-1', sent: {'a.md': {rev
   const ai = {
     stream: async request => {
       asked.push(request);
+      if (stream) return stream(request);
       request.onDelta('Saved');
       return {text: 'Saved it.'};
     },
@@ -65,6 +66,22 @@ describe('plugin runs a restarted Mochi finds', () => {
     assert.equal(sessions.rows.size, 0);
     assert.deepEqual(released, [['test-user', 'run-1']]);
     assert.equal(usage[0].sessionId, SESSION);
+  });
+
+  it('keeps a run\'s graph and trajectory with its turn, sending the page the graph only', async () => {
+    const graph = {nodes: [], edges: []};
+    const trajectory = {schema_version: 'ATIF-v1.8', steps: []};
+    const {runs, sessions} = restarted(undefined, request => {
+      request.onEvent({type: 'graph.completed', graph});
+      request.onEvent({type: 'trajectory.completed', trajectory});
+      return {text: 'Saved it.'};
+    });
+    const events = [];
+    runs.subscribe(SESSION, (event, data) => events.push([event, data?.type]), () => events.push('end'));
+    await runs.adopt('test-user', ['run-1']);
+    await until(() => events.includes('end'));
+    assert.deepEqual(sessions.turns.map(turn => [turn.graph, turn.trajectory]), [[graph, trajectory]]);
+    assert.deepEqual(events.filter(event => event[0] === 'agent').map(event => event[1]), ['graph.completed']);
   });
 
   it('records as interrupted a run the computer does not hold any more, writing back what it did', async () => {
