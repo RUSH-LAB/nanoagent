@@ -35,7 +35,7 @@ owner.
   home/<userId>/                        Explorer: home; others' shared nodes under Shared with me
     <anything the member keeps>
     plugins/<plugin>/
-      files/                            what each run of <plugin> is given and writes (fs/agent-sync.js)
+      files/                            what each run of <plugin> is given and writes (runner/run-files.mjs)
       chats/<yyyy_mm_dd>_<title>/       e.g. 2026_10_19_find_the_paper
         chat.json                       every turn, as the plugin's page shows it
         turns/<n>/graph.json            each turn's provenance graph

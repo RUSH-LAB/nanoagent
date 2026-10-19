@@ -65,8 +65,6 @@ function createPostgresSessions({pool, fs}) {
     pluginId: row.plugin_id,
     prompt: row.prompt,
     install: row.install,
-    folder: row.folder,
-    sent: row.sent,
     ran: row.ran,
     startedAt: row.started_at,
   });
@@ -165,13 +163,6 @@ function createPostgresSessions({pool, fs}) {
           throw error;
         }
       });
-    },
-
-    /** Keep where the run `id` works on the member's computer: its `folder`, and the revisions `sent` into it. */
-    async setRunFolder(context, id, {folder, sent}) {
-      await run(context, client => client.query(
-        'update plugin_run set folder = $2, sent = $3::jsonb where id = $1', [id, folder, JSON.stringify(sent)],
-      ));
     },
 
     /** Note that the run `id` got far enough to cost something. */

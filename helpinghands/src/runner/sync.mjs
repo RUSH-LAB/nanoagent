@@ -30,14 +30,14 @@ const hidden = relative => relative.split('/').some(part => part.startsWith('.')
 const under = (relative, paths) => paths.some(prefix => relative === prefix || relative.startsWith(`${prefix}/`));
 
 /** The file changed again between planning and writing; the next cycle replans. */
-class LocalChanged extends Error {}
+export class LocalChanged extends Error {}
 
 /** Whether an error means the whole cycle must stop rather than one file. */
 export function abortsCycle(error) {
   return error.status === 0 || error.status === 401 || error.status === 429 || error.status >= 500;
 }
 
-async function readLocal(root, relative) {
+export async function readLocal(root, relative) {
   try {
     return await fs.readFile(path.join(root, relative));
   } catch (error) {
@@ -46,7 +46,8 @@ async function readLocal(root, relative) {
   }
 }
 
-async function walk(root) {
+/** Every file under `root` but hidden ones, by path: its content hash. */
+export async function walk(root) {
   const found = new Map();
   async function visit(dir) {
     for (const entry of await fs.readdir(path.join(root, dir), {withFileTypes: true})) {
@@ -61,7 +62,7 @@ async function walk(root) {
 }
 
 /** Write `body` at `relative` only if the file still has `expectedHash` (undefined: absent). */
-async function writeLocal(root, relative, body, expectedHash) {
+export async function writeLocal(root, relative, body, expectedHash) {
   const current = await readLocal(root, relative);
   if ((current === undefined ? undefined : hashOf(current)) !== expectedHash) throw new LocalChanged();
   const target = path.join(root, relative);
@@ -71,7 +72,8 @@ async function writeLocal(root, relative, body, expectedHash) {
   await fs.rename(temp, target);
 }
 
-async function removeLocal(root, relative, expectedHash) {
+/** Remove `relative` only if it still has `expectedHash`, and the folders that leaves empty. */
+export async function removeLocal(root, relative, expectedHash) {
   const current = await readLocal(root, relative);
   if (current === undefined) return;
   if (hashOf(current) !== expectedHash) throw new LocalChanged();
@@ -84,11 +86,12 @@ async function removeLocal(root, relative, expectedHash) {
   }
 }
 
-async function conflictedCopyPath(root, relative, host, day) {
+/** A free path beside `relative` for its copy made by `source` (a computer, or a plugin's run) on `day`. */
+export async function conflictedCopyPath(root, relative, source, day) {
   const extension = path.extname(relative);
   const stem = extension ? relative.slice(0, -extension.length) : relative;
   for (let n = 1; ; n += 1) {
-    const candidate = `${stem} (conflicted copy ${host} ${day}${n > 1 ? ` ${n}` : ''})${extension}`;
+    const candidate = `${stem} (conflicted copy ${source} ${day}${n > 1 ? ` ${n}` : ''})${extension}`;
     if (await readLocal(root, candidate) === undefined) return candidate;
   }
 }

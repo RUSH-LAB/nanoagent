@@ -25,6 +25,7 @@ const PING_MS = 25_000;
 const REPLACED = 4000;
 // The close code a server shutting down sends, so each RUSH Lab dials its replacement.
 const GOING_AWAY = 1001;
+const OUTDATED = 'RUSH Lab on your computer is out of date for plugin runs. It updates itself once nothing runs; or quit it and open it again.';
 const NULL_BODY = new Set([101, 204, 205, 304]);
 // What a key's name and value may be, as RUSH Lab's lab.mjs checks them again.
 const KEY_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
@@ -48,7 +49,7 @@ function keyList(value) {
     }));
 }
 
-/** An error of the member's computer's connection, which a run reports as it is. */
+/** An error of the member's computer or its connection, which a run reports as it is. */
 const gone = message => Object.assign(new Error(message), {code: 'runner'});
 
 /**
@@ -56,12 +57,16 @@ const gone = message => Object.assign(new Error(message), {code: 'runner'});
  * (`{id, resume}`), the request is a held one (runner/protocol.js) by that id,
  * started, or with `resume` taken up again from its first frame; a held call
  * outlives the socket, and follows the computer to its next one (`call.entry`).
+ * `init.files` (`{workspace, plugin}`) makes it a plugin run on the member's files
+ * there, which the computer keeps (runner/run-files.mjs).
  */
 function socketFetch(entry) {
   return (url, init = {}) => new Promise((resolve, reject) => {
     const signal = init.signal;
     if (signal?.aborted) return reject(signal.reason);
     if (entry.closed) return reject(gone('RUSH Lab disconnected'));
+    // COMPAT(run-files): an engine from before run-files.mjs would run the plugin on an empty folder.
+    if (init.files && entry.files === false) return reject(gone(OUTDATED));
     const id = init.run?.id ?? crypto.randomUUID();
     let stream;
     let answered = false;
@@ -112,6 +117,7 @@ function socketFetch(entry) {
       headers: pickHeaders(init.headers),
       ...(init.body === undefined ? {} : {body: Buffer.from(init.body).toString('base64')}),
       ...(init.run ? {hold: true} : {}),
+      ...(init.files ? {files: init.files} : {}),
     }));
   });
 }
@@ -131,7 +137,8 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
 
   function attach(userId, socket) {
     // `runs`: the held requests the computer said it has, once it has said hello.
-    const entry = {socket, page: crypto.randomUUID(), device: null, since: new Date().toISOString(), keys: [], pending: new Map(), closed: false, runs: null};
+    // `files`: whether it keeps plugin runs' files (runner/run-files.mjs), once it has said hello.
+    const entry = {socket, page: crypto.randomUUID(), device: null, since: new Date().toISOString(), keys: [], pending: new Map(), closed: false, runs: null, files: null};
     entry.gateway = createNanoAgentGateway({endpoint: {url: 'http://runner'}, fetchImpl: socketFetch(entry), local: true});
     // The connection before is done with now, not once its socket closes: one that died closes
     // only after a while, and the hello this one sends takes up its held calls (claimAway).
@@ -156,6 +163,7 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
         entry.greeted = true;
         entry.device = typeof frame.device === 'string' ? frame.device.slice(0, 100) : null;
         entry.keys = keyList(frame.keys);
+        entry.files = frame.files === true;
         if (first) giveKey(userId, entry);
         const runs = Array.isArray(frame.runs) ? frame.runs.filter(id => typeof id === 'string') : [];
         entry.runs = new Set(runs);
@@ -169,7 +177,7 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
       else if (frame.type === 'chunk') call.chunk(frame.data);
       else if (frame.type === 'end') call.end();
       else if (frame.type === 'saved') call.saved();
-      else if (frame.type === 'error') call.fail(new Error(String(frame.message)));
+      else if (frame.type === 'error') call.fail(gone(String(frame.message)));
     });
     socket.on('close', () => {
       clearInterval(ping);
@@ -278,21 +286,6 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
     /** The NanoAgent of the computer whose connection has the `page` id, else null. */
     byPage(page) {
       return pages.get(page)?.gateway ?? null;
-    },
-
-    /**
-     * The NanoAgent of the member's computer once it is connected and has said hello, waiting up
-     * to `ms` for it to connect again (its relay does within seconds of a dropped connection);
-     * the one that refuses every call when it does not.
-     */
-    async connectedAi(userId, ms) {
-      const deadline = Date.now() + ms;
-      for (;;) {
-        const entry = connected.get(userId);
-        if (entry && !entry.closed && entry.runs) return entry.gateway;
-        if (Date.now() >= deadline) return offline;
-        await new Promise(resolve => setTimeout(resolve, 250));
-      }
     },
 
     /** Whether the member's computer is connected, what it calls itself, and which keys it holds. */

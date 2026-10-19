@@ -137,7 +137,6 @@ async function main() {
 
     const {folder, id: PLUGIN} = contractPlugin(nanoagentProject);
     const ui = path.join(nanoagentProject, folder, 'ui');
-    const workspace = `contract-${crypto.randomUUID()}`;
     const ok = result => {
       assert.equal(result.error, undefined, `NanoAgent answered ${result.status}: ${result.error}`);
       return result.value;
@@ -261,22 +260,6 @@ async function main() {
         // has no such route, 404.
         const viewed = await gateway.viewPackage(offered.sha256, ok(await gateway.packageFile(PLUGIN)));
         if (viewed.status !== 404) assert.deepEqual(ok(viewed).view, {sha256: offered.sha256, uiVersion: installed.uiVersion});
-      },
-      async saveWorkspaceFile() {
-        ok(await gateway.saveWorkspaceFile(workspace, 'notes/a.md', Buffer.from('# A'), {create: true}));
-        assert.equal((await gateway.saveWorkspaceFile(workspace, 'notes/a.md', Buffer.from('x'), {create: true})).status, 409);
-      },
-      async workspaceFiles() {
-        const listing = ok(await gateway.workspaceFiles(workspace));
-        assert.deepEqual(listing.files.map(file => file.path), ['notes/a.md']);
-        assert.deepEqual(listing.folders, ['notes']);
-      },
-      async workspaceFile() {
-        assert.equal(ok(await gateway.workspaceFile(workspace, 'notes/a.md')).toString('utf8'), '# A');
-      },
-      async deleteWorkspace() {
-        assert.deepEqual(ok(await gateway.deleteWorkspace(workspace)), {deleted: true});
-        assert.deepEqual(ok(await gateway.workspaceFiles(workspace)).files, []);
       },
     };
 

@@ -35,10 +35,22 @@ async function writeJson(file, value) {
 
 const stateFile = folder => path.join(folder, STATE_DIR, 'state.json');
 
+/** The folder in `root` of each workspace synced before, by workspace id: its name. */
+export async function workspaceFolders(root) {
+  const found = new Map();
+  for (const entry of await fs.readdir(root, {withFileTypes: true}).catch(error => (error.code === 'ENOENT' ? [] : Promise.reject(error)))) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+    const state = await readJson(stateFile(path.join(root, entry.name)));
+    if (state?.workspace) found.set(state.workspace, entry.name);
+  }
+  return found;
+}
+
 /**
  * Sync `root` with the homes of the member `userId` on `site`, signed in with
  * `token`: once now, every POLL_MS, soon after a file in it changes, and on
- * `sync()`. `stop()` ends it. `log` hears what each cycle did.
+ * `sync()`, which resolves once a cycle started since has ended. `stop()` ends it. `log` hears
+ * what each cycle did.
  */
 export function syncFiles({site, token, userId, root, log}) {
   const request = connect(site, token);
@@ -47,17 +59,8 @@ export function syncFiles({site, token, userId, root, log}) {
   let pending = false;
   let pausedUntil = 0;
   let stopped = false;
-
-  /** The folder in `root` of each workspace synced before, by workspace id. */
-  async function folders() {
-    const found = new Map();
-    for (const entry of await fs.readdir(root, {withFileTypes: true})) {
-      if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
-      const state = await readJson(stateFile(path.join(root, entry.name)));
-      if (state?.workspace) found.set(state.workspace, entry.name);
-    }
-    return found;
-  }
+  // Who waits for the cycle going, or the next, to end (`sync()`).
+  const waiters = [];
 
   /** The folder for `workspace`, made, or renamed to its slug, as needed; null when another holds the name. */
   async function folderFor(workspace, had) {
@@ -96,7 +99,7 @@ export function syncFiles({site, token, userId, root, log}) {
   async function syncAll() {
     await fs.mkdir(root, {recursive: true});
     const {workspaces} = (await request('GET', '/api/workspaces')).data;
-    const had = await folders();
+    const had = await workspaceFolders(root);
     for (const workspace of workspaces) {
       const folder = await folderFor(workspace, had);
       if (!folder) continue;
@@ -109,13 +112,15 @@ export function syncFiles({site, token, userId, root, log}) {
     }
   }
 
-  async function cycle() {
+  /** A cycle, or another once the one going has ended: resolves once one that started after the call has. */
+  function cycle() {
+    const done = new Promise(resolve => waiters.push(resolve));
     if (running) {
       pending = true;
-      return;
+      return done;
     }
     running = true;
-    try {
+    (async () => {
       do {
         pending = false;
         if (stopped || Date.now() < pausedUntil) break;
@@ -126,9 +131,11 @@ export function syncFiles({site, token, userId, root, log}) {
           log(`sync paused: ${error.message}`);
         }
       } while (pending);
-    } finally {
+    })().finally(() => {
       running = false;
-    }
+      for (const resolve of waiters.splice(0)) resolve();
+    });
+    return done;
   }
 
   let watcher = null;

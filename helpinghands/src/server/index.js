@@ -42,7 +42,6 @@ const ai = require('./ai');
 const {createGithub} = require('./github');
 // Every assistant call is checked against its workspace's budget and charged to it.
 const aiMeter = createAiMeter(tenancy);
-const {createAgentSync} = require('./fs/agent-sync');
 const {createWorkspaceApps} = require('./workspace-apps');
 const {createAppRuns} = require('./app-runs');
 const {createRunners} = require('./runner');
@@ -503,11 +502,11 @@ function recordPerfMetric(endpoint, ms) {
 let requestCounter = 0;
 
 // ── Shared context handed to every route module in server/routes/ ──
-// Plugin runs work on a copy of the member's folder for the plugin (fs/agent-sync.js), and
-// outlive their pages and this process (app-runs.js): each computer that says
-// hello hands over the runs it holds that no call here has.
+// Plugin runs work on the member's folder for the plugin as their computer keeps it
+// (runner/run-files.mjs), and outlive their pages and this process (app-runs.js): each
+// computer that says hello hands over the runs it holds that no call here has.
 const appRuns = postgresServices?.fs
-  ? createAppRuns({sessions: postgresServices.sessions, agentSync: createAgentSync({fs: postgresServices.fs}), runners, aiMeter})
+  ? createAppRuns({sessions: postgresServices.sessions, runners, aiMeter})
   : null;
 if (appRuns) {
   runners.onRuns((userId, ids) => appRuns.adopt(userId, ids).catch(error => console.error('[apps] Could not take up runs:', error.message)));

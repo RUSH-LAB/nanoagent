@@ -230,6 +230,8 @@ async function followRun(res, subscribe) {
   let leave;
   const left = new Promise(resolve => { leave = resolve; });
   res.on('close', leave);
+  // The caller may have left already, before its close could be heard here.
+  if (res.destroyed) leave();
   const stop = subscribe((event, data) => sendEvent(res, event, data), leave);
   try {
     await left;

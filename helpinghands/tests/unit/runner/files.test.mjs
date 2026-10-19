@@ -77,8 +77,9 @@ describe('RUSH Lab\'s folder of the member\'s own files', () => {
       await until(async () => await read(path.join(folder, 'plugins/echo/files/out.md')) === 'from a run');
       assert.deepEqual((await fs.readdir(folder)).sort(), ['.mochi', 'plugins']);
       await fs.writeFile(path.join(folder, 'notes.md'), 'mine');
+      // Once a cycle started since has ended, it is synced.
       await files.sync();
-      await until(() => mochi.files.get('ws-1').get('home/alice/notes.md')?.body.toString() === 'mine');
+      assert.equal(mochi.files.get('ws-1').get('home/alice/notes.md')?.body.toString(), 'mine');
     } finally {
       files.stop();
     }

@@ -356,8 +356,10 @@ describe('POST /api/ai/stream', () => {
     assert.equal(r.res.written.status, 200);
     assert.deepEqual(ctx.calls.ai[0].app, 'arxiv-source');
     assert.equal(ctx.calls.ai[0].install, SHA);
-    assert.equal(ctx.calls.ai[0].workspace, 'run-folder');
-    // Held by the member's computer across its connections, by the run's id.
+    // On the member's files for the plugin in this workspace, which their computer keeps, in a
+    // folder of NanoAgent's by the run's id; held by the computer across its connections.
+    assert.deepEqual(ctx.calls.ai[0].files, {workspace: WORKSPACE.workspaceId, plugin: 'arxiv-source'});
+    assert.equal(ctx.calls.ai[0].workspace, ctx.calls.ai[0].run.id);
     assert.equal(ctx.calls.ai[0].run.resume, false);
     assert.equal('profile' in ctx.calls.ai[0], false);
     assert.equal('instructions' in ctx.calls.ai[0], false);

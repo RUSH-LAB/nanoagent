@@ -8,7 +8,7 @@
  *   home/<user>/plugins/<plugin>/chats/<yyyy_mm_dd>_<title>/turns/<n>/graph.json      a turn's provenance graph
  *   home/<user>/plugins/<plugin>/chats/<yyyy_mm_dd>_<title>/turns/<n>/messages.json   what its model saw and did, as an ATIF trajectory
  *
- * beside the plugin's files/, which its runs are given (fs/agent-sync.js), so a run never sees its chats.
+ * beside the plugin's files/, which its runs are given (runner/run-files.mjs), so a run never sees its chats.
  *
  * The folder is made with the session's first turn, and plugin_session.chat_file
  * names its chat.json by node id, so the member may rename or move the folder

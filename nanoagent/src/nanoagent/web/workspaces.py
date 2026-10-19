@@ -1,7 +1,8 @@
 """Scratch workspaces: the folder one plugin run reads and writes, removed by the caller after it.
 
-The caller names a workspace with an opaque id (RUSH makes a new one for every run, fills it
-before the run, reads it back after, then removes it) and NanoAgent keeps it under one configured
+The caller names a workspace with an opaque id (RUSH Lab's relay is given a new one for every
+run, fills it before the run from the member's files, reads it back after, then removes it:
+helpinghands/src/runner/run-files.mjs) and NanoAgent keeps it under one configured
 root, so NanoAgent holds no file that matters between runs. Every path that reaches a file or
 folder is checked to stay inside its workspace and to cross no symlink, so neither a request nor a
 symlink a plugin left behind can reach anything else on the host.

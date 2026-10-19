@@ -20,7 +20,7 @@ const until = async test => {
 };
 
 /** Runs as a RUSH started since sees them: `rows` already in PostgreSQL, none of them this process's. */
-function restarted(rows = [{id: 'run-1', folder: 'folder-1', sent: {'a.md': {rev: 1, contentHash: 'x'}}}], stream = null, {finish = null, connection = null} = {}) {
+function restarted(rows = [{id: 'run-1'}], stream = null) {
   const ctx = makeCtx();
   const sessions = fakeSessions();
   for (const row of rows) {
@@ -29,7 +29,6 @@ function restarted(rows = [{id: 'run-1', folder: 'folder-1', sent: {'a.md': {rev
       install: 'a'.repeat(64), ran: true, ...row,
     });
   }
-  const finished = [];
   const released = [];
   const asked = [];
   const ai = {
@@ -42,64 +41,29 @@ function restarted(rows = [{id: 'run-1', folder: 'folder-1', sent: {'a.md': {rev
   };
   const runs = createAppRuns({
     sessions,
-    agentSync: {
-      prepare: async () => assert.fail('a run taken up again has its folder'),
-      finish: async (_scope, used, pluginId, folder) => {
-        await finish?.(used);
-        finished.push({pluginId, ...folder});
-      },
-    },
-    runners: {aiFor: async () => connection?.() ?? ai, connectedAi: async () => connection?.() ?? ai, release: (userId, id) => released.push([userId, id])},
+    runners: {aiFor: async () => ai, release: (userId, id) => released.push([userId, id])},
     aiMeter: ctx.aiMeter,
   });
-  return {runs, sessions, finished, released, asked, usage: ctx.calls.aiUsage};
+  return {runs, sessions, released, asked, usage: ctx.calls.aiUsage};
 }
 
 describe('plugin runs a restarted RUSH finds', () => {
   it('takes up a run the member\'s computer still holds, from its first frame, and ends it', async () => {
-    const {runs, sessions, finished, released, asked, usage} = restarted();
+    const {runs, sessions, released, asked, usage} = restarted();
     const events = [];
     // A page opened before the computer was back follows the run once it is taken up.
     runs.subscribe(SESSION, event => events.push(event), () => events.push('end'));
     await runs.adopt('test-user', ['run-1']);
     await until(() => events.includes('end'));
-    assert.deepEqual(asked.map(({run, workspace, install, app}) => ({run, workspace, install, app})), [
-      {run: {id: 'run-1', resume: true}, workspace: 'folder-1', install: 'a'.repeat(64), app: 'echo'},
+    // On the member's files for the plugin in its workspace, which their computer keeps.
+    assert.deepEqual(asked.map(({run, workspace, files, install, app}) => ({run, workspace, files, install, app})), [
+      {run: {id: 'run-1', resume: true}, workspace: 'run-1', files: {workspace: 'lab', plugin: 'echo'}, install: 'a'.repeat(64), app: 'echo'},
     ]);
     assert.deepEqual(events, ['delta', 'done', 'end']);
-    assert.deepEqual(finished, [{pluginId: 'echo', workspace: 'folder-1', sent: {'a.md': {rev: 1, contentHash: 'x'}}}]);
     assert.deepEqual(sessions.turns.map(({prompt, answer, error}) => ({prompt, answer, error})), [{prompt: 'save it', answer: 'Saved it.', error: null}]);
     assert.equal(sessions.rows.size, 0);
     assert.deepEqual(released, [['test-user', 'run-1']]);
     assert.equal(usage[0].sessionId, SESSION);
-  });
-
-  it('writes a run\'s files back again on the connection its computer comes back as, when it dropped meanwhile', async () => {
-    let current = {name: 'first'};
-    const used = [];
-    const {runs, sessions, finished} = restarted(undefined, null, {
-      connection: () => current,
-      finish: async ai => {
-        used.push(ai.name);
-        if (ai.name !== 'first') return;
-        current = {name: 'second'};
-        throw new Error('Could not reach NanoAgent');
-      },
-    });
-    // The run itself streams on the computer's NanoAgent before it dropped.
-    current.stream = async request => { request.onDelta('Saved'); return {text: 'Saved it.'}; };
-    await runs.adopt('test-user', ['run-1']);
-    await until(() => sessions.turns.length === 1);
-    assert.deepEqual(used, ['first', 'second']);
-    assert.equal(finished.length, 1);
-    assert.equal(sessions.turns[0].error, null);
-  });
-
-  it('says a run\'s files were not written back when that fails on a connection that stayed', async () => {
-    const {runs, sessions} = restarted(undefined, null, {finish: async () => { throw new Error('the disk is full'); }});
-    await runs.adopt('test-user', ['run-1']);
-    await until(() => sessions.turns.length === 1);
-    assert.equal(sessions.turns[0].error, 'What the run did could not be written back to your folder for this plugin: the disk is full');
   });
 
   it('keeps a run\'s graph and trajectory with its turn, sending the page the graph only', async () => {
@@ -118,15 +82,14 @@ describe('plugin runs a restarted RUSH finds', () => {
     assert.deepEqual(events.filter(event => event[0] === 'agent').map(event => event[1]), ['graph.completed']);
   });
 
-  it('records as interrupted a run the computer does not hold any more, writing back what it did', async () => {
-    const {runs, sessions, finished, asked, usage} = restarted();
+  it('records as interrupted a run the computer does not hold any more', async () => {
+    const {runs, sessions, asked, usage} = restarted();
     const events = [];
     runs.subscribe(SESSION, (event, data) => events.push([event, data.error]), () => events.push('end'));
     await runs.adopt('test-user', []);
     const reason = 'RUSH Lab stopped while answering, so this message was not answered. Send it again.';
     assert.deepEqual(events, [['error', reason], 'end']);
     assert.deepEqual(asked, []);
-    assert.equal(finished.length, 1);
     assert.deepEqual(sessions.turns.map(({answer, error}) => ({answer, error})), [{answer: '', error: reason}]);
     // It got far enough to cost something.
     assert.equal(usage[0].ran, true);

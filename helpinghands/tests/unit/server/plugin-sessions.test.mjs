@@ -133,13 +133,12 @@ describe('plugin sessions over PostgreSQL', () => {
     );
     assert.deepEqual((await sessions.get(as('alice'), 'bibtex-check', started.id)).running, {prompt: 'check refs.bib'});
     assert.equal((await sessions.list(as('alice'), 'bibtex-check'))[0].running, true);
-    await sessions.setRunFolder(as('alice'), 'run-a', {folder: 'f1', sent: {'refs.bib': {rev: 2, contentHash: 'h'}}});
     await sessions.markRunRan(as('alice'), 'run-a');
     // Its member reads it from any workspace, as a RUSH started since does; nobody else does.
     const [run] = await sessions.runs({userId: 'alice', workspaceId: null});
     assert.deepEqual({...run, startedAt: undefined}, {
       id: 'run-a', workspaceId: 'lab', userId: 'alice', sessionId: started.id, pluginId: 'bibtex-check', prompt: 'check refs.bib',
-      install: 'b'.repeat(64), folder: 'f1', sent: {'refs.bib': {rev: 2, contentHash: 'h'}}, ran: true, startedAt: undefined,
+      install: 'b'.repeat(64), ran: true, startedAt: undefined,
     });
     assert.deepEqual(await sessions.runs({userId: 'bob', workspaceId: null}), []);
     assert.equal(await sessions.endRun(as('bob'), 'run-a', {prompt: 'x', answer: '', tools: [], activity: [], error: 'x'}), false);

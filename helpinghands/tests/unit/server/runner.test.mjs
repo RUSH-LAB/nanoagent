@@ -7,6 +7,7 @@ import {connect} from '../../../src/runner/relay.mjs';
 const require = createRequire(import.meta.url);
 const {createRunners} = require('../../../src/server/runner.js');
 const {RUNNER_OFFLINE} = require('../../../src/server/ai.js');
+const {PATH} = require('../../../src/runner/protocol.js');
 const {createAppRuns} = require('../../../src/server/app-runs.js');
 const {fakeSessions, SESSION} = await import('../_harness.mjs');
 
@@ -281,15 +282,15 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
 
   it('finishes a plugin run in the RUSH started since, keeping its turn, from the computer that held it', async () => {
     const held = new Map();
+    const files = {prepare: async () => ({}), finish: async () => {}};
     const sessions = fakeSessions();
-    const agentSync = {prepare: async () => ({workspace: 'folder-1', sent: {}}), finish: async () => {}};
     const aiMeter = {record: async () => {}};
     const appRunsOn = on => {
-      const runs = createAppRuns({sessions, agentSync, runners: on, aiMeter});
+      const runs = createAppRuns({sessions, runners: on, aiMeter});
       on.onRuns((userId, ids) => runs.adopt(userId, ids));
       return runs;
     };
-    const {closed} = await dialIn('member-token', {held});
+    const {closed} = await dialIn('member-token', {held, files});
     const first = appRunsOn(runners);
     await first.start({userId: 'u1', workspaceId: 'lab'}, {pluginId: 'echo', sessionId: SESSION, prompt: 'slow', request: {input: 'slow', install: 'a'.repeat(64)}});
     await until(() => [...held.values()][0]?.frames.length === 2);
@@ -297,7 +298,7 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     await closed;
     runners = createRunners({resolveIdentity: async () => ({ok: true, identity: {userId: 'u1'}}), engine: async () => null});
     appRunsOn(runners);
-    await dialIn('member-token', {held});
+    await dialIn('member-token', {held, files});
     nano.finishers[0]();
     await until(() => sessions.turns.length);
     assert.deepEqual(sessions.turns.map(({prompt, answer, error}) => ({prompt, answer, error})), [{prompt: 'slow', answer: 'hello world', error: null}]);
@@ -306,6 +307,49 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     assert.equal(nano.seen.filter(call => call.method === 'POST').length, 1);
     // The old process's run, which a real restart takes with it.
     await first.cancel({userId: 'u1', workspaceId: 'lab'}, SESSION);
+  });
+
+  it('fills a plugin run\'s folder on the computer before it, and writes back what it did before it ends', async () => {
+    const done = [];
+    const files = {
+      prepare: async (run, scratch) => { done.push(['prepare', run, scratch]); return {sent: 'what was copied'}; },
+      finish: async (plugin, scratch, folder) => {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        done.push(['finish', plugin, scratch, folder]);
+      },
+    };
+    await dialIn('member-token', {files});
+    const result = await (await runners.aiFor('u1')).stream({
+      input: 'hi', install: 'a'.repeat(64), workspace: 'run-1', files: {workspace: 'lab', plugin: 'echo'}, run: {id: 'run-1'},
+    });
+    done.push(['answered', result.text]);
+    assert.deepEqual(done, [
+      ['prepare', {workspace: 'lab', plugin: 'echo'}, 'run-1'],
+      ['finish', 'echo', 'run-1', {sent: 'what was copied'}],
+      ['answered', 'hello world'],
+    ]);
+  });
+
+  it('says what a plugin run did could not be written back, as the computer says why', async () => {
+    const files = {prepare: async () => ({}), finish: async () => { throw new Error('the disk is full'); }};
+    await dialIn('member-token', {files});
+    const result = await (await runners.aiFor('u1')).stream({
+      input: 'hi', install: 'a'.repeat(64), workspace: 'run-1', files: {workspace: 'lab', plugin: 'echo'}, run: {id: 'run-1'},
+    });
+    assert.equal(result.error, 'What the run did could not be written back to your folder for this plugin: the disk is full');
+  });
+
+  it('runs no plugin on a computer whose engine does not keep its files', async () => {
+    const socket = new WebSocket(site.replace('http', 'ws') + PATH, {headers: {Authorization: 'Bearer member-token'}});
+    await new Promise(resolve => { socket.onopen = resolve; });
+    socket.send(JSON.stringify({type: 'hello', device: 'old', keys: [], runs: []}));
+    await until(() => runners.status('u1').device === 'old');
+    const result = await (await runners.aiFor('u1')).stream({
+      input: 'hi', install: 'a'.repeat(64), workspace: 'run-1', files: {workspace: 'lab', plugin: 'echo'}, run: {id: 'run-1'},
+    });
+    assert.match(result.error, /^RUSH Lab on your computer is out of date for plugin runs/);
+    assert.equal(nano.seen.length, 0);
+    socket.close();
   });
 
   it('takes a held run up on the computer\'s new connection, every delta once, before its old socket has closed', async () => {

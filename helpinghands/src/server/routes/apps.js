@@ -1,6 +1,5 @@
 'use strict';
 const {APPS_NEED_FS, followRun, openEventStream} = require('./ai');
-const {pluginFolder} = require('../fs/agent-sync');
 const {FsError} = require('../fs/store');
 const {RUNNER_OFFLINE} = require('../ai');
 const {APP_UI_ROUTE: UI_ROUTE} = require('./paths');
@@ -20,7 +19,7 @@ const {outdated} = require('../workspace-apps');
 //
 // The folder is private: its path comes from the caller's own identity, so no
 // request can name anyone else's. Each run works on a copy of it in a scratch
-// folder of NanoAgent's own (fs/agent-sync.js).
+// folder of NanoAgent's own, on the member's computer (runner/run-files.mjs).
 
 // Shown in the browser as themselves; everything else is text or a download.
 // Never HTML or SVG, which would run in RUSH's origin.
@@ -35,6 +34,8 @@ function contentTypeFor(path, body) {
 
 const ROUTES = new Set(['/api/apps', '/api/app-installs', '/api/agent-files', '/api/agent-files/content']);
 const PLUGIN_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+// The member's folder for a plugin's files.
+const pluginFolder = (scope, pluginId) => `home/${scope.userId}/plugins/${pluginId}/files`;
 const APP_ROUTE = /^\/api\/apps\/([^/]+)$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const UI_VERSION = /^[0-9a-f]{16}$/;

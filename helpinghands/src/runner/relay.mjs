@@ -11,7 +11,8 @@
  *   RUNNER_CREDENTIALS    where the member's session token is kept (mode 0600)
  *   RUNNER_DEVICE         what Settings → AI calls this computer
  *   RUNNER_KEYS           which API keys RUSH Lab holds: [{env, label, set}], as JSON
- *   RUNNER_FILES          the folder kept in sync with the member's own files (files.mjs)
+ *   RUNNER_FILES          the folder kept in sync with the member's own files (files.mjs), which
+ *                         plugin runs work on (run-files.mjs)
  * and reads what happens as JSON lines on stdout:
  *   {"event": "sign-in", "url", "code"}   open url in a browser and approve code
  *   {"event": "connected"}                runs may come
@@ -29,10 +30,13 @@ import readline from 'node:readline';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
 import {syncFiles} from './files.mjs';
+import {runFiles} from './run-files.mjs';
 
 const {PATH, HOLD_MS, allowed, pickHeaders} = createRequire(import.meta.url)('./protocol.js');
 
 const CLIENT_ID = 'mochi-desktop';
+// The path of a plugin run in NanoAgent's folder for it, the only request that brings `files`.
+const RUN = /^\/v1\/workspaces\/([^/?]+)\/installs\/[^/?]+\/runs$/;
 const DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
 const RETRY_MS = [1_000, 2_000, 5_000, 10_000, 30_000];
 // What RUSH sends when another computer signs in as this member (server/runner.js).
@@ -75,10 +79,12 @@ async function signIn(site) {
 /**
  * Make one request RUSH sent against NanoAgent, streaming its response with `send`. A held
  * one keeps every frame it sends, in `held`, and sends each to whichever connection it is
- * attached to, none while RUSH is away.
+ * attached to, none while RUSH is away. A plugin run's (`files`: the RUSH workspace and plugin
+ * it runs in) has its folder filled from the member's files here before it, and what it did
+ * written back after it (run-files.mjs), stopped or not, before it ends.
  */
-async function relay(frame, {send: direct, nanoagent, nanoagentToken, running, held}) {
-  if (!allowed(frame.method, frame.path)) {
+async function relay(frame, {send: direct, nanoagent, nanoagentToken, running, held, files}) {
+  if (!allowed(frame.method, frame.path) || (frame.files && !RUN.test(frame.path))) {
     return direct({type: 'error', id: frame.id, message: `${frame.method} ${frame.path} is not for this computer`});
   }
   const controller = new AbortController();
@@ -93,21 +99,35 @@ async function relay(frame, {send: direct, nanoagent, nanoagentToken, running, h
   } else {
     running.set(frame.id, controller);
   }
+  const scratch = frame.files && decodeURIComponent(frame.path.match(RUN)[1]);
+  // The first thing that fails is what RUSH hears.
+  let failure = null;
   try {
-    const response = await fetch(`${nanoagent}${frame.path}`, {
-      method: frame.method,
-      headers: {...pickHeaders(frame.headers), ...(nanoagentToken ? {Authorization: `Bearer ${nanoagentToken}`} : {})},
-      ...(frame.body === undefined ? {} : {body: Buffer.from(frame.body, 'base64')}),
-      signal: controller.signal,
-    });
-    send({type: 'head', id: frame.id, status: response.status, headers: pickHeaders(response.headers)});
-    for await (const chunk of response.body ?? []) send({type: 'chunk', id: frame.id, data: Buffer.from(chunk).toString('base64')});
-    send({type: 'end', id: frame.id});
+    const folder = frame.files ? await files.prepare(frame.files, scratch) : null;
+    try {
+      const response = await fetch(`${nanoagent}${frame.path}`, {
+        method: frame.method,
+        headers: {...pickHeaders(frame.headers), ...(nanoagentToken ? {Authorization: `Bearer ${nanoagentToken}`} : {})},
+        ...(frame.body === undefined ? {} : {body: Buffer.from(frame.body, 'base64')}),
+        signal: controller.signal,
+      });
+      send({type: 'head', id: frame.id, status: response.status, headers: pickHeaders(response.headers)});
+      for await (const chunk of response.body ?? []) send({type: 'chunk', id: frame.id, data: Buffer.from(chunk).toString('base64')});
+    } catch (error) {
+      failure = new Error(`NanoAgent on this computer: ${error.message}`);
+    }
+    if (folder) {
+      await files.finish(frame.files.plugin, scratch, folder).catch(error => {
+        failure ??= new Error(`What the run did could not be written back to your folder for this plugin: ${error.message}`);
+      });
+    }
   } catch (error) {
-    if (!controller.signal.aborted) send({type: 'error', id: frame.id, message: `NanoAgent on this computer: ${error.message}`});
+    failure = error;
   } finally {
     running.delete(frame.id);
   }
+  if (!failure) send({type: 'end', id: frame.id});
+  else if (!controller.signal.aborted) send({type: 'error', id: frame.id, message: failure.message});
 }
 
 /** Stop the held request `id`, and forget it. */
@@ -129,7 +149,7 @@ function drop(held, id) {
  * `running`, the requests going that are not held, is shared by a relay's connections like `held`.
  */
 export function connect({
-  site, nanoagent, nanoagentToken, token, device, keys = [], saveKeys, onKeys, onRelease, held = new Map(), running = new Map(), onEvent = say,
+  site, nanoagent, nanoagentToken, token, device, keys = [], saveKeys, onKeys, onRelease, held = new Map(), running = new Map(), files, onEvent = say,
 }) {
   return new Promise(resolve => {
     const url = new URL(PATH, site);
@@ -137,7 +157,7 @@ export function connect({
     const socket = new WebSocket(url, {headers: {Authorization: `Bearer ${token}`}});
     const send = message => socket.readyState === WebSocket.OPEN && socket.send(JSON.stringify(message));
     let current = keys;
-    const hello = () => send({type: 'hello', device, keys: current, runs: [...held.keys()]});
+    const hello = () => send({type: 'hello', device, keys: current, runs: [...held.keys()], files: true});
     const report = () => onEvent({event: 'requests', count: running.size + held.size});
     const unlisten = onKeys?.(list => {
       current = list;
@@ -155,7 +175,7 @@ export function connect({
         return;
       }
       if (frame.type === 'request') {
-        relay(frame, {send, nanoagent, nanoagentToken, running, held}).then(report);
+        relay(frame, {send, nanoagent, nanoagentToken, running, held, files}).then(report);
         report();
       } else if (frame.type === 'abort') {
         running.get(frame.id)?.abort();
@@ -269,6 +289,11 @@ async function main(env) {
   // Which keys are set, for each connection's hello, kept as the supervisor says they change.
   let keys = JSON.parse(env.RUNNER_KEYS);
   options.onKeys(list => { keys = list; });
+  // The member's files, synced while RUSH can be reached; each plugin run works on a copy of them.
+  let synced = null;
+  options.files = runFiles({
+    root: env.RUNNER_FILES, nanoagent: options.nanoagent, nanoagentToken: options.nanoagentToken, sync: async () => synced?.sync(),
+  });
   let token = await readToken(credentials);
   for (let attempt = 0; ; attempt += 1) {
     let userId = token && await signedIn(site, token);
@@ -282,14 +307,15 @@ async function main(env) {
       await fs.writeFile(credentials, `${JSON.stringify({site, token})}\n`, {mode: 0o600});
       userId = await signedIn(site, token);
     }
-    // The member's files sync while RUSH can be reached, and again as soon as a run's are kept.
-    const files = userId ? syncFiles({
+    // Again as soon as RUSH has kept a run, for the chat it wrote.
+    synced = userId ? syncFiles({
       site, token, userId, root: env.RUNNER_FILES,
       log: message => console.error(`${new Date().toISOString()} files: ${message}`),
     }) : null;
     const opened = Date.now();
-    const {code, reason} = await connect({...options, keys, token, onRelease: () => files?.sync()});
-    files?.stop();
+    const {code, reason} = await connect({...options, keys, token, onRelease: () => synced?.sync()});
+    synced?.stop();
+    synced = null;
     say({event: 'disconnected', reason: String(reason || code)});
     // Another computer took this member's runs; this one stops.
     if (code === REPLACED) return;

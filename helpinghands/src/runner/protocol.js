@@ -10,17 +10,20 @@
  * not the connection's: the relay keeps it going when the connection drops,
  * with every frame it sent, for HOLD_MS, and lists it in its next `hello`, so
  * RUSH, the same process or one started since, `resume`s it from the frames
- * it has, and `release`s it once it has kept what the run did. JSON text
+ * it has, and `release`s it once it has kept what the run did. A plugin run
+ * names the workspace and plugin it is for (`files`): the computer fills its
+ * folder from the member's files there and writes back what it did
+ * (runner/run-files.mjs), so no file of the run crosses this socket. JSON text
  * frames, bodies base64:
  *
- *   computer → RUSH   {type: 'hello', device, keys: [{env, label, set}], runs: [id]}
+ *   computer → RUSH   {type: 'hello', device, keys: [{env, label, set}], runs: [id], files: true}
  *                                                    again when keys change
  *                      {type: 'head', id, status, headers}
  *                      {type: 'chunk', id, data}
  *                      {type: 'end', id}
  *                      {type: 'saved', id}          NanoAgent runs with the keys from now on
  *                      {type: 'error', id, message}
- *   RUSH → computer   {type: 'request', id, method, path, headers, body?, hold?}
+ *   RUSH → computer   {type: 'request', id, method, path, headers, body?, hold?, files?: {workspace, plugin}}
  *                      {type: 'resume', id, from}   the held request's frames from the `from`th on
  *                      {type: 'release', id}        RUSH has kept what the held request did
  *                      {type: 'abort', id}
@@ -32,9 +35,8 @@ const PATH = '/api/runner';
 const HOLD_MS = 10 * 60_000;
 
 // What RUSH may ask the computer's NanoAgent: runs, installs and their pages,
-// views (the page alone of a package it refuses to install), and the run
-// folders' files (server/ai.js). Only the marketplace's packages stay on
-// RUSH's own NanoAgent.
+// and views (the page alone of a package it refuses to install). Only the
+// marketplace's packages stay on RUSH's own NanoAgent.
 const SEGMENT = '[^/?]+';
 const ROUTES = [
   ['GET', '/v1/profiles'],
@@ -46,10 +48,6 @@ const ROUTES = [
   ['GET', `/v1/installs/${SEGMENT}/ui/${SEGMENT}/[^?]+`],
   ['PUT', `/v1/views/${SEGMENT}`],
   ['POST', `/v1/workspaces/${SEGMENT}/installs/${SEGMENT}/runs`],
-  ['GET', `/v1/workspaces/${SEGMENT}/files`],
-  ['GET', `/v1/workspaces/${SEGMENT}/files/[^?]+`],
-  ['PUT', `/v1/workspaces/${SEGMENT}/files/[^?]+(?:\\?create=1)?`],
-  ['DELETE', `/v1/workspaces/${SEGMENT}`],
 ].map(([method, pattern]) => [method, new RegExp(`^${pattern}$`)]);
 
 /** Whether RUSH may send `method path` to the computer's NanoAgent. */
