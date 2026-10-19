@@ -99,5 +99,7 @@ gh pr checks <number> --repo RUSH-LAB/nanoagent
 ```
 
 Give the user the PR URL, the services it redeploys, any migrations, and the CI
-state. If a check fails, show its name and link. Remind the user that merging
-deploys.
+state. If a check fails, show its name and link. When the PR changes the
+desktop app, the `app` checks (each Mac and Windows) install and run it as
+members do and take about 30 minutes; it is ready to merge only once all three
+pass. Remind the user that merging deploys.

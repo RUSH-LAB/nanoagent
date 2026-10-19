@@ -12,14 +12,16 @@ name: Helping Hands desktop app
 # update this job signs with the app's update key (TAURI_SIGNING_PRIVATE_KEY) and uploads beside
 # each app. On Windows the update is the installer itself.
 
-# A push to devmode or production rebuilds the app, and checks it installs and runs on each target,
-# only when something it is built or installed from changed: desktop/ (the app, its scripts and
-# config.yaml), the runner, the install scripts, and the NanoAgent that stage.mjs bundles.
+# The release pull request into production builds the app and checks it installs and runs on each
+# target, so it is merged only once it passes; the push to production that merging makes builds it
+# again and uploads it. Either runs only when something the app is built or installed from changed:
+# desktop/ (the app, its scripts and config.yaml), the runner, the install scripts, and the
+# NanoAgent that stage.mjs bundles. devmode pushes build nothing.
 on:
   workflow_dispatch:
-  push:
-    branches: [devmode, production]
-    paths:
+  pull_request:
+    branches: [production]
+    paths: &app
       - '.github/workflows/helpinghands-desktop.yml'
       - 'helpinghands/desktop/**'
       - 'helpinghands/src/runner/**'
@@ -32,6 +34,9 @@ on:
       - 'nanoagent/src/**'
       - 'nanoagent/js/pi-runner/**'
       - 'nanoagent/deploy/railway/**'
+  push:
+    branches: [production]
+    paths: *app
 
 defaults:
   run:
@@ -40,8 +45,8 @@ defaults:
 jobs:
   # Each dmg and update, uploaded on a push to production to the Mochi it deploys, which serves them
   # to members (routes/lab.js). That Mochi may still be deploying the commit that serves the upload,
-  # so each is tried for 15 minutes; a push to devmode or a run by hand only builds and checks, and
-  # keeps them as a workflow artifact.
+  # so each is tried for 15 minutes; the pull request and a run by hand only build and check, and
+  # keep them as a workflow artifact.
   app:
     strategy:
       fail-fast: false
@@ -89,7 +94,7 @@ jobs:
         timeout-minutes: 30
         run: node scripts/check-install.mjs ${{ matrix.target }}
       - name: Upload to Mochi
-        if: github.event_name == 'push' && github.ref == 'refs/heads/production'
+        if: github.event_name == 'push'
         working-directory: helpinghands/desktop
         env:
           LAB_UPLOAD_TOKEN: ${{ secrets.LAB_UPLOAD_TOKEN }}
