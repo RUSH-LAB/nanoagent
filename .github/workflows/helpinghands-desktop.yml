@@ -12,16 +12,19 @@ name: Helping Hands desktop app
 # update this job signs with the app's update key (TAURI_SIGNING_PRIVATE_KEY) and uploads beside
 # each app. On Windows the update is the installer itself.
 
-# A push to production rebuilds the app only when something it is built from changed: desktop/
-# (the app, its scripts and config.yaml), the runner, and the NanoAgent that stage.mjs bundles.
+# A push to devmode or production rebuilds the app, and checks it installs and runs on each target,
+# only when something it is built or installed from changed: desktop/ (the app, its scripts and
+# config.yaml), the runner, the install scripts, and the NanoAgent that stage.mjs bundles.
 on:
   workflow_dispatch:
   push:
-    branches: [production]
+    branches: [devmode, production]
     paths:
       - '.github/workflows/helpinghands-desktop.yml'
       - 'helpinghands/desktop/**'
       - 'helpinghands/src/runner/**'
+      - 'helpinghands/src/server/lab-install.js'
+      - 'helpinghands/src/server/lab-app.js'
       - 'docs/instructions/skills/publish-plugin/SKILL.md'
       - 'nanoagent/pyproject.toml'
       - 'nanoagent/README.md'
@@ -37,7 +40,8 @@ defaults:
 jobs:
   # Each dmg and update, uploaded on a push to production to the Mochi it deploys, which serves them
   # to members (routes/lab.js). That Mochi may still be deploying the commit that serves the upload,
-  # so each is tried for 15 minutes; a run by hand only builds, and keeps them as a workflow artifact.
+  # so each is tried for 15 minutes; a push to devmode or a run by hand only builds and checks, and
+  # keeps them as a workflow artifact.
   app:
     strategy:
       fail-fast: false
@@ -57,7 +61,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: helpinghands/desktop/package-lock.json
+          cache-dependency-path: |
+            helpinghands/package-lock.json
+            helpinghands/desktop/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
         working-directory: helpinghands/desktop
@@ -75,44 +81,14 @@ jobs:
             helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe
             helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe.sig
           if-no-files-found: error
-      # The command the site gives (irm <site>/install.ps1 | iex), run twice against this build served
-      # as the site serves it: it installs RUSH Lab and opens it, then replaces the one running.
-      - name: Install with install.ps1
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $setup = @(Get-ChildItem "desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe")
-          if ($setup.Count -ne 1) { throw "Expected one installer, found $($setup.Count)" }
-          $env:SETUP = $setup[0].FullName
-          $env:LAB_INSTALL = (Resolve-Path src/server/lab-install.js).Path
-          $site = Join-Path $env:RUNNER_TEMP 'site.js'
-          Set-Content -Path $site -Value @'
-          const fs = require('fs'), crypto = require('crypto'), {windowsScript} = require(process.env.LAB_INSTALL);
-          const setup = fs.readFileSync(process.env.SETUP);
-          require('http').createServer((req, res) => {
-            if (req.url === '/install.ps1') return res.end(windowsScript('http://127.0.0.1:8123'));
-            if (req.url !== '/api/lab/bundles/${{ matrix.target }}') { res.statusCode = 404; return res.end(); }
-            res.setHeader('X-Lab-Sha256', crypto.createHash('sha256').update(setup).digest('hex'));
-            res.end(setup);
-          }).listen(8123, '127.0.0.1');
-          '@
-          $server = Start-Process node -ArgumentList "`"$site`"" -PassThru -NoNewWindow
-          try {
-            Start-Sleep -Seconds 2
-            $folder = Join-Path $env:LOCALAPPDATA 'RUSH Lab'
-            foreach ($round in 1, 2) {
-              irm http://127.0.0.1:8123/install.ps1 | iex
-              $deadline = (Get-Date).AddSeconds(60)
-              while (-not @(Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith("$folder\", 'OrdinalIgnoreCase') }).Count) {
-                if ((Get-Date) -gt $deadline) { throw "RUSH Lab is not running from $folder after install $round" }
-                Start-Sleep -Seconds 1
-              }
-            }
-          } finally {
-            Stop-Process -Id $server.Id -Force
-          }
+      # As a member installs it, run twice against this build served as the site serves it, then
+      # quit: it must reach its NanoAgent through the relay each time, and leave nothing running.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install, run and quit
+        working-directory: helpinghands/desktop
+        run: node scripts/check-install.mjs ${{ matrix.target }}
       - name: Upload to Mochi
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/production'
         working-directory: helpinghands/desktop
         env:
           LAB_UPLOAD_TOKEN: ${{ secrets.LAB_UPLOAD_TOKEN }}
