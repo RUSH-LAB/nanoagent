@@ -118,7 +118,7 @@ export default function AgentEditor({agent, onSave, onDelete, onClose}) {
               rows={8}
             />
             <span className={styles.help}>
-              Optional. Leave blank to use Mochi's default assistant instructions. Which model answers is each member's own choice, in Settings → Usage.
+              Optional. Leave blank to use RUSH's default assistant instructions. Which model answers is each member's own choice, in Settings → Usage.
             </span>
           </label>
 

@@ -75,7 +75,7 @@ in the component's JSX, and keep it to that target.
 
 ## 4. Check it
 
-Run Mochi with `npm start` (in `helpinghands/`) and look at the target in
+Run RUSH with `npm start` (in `helpinghands/`) and look at the target in
 light and dark themes, at a narrow and a wide window. If the target ships in
 the desktop app (plugin pages, the sidebar, Drafts, anything the app's
 webview renders), also run `npm run desktop:dev` and check it in the

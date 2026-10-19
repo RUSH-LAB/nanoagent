@@ -1,12 +1,12 @@
 /**
  * RUSH Lab's relay: this computer's NanoAgent, lent to its member's runs on
- * Mochi (server/runner.js). It signs in as the member, dials Mochi, and makes
- * each request Mochi sends against the NanoAgent beside it, streaming the
- * response back (runner/protocol.js). Mochi never reaches this computer; the
- * relay reaches Mochi, and only the routes the protocol allows reach NanoAgent.
+ * RUSH (server/runner.js). It signs in as the member, dials RUSH, and makes
+ * each request RUSH sends against the NanoAgent beside it, streaming the
+ * response back (runner/protocol.js). RUSH never reaches this computer; the
+ * relay reaches RUSH, and only the routes the protocol allows reach NanoAgent.
  *
  * lab.mjs, its supervisor, runs one for each connection with:
- *   MOCHI_SITE_URL        the Mochi it serves
+ *   MOCHI_SITE_URL        the RUSH it serves
  *   NANOAGENT_URL         the NanoAgent beside it, and NANOAGENT_API_TOKEN, its bearer token
  *   RUNNER_CREDENTIALS    where the member's session token is kept (mode 0600)
  *   RUNNER_DEVICE         what Settings → AI calls this computer
@@ -16,7 +16,7 @@
  *   {"event": "sign-in", "url", "code"}   open url in a browser and approve code
  *   {"event": "connected"}                runs may come
  *   {"event": "disconnected", "reason"}   reconnecting
- *   {"event": "requests", "count"}        how many of Mochi's requests are going here, held runs included
+ *   {"event": "requests", "count"}        how many of RUSH's requests are going here, held runs included
  *   {"event": "keys", "id", "changes"}    apply these keys: answer {"id", "error"} on stdin,
  *                                         error null once NanoAgent has them
  * and writes on stdin
@@ -35,7 +35,7 @@ const {PATH, HOLD_MS, allowed, pickHeaders} = createRequire(import.meta.url)('./
 const CLIENT_ID = 'mochi-desktop';
 const DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
 const RETRY_MS = [1_000, 2_000, 5_000, 10_000, 30_000];
-// What Mochi sends when another computer signs in as this member (server/runner.js).
+// What RUSH sends when another computer signs in as this member (server/runner.js).
 const REPLACED = 4000;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const say = event => process.stdout.write(`${JSON.stringify(event)}\n`);
@@ -53,7 +53,7 @@ async function post(site, route, body) {
 /** The device-authorization grant, as cli/rush.mjs signs in: a session token for the member. */
 async function signIn(site) {
   const {status, data: code} = await post(site, '/api/auth/device/code', {client_id: CLIENT_ID});
-  if (status !== 200) throw new Error(`Mochi refused a sign-in code (${status}): ${code.error ?? ''}`);
+  if (status !== 200) throw new Error(`RUSH refused a sign-in code (${status}): ${code.error ?? ''}`);
   say({event: 'sign-in', url: code.verification_uri_complete, code: code.user_code});
   let interval = code.interval * 1000;
   for (;;) {
@@ -73,9 +73,9 @@ async function signIn(site) {
 }
 
 /**
- * Make one request Mochi sent against NanoAgent, streaming its response with `send`. A held
+ * Make one request RUSH sent against NanoAgent, streaming its response with `send`. A held
  * one keeps every frame it sends, in `held`, and sends each to whichever connection it is
- * attached to, none while Mochi is away.
+ * attached to, none while RUSH is away.
  */
 async function relay(frame, {send: direct, nanoagent, nanoagentToken, running, held}) {
   if (!allowed(frame.method, frame.path)) {
@@ -120,12 +120,12 @@ function drop(held, id) {
 }
 
 /**
- * One connection to Mochi, open until it closes: resolves with its close code.
- * Requests run side by side; Mochi's `abort` stops one, and a closed socket all
+ * One connection to RUSH, open until it closes: resolves with its close code.
+ * Requests run side by side; RUSH's `abort` stops one, and a closed socket all
  * but the held ones, which `held` keeps from one connection to the next.
  * `keys` is which API keys this computer holds, `saveKeys(changes)` applies new
  * ones, and `onKeys(listener)` hears which are set whenever that changes, to
- * tell Mochi again. `onRelease` hears that Mochi has kept what a held request did.
+ * tell RUSH again. `onRelease` hears that RUSH has kept what a held request did.
  * `running`, the requests going that are not held, is shared by a relay's connections like `held`.
  */
 export function connect({
@@ -184,7 +184,7 @@ export function connect({
       ended = true;
       unlisten?.();
       for (const controller of running.values()) controller.abort();
-      // A held request goes on without Mochi, for a while.
+      // A held request goes on without RUSH, for a while.
       for (const [id, run] of held) {
         if (run.send !== send) continue;
         run.send = null;
@@ -197,9 +197,9 @@ export function connect({
       resolve(result);
     };
     socket.onclose = ({code, reason}) => end({code, reason});
-    // A connection that never opens (Mochi unreachable, or the upgrade refused) fires only
+    // A connection that never opens (RUSH unreachable, or the upgrade refused) fires only
     // `error` in Node, never `close`.
-    socket.onerror = () => end({code: 1006, reason: 'Could not reach Mochi'});
+    socket.onerror = () => end({code: 1006, reason: 'Could not reach RUSH'});
   });
 }
 
@@ -212,7 +212,7 @@ async function readToken(file) {
   }
 }
 
-/** The member Mochi knows `token` as: their id, false when it knows it no more, or null when Mochi cannot be reached. */
+/** The member RUSH knows `token` as: their id, false when it knows it no more, or null when RUSH cannot be reached. */
 async function signedIn(site, token) {
   try {
     const response = await fetch(`${site}/api/auth/get-session`, {headers: {Authorization: `Bearer ${token}`}});
@@ -282,7 +282,7 @@ async function main(env) {
       await fs.writeFile(credentials, `${JSON.stringify({site, token})}\n`, {mode: 0o600});
       userId = await signedIn(site, token);
     }
-    // The member's files sync while Mochi can be reached, and again as soon as a run's are kept.
+    // The member's files sync while RUSH can be reached, and again as soon as a run's are kept.
     const files = userId ? syncFiles({
       site, token, userId, root: env.RUNNER_FILES,
       log: message => console.error(`${new Date().toISOString()} files: ${message}`),

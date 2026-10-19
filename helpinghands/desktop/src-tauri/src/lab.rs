@@ -32,7 +32,7 @@ pub struct Config {
     label: String,
     /// The scheme of the app's links: <scheme>://connect and ://sign-in.
     pub scheme: String,
-    /// The Mochi this app serves, which its window shows.
+    /// The RUSH this app serves, which its window shows.
     pub site_url: String,
     /// A release's target, which it updates itself as (update.rs); None for any other build.
     pub update_target: Option<String>,
@@ -184,7 +184,7 @@ impl Lab {
     }
 
     /// Whether nothing runs here: lab.mjs keeps the data folder's `busy` while any connection's relay
-    /// has a request of Mochi's going, a held run included.
+    /// has a request of RUSH's going, a held run included.
     pub fn idle(&self) -> bool {
         !self.data.join("busy").exists()
     }

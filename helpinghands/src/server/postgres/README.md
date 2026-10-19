@@ -15,7 +15,7 @@ tables through schema aliases; those tables stay outside RLS just like its
 user/session/account tables. Every product table remains forced through RLS.
 
 Organization hooks provision workspace settings, `#general`, and channel
-membership idempotently. Hard deletion remains a Mochi endpoint because it
+membership idempotently. Hard deletion remains a RUSH endpoint because it
 must enqueue object-storage keys before the database cascade; Better Auth's
 generic organization-delete endpoint is disabled.
 

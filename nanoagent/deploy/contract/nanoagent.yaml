@@ -1,4 +1,4 @@
-# The NanoAgent that Mochi's contract check (helpinghands/scripts/maintenance/verify-nanoagent.mjs)
+# The NanoAgent that RUSH's contract check (helpinghands/scripts/maintenance/verify-nanoagent.mjs)
 # runs against, owned here so it always matches this checkout's configuration. The check sets
 # model.base_url to its fake model, port, and workspaces.
 _ > nanoagent.web.config.WebConfig:
@@ -19,7 +19,7 @@ model > nanoagent.runtime.config.ModelConfig:
   output_price: 0.0
 
 agent > nanoagent.runtime.config.AgentConfig:
-  system_prompt: You are Mochi's deterministic integration verifier.
+  system_prompt: You are RUSH's deterministic integration verifier.
   max_steps: 2
   cost_limit: null
   token_limit: 1000

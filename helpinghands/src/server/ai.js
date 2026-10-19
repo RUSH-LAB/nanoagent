@@ -3,7 +3,7 @@
 const fallbackProfiles = require('../ai-profiles.json');
 
 /**
- * Mochi's private connection to NanoAgent.
+ * RUSH's private connection to NanoAgent.
  *
  * The browser never talks to NanoAgent and never receives its bearer token.
  * Routes pass trusted workspace-agent instructions and user conversation data

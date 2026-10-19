@@ -5,8 +5,8 @@
  *
  * A computer dials in: it opens a WebSocket to /api/runner signed in as its
  * member, and from then on that member's runs go down that socket
- * (runner/protocol.js): every run is on the member's own computer. Mochi cannot reach a laptop, so the laptop reaches
- * Mochi. Settings → AI sets the computer's API keys the same way: Mochi passes
+ * (runner/protocol.js): every run is on the member's own computer. RUSH cannot reach a laptop, so the laptop reaches
+ * RUSH. Settings → AI sets the computer's API keys the same way: RUSH passes
  * them on and keeps nothing, and the computer says only which are set. One
  * computer per member: a second replaces the first. The sockets are
  * this process's, like every other live connection here (fs/events.js).
@@ -117,7 +117,7 @@ function socketFetch(entry) {
 }
 
 /**
- * `openrouterKeys` (openrouter-keys.js), when Mochi gives members an OpenRouter
+ * `openrouterKeys` (openrouter-keys.js), when RUSH gives members an OpenRouter
  * key: a computer that connects without one is given one.
  */
 function createRunners({resolveIdentity, openrouterKeys = null}) {
@@ -193,7 +193,7 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
     socket.on('error', () => socket.terminate());
   }
 
-  /** An OpenRouter key from Mochi, saved on the member's computer when it holds none of its own. */
+  /** An OpenRouter key from RUSH, saved on the member's computer when it holds none of its own. */
   function giveKey(userId, entry) {
     const slot = entry.keys.find(key => key.env === openrouterKeys?.ENV);
     if (!slot || slot.set) return;
@@ -305,7 +305,7 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
       onRuns = listener;
     },
 
-    /** Tell the member's computer Mochi has kept what the held request `id` did, if it is connected. */
+    /** Tell the member's computer RUSH has kept what the held request `id` did, if it is connected. */
     release(userId, id) {
       const entry = connected.get(userId);
       if (entry && !entry.closed) entry.socket.send(JSON.stringify({type: 'release', id}));
@@ -321,7 +321,7 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
      * server's any more, so `server.close()` alone would wait on it for ever.
      */
     close() {
-      for (const entry of connected.values()) entry.socket.close(GOING_AWAY, 'Mochi is restarting');
+      for (const entry of connected.values()) entry.socket.close(GOING_AWAY, 'RUSH is restarting');
     },
   });
   return api;

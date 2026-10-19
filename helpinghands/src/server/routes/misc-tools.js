@@ -506,7 +506,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       const author = await githubUsers.loginOf(req.context.userId);
       if (!author) {
         return json(res, 409, {
-          error: 'Sign in with GitHub again so Mochi knows your GitHub username',
+          error: 'Sign in with GitHub again so RUSH knows your GitHub username',
           code: 'github-login-unknown',
         });
       }

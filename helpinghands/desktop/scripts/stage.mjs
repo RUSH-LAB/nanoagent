@@ -3,7 +3,7 @@
  * Stages everything the desktop app bundles, for the target Tauri is building
  * (TAURI_ENV_TARGET_TRIPLE, which Tauri sets for beforeBuildCommand):
  *
- *   src-tauri/resources/runner/     the relay that lends this computer's NanoAgent to Mochi, and in plugin-project/
+ *   src-tauri/resources/runner/     the relay that lends this computer's NanoAgent to RUSH, and in plugin-project/
  *                                   what `<command> new` writes into a plugin project: project.md and the publish-plugin skill
  *   src-tauri/resources/nanoagent/  NanoAgent's source (site/), its uv.lock, the PI runner's bundle, and the config the app runs
  *   src-tauri/resources/config.json this folder's config.yaml, as JSON (scripts/config.mjs): lab.mjs loads only
@@ -163,7 +163,7 @@ async function stageMacGit(target, arch) {
   fs.cpSync(built, path.join(resources, 'git'), {recursive: true, dereference: true});
 }
 
-// lab.mjs, the relay and the protocol it shares with Mochi's server; Node's own modules are all they load.
+// lab.mjs, the relay and the protocol it shares with RUSH's server; Node's own modules are all they load.
 // Beside project.md, the preface `<command> new` writes into a plugin project, goes the publish-plugin skill it follows.
 function stageRunner() {
   copy(path.join(mochiRoot, 'src', 'runner'), path.join(resources, 'runner'));

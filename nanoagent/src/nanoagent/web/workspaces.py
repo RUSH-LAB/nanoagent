@@ -1,6 +1,6 @@
 """Scratch workspaces: the folder one plugin run reads and writes, removed by the caller after it.
 
-The caller names a workspace with an opaque id (Mochi makes a new one for every run, fills it
+The caller names a workspace with an opaque id (RUSH makes a new one for every run, fills it
 before the run, reads it back after, then removes it) and NanoAgent keeps it under one configured
 root, so NanoAgent holds no file that matters between runs. Every path that reaches a file or
 folder is checked to stay inside its workspace and to cross no symlink, so neither a request nor a
@@ -97,7 +97,7 @@ class Workspaces:
         path.write_bytes(data)
         return _entry(folder, path)
 
-    # COMPAT(mochi-workspace-edits): what Mochi on production asks of a workspace besides saving
+    # COMPAT(mochi-workspace-edits): what RUSH on production asks of a workspace besides saving
     # files. Remove with the routes in nanoagent.web.app.
     def delete_file(self, workspace_id: str, relative: str) -> dict[str, Any]:
         self.file(workspace_id, relative).unlink()

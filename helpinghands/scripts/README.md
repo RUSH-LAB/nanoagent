@@ -89,10 +89,10 @@ PostgreSQL is the normal development path and source of truth.
 
 The supervisor installs NanoAgent's Python dependencies with `uv` on its first
 run, prepares its PI runner when needed, and stops every process together on
-Ctrl+C. Mochi uses the adjacent `../nanoagent` checkout by default and connects
+Ctrl+C. RUSH uses the adjacent `../nanoagent` checkout by default and connects
 to it at `http://127.0.0.1:8787`. Set `NANOAGENT_PROJECT_DIR` for a checkout in
 another location, set `NANOAGENT_URL` and `NANOAGENT_API_TOKEN` to use an
-already-running service, or set `NANOAGENT_URL=off` to disable AI. The sole model currently exposed by Mochi is
+already-running service, or set `NANOAGENT_URL=off` to disable AI. The sole model currently exposed by RUSH is
 `deepseek/deepseek-v4-flash-0731`.
 
 ## `db/`
@@ -118,7 +118,7 @@ Manual verification, repair, or cleanup commands:
 - `verify-mail.mjs` sends one explicitly addressed deployment-test email using
   the configured Resend or webhook provider.
 - `verify-nanoagent.mjs` starts a real NanoAgent web process against a local
-  deterministic fake model and verifies Mochi's private streaming contract.
+  deterministic fake model and verifies RUSH's private streaming contract.
 
 Run the agent check with `npm run nanoagent:verify`. It expects an adjacent
 `../nanoagent` checkout, or the project at `NANOAGENT_PROJECT_DIR` when set.

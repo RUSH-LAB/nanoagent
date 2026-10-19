@@ -133,7 +133,7 @@ in `verifier/` are imported relatively. NanoAgent enforces determinism
 ### The reference plugin and starting a new one
 
 NanoAgent ships no plugin. Each lives in its own repository and is published to
-Mochi's marketplace from it, as
+RUSH's marketplace from it, as
 [arxiv-source](https://github.com/zeyuyang8/arxiv-source) is.
 arxiv-source is the reference every plugin follows. It searches arXiv, then
 fetches and saves papers' LaTeX source. It has an MCP server with a `TOOLS`
@@ -186,7 +186,7 @@ only to its workspace, which NanoAgent passes as `NANOAGENT_WORKSPACE`.
 
 What people see of a plugin lives in two folders, and nowhere else.
 
-`product/` is the plugin's product page, what a catalog such as Mochi's
+`product/` is the plugin's product page, what a catalog such as RUSH's
 marketplace shows before anyone downloads it. It holds exactly two files.
 `product.yaml` fills `ProductConfig`: a `tagline`, a `summary`, 2 to 4
 `highlights` and 2 to 5 `steps`, written for the people who use the plugin
@@ -202,7 +202,7 @@ says what they need; the agent, whose only tools are the plugin's tasks (one
 per task, named by its id and taking its input), runs the task that does it
 the verified way, and answers in a sentence or two. Each task it ran shows in
 the chat as a chip, and its result card (the task's output, with its verdict as
-a badge) beside the chat, on the right. Mochi shows the
+a badge) beside the chat, on the right. RUSH shows the
 page in a sandboxed iframe, in the kit's frame of two tabs. **Dashboard**,
 where the app always opens, lists the member's sessions with the plugin,
 newest first, with what each ran and cost, to resume one or start a new one.
@@ -301,7 +301,7 @@ taken returns 409. NanoAgent keeps nothing between runs, so no volume is needed.
 
 ### Plugin packages and the marketplace
 
-A package is a plugin in one file, for Mochi's marketplace (`/marketplace`),
+A package is a plugin in one file, for RUSH's marketplace (`/marketplace`),
 where people download plugins and share their own. `nanoagent plugin pack
 <folder> <file.tar.gz>` writes one: the plugin, which must follow every rule,
 under a single `<id>/` folder, without what its `.gitignore` ignores, packed
@@ -325,7 +325,7 @@ serves packages, and runs one only once it is installed (above):
   under one top folder), and `path` the plugin's folder in it. Only that folder
   is unpacked, under the same limits, and it is packed in the same isolated
   process, then checked as above. The reply is `{"package": <catalog entry>,
-  "data": <the package, base64>}`, or 422 with every broken rule. Mochi
+  "data": <the package, base64>}`, or 422 with every broken rule. RUSH
   publishes plugins to its marketplace this way, from a GitHub URL.
 
 ### Plugin environments
@@ -447,8 +447,8 @@ OPENROUTER_API_KEY=...
 NANOAGENT_API_TOKEN=...
 ```
 
-Deploy the service without a public domain. Mochi connects over Railway's
+Deploy the service without a public domain. RUSH connects over Railway's
 private network using the same `NANOAGENT_API_TOKEN`.
 
 Local development does not use this deployment unless `NANOAGENT_URL` is
-explicitly set. Mochi's `npm start` uses the adjacent NanoAgent checkout.
+explicitly set. RUSH's `npm start` uses the adjacent NanoAgent checkout.

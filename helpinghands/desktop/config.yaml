@@ -16,7 +16,7 @@ product_name: RUSH Lab
 label: lab.mochi.lab
 # The app's links (<scheme>://connect, ://sign-in): tauri.conf.json's deep-link scheme.
 scheme: rushlab
-# The one Mochi this app serves: its window's, and the only site a connect link may name.
+# The one RUSH this app serves: its window's, and the only site a connect link may name.
 site_url: https://rush-lab.org
 # The member's own files in each workspace they are in, <home>/<files_folder>/<login>/, kept in
 # sync both ways with their home there by the relay (src/runner/files.mjs).

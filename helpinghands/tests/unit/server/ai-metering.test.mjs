@@ -17,7 +17,7 @@ function fakeTenancy() {
 }
 
 describe('AI metering', () => {
-  it('charges a run on Mochi\'s NanoAgent, at the cap when it was not priced', async () => {
+  it('charges a run on RUSH\'s NanoAgent, at the cap when it was not priced', async () => {
     const tenancy = fakeTenancy();
     const meter = createAiMeter(tenancy);
     await assert.rejects(() => meter.assertAllowed({}), {status: 429});

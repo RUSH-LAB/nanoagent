@@ -339,7 +339,7 @@ class RunHost:
                         ),
                         progress,
                     )
-            # What the model saw and did, as an ATIF trajectory, for a caller that keeps it (Mochi's chat folders).
+            # What the model saw and did, as an ATIF trajectory, for a caller that keeps it (RUSH's chat folders).
             if result.native is not None:
                 emit(
                     "trajectory",

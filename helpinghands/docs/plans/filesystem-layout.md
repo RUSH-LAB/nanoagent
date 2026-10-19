@@ -76,7 +76,7 @@ starts a new folder.
    Shared with me, each home under its member's name.
 4. **Chats as files** (fs/chats.js, migration 0046). NanoAgent's web runtime
    sends a run of its own agent loop's trajectory as a `trajectory` event
-   before it ends; Mochi writes it, the graph and the turn in one transaction
+   before it ends; RUSH writes it, the graph and the turn in one transaction
    with the session, and never sends the trajectory to the page. Migration
    0046 wrote the chats kept so far to their folders; their turns have no
    trajectory, which NanoAgent did not send then.
@@ -88,7 +88,7 @@ starts a new folder.
    (`memberFiles`, src/runner/lab.mjs). A run's conflicted copy is named as
    the sync's is: `name (conflicted copy <plugin> run <YYYY-MM-DD>[ n]).ext`.
    Migration 0047 put each plugin's chats and files in its one folder, and
-   0048 named the folders Mochi makes in lowercase words joined by _
+   0048 named the folders RUSH makes in lowercase words joined by _
    (`plugins/`, `chats/2026_10_19_find_the_paper/`) and moved what runs left
    before plugins had folders (`From earlier runs/`) to the trash. A release
    applies 0045 to 0048 at once, so a member's computer goes from `agent/` to

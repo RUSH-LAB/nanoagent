@@ -36,7 +36,7 @@ describe('POST /api/quicknote author', () => {
     assert.match(note.markdown, /^authors: \[octocat\]$/m);
   });
 
-  it('refuses a caller whose GitHub username Mochi has not recorded', async () => {
+  it('refuses a caller whose GitHub username RUSH has not recorded', async () => {
     const response = await capture(notesCtx(null));
     assert.equal(response.status, 409);
     assert.equal(response.payload.code, 'github-login-unknown');

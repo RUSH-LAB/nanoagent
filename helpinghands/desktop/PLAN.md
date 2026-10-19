@@ -1,9 +1,9 @@
 # RUSH Lab, the app (Tauri 2)
 
-A Mac app that shows the hosted Mochi in a window of its own and lends this computer to its
+A Mac app that shows the hosted RUSH in a window of its own and lends this computer to its
 members' AI. It runs NanoAgent with each member's own API keys, and a relay that connects that
-NanoAgent to Mochi. Every AI run of a member connected here (model calls and plugin code) runs on
-this computer, never on Mochi's servers. It opens at every login, in the menu bar; closing its
+NanoAgent to RUSH. Every AI run of a member connected here (model calls and plugin code) runs on
+this computer, never on RUSH's servers. It opens at every login, in the menu bar; closing its
 window leaves it running there, so runs still reach this computer.
 
 ## Install, as a member
@@ -49,22 +49,22 @@ rush-lab.org, retrying for 15 minutes while the site deploys. Only a release upd
 ## How a run reaches this computer
 
 ```text
-browser ──► Mochi (hosted) ◄──WebSocket /api/runner── relay ──► NanoAgent 127.0.0.1:<port> ──► the model's provider
+browser ──► RUSH (hosted) ◄──WebSocket /api/runner── relay ──► NanoAgent 127.0.0.1:<port> ──► the model's provider
 ```
 
-Mochi cannot reach a laptop, so the relay (`src/runner/relay.mjs`) dials Mochi. It signs in with
-the member's session. Mochi's side is `src/server/runner.js`:
+RUSH cannot reach a laptop, so the relay (`src/runner/relay.mjs`) dials RUSH. It signs in with
+the member's session. RUSH's side is `src/server/runner.js`:
 - The upgrade is refused if it carries an `Origin` header, or if it is authenticated only by a
   cookie. Otherwise a web page could register itself as a member's computer.
 - Each member has one computer; a new one replaces the old.
 - Every NanoAgent call for the member goes down that socket (`aiFor`): runs, plugin installs and
   plugin pages. While no computer is connected, they fail with "RUSH Lab is not connected".
-  They do not fall back to Mochi's servers.
+  They do not fall back to RUSH's servers.
 - A plugin page's frame carries no session, so its address names the computer by its
   connection's random `page` id.
 
 The frames are in `src/runner/protocol.js`. The relay passes on only what these need: runs,
-installs and their pages, and run folders' files. Only the marketplace's packages stay on Mochi's
+installs and their pages, and run folders' files. Only the marketplace's packages stay on RUSH's
 NanoAgent.
 
 Each NanoAgent's token is random for each start, and only its relay and lab.mjs hold it. Plugins
@@ -82,7 +82,7 @@ RUSH Lab.app
 └── Resources/
     ├── runner/                   src/runner/: lab.mjs, the relay and what they load; plugin-project/: project.md and the publish-plugin skill
     ├── nanoagent/                NanoAgent's source (site/), its uv.lock, the PI runner's bundle, its config
-    ├── config.json               config.yaml (RUSH Lab Dev's: its `dev` block over it): the app's name, label, scheme, the Mochi it serves, its folders, runtime versions
+    ├── config.json               config.yaml (RUSH Lab Dev's: its `dev` block over it): the app's name, label, scheme, the RUSH it serves, its folders, runtime versions
     └── stamp                     names this build
 ```
 
@@ -110,7 +110,7 @@ At launch the app (`src-tauri/src/main.rs`, `lab.rs`):
    and every hour it asks `GET /api/lab/updates/<target>`, and a newer version is downloaded,
    checked against the update key and the version it was signed for, and installed over the app. It opens that build,
    its window hidden, once nothing runs here and its window is closed: lab.mjs keeps the data
-   folder's `busy` while any relay has a request of Mochi's going, a held run until Mochi
+   folder's `busy` while any relay has a request of RUSH's going, a held run until RUSH
    releases it. Its log is `logs/lab.log`.
 
 A failure in steps 2 to 4 says why in a dialog, and the app quits.
@@ -124,7 +124,7 @@ developer, so the window signs in in macOS's own sign-in sheet over it (ASWebAut
 
 1. In the window, **Continue with GitHub** (`AuthScreen.js`) goes to `<scheme>://sign-in`, which the
    app follows instead of the page. It opens `GET /api/lab/sign-in?state=<random>` in the sheet.
-2. Signed in there, Mochi redirects to `<scheme>://sign-in?site=&state=&token=<t>`; signed out, to
+2. Signed in there, RUSH redirects to `<scheme>://sign-in?site=&state=&token=<t>`; signed out, to
    the sign-in page first, which comes back. The sheet hands that address to this app alone, never
    to a browser or another copy of the app, and closes.
 3. The app takes it only with the state it asked for. It opens
@@ -140,7 +140,7 @@ confirm it. `src/server/routes/lab.js`:
 
 - `GET /api/lab/connect` (signed in) answers `{link}`: `<scheme>://connect?site=<SITE_URL>&token=<t>`.
   The token is the member's for an hour, `<user id, base64url>.<expiry, unix seconds>.<HMAC-SHA256, base64url>`,
-  signed with a key derived from `BETTER_AUTH_SECRET` (`src/server/lab-tokens.js`). Mochi keeps
+  signed with a key derived from `BETTER_AUTH_SECRET` (`src/server/lab-tokens.js`). RUSH keeps
   nothing of it.
 - `GET /api/lab/session?token=<t>` answers `{member: {id, login}}`: whose the link is.
 - `POST /api/lab/session?token=<t>` answers `{session, member}`: a new session for the token's
@@ -184,11 +184,11 @@ connection's lines marked `[<id>]`.
 
 When a relay's session lapses, it asks for the device page (`/device?client=desktop`), which
 lab.mjs opens in the browser and logs; once connected after that, it opens the site, at
-Settings → AI while there is no key. Keys come only from Mochi, through the relay: from Settings →
+Settings → AI while there is no key. Keys come only from RUSH, through the relay: from Settings →
 AI, a key travels down the relay's socket (`{type: 'keys'}`), and the relay hands it to lab.mjs on
 its stdout and hears the answer on its stdin. lab.mjs keeps it in the connection's `settings.env`
 (mode 0600), hands it to the running NanoAgent (`PUT /v1/keys`), and tells the relay which keys are
-set. Mochi keeps nothing, and sees only which keys are set.
+set. RUSH keeps nothing, and sees only which keys are set.
 
 When either service of a connection exits, it stops the other, the relay first, and starts the
 connection again after 30 s. A relay replaced by another computer signing in as the same member
@@ -250,6 +250,6 @@ connects as rush-lab.org connects RUSH Lab. To try a change to the runner or Nan
 
 - **Signing out** of the site does not disconnect the relay. Its session is its own.
 - **Windows** (FUTURE.md). An installer builds, but CI does not build or ship one.
-- **One Mochi process.** Mochi keeps the connected computers in memory, as it does every other
-  live connection (`src/server/fs/events.js`). Running several Mochi processes would need them
+- **One RUSH process.** RUSH keeps the connected computers in memory, as it does every other
+  live connection (`src/server/fs/events.js`). Running several RUSH processes would need them
   relayed between processes.

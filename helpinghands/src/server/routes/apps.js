@@ -23,7 +23,7 @@ const {outdated} = require('../workspace-apps');
 // folder of NanoAgent's own (fs/agent-sync.js).
 
 // Shown in the browser as themselves; everything else is text or a download.
-// Never HTML or SVG, which would run in Mochi's origin.
+// Never HTML or SVG, which would run in RUSH's origin.
 const INLINE_TYPES = {png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', pdf: 'application/pdf'};
 
 function contentTypeFor(path, body) {

@@ -318,7 +318,7 @@ def test_plugin_runs_choose_an_apps_profile_within_the_limits(client: TestClient
     assert over.status_code == 400 and "at most 6" in over.json()["error"]
     thinking = client.post(f"{runs(client)}/runs", json={"input": "x", "settings": {"thinking_level": "high"}})
     assert thinking.status_code == 400 and "thinking_level" in thinking.json()["error"]
-    # Mochi's NanoAgent runs only its profiles: a run cannot name a model of its own.
+    # RUSH's NanoAgent runs only its profiles: a run cannot name a model of its own.
     named = client.post(f"{runs(client)}/runs", json={"input": "x", "model": {"provider": "openrouter", "model": "x/y"}})
     assert named.status_code == 400 and "configured profiles" in named.json()["error"]
     assert client.post(f"/v1/workspaces/alice/installs/{SHA}/runs", json={"input": "x"}).status_code == 404

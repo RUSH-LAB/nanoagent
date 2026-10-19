@@ -27,7 +27,7 @@ jobs:
           cache: npm
           cache-dependency-path: helpinghands/package-lock.json
       - uses: astral-sh/setup-uv@v6
-      - name: Install Mochi
+      - name: Install RUSH
         run: npm ci
       - name: Unit tests
         run: npm test
@@ -36,9 +36,9 @@ jobs:
       - name: Live NanoAgent contract
         run: npm run nanoagent:verify
 
-  # Railway deploys Mochi and NanoAgent separately, so whichever side changed must work with the
-  # other side as it is in production: this Mochi against production's NanoAgent, and production's
-  # Mochi against this NanoAgent. A side that did not change is production's already.
+  # Railway deploys RUSH and NanoAgent separately, so whichever side changed must work with the
+  # other side as it is in production: this RUSH against production's NanoAgent, and production's
+  # RUSH against this NanoAgent. A side that did not change is production's already.
   cross-version:
     if: github.event_name == 'pull_request'
     name: ${{ matrix.name }}
@@ -48,11 +48,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: This Mochi against production NanoAgent
+          - name: This RUSH against production NanoAgent
             changed: helpinghands
             mochi: ./helpinghands
             nanoagent: ../production
-          - name: Production Mochi against this NanoAgent
+          - name: Production RUSH against this NanoAgent
             changed: nanoagent
             mochi: ../production/helpinghands
             nanoagent: .
@@ -80,7 +80,7 @@ jobs:
           node-version: 22
       - uses: astral-sh/setup-uv@v6
         if: steps.side.outputs.changed == 'true'
-      - name: Install Mochi
+      - name: Install RUSH
         if: steps.side.outputs.changed == 'true'
         working-directory: ${{ matrix.mochi }}
         run: npm ci

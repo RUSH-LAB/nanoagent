@@ -2,12 +2,12 @@
 
 /**
  * The OpenRouter key a member's RUSH Lab starts with: one of their own, made
- * with OPENROUTER_MANAGEMENT_KEY in Mochi's OpenRouter workspace (WORKSPACES:
+ * with OPENROUTER_MANAGEMENT_KEY in RUSH's OpenRouter workspace (WORKSPACES:
  * production's, or every other site's, such as npm start's, whose accounts are
  * copies of production's and must not disable their keys), whose lifetime
  * budget of TOTAL dollars is every member's together: OpenRouter
  * stops every key in it once that is spent. Each key is named for its member,
- * and Mochi keeps none of them: a computer that comes without one is given a
+ * and RUSH keeps none of them: a computer that comes without one is given a
  * new key, and the member's others are disabled, kept so what they spent still
  * counts as theirs. A member who saves a key of their own is given none.
  */
@@ -15,11 +15,11 @@ const API = 'https://openrouter.ai/api/v1';
 const ENV = 'OPENROUTER_API_KEY';
 const WORKSPACES = {
   production: {name: 'Mochi', slug: 'mochi'},
-  other: {name: 'Mochi (development)', slug: 'mochi-dev'},
+  other: {name: 'RUSH (development)', slug: 'mochi-dev'},
 };
 const TOTAL = 10;
 
-const keyName = userId => `Mochi ${userId}`;
+const keyName = userId => `RUSH ${userId}`;
 
 function createOpenRouterKeys({managementKey, production, fetchImpl = fetch}) {
   if (typeof production !== 'boolean') throw new Error('createOpenRouterKeys needs production: true or false');
@@ -41,7 +41,7 @@ function createOpenRouterKeys({managementKey, production, fetchImpl = fetch}) {
     return JSON.parse(text);
   }
 
-  /** The id of Mochi's workspace, made the first time with its lifetime budget of TOTAL. */
+  /** The id of RUSH's workspace, made the first time with its lifetime budget of TOTAL. */
   function workspaceId() {
     if (workspace) return workspace;
     workspace = (async () => {
@@ -57,7 +57,7 @@ function createOpenRouterKeys({managementKey, production, fetchImpl = fetch}) {
     return workspace;
   }
 
-  /** Every key Mochi made the member, disabled ones too. */
+  /** Every key RUSH made the member, disabled ones too. */
   async function memberKeys(userId) {
     const id = await workspaceId();
     const keys = [];
@@ -89,7 +89,7 @@ function createOpenRouterKeys({managementKey, production, fetchImpl = fetch}) {
       next.finally(() => { if (giving.get(userId) === next) giving.delete(userId); }).catch(() => {});
       return next;
     },
-    /** What the member has spent, in dollars, on every key Mochi made them. */
+    /** What the member has spent, in dollars, on every key RUSH made them. */
     async spent(userId) {
       return (await memberKeys(userId)).reduce((sum, key) => sum + key.usage, 0);
     },

@@ -156,7 +156,7 @@ test('hints at a key without giving it away', () => {
   assert.equal(keyHint('short-key'), '…');
 });
 
-test('reads env lines as Mochi does', () => {
+test('reads env lines as RUSH does', () => {
   const values = parseEnv('# comment\n\nA=1\r\nexport B="two words"\nC=\'x=y\'\nD=\n');
   assert.deepEqual(values, {A: '1', B: 'two words', C: 'x=y', D: ''});
 });
@@ -246,7 +246,7 @@ test('keeps a member\'s files in a folder named for their login, which follows t
   }
 });
 
-test('tells a connection\'s relay where Mochi, NanoAgent and its files are', () => {
+test('tells a connection\'s relay where RUSH, NanoAgent and its files are', () => {
   const keys = [{env: 'OPENROUTER_API_KEY', label: 'OpenRouter', set: false, hint: null}];
   assert.deepEqual(relayEnv({system: {HOME: '/Users/m'}, site: 'https://rush-lab.org', port: 47311, token: 't', connection: '/d', keys, files: '/Users/m/rushlab/alice'}), {
     HOME: '/Users/m',

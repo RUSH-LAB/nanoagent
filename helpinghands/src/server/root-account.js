@@ -20,7 +20,7 @@ const {githubProfile} = require('./github-users');
  * gets the GitHub account linked, the way Better Auth links at sign-in.
  */
 async function ensureRootAccount(auth, {login = process.env.ROOT_GITHUB_LOGIN?.trim(), fetchImpl = fetch} = {}) {
-  if (!login) throw new Error('Mochi requires ROOT_GITHUB_LOGIN, the GitHub account that administers the platform.');
+  if (!login) throw new Error('RUSH requires ROOT_GITHUB_LOGIN, the GitHub account that administers the platform.');
   const profile = await githubProfile(login, fetchImpl);
   if (!profile) throw new Error(`GitHub has no user ${login}`);
   const {internalAdapter} = await auth.$context;

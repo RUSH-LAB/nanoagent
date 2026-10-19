@@ -265,7 +265,7 @@ async function createWorkspace({headers, actorId, name, slug}) {
 
   // Server-side creation names the authenticated actor explicitly. Better Auth
   // owns the organization and owner-membership writes; its lifecycle hook
-  // provisions Mochi's settings and #general resources idempotently.
+  // provisions RUSH's settings and #general resources idempotently.
   const organization = await auth.api.createOrganization({
     body: {
       name: clean,

@@ -66,6 +66,9 @@ marketplace to offer it: a version published before 0.7.0 is listed under mainte
   took, as a kept turn's does too (the host keeps each turn's `metrics`), and Graph draws its
   graph. In the graph, a task is shown by its name, a reply's card holds its thinking and text, a
   finished one from the start, and tokens read `13.9k tokens in, 1.3k out`.
+- The page opens on the session its host names (`describe`'s `session`), and tells the host the
+  session it shows, or null on the Dashboard (`session.shown {id}`). RUSH keeps it in the
+  Plugins page's address (`?session=`), so reloading the window opens the session again.
 
 ## 0.6.0
 

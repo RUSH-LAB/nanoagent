@@ -23,7 +23,7 @@ describe('the plugin marketplace', () => {
       : {value: {repository: REPOSITORY, archive: Buffer.from(url)}}),
     newer: async repository => ({value: repository.commit === REPOSITORY.commit ? 'e'.repeat(40) : null}),
   };
-  // Mochi's NanoAgent refuses legacy's packages, published by one whose rules it no longer has,
+  // RUSH's NanoAgent refuses legacy's packages, published by one whose rules it no longer has,
   // keeping how it checked each.
   const inspections = new Map();
   const ai = {

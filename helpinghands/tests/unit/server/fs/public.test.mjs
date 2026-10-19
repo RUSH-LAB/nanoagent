@@ -60,7 +60,7 @@ describe('publishing', () => {
   });
 
   it('renders a public page as HTML for visitors and crawlers', async () => {
-    const shell = '<html><head><title>Mochi</title><meta name="description" content="app"></head><body><div id="__docusaurus"></div></body></html>';
+    const shell = '<html><head><title>RUSH</title><meta name="description" content="app"></head><body><div id="__docusaurus"></div></body></html>';
     const res = {
       written: null,
       writeHead(status, headers) { this.written = {status, headers}; },
@@ -74,7 +74,7 @@ describe('publishing', () => {
     assert.match(res.written.body, /<title>Hello \| Lab<\/title>/);
     assert.match(res.written.body, /<meta name="description" content="A first post">/);
     assert.match(res.written.body, /<noscript><article><h1>Hello<\/h1><p>Hello, &lt;world&gt; &amp; friends\.<\/p>/);
-    assert.ok(!res.written.body.includes('<title>Mochi</title>'));
+    assert.ok(!res.written.body.includes('<title>RUSH</title>'));
 
     const unpublished = await servePublicPage({method: 'GET', url: '/w/lab/documents/notes/private'}, res, {
       root: '/build', publicFs, compileMarkdown, parseFrontmatter, resolveWorkspaceSite, files: {readFileSync: () => shell},

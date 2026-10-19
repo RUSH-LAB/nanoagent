@@ -721,7 +721,7 @@ describe('/api/ai/settings and /api/ai/models', () => {
     assert.deepEqual((await get()).payload, {credit: {you: 0.75, total: {used: 0.75, cap: 10}}});
     computer({value: {...own, limit: null, limit_remaining: null}});
     assert.deepEqual((await get()).payload.credit.total, {used: 0.75, cap: null});
-    // Mochi's: what the member spent on every key Mochi gave them, beside everyone's of the cap.
+    // RUSH's: what the member spent on every key RUSH gave them, beside everyone's of the cap.
     ctx.openrouterKeys = {workspaceId: async () => 'ws1', spent: async userId => (userId === 'u1' ? 3.5 : 0)};
     computer({value: {usage: 0.5, limit: null, limit_remaining: null, workspace_id: 'ws1', workspace_budget: {spend: 6, limit: 10}}});
     assert.deepEqual((await get()).payload, {credit: {you: 3.5, total: {used: 6, cap: 10}}});

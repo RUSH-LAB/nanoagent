@@ -1,7 +1,7 @@
 import React from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import Link from '@docusaurus/Link';
-import {useLocation} from '@docusaurus/router';
+import {useHistory, useLocation} from '@docusaurus/router';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE, {apiJson} from '@site/src/utils/api';
 import Layout from '@theme/Layout';
@@ -60,9 +60,10 @@ function UnavailableNotice({app}) {
  * An outdated one (`refused`, server/market-checks.js) is its page too, never
  * installed, in which the member reads their sessions and starts none.
  * One still being built is our notice. The page moving the member to another
- * version opens that version.
+ * version opens that version. The page opens on `session`, and `onSession`
+ * hears the session it shows.
  */
-function AppDetail({app, workspace}) {
+function AppDetail({app, workspace, session, onSession}) {
   const [opened, setOpened] = React.useState({app: null, error: null});
   // Counts the versions the page moved to, so each opens again.
   const [moved, setMoved] = React.useState(0);
@@ -87,7 +88,7 @@ function AppDetail({app, workspace}) {
     prepareWorkspaceApps(workspace.id, {again: true});
     if (changed.sha256 !== opened.app.sha256) setMoved(count => count + 1);
   };
-  return <PluginFrame app={opened.app} workspace={workspace} onVersion={onVersion} />;
+  return <PluginFrame app={opened.app} workspace={workspace} onVersion={onVersion} session={session} onSession={onSession} />;
 }
 
 function AppsColumns() {
@@ -95,6 +96,18 @@ function AppsColumns() {
   const {slug, workspace} = useWorkspaceSite();
   const {apps, error} = useWorkspaceApps(workspace);
   const navigation = pluginNavigation(apps ?? [], location.search, `/w/${encodeURIComponent(slug)}/apps`);
+  // The address names the session the plugin's page shows (?session=), so reloading opens it again.
+  const history = useHistory();
+  const session = new URLSearchParams(location.search).get('session');
+  const onSession = id => {
+    // Hidden, Plugins keeps running (components/Shell/Sections.js) and the address is another section's.
+    if (history.location.pathname !== location.pathname) return;
+    const params = new URLSearchParams(history.location.search);
+    if (id) params.set('session', id);
+    else params.delete('session');
+    const search = params.size ? `?${params}` : '';
+    if (search !== history.location.search) history.replace({...history.location, search});
+  };
 
   let content = null;
   if (!slug) content = <p className={styles.muted}>Open Plugins from a workspace.</p>;
@@ -110,7 +123,7 @@ function AppsColumns() {
   } else if (apps && navigation.requestedApp && !navigation.app) {
     content = <div className={styles.error}>No app named {navigation.requestedApp}.</div>;
   } else if (apps) {
-    content = <AppDetail key={navigation.app.id} app={navigation.app} workspace={workspace} />;
+    content = <AppDetail key={navigation.app.id} app={navigation.app} workspace={workspace} session={session} onSession={onSession} />;
   }
 
   return (

@@ -14,11 +14,11 @@ const SESSIONS = '/api/apps/arxiv-source/sessions';
 const sessionWith = (chat = []) => ({id: SESSION, pluginId: 'arxiv-source', title: '', chat, calls: []});
 
 /**
- * A host on a fake frame, with `request` answering Mochi API paths, and a
+ * A host on a fake frame, with `request` answering RUSH API paths, and a
  * session already started (with `chat` as its conversation); every message
  * posted and every request made after that is in `posted` and `calls`.
  */
-async function hostWith(request, {chat = [], started = true, onVersion = () => {}} = {}) {
+async function hostWith(request, {chat = [], started = true, onVersion = () => {}, shown = null, onShown = () => {}} = {}) {
   const posted = [];
   const frame = {postMessage: (message, origin) => posted.push({message, origin})};
   const calls = [];
@@ -32,6 +32,8 @@ async function hostWith(request, {chat = [], started = true, onVersion = () => {
       return request(path, init);
     },
     onVersion,
+    shown: () => shown,
+    onShown,
   });
   const send = (id, method, params = {}) => host.onMessage({source: frame, data: {protocol: PROTOCOL, id, method, params}});
   if (started) {
@@ -79,6 +81,8 @@ describe('nanoagent.ui/v1 requests', () => {
       ['follow', {}],
       ['cancel', {runId: 'run-1'}],
       ['session.archive', {id: SESSION, archived: true}],
+      ['session.shown', {id: SESSION}],
+      ['session.shown', {id: null}],
       ['plugin.version', {version: '1.2.0'}],
       ['plugin.version', {version: null}],
     ];
@@ -98,6 +102,8 @@ describe('nanoagent.ui/v1 requests', () => {
       ['session.save', {state: {}}],
       ['session.archive', {id: SESSION}],
       ['session.archive', {id: 'not-an-id', archived: true}],
+      ['session.shown', {}],
+      ['session.shown', {id: 'not-an-id'}],
       ['plugin.version', {}],
       ['plugin.version', {version: ''}],
     ];
@@ -138,14 +144,24 @@ describe('run events on the bridge', () => {
 });
 
 describe('the bridge host', () => {
-  it('describes the plugin, workspace and theme, replying to origin *', async () => {
-    const {posted, send} = await hostWith(() => assert.fail('describe needs no request'));
+  it('describes the plugin, workspace, theme and the session to open on, replying to origin *', async () => {
+    const {posted, send} = await hostWith(() => assert.fail('describe needs no request'), {shown: SESSION});
     send('d1', 'describe');
     await until(() => posted.length);
     assert.deepEqual(posted, [{
-      message: {protocol: PROTOCOL, id: 'd1', result: {plugin: PLUGIN, workspace: {id: 'ws-1'}, theme: 'light'}},
+      message: {protocol: PROTOCOL, id: 'd1', result: {plugin: PLUGIN, workspace: {id: 'ws-1'}, theme: 'light', session: SESSION}},
       origin: '*',
     }]);
+  });
+
+  it('hears the session the page shows, or null for its Dashboard', async () => {
+    const heard = [];
+    const {posted, send} = await hostWith(() => assert.fail('session.shown needs no request'), {onShown: id => heard.push(id)});
+    send('s1', 'session.shown', {id: SESSION});
+    send('s2', 'session.shown', {id: null});
+    await until(() => heard.length === 2);
+    assert.deepEqual(heard, [SESSION, null]);
+    assert.deepEqual(messages(posted), [{protocol: PROTOCOL, id: 's1', result: {}}, {protocol: PROTOCOL, id: 's2', result: {}}]);
   });
 
   it('ignores another window\'s messages and answers a bad request with an error', async () => {
@@ -216,7 +232,7 @@ describe('the bridge host', () => {
     await until(() => messages(hanging.posted).some(message => message.event === 'chat.done'));
     assert.deepEqual(messages(hanging.posted).find(message => message.id === 'c1'), {protocol: PROTOCOL, id: 'c1', result: {}});
     assert.deepEqual(eventsOf(hanging.posted, 'run-1'), [['chat.error', {message: 'Cancelled'}], ['chat.done', {}]]);
-    // Mochi stops the run; the page's connection only follows it.
+    // RUSH stops the run; the page's connection only follows it.
     assert.deepEqual(hanging.calls.slice(1).map(({path, init}) => [path, init.method]), [[`${SESSIONS}/${SESSION}/run`, 'DELETE']]);
     hanging.send('c2', 'cancel', {runId: 'run-1'});
     await until(() => messages(hanging.posted).some(message => message.id === 'c2'));

@@ -1,5 +1,5 @@
 /**
- * The bridge protocol `nanoagent.ui/v1` between a plugin's page and Mochi, as
+ * The bridge protocol `nanoagent.ui/v1` between a plugin's page and RUSH, as
  * pure functions: which messages the host accepts, what a request's params
  * must be, the messages it sends back, and how a run's server-sent events
  * become bridge events. The host that uses them is ./host.js.
@@ -40,6 +40,7 @@ const PARAMS = {
   'session.get': ({id}) => (SESSION_ID.test(id ?? '') ? null : 'session.get needs a session id'),
   'session.start': () => null,
   'session.resume': ({id}) => (SESSION_ID.test(id ?? '') ? null : 'session.resume needs a session id'),
+  'session.shown': ({id}) => (id === null || SESSION_ID.test(id ?? '') ? null : 'session.shown needs a session id or null'),
   'session.archive': ({id, archived}) => (SESSION_ID.test(id ?? '') && typeof archived === 'boolean'
     ? null
     : 'session.archive needs a session id and archived, true or false'),

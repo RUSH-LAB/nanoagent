@@ -2,7 +2,7 @@
 
 const {createAccessControl} = require('better-auth/plugins/access');
 
-// Better Auth owns the generic organization lifecycle. Mochi's content
+// Better Auth owns the generic organization lifecycle. RUSH's content
 // permissions remain in workspace-context.js because they describe product
 // operations rather than identity-provider operations.
 const workspaceAccessControl = createAccessControl({
@@ -131,7 +131,7 @@ function organizationOptions({postgresEnabled = false, isProduction = false, sen
       allowUserToCreateOrganization: false,
       organizationLimit: user => tenancy.workspaceLimitReached(user.id),
     } : {}),
-    // Mochi's hard-delete endpoint first writes asset keys to the durable
+    // RUSH's hard-delete endpoint first writes asset keys to the durable
     // deletion outbox. Bypassing it through Better Auth would orphan blobs.
     disableOrganizationDeletion: true,
     requireEmailVerificationOnInvitation: isProduction,

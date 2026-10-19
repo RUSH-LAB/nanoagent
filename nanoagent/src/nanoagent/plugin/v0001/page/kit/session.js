@@ -21,12 +21,13 @@ export function currentSession() {
 
 /**
  * Make `opened` (what `session.resume` answered) the page's session, or with no `opened`, a
- * new one, which the host starts when the page first chats in it.
+ * new one, which the host starts when the page first chats in it, and then calls `onStarted`.
  * @param {object|null} [opened]
+ * @param {() => void} [onStarted]
  * @returns {{id: string|null, chat: Array<{prompt: string, answer: string, tools: Array<{name: string, arguments: object, output: unknown, isError: boolean}>, error: string|null}>, running: {prompt: string}|null}}
  *   A turn with an `error` was not answered, which says why; `id` is null until a new session starts; `running` is the message it is still answering.
  */
-export function enterSession(opened = null) {
+export function enterSession(opened = null, onStarted = () => {}) {
   const session = {
     id: opened?.id ?? null,
     chat: opened?.chat ?? [],
@@ -39,6 +40,7 @@ export function enterSession(opened = null) {
         (starting ??= request("session.start").then(
           (reply) => {
             session.id = reply.session.id;
+            onStarted();
           },
           (problem) => {
             starting = null;
@@ -130,7 +132,8 @@ function emptyText(archived, closed) {
  * @param {(session: object|null) => void} options.onOpen With what `session.resume` answered,
  *   or null for a new session.
  * @param {boolean} [options.closed] Whether no new session may start: the sessions are only read.
- * @returns {{element: HTMLElement, refresh: () => Promise<void>}} `refresh` lists the sessions again.
+ * @returns {{element: HTMLElement, refresh: () => Promise<void>, resume: (id: string) => Promise<boolean>}}
+ *   `refresh` lists the sessions again; `resume` opens session `id`, saying why not when it cannot, and whether it did.
  */
 export function dashboard({ onOpen, closed = false }) {
   const stats = h("dl", { class: "session-stats" });
@@ -156,14 +159,16 @@ export function dashboard({ onOpen, closed = false }) {
     }
   }
 
-  async function resume(session, button) {
-    button.disabled = true;
+  async function resume(id, button = null) {
+    if (button) button.disabled = true;
     try {
-      onOpen((await request("session.resume", { id: session.id })).session);
+      onOpen((await request("session.resume", { id })).session);
+      return true;
     } catch (problem) {
       status.textContent = problem.message;
+      return false;
     } finally {
-      button.disabled = false;
+      if (button) button.disabled = false;
     }
   }
 
@@ -191,7 +196,7 @@ export function dashboard({ onOpen, closed = false }) {
       h("span", { class: "session-title", text: titled(session) }),
       h("span", { class: "session-meta", text: meta.join(" · ") }),
     );
-    open.addEventListener("click", () => resume(session, open));
+    open.addEventListener("click", () => resume(session.id, open));
     const panel = h("div", { class: "session-runs", hidden: true });
     const runs = session.runs
       ? h("button", { type: "button", class: "button small ghost", "aria-expanded": "false", text: "Runs" })
@@ -244,5 +249,5 @@ export function dashboard({ onOpen, closed = false }) {
     stats,
     list,
   );
-  return { element, refresh };
+  return { element, refresh, resume };
 }

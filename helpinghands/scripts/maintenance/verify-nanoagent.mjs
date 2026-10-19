@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 
 /**
- * Live contract check: every call Mochi's NanoAgent client makes, against a
+ * Live contract check: every call RUSH's NanoAgent client makes, against a
  * running NanoAgent web host and a fake OpenAI API.
  *
  * NanoAgent is started from its own contract configuration
  * (nanoagent/deploy/contract/nanoagent.yaml), whose only package is the plugin
  * the package and install checks use, so this check holds for any pair of
  * checkouts: by default the adjacent one, or the one NANOAGENT_PROJECT_DIR
- * names. CI runs it across versions, this Mochi against production's NanoAgent
- * and production's Mochi against this NanoAgent. No provider credential is used.
+ * names. CI runs it across versions, this RUSH against production's NanoAgent
+ * and production's RUSH against this NanoAgent. No provider credential is used.
  */
 
 import assert from 'node:assert/strict';

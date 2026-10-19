@@ -38,13 +38,13 @@ default_profile: pi-deepseek
 profiles:
   - deploy/railway/profiles/pi-deepseek.yaml
   - deploy/railway/profiles/app-deepseek.yaml
-# NanoAgent ships no plugin: each is published to Mochi's marketplace from its own repository, and
-# runs once Mochi installs it.
+# NanoAgent ships no plugin: each is published to RUSH's marketplace from its own repository, and
+# runs once RUSH installs it.
 packages: []
-# Scratch space, one folder per run; Mochi keeps the files.
+# Scratch space, one folder per run; RUSH keeps the files.
 workspaces: /tmp/nanoagent-workspaces
 # On the service's volume, so a restart keeps them: installed packages, one folder per sha256
-# (Mochi installs again after a restart and gets the kept one), and the uv cache they share.
+# (RUSH installs again after a restart and gets the kept one), and the uv cache they share.
 installs: /data/nanoagent-installs
 uv_cache: /data/nanoagent-uv-cache
 installs_unused_days: 30

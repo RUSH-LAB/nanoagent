@@ -1,4 +1,4 @@
-# Mochi Paper Protocol v2
+# RUSH Paper Protocol v2
 
 Every bibliography entry uses the schema identifier `mochi.paper/2`.
 

@@ -5,7 +5,7 @@ const {checkUpload, checkedUploads} = require('./market-checks');
 /**
  * A member's apps: the marketplace plugins they installed (postgres/user-plugins.js),
  * which they run in any workspace they are in, each from an install of the
- * plugin's package on the NanoAgent of their own computer. `ai`, Mochi's own NanoAgent, only offers packages.
+ * plugin's package on the NanoAgent of their own computer. `ai`, RUSH's own NanoAgent, only offers packages.
  *
  * The marketplace offers NanoAgent's own packages and the uploads
  * (postgres/market.js), one id each: an upload may not take one of NanoAgent's.
@@ -14,7 +14,7 @@ const {checkUpload, checkedUploads} = require('./market-checks');
  * NanoAgent installs a package by its sha256 and keeps it until
  * it restarts; opening an app sends the package when NanoAgent has no install
  * of it, which takes as long as building the plugin's environment, once.
- * An upload Mochi's NanoAgent refuses (market-checks.js) is `refused`: listed, never installed,
+ * An upload RUSH's NanoAgent refuses (market-checks.js) is `refused`: listed, never installed,
  * and opened as its page alone (NanoAgent's view of the package), so the member reads the
  * sessions they had with it and starts none until they run a version NanoAgent accepts.
  */

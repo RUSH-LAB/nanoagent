@@ -32,7 +32,7 @@ def test_railway_config_is_private_authenticated_and_mochi_compatible(
     assert config.sandbox == "none"
     # NanoAgent ships no plugin: each comes from its own repository through RUSH Lab's marketplace.
     assert config.packages == []
-    # Runs choose among the profiles, within the limits: Mochi pays for them.
+    # Runs choose among the profiles, within the limits: RUSH pays for them.
     assert config.run_models is False
     assert catalog["limits"] == {"max_steps": 6, "cost_limit": 0.10, "token_limit": 65536, "max_tokens": 2048, "capped": True}
     assert catalog["defaultProfile"] == "pi-deepseek"

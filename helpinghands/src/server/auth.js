@@ -52,7 +52,7 @@ const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID?.trim();
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET?.trim();
 if (!(GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET)) {
-  throw new Error('Mochi requires GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET: GitHub is the only way to sign in.');
+  throw new Error('RUSH requires GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET: GitHub is the only way to sign in.');
 }
 const SITE_URL = (process.env.SITE_URL || 'http://localhost:3000').replace(/\/$/, '');
 // The clients allowed to ask for a device code: the sync client (cli/rush.mjs)
@@ -256,7 +256,7 @@ const auth = betterAuth({
   ],
   socialProviders: {
     // Every sign-in copies the GitHub account's name, picture, primary email,
-    // username and bio onto the user, so what Mochi shows is what GitHub says now.
+    // username and bio onto the user, so what RUSH shows is what GitHub says now.
     github: {
       clientId: GITHUB_CLIENT_ID, clientSecret: GITHUB_CLIENT_SECRET, overrideUserInfoOnSignIn: true,
       mapProfileToUser: githubProfileFields,
@@ -323,7 +323,7 @@ const auth = betterAuth({
     // Better Auth is the organization and member lifecycle engine, and the
     // email invitation one, in both SQLite and PostgreSQL; invitations to a
     // GitHub account are org.js's own, accepted through Better Auth's
-    // addMember. The PostgreSQL option aliases its logical models onto Mochi's
+    // addMember. The PostgreSQL option aliases its logical models onto RUSH's
     // workspace-named control-plane tables.
     organization(organizationOptions({
       postgresEnabled: postgres.enabled,

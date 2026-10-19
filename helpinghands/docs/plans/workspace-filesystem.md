@@ -10,7 +10,7 @@ and published folders are readable by anyone at the site's domain.
 Content is split today across `document`/`document_version`,
 `asset`/`object_blob`, `reference`, the content domains of `store_item`, and
 NanoAgent's local disk, behind the Book/Blog pages, the Files page, the
-Workspace page, and one API per plugin. Nothing outside Mochi can see any of it
+Workspace page, and one API per plugin. Nothing outside RUSH can see any of it
 without an account, and NanoAgent's files do not survive a redeploy.
 
 ## Model
@@ -74,7 +74,7 @@ recently used evicted.
   file open.
 - **Binary files** keep last-write-wins with full history, and become a
   conflicted copy only when two edits truly collide.
-- Clients: the browser (IndexedDB), the `mochi` CLI (a local folder caching
+- Clients: the browser (IndexedDB), the `rush` CLI (a local folder caching
   the drive, minus the paths the user marks online only), RUSH Lab (the
   member's own home in each workspace, at `~/rushlab/<login>/<slug>/`), and
   **agents and plugins**, whose runs mount the folders they may use and write

@@ -462,7 +462,7 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
   }
 
   // ── What the OpenRouter key on the member's computer has spent, as OpenRouter says ──
-  // `you`: what the member has spent, on every key Mochi gave them when the key is Mochi's (its
+  // `you`: what the member has spent, on every key RUSH gave them when the key is RUSH's (its
   // workspace), else on this key; `total`: what everyone has spent against the cap, the
   // workspace's lifetime budget, or the key's own spend against its own limit, if it has one.
   if (req.method === 'GET' && pathname === '/api/runner/credit') {

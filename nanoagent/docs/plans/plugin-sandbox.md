@@ -2,7 +2,7 @@
 
 ## Why it is needed
 
-Anyone signed in to Mochi can publish a plugin to the marketplace, and NanoAgent runs every
+Anyone signed in to RUSH can publish a plugin to the marketplace, and NanoAgent runs every
 plugin a workspace adds. Unconfined, a plugin's process can read NanoAgent's secrets
 (`OPENROUTER_API_KEY`, `NANOAGENT_API_TOKEN`, through its environment or `/proc`), read and write
 any file the server can, and reach any host, the private Railway network included.

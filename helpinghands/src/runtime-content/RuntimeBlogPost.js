@@ -25,7 +25,7 @@ function authorMetadata(authors) {
     title: author.bio,
     url: `https://github.com/${encodeURIComponent(author.login)}`,
     imageURL: author.image,
-  } : {key: author.login, name: `Unknown author: no Mochi account has the GitHub username ${author.login}`}));
+  } : {key: author.login, name: `Unknown author: no RUSH account has the GitHub username ${author.login}`}));
 }
 
 function contentFor({document, tree, workspaceSlug, collectionPath, previous, next, showReadingTime, authors}) {

@@ -54,7 +54,7 @@ class WebConfig(AgentDefinitionConfig):
     heartbeat_seconds: float = MISSING
     include_reasoning: bool = MISSING
     # Whether a run may name its own model (any in the PI catalog its credentials reach) and set
-    # its settings beyond the limits above: for a NanoAgent its member runs for themselves (Mochi
+    # its settings beyond the limits above: for a NanoAgent its member runs for themselves (RUSH
     # Lab), whose keys and spending are theirs. Loopback hosts only.
     run_models: bool = MISSING
 

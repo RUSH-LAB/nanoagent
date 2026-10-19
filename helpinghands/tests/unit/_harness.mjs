@@ -533,7 +533,7 @@ export function makeCtx(overrides = {}) {
       describe: () => ({available: true, provider: 'nanoagent', model: 'test-model'}),
       local: false,
     },
-    // Every member's runs go to ctx.ai, as with Settings → AI on Mochi servers
+    // Every member's runs go to ctx.ai, as with Settings → AI on RUSH servers
     // (server/runner.js); a suite testing the member's own computer replaces it.
     aiFor: async function () { return this.ai; },
     // The member's Settings → AI: none chosen, unless a suite sets ctx.settings.

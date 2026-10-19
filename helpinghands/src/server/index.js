@@ -36,7 +36,7 @@ const {contextualChat, contextualOrg} = require('./context-services');
 const roles = postgresServices?.roles ?? require('./roles');
 const chat = contextualChat(postgresServices?.chat ?? require('./chat'));
 const org = contextualOrg(postgresServices?.org ?? require('./org'));
-// Mochi's own NanoAgent: the marketplace's plugin packages only. Every run, install and
+// RUSH's own NanoAgent: the marketplace's plugin packages only. Every run, install and
 // plugin page is on the member's own computer (server/runner.js).
 const ai = require('./ai');
 const {createGithub} = require('./github');
@@ -56,10 +56,10 @@ const store = postgresServices?.store ?? require('./store');
 // everything else here: a test substitutes them.
 const documents = postgresServices?.documents ?? require('./documents');
 const preferences = postgresServices?.preferences ?? require('./preferences');
-// The OpenRouter key Mochi gives each member's computer, on its own account: production's in its
+// The OpenRouter key RUSH gives each member's computer, on its own account: production's in its
 // own OpenRouter workspace, any other site's (npm start's) in another.
 if (!process.env.OPENROUTER_MANAGEMENT_KEY?.trim()) {
-  throw new Error('Mochi requires OPENROUTER_MANAGEMENT_KEY: it gives each member\'s computer its OpenRouter key.');
+  throw new Error('RUSH requires OPENROUTER_MANAGEMENT_KEY: it gives each member\'s computer its OpenRouter key.');
 }
 const openrouterKeys = createOpenRouterKeys({
   managementKey: process.env.OPENROUTER_MANAGEMENT_KEY.trim(),
@@ -522,7 +522,7 @@ const ctx = {
   // The NanoAgent a member's runs go to: their own computer's (server/runner.js).
   aiFor: runners.aiFor,
   runners,
-  // The OpenRouter keys Mochi gives members' computers, or null (openrouter-keys.js).
+  // The OpenRouter keys RUSH gives members' computers, or null (openrouter-keys.js).
   openrouterKeys,
   // What a member chose in Settings → AI (ai-settings.js).
   aiSettings: async userId => aiSettings.stored(userId ? (await preferences.get(userId)).ai : null),

@@ -11,10 +11,10 @@ describe('transactional mail', () => {
     const result = await sendMail({
       to: 'reader@example.test',
       template: 'email-verification',
-      subject: 'Verify <Mochi>',
+      subject: 'Verify <RUSH>',
       url: 'https://mochi.example.test/verify?a=1&b=2',
     }, {
-      env: {RESEND_API_KEY: 're_test', MAIL_FROM: 'Mochi <mail@example.test>'},
+      env: {RESEND_API_KEY: 're_test', MAIL_FROM: 'RUSH <mail@example.test>'},
       fetchImpl: async (url, init) => {
         calls.push({url, init});
         return {ok: true, status: 200};
@@ -26,7 +26,7 @@ describe('transactional mail', () => {
     const body = JSON.parse(calls[0].init.body);
     assert.deepEqual(body.to, ['reader@example.test']);
     assert.equal(body.tags[0].value, 'email-verification');
-    assert.match(body.html, /Verify &lt;Mochi&gt;/);
+    assert.match(body.html, /Verify &lt;RUSH&gt;/);
     assert.match(body.html, /a=1&amp;b=2/);
   });
 
@@ -52,7 +52,7 @@ describe('transactional mail', () => {
   it('includes the provider error message without exposing credentials', async () => {
     await assert.rejects(
       sendMail({to: 'a@example.test', template: 'test', subject: 'x', url: 'https://example.test'}, {
-        env: {RESEND_API_KEY: 're_secret', MAIL_FROM: 'Mochi <mail@example.test>'},
+        env: {RESEND_API_KEY: 're_secret', MAIL_FROM: 'RUSH <mail@example.test>'},
         fetchImpl: async () => ({
           ok: false,
           status: 403,

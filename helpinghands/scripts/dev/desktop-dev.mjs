@@ -84,7 +84,7 @@ async function main() {
   try {
     await fetch(site, {signal: AbortSignal.timeout(5_000)});
   } catch {
-    throw new Error(`Nothing answers at ${config.site_url}: start Mochi with npm start first`);
+    throw new Error(`Nothing answers at ${config.site_url}: start RUSH with npm start first`);
   }
   const output = buildDev();
   // A second copy opened only shows the first, so the one running quits for the new build.

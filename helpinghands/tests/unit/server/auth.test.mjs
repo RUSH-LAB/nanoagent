@@ -363,7 +363,7 @@ describe('productionAuthError', () => {
       ...configured,
       MAIL_WEBHOOK_URL: undefined,
       RESEND_API_KEY: 're_test',
-      MAIL_FROM: 'Mochi <mail@example.test>',
+      MAIL_FROM: 'RUSH <mail@example.test>',
     }), null);
   });
 

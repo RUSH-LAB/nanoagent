@@ -184,14 +184,14 @@ export function npmInstallProblems(projectRoot) {
 }
 
 /**
- * Before any service runs, Mochi's node_modules and NanoAgent's .venv are installed from their
+ * Before any service runs, RUSH's node_modules and NanoAgent's .venv are installed from their
  * lockfiles, so a pull or branch switch never leaves them behind. A lockfile that no longer agrees
  * with its manifest stops startup: npm ci and uv sync --locked refuse it rather than resolve again.
  */
 async function syncDependencies(env, nanoagentRoot) {
   const problems = npmInstallProblems(root);
   if (problems.length) {
-    console.log(`Installing Mochi's node_modules from package-lock.json:\n  ${problems.join('\n  ')}`);
+    console.log(`Installing RUSH's node_modules from package-lock.json:\n  ${problems.join('\n  ')}`);
     await run('npm', ['ci'], {cwd: root, env, stdio: 'inherit'});
   }
   if (usesLocalNanoAgent(env)) {
@@ -240,7 +240,7 @@ export async function startLocal(argv = process.argv.slice(2)) {
   const env = environmentFor({base: {...localEnv, ...process.env}});
   const nanoagentRoot = nanoagentProjectFrom(env);
   if (usesLocalNanoAgent(env) && !fs.existsSync(path.join(nanoagentRoot, 'pyproject.toml'))) {
-    throw new Error(`NanoAgent checkout not found at ${nanoagentRoot}. Clone it beside Mochi or set NANOAGENT_PROJECT_DIR.`);
+    throw new Error(`NanoAgent checkout not found at ${nanoagentRoot}. Clone it beside RUSH or set NANOAGENT_PROJECT_DIR.`);
   }
   const apiPort = validatedPort(env.EDITOR_PORT, 'EDITOR_PORT');
   const sitePort = validatedPort(env.SITE_PORT || 3000, 'SITE_PORT');

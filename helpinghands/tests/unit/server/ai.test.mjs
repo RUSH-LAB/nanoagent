@@ -213,7 +213,7 @@ describe('NanoAgent gateway', () => {
     assert.equal((await gateway.profiles()).limits.capped, true);
   });
 
-  it('maps terminal failures and incomplete streams to Mochi errors', async () => {
+  it('maps terminal failures and incomplete streams to RUSH errors', async () => {
     const failed = ai.createNanoAgentGateway({
       env: {},
       fetchImpl: async () => response([sse({type: 'error', runId: 'r', code: 'timeout', error: 'Agent run timed out'})]),
@@ -232,7 +232,7 @@ describe('NanoAgent gateway', () => {
     assert.deepEqual(await gateway.complete({input: 'x'}), {error: 'unauthorized', status: 502});
   });
 
-  it('cancels the upstream request when the Mochi caller disconnects', async () => {
+  it('cancels the upstream request when the RUSH caller disconnects', async () => {
     const caller = new AbortController();
     const gateway = ai.createNanoAgentGateway({
       env: {},

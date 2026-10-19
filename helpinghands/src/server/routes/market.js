@@ -19,7 +19,7 @@
  * Nothing here runs a plugin either: whoever downloads one runs it on their own
  * machine (market-publish.js). A plugin's author is the GitHub account of
  * whoever published it, so publishing takes an account signed in with GitHub.
- * An upload Mochi's NanoAgent now refuses is listed `refused`, with its `refusal` (market-checks.js).
+ * An upload RUSH's NanoAgent now refuses is listed `refused`, with its `refusal` (market-checks.js).
  */
 const {checkedUploads} = require('../market-checks');
 const {publishFromGithub} = require('../market-publish');

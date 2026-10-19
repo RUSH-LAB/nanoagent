@@ -19,16 +19,16 @@
  * earlier build kept, is removed at startup (removeOtherSites).
  *
  * It runs `uv sync` for NanoAgent's dependencies once, then, for each connection, starts a
- * NanoAgent of its own on a free port, with that member's keys and the plugins Mochi installs in
+ * NanoAgent of its own on a free port, with that member's keys and the plugins RUSH installs in
  * the platform's sandbox, waits for its default profile, and starts a relay for it. It looks at
  * connections/ every few seconds: a new connection starts, a removed one stops, and one connected
  * again restarts, while the others keep running. A connection whose service fails starts again
  * after a while; one another computer took the member's runs from stays stopped until it is
  * connected again. When a relay needs signing in, the device page opens in the browser; once it is
  * connected after that, the site does, at Settings → AI while there is no key. Keys come only from
- * Mochi, through the relay: kept in the connection's settings.env, handed to its NanoAgent
+ * RUSH, through the relay: kept in the connection's settings.env, handed to its NanoAgent
  * (PUT /v1/keys), and the relay is told which are set. The data folder's `busy` is there while any
- * relay has a request of Mochi's going, a held run included: the app updates itself only while it
+ * relay has a request of RUSH's going, a held run included: the app updates itself only while it
  * is not (desktop/src-tauri/src/update.rs). SIGTERM stops every connection, cleanly.
  *
  * At each start it writes the app's command (config.command, rushlab; rushlab-dev in RUSH Lab Dev)
@@ -156,7 +156,7 @@ export function connectionId(site, memberId) {
   return `${new URL(site).host.replace(':', '-')}-${memberId}`;
 }
 
-/** The member Mochi at `site` knows `token` as, {id, login}; false when it knows it no more; null when it cannot be reached. */
+/** The member RUSH at `site` knows `token` as, {id, login}; false when it knows it no more; null when it cannot be reached. */
 export async function memberOf(site, token) {
   try {
     const response = await fetch(`${site}/api/auth/get-session`, {headers: {Authorization: `Bearer ${token}`}, signal: AbortSignal.timeout(15_000)});
@@ -172,8 +172,8 @@ const LEGACY = ['settings.env', 'agent-workspaces', 'nanoagent-installs'];
 
 /**
  * An install from before connections kept one member's sign-in, keys and NanoAgent folders at the
- * top of its data folder. They become that member's connection, as Mochi says whose the sign-in
- * is; a sign-in Mochi knows no more is dropped with them, and so is one to a site other than
+ * top of its data folder. They become that member's connection, as RUSH says whose the sign-in
+ * is; a sign-in RUSH knows no more is dropped with them, and so is one to a site other than
  * config.site_url, which is never asked. One whose site cannot be reached stops the install:
  * nothing is moved while it cannot be told whose they are.
  */
@@ -224,7 +224,7 @@ export async function addConnection(data, config, site, session, options) {
 
 const log = (message, connection) => console.log(`${new Date().toISOString()} ${connection ? `[${connection}] ` : ''}${message}`);
 
-/** KEY=VALUE lines, as scripts/db/postgres.mjs's parseEnv reads Mochi's .env. */
+/** KEY=VALUE lines, as scripts/db/postgres.mjs's parseEnv reads RUSH's .env. */
 export function parseEnv(text) {
   const values = {};
   for (const original of text.split(/\r?\n/)) {
@@ -331,7 +331,7 @@ export function nanoagentCommand({nanoagent, data, connection, port, sandbox, sy
       'web_cfg=deploy/railway/nanoagent.yaml',
       'host=127.0.0.1',
       `port=${port}`,
-      // Mochi's marketplace is anyone's, and this is the member's own computer: every plugin runs confined.
+      // RUSH's marketplace is anyone's, and this is the member's own computer: every plugin runs confined.
       `sandbox=${sandbox}`,
       // The member's runs choose any model their keys reach, and settings of their own.
       'run_models=true',
@@ -781,7 +781,7 @@ async function main() {
 
   /**
    * Read a relay's events (relay.mjs) into its log: open its sign-in page, and the site once it is
-   * connected after that, and apply the keys Mochi sends, answering on its stdin. A keys event is
+   * connected after that, and apply the keys RUSH sends, answering on its stdin. A keys event is
    * never logged: it carries their values.
    */
   function followRelay(connection, relay) {
@@ -798,13 +798,13 @@ async function main() {
         signingIn = true;
         // The device page says it is RUSH Lab asking (src/pages/device).
         const page = `${event.url}&client=desktop`;
-        log(`Sign in to Mochi, then approve this computer (code ${event.code}): ${page}`, id);
+        log(`Sign in to RUSH, then approve this computer (code ${event.code}): ${page}`, id);
         openPage(page);
       } else if (event.event === 'connected') {
         log(`Connected to ${site}`, id);
         if (!signingIn) return;
         signingIn = false;
-        // The device page says Mochi opens next; with no key yet, straight to where one is added.
+        // The device page says RUSH opens next; with no key yet, straight to where one is added.
         const keyless = !keyStatus(readSettings(connection.settingsFile)).some(key => key.set);
         openPage(keyless ? `${site.replace(/\/$/, '')}/settings#ai` : site);
       } else if (event.event === 'disconnected') {

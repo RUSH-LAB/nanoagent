@@ -1,4 +1,4 @@
-/* The plugin UI kit's styles, shared by every plugin page. They match the host site (Mochi):
+/* The plugin UI kit's styles, shared by every plugin page. They match the host site (RUSH):
    Inter, accent #3b5998 (dark #8ea6d6), 14-20 px rounded cards, soft borders. The page
    background and surface are the host's own (Infima's), so the frame is invisible and a page's
    cards sit on the host page. Light and dark come from the host through html[data-theme]. A

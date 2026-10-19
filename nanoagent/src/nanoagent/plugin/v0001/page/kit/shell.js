@@ -6,7 +6,7 @@ import { hasHost, on, request } from "./bridge.js";
 import { chatPanel } from "./chat.js";
 import { applyTheme, h, humanize, icon } from "./dom.js";
 import { resultCard, resultsPane } from "./result.js";
-import { dashboard, enterSession } from "./session.js";
+import { currentSession, dashboard, enterSession } from "./session.js";
 
 /** Where `repository`'s folder is on GitHub at the commit the plugin was published from. */
 const sourceUrl = ({ owner, repo, commit, path }) => `https://github.com/${owner}/${repo}/tree/${commit}${path ? `/${path}` : ""}`;
@@ -156,7 +156,9 @@ function frameTabs() {
 /**
  * Connect to the host and show the page: asks the host to `describe` the plugin, applies its
  * theme (and follows `host.theme`), then shows the Dashboard, where people resume a session or
- * start a new one; for a version the host no longer runs, only resume one, to read it. A session
+ * start a new one; for a version the host no longer runs, only resume one, to read it. A host that
+ * names a session (`describe`'s `session`) opens on it instead, and the page tells the host what
+ * it shows (`session.shown`), so that reloading the host opens it again. A session
  * is the chat; the host keeps its conversation, so a resumed session shows it again. A page opened
  * outside a host, or a host that doesn't answer within 10 s, gets a plain message instead.
  * @param {Record<string, (value: unknown, context: {task: object, verdict: object, send: (text: string) => void}) => Node>} renderers
@@ -165,7 +167,7 @@ function frameTabs() {
 export async function mountApp(renderers) {
   const root = document.getElementById("app");
   if (!hasHost()) {
-    fatal(root, "Open this page from Mochi", "This is a plugin's page. It runs inside the app that hosts the plugin, which connects it to its agent and your files.");
+    fatal(root, "Open this page from RUSH", "This is a plugin's page. It runs inside the app that hosts the plugin, which connects it to its agent and your files.");
     return;
   }
   root.replaceChildren(h("div", { class: "loading", role: "status" }, h("span", { class: "run-spinner", "aria-hidden": "true" }), "Connecting…"));
@@ -194,10 +196,15 @@ export async function mountApp(renderers) {
   const home = homePage(plugin, board.element);
   const page = h("div", { class: "kit-session", hidden: true });
   let open = false;
-  function show(tab) {
+  let tab = null;
+  // The session shown, null on the Dashboard or in a new session not started yet.
+  const tellShown = () => request("session.shown", { id: tab === "session" ? currentSession().id : null });
+  function show(shown) {
+    tab = shown;
     tabs.select(tab);
     home.hidden = tab !== "dashboard";
     page.hidden = tab !== "session";
+    tellShown();
   }
   tabs.onPick = (tab) => {
     if (tab === "session" && !open) {
@@ -213,7 +220,7 @@ export async function mountApp(renderers) {
   // shows its page, still answering, not what the host kept.
   const pages = new Set();
   function openSession(opened) {
-    const session = enterSession(opened);
+    const session = enterSession(opened, tellShown);
     let shown = opened && [...pages].find((one) => one.session.id === opened.id);
     for (const one of pages) {
       if (one !== shown && !one.busy()) {
@@ -232,9 +239,9 @@ export async function mountApp(renderers) {
     show("session");
   }
 
-  root.replaceChildren(tabs.element, home, page);
   // With no new session to start, Session shows only once one is opened.
   tabs.reveal("session", !closed);
-  show("dashboard");
   board.refresh();
+  if (!(described.session && (await board.resume(described.session)))) show("dashboard");
+  root.replaceChildren(tabs.element, home, page);
 }

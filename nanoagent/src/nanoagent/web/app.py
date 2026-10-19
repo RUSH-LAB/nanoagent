@@ -58,9 +58,9 @@ def _sse(event: dict[str, Any]) -> bytes:
     ).encode()
 
 
-# COMPAT(mochi-groups): Mochi on production files each plugin under the group its manifest named.
+# COMPAT(mochi-groups): RUSH on production files each plugin under the group its manifest named.
 # Manifests name none now (a workspace tags its plugins), so every catalog entry says one. Remove
-# once the Mochi that tags plugins per workspace is released.
+# once the RUSH that tags plugins per workspace is released.
 COMPAT_GROUP = {"group": "Plugins"}
 # The credentials PUT /v1/keys may set: a provider's API key, as PI and the loop read it.
 KEY_NAME = re.compile(r"[A-Z][A-Z0-9_]*_API_KEY|HF_TOKEN")
@@ -432,8 +432,8 @@ def create_app(
         create = request.query_params.get("create") == "1"
         return in_workspace(lambda: workspaces.write(workspace_id, path, body, create=create))
 
-    # COMPAT(mochi-workspace-edits): Mochi on production deletes files, makes and deletes folders,
-    # and moves entries in a workspace. Remove these routes once the Mochi that only saves files
+    # COMPAT(mochi-workspace-edits): RUSH on production deletes files, makes and deletes folders,
+    # and moves entries in a workspace. Remove these routes once the RUSH that only saves files
     # and removes whole workspaces is released.
     async def workspace_folder(request: Request) -> JSONResponse:
         """POST makes the folder (and its parents); DELETE removes it and everything in it."""
@@ -483,9 +483,9 @@ def create_app(
             },
         )
 
-    # COMPAT(mochi-installs): Mochi on production names plugins by id, at /v1/plugins and under
+    # COMPAT(mochi-installs): RUSH on production names plugins by id, at /v1/plugins and under
     # /plugins/{plugin_id}. These serve NanoAgent's own packages by id, each installed the first
-    # time it is asked for. Remove once the Mochi that installs what its workspaces added is released.
+    # time it is asked for. Remove once the RUSH that installs what its workspaces added is released.
     async def built_in(plugin_id: str) -> Installed | None:
         package = packages.get(plugin_id)
         if package is None:
@@ -494,7 +494,7 @@ def create_app(
         async with plugin_slots:
             return await asyncio.to_thread(installs.install, entry["sha256"], data)
 
-    # Listed and their pages served from their own folders, without installing: that Mochi waits
+    # Listed and their pages served from their own folders, without installing: that RUSH waits
     # seconds for these, and minutes for a run.
     async def list_plugins(request: Request) -> JSONResponse:
         if not authorized(request):

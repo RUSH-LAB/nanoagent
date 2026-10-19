@@ -27,7 +27,7 @@ function Stat({label, value, unit}) {
 /**
  * Settings → AI. Your AI runs on your own computer, in RUSH Lab: its
  * OpenRouter key (_ApiKeys.js), and the one model chat, inline completion and
- * apps all run on, which Mochi chooses (server/ai-settings.js MODEL).
+ * apps all run on, which RUSH chooses (server/ai-settings.js MODEL).
  */
 export default function Ai() {
   const [model, setModel] = useState(null);

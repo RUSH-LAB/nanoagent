@@ -16,7 +16,7 @@ import { currentSession, metricsLine } from "./session.js";
  * chat (kit/graph.js), as the Graph button under the turn does again. The host keeps the
  * conversation with the session, so a resumed session shows it again, its latest result drawn,
  * and continues it; a message it is still answering shows being answered, to its end, the page
- * having been closed or not, and Mochi having restarted meanwhile or not. Each answer says what
+ * having been closed or not, and RUSH having restarted meanwhile or not. Each answer says what
  * it cost and how long it took.
  * @param {object} options
  * @param {Node} options.intro What the empty log shows.

@@ -31,7 +31,7 @@ const FAILED = 'AI request failed. Please try again later.';
  * leaves it going, and a page that opens the session meanwhile follows it to
  * its end. It is kept in PostgreSQL (migration 0028) and by the member's
  * computer, which holds it across its connections (runner/protocol.js): when
- * Mochi restarts, the computer's next hello hands its runs to this process,
+ * RUSH restarts, the computer's next hello hands its runs to this process,
  * which takes each up again from its first frame, and records as interrupted
  * one the computer does not have any more, or one whose computer was not back
  * within HOLD_MS. A run ends with its turn in the session, answered or not,
@@ -179,9 +179,9 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
         prompt: row.prompt, answer: result.error ? '' : result.text, tools, activity: kept.map(({id: _id, done: _done, ...entry}) => entry), graph, trajectory, metrics, error: error ?? null,
       });
     } catch (problem) {
-      // The computer keeps the run until it is let go, so the next Mochi to hear of it ends it.
+      // The computer keeps the run until it is let go, so the next RUSH to hear of it ends it.
       console.error('[apps] Could not keep a run\'s turn:', problem.message);
-      return run.send('error', {error: 'Mochi could not keep this answer. It is kept when RUSH Lab next connects.', status: 500});
+      return run.send('error', {error: 'RUSH could not keep this answer. It is kept when RUSH Lab next connects.', status: 500});
     }
     // Charged once, by whichever ended it.
     if (ended) await charge(context, row, result, ran);
@@ -232,7 +232,7 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
      * The runs the member's computer holds that no call of this process has
      * (server/runner.js onRuns): each of theirs this process is not doing is
      * taken up again where the computer has it, and recorded as interrupted
-     * where it does not; one Mochi has no record of is let go.
+     * where it does not; one RUSH has no record of is let go.
      */
     async adopt(userId, ids) {
       const held = new Set(ids);
@@ -259,7 +259,7 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
     /**
      * Follow the run of session `sessionId`, which is answering a message: every
      * event so far and then each as it comes, then `onEnd`; one not taken up yet
-     * (Mochi restarted) is followed once it is. Returns an unsubscribe.
+     * (RUSH restarted) is followed once it is. Returns an unsubscribe.
      */
     subscribe(sessionId, onEvent, onEnd) {
       const run = live.get(sessionId);

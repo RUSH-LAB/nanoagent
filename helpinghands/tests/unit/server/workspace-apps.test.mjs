@@ -17,7 +17,7 @@ describe('a member\'s apps', () => {
   let db;
   let apps;
   let market;
-  // Mochi's own NanoAgent, which offers its packages and refuses one that still has a run.sh,
+  // RUSH's own NanoAgent, which offers its packages and refuses one that still has a run.sh,
   // keeping how it checked each: how many times each package was sent to it.
   const inspections = new Map();
   const inspected = new Map();

@@ -5,26 +5,29 @@ import {
 
 /**
  * The host side of `nanoagent.ui/v1` for one plugin frame: it answers the
- * page's requests through Mochi's own API, as the signed-in user in their own
+ * page's requests through RUSH's own API, as the signed-in user in their own
  * workspace, and posts each run's events back to the frame.
  *
  * `frameWindow()` is the frame's window, the only one whose messages are
- * accepted; `request(path, init)` fetches a Mochi API path with the user's
+ * accepted; `request(path, init)` fetches a RUSH API path with the user's
  * session; `onVersion(app)` hears that the member chose another version of the
  * plugin, or to follow its latest (`plugin.version`), with the app as they now run it.
+ * `shown()` is the session the page's address names, which the page opens on
+ * (`describe`), and `onShown(id)` hears the session the page shows, or null
+ * for its Dashboard (`session.shown`), so that reloading opens it again.
  *
  * Every run belongs to the current plugin session, which the page starts or
- * resumes (`session.start`, `session.resume`): Mochi charges the run to it, and
+ * resumes (`session.start`, `session.resume`): RUSH charges the run to it, and
  * keeps the session's conversation, which a resumed session continues. A run
- * is Mochi's, not the page's: the page closing or leaving only stops following
+ * is RUSH's, not the page's: the page closing or leaving only stops following
  * it, and a session resumed while it still answers a message follows its run
- * (`follow`) to its end. A run's stream that drops (Mochi restarted, the
- * network went away) is followed again once Mochi answers: the page is told
+ * (`follow`) to its end. A run's stream that drops (RUSH restarted, the
+ * network went away) is followed again once RUSH answers: the page is told
  * the run starts over (`chat.restart`), as following replays it from its first
  * event, or, when it ended meanwhile, given the turn the session kept
  * (`chat.turn`). Only `cancel` stops one.
  */
-// As long as the member's computer holds a run for Mochi to take up again (runner/protocol.js HOLD_MS).
+// As long as the member's computer holds a run for RUSH to take up again (runner/protocol.js HOLD_MS).
 const RECONNECT_MS = 10 * 60_000;
 const RECONNECT_WAIT_MS = 2000;
 const CLOSED = 'The connection closed before the app finished. The session keeps its answer when it does: open the session again to see it.';
@@ -36,7 +39,7 @@ const sleep = (ms, signal) => new Promise(resolve => {
   }, {once: true});
 });
 
-export function createBridgeHost({frameWindow, plugin, workspaceId, theme, request, onVersion}) {
+export function createBridgeHost({frameWindow, plugin, workspaceId, theme, request, onVersion, shown, onShown}) {
   const runs = new Map(); // runId -> {controller, session}, the controller of its stream now
   // Each session's conversation, by id: a run left going in one session keeps its turn there.
   const turns = new Map();
@@ -79,7 +82,7 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
   }
 
   /**
-   * Follow session `id`'s run `runId` again after its stream dropped, trying until Mochi answers
+   * Follow session `id`'s run `runId` again after its stream dropped, trying until RUSH answers
    * or RECONNECT_MS passes: `{response}`, its stream from its first event; `{ended: true}` when
    * the session answers no message any more; or `{error}`.
    */
@@ -92,12 +95,12 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
       try {
         response = await request(`${sessionsPath}/${id}/run`, {signal: controller.signal});
       } catch {
-        // Mochi is not back yet.
+        // RUSH is not back yet.
       }
       if (controller.signal.aborted) return {error: 'Cancelled'};
       if (response?.status === 404) return {ended: true};
       if (response?.ok && (response.headers.get('content-type') ?? '').includes(SSE_CONTENT_TYPE)) return {response};
-      // Mochi refused it for a reason waiting does not change (signed out, no access).
+      // RUSH refused it for a reason waiting does not change (signed out, no access).
       if (response && response.status < 500) return {error: (await failed(response, 'Could not follow the session\'s answer')).message};
       if (Date.now() > deadline) return {error: CLOSED};
       await sleep(RECONNECT_WAIT_MS, controller.signal);
@@ -196,7 +199,7 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
   }
 
   const methods = {
-    'describe': async () => ({result: {plugin, workspace: {id: workspaceId}, theme: currentTheme}}),
+    'describe': async () => ({result: {plugin, workspace: {id: workspaceId}, theme: currentTheme, session: shown()}}),
     prompt,
     follow,
     'cancel': async ({runId}) => {
@@ -217,6 +220,7 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     }),
     'session.start': async () => enter(await readSession(sessionsPath, {method: 'POST'}, 'Could not start a session')),
     'session.resume': async ({id}) => enter(await readSession(`${sessionsPath}/${id}`, undefined, 'Could not open the session')),
+    'session.shown': async ({id}) => ({result: {}, after: () => onShown(id)}),
     'plugin.version': async ({version}) => {
       const response = await request(`/api/apps/${encodeURIComponent(plugin.id)}`, {
         method: 'PATCH',

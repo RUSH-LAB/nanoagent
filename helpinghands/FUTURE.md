@@ -41,8 +41,8 @@ To decide:
 
 ## A plugin run that resumes after RUSH Lab quits
 
-A plugin run survives Mochi restarting and RUSH Lab's connection dropping for less than ten
-minutes (`HOLD_MS`, `src/runner/protocol.js`): the relay holds the run, and Mochi takes it up
+A plugin run survives RUSH restarting and RUSH Lab's connection dropping for less than ten
+minutes (`HOLD_MS`, `src/runner/protocol.js`): the relay holds the run, and RUSH takes it up
 again (`src/server/app-runs.js`). When RUSH Lab itself quits, or the computer shuts down, the
 run is gone with NanoAgent's process. The session records the message as interrupted, and the
 member sends it again.

@@ -7,7 +7,7 @@
  * on Windows), the second replacing the RUSH Lab the first opened, as an update does. Each time it
  * waits for the app to set up Python, connects a member to its site (lab.mjs's addConnection, once
  * lab.mjs has removed connections to sites other than the app's own) and asks their NanoAgent for
- * its profiles through the relay, as Mochi does. Then it quits RUSH Lab and fails if anything it
+ * its profiles through the relay, as RUSH does. Then it quits RUSH Lab and fails if anything it
  * started is still running. When a step fails, it prints the app's logs.
  */
 import {execFileSync, spawn, spawnSync} from 'node:child_process';
@@ -62,7 +62,7 @@ async function waitFor(what, timeoutMs, ready) {
 }
 
 /**
- * The site: the install scripts, the build at /api/lab/bundles/<target>, and as Mochi the member's
+ * The site: the install scripts, the build at /api/lab/bundles/<target>, and as RUSH the member's
  * session, their workspaces (none) and the relay's socket, which hands each socket that says hello
  * to `onRelay`.
  */
@@ -95,7 +95,7 @@ async function serve(bundle, onRelay) {
   return {site, close: () => { sockets.close(); server.close(); }};
 }
 
-/** `GET route` of the member's NanoAgent through `relay`, as Mochi asks it: {status, body}. */
+/** `GET route` of the member's NanoAgent through `relay`, as RUSH asks it: {status, body}. */
 function ask(relay, route) {
   const id = crypto.randomUUID();
   return new Promise((resolve, reject) => {

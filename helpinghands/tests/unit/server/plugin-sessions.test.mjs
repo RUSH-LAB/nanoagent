@@ -99,7 +99,7 @@ describe('plugin sessions over PostgreSQL', () => {
 
   it('lists every call a session made, with what it cost and how long it took', async () => {
     const started = await sessions.create(as('alice'), 'bibtex-check');
-    // A single-task run, as Mochi recorded them before NanoAgent 0.4.0.
+    // A single-task run, as RUSH recorded them before NanoAgent 0.4.0.
     await db.query(
       `insert into ai_usage(workspace_id, user_id, kind, model, cost_usd, input_tokens, output_tokens, estimated,
                             plugin_id, session_id, task, ttft_s, generation_s, duration_s)
@@ -131,7 +131,7 @@ describe('plugin sessions over PostgreSQL', () => {
     assert.equal((await sessions.list(as('alice'), 'bibtex-check'))[0].running, true);
     await sessions.setRunFolder(as('alice'), 'run-a', {folder: 'f1', sent: {'refs.bib': {rev: 2, contentHash: 'h'}}});
     await sessions.markRunRan(as('alice'), 'run-a');
-    // Its member reads it from any workspace, as a Mochi started since does; nobody else does.
+    // Its member reads it from any workspace, as a RUSH started since does; nobody else does.
     const [run] = await sessions.runs({userId: 'alice', workspaceId: null});
     assert.deepEqual({...run, startedAt: undefined}, {
       id: 'run-a', workspaceId: 'lab', userId: 'alice', sessionId: started.id, pluginId: 'bibtex-check', prompt: 'check refs.bib',

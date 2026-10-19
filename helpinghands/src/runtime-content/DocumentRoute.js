@@ -613,7 +613,7 @@ function DocumentBody({
       let author = null;
       if (targetCollection?.type === 'blog') {
         author = account?.githubLogin;
-        if (!author) throw new Error('Sign in with GitHub again so Mochi knows your GitHub username.');
+        if (!author) throw new Error('Sign in with GitHub again so RUSH knows your GitHub username.');
       }
       const draft = newDocumentDraft({
         collection: targetCollection,

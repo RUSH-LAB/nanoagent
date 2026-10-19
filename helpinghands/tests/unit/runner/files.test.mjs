@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {syncFiles} from '../../../src/runner/files.mjs';
 
-/** Mochi's /api/workspaces and /fs, in memory, for one member: files by workspace id, then path. */
+/** RUSH's /api/workspaces and /fs, in memory, for one member: files by workspace id, then path. */
 function fakeMochi() {
   const workspaces = [{id: 'ws-1', slug: 'comp-480-580', name: 'COMP 480/580'}];
   const files = new Map([['ws-1', new Map()]]);
