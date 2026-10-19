@@ -105,7 +105,7 @@ engine, and on each Mac and Windows either the `app` checks build the app and
 install and run it as members do (when `desktop/` changed) or the
 `engine-check` checks run the engine in the app rush-lab.org serves; it is
 ready to merge only once all four pass, as the push merging makes uploads
-exactly what they built and builds nothing. Remind
+exactly what they built, building the apps again only for the next PR's caches. Remind
 the user that merging deploys. After merging, the `release` job's run must pass:
 it uploads the engine, and each app when the release changed `desktop/`, and
 fails unless rush-lab.org then serves them.
