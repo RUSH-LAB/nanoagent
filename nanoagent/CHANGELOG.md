@@ -51,21 +51,22 @@ marketplace to offer it: a version published before 0.7.0 is listed under mainte
 - Every type of node is a part of the run registered in `nanoagent.plugin.provenance.PARTS`, a
   `Part` each: its name, whether it is a call (an action) or a value, and for a value the types of
   call that make it, which the graph enforces on each `generated` edge. Every node carries its
-  part's name, `typeLabel`. What a reply thought and wrote are parts of their own, `thinking` and
-  `text` values it generated, streamed as `append` patches to their `value`; the last reply's text
-  is the agent's response (`agent_message`, named Response), and an agent reply no longer holds
-  `reasoning` and `text`.
+  part's name, `typeLabel`. What a reply thought and wrote are parts of their own, values it
+  generated, streamed as `append` patches to their `value`: its `thinking` (`<reply>.reasoning`)
+  and, while it goes on to call tools, what it wrote, `assistant` (`<reply>.content`); the last
+  reply's is the agent's response (`agent_message`, named Response). An agent reply no longer
+  holds `reasoning` and `text`.
 - The chat shows each turn as its agent loop, a row per part named by its part: `User message ›`,
-  `Thinking ›`, `Text ›`, `Tool call ›`, `Tool result ›`, `Response ›`, and inside a task's run,
+  `Thinking ›`, `Assistant ›`, `Tool call ›`, `Tool result ›`, `Response ›`, and inside a task's run,
   indented under its call, `Task input ›`, `Reference output ›`, `Decision ›`, `Task output ›` and
   `Verdict ›` (kit/loop.js). A row holds its part on one line and opens to all of it; the user's
-  message, a reply's text and the response show whole, as Markdown. The rows come from the turn's
-  graph as it streams in; a task's run is open while it runs or when it failed, folded once it
-  passed, and its result row has Open result, which draws the result beside the chat. The session's
-  system prompt shows in its first turn. Under the turn, its line says what it ran on, cost and
+  message, what the assistant wrote and the response show whole, as Markdown. The rows come from
+  the turn's graph as it streams in; a task's run is open while it runs or when it failed, folded
+  once it passed, and its result row has Open result, which draws the result beside the chat. The
+  session's system prompt shows in its first turn. Under the turn, its line says what it ran on, cost and
   took, as a kept turn's does too (the host keeps each turn's `metrics`), and Graph draws its
-  graph. In the graph, a task is shown by its name, a reply's card holds its thinking and text, a
-  finished one from the start, and tokens read `13.9k tokens in, 1.3k out`.
+  graph. In the graph, a task is shown by its name, a reply's card holds its thinking and what it
+  wrote, a finished one from the start, and tokens read `13.9k tokens in, 1.3k out`.
 - The page opens on the session its host names (`describe`'s `session`), and tells the host the
   session it shows, or null on the Dashboard (`session.shown {id}`). RUSH keeps it in the
   Plugins page's address (`?session=`), so reloading the window opens the session again.

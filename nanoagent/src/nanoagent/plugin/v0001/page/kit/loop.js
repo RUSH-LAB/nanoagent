@@ -7,8 +7,8 @@ import { applyPatch, kindText } from "./graph.js";
 import { markdown } from "./markdown.js";
 import { metricsLine } from "./session.js";
 
-// The parts shown whole, as Markdown, not cut to a line.
-const WHOLE = new Set(["text", "agent_message"]);
+// The parts shown whole, as Markdown, not cut to a line: what a reply wrote.
+const WHOLE = new Set(["assistant", "agent_message"]);
 const secondsText = (seconds) => `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} s`;
 /** A tool's output, which is JSON text, as the value it holds; other text as it is. */
 const parsed = (value) => {

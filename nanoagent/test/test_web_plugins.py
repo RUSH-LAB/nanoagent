@@ -278,13 +278,13 @@ def test_runs_a_prompt_in_the_callers_workspace(client: TestClient, model: Scrip
         ("calls[0]", "generated", "calls[0].output"),
         ("steps[0]", "continued", "steps[1]"),
         ("calls[0].output", "used", "steps[1]"),
-        ("steps[1]", "generated", "steps[1].text"),
+        ("steps[1]", "generated", "steps[1].content"),
         ("calls[0]/input", "used", "calls[0]/calls[0]"),
         ("calls[0]/calls[0]", "generated", "calls[0]/output"),
     } <= edges
     assert nodes["calls[0]"]["type"] == "task" and nodes["calls[0]/calls[0]"]["parent"] == "calls[0]"
     # Each node is typed by the part of the loop it is, the chat's system prompt first, and named by it.
-    typed = ("system", "message", "steps[0]", "calls[0].arguments", "calls[0].output", "steps[1].text")
+    typed = ("system", "message", "steps[0]", "calls[0].arguments", "calls[0].output", "steps[1].content")
     assert [nodes[key]["type"] for key in typed] == ["system_prompt", "user_message", "agent_reply", "tool_call", "tool_result", "agent_message"]
     assert [nodes[key]["typeLabel"] for key in typed] == ["System prompt", "User message", "Agent reply", "Tool call", "Tool result", "Response"]
     assert "You operate the Echo plugin" in nodes["system"]["value"]
@@ -582,12 +582,12 @@ def test_a_chat_runs_an_agent_task_and_counts_its_cost(tmp_path: Path, monkeypat
     nodes = {node["id"]: node for node in graph["nodes"]}
     edges = {(edge["from"], edge["relation"], edge["to"]) for edge in graph["edges"]}
     task = "calls[0]/"
-    written = [nodes[f"{task}steps[{index}].text"] for index in range(3)]
-    assert [(node["type"], node["value"]) for node in written] == [("text", "x"), ("text", "x"), ("agent_message", "echoed")]
+    written = [nodes[f"{task}steps[{index}].content"] for index in range(3)]
+    assert [(node["type"], node["value"]) for node in written] == [("assistant", "x"), ("assistant", "x"), ("agent_message", "echoed")]
     assert {
         (f"{task}system", "used", f"{task}steps[0]"),
         (f"{task}input", "used", f"{task}steps[0]"),
-        (f"{task}steps[0]", "generated", f"{task}steps[0].text"),
+        (f"{task}steps[0]", "generated", f"{task}steps[0].content"),
         (f"{task}steps[0]", "generated", f"{task}calls[0].arguments"),
         (f"{task}calls[0].output", "used", f"{task}steps[1]"),
         (f"{task}steps[1]", "generated", f"{task}calls[1].arguments"),

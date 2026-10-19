@@ -8,8 +8,8 @@ NanoAgent's loop, whose transcript is chat messages of four roles: the ``system`
 ``user``'s message, each ``assistant`` reply (what the model thought, its ``reasoning_content``,
 what it wrote, its ``content``, and the tools it called, its ``tool_calls``) and each ``tool``
 result. A reply is a call, an agent reply, that used what was new in its conversation and
-generated what it thought (thinking), what it wrote (text, or the agent's response for the last)
-and its tool calls; running a tool call is a call that used it and generated its result. A plugin
+generated what it thought (thinking), what it wrote (assistant, while it calls tools, and the
+agent's response for the last) and its tool calls; running a tool call is a call that used it and generated its result. A plugin
 task is a tool call whose run is drawn inside it, its nodes naming it as their ``parent``: its
 input, its own loop, a decide task's decisions, its reference tool, its output, and the
 verifier's verdict on it. An agent reply and a decision hold the model requests they made in
@@ -21,7 +21,7 @@ Its edges are only what the run recorded, never inferred:
   new in its conversation (the system prompt and the message, then each tool result since the
   reply before it);
 - ``generated``: a call returned a value, one of the parts it makes: a tool its result, a reply
-  its thinking, its text and each tool call it made;
+  its thinking, what it wrote and each tool call it made;
 - ``continued``: a reply carried on the conversation of the one before it, so it read all that
   one read too;
 - ``copied``: a field of a value is a copy of a field of an earlier value (a decide task's copied
@@ -61,7 +61,7 @@ class NodeType(StrEnum):
     EARLIER_TURNS = "earlier_turns"  # the user and assistant messages of the turns before it
     AGENT_REPLY = "agent_reply"  # one assistant message: one model request, a call
     THINKING = "thinking"  # a reply's reasoning_content
-    TEXT = "text"  # a reply's content, when it called tools
+    ASSISTANT = "assistant"  # a reply's content, when it went on to call tools
     TOOL_CALL = "tool_call"  # one of a reply's tool calls: a tool's name and arguments
     TOOL = "tool"  # running a tool call, a call
     TOOL_RESULT = "tool_result"  # a tool message: what running a tool call returned
@@ -93,7 +93,7 @@ PARTS: dict[NodeType, Part] = {
     NodeType.EARLIER_TURNS: Part("Earlier turns"),
     NodeType.AGENT_REPLY: Part("Agent reply", call=True),
     NodeType.THINKING: Part("Thinking", made_by=(NodeType.AGENT_REPLY,)),
-    NodeType.TEXT: Part("Text", made_by=(NodeType.AGENT_REPLY,)),
+    NodeType.ASSISTANT: Part("Assistant", made_by=(NodeType.AGENT_REPLY,)),
     NodeType.TOOL_CALL: Part("Tool call", made_by=(NodeType.AGENT_REPLY, NodeType.DECISION)),
     NodeType.TOOL: Part("Tool", call=True),
     NodeType.TOOL_RESULT: Part("Tool result", made_by=(NodeType.TOOL, NodeType.TASK)),
@@ -263,7 +263,7 @@ class LoopRecorder:
         self._last: str | None = None
         self._steps = 0
         self._calls: dict[str, str] = {}  # a tool call's id -> its node's id
-        self._streamed: set[str] = set()  # the thinking and text nodes made so far
+        self._streamed: set[str] = set()  # the thinking and content nodes made so far
         self.arguments: dict[str, str] = {}  # a tool's name -> its last call's arguments node
 
     def _open(self) -> str:
@@ -281,8 +281,8 @@ class LoopRecorder:
     def delta(self, kind: str, text: str) -> None:
         """More of what the open request thought (``kind`` "reasoning") or wrote."""
         step = self._open()
-        type = NodeType.THINKING if kind == "reasoning" else NodeType.TEXT
-        at = f"{step}.{type}"
+        # Named by the assistant message's field it is.
+        type, at = (NodeType.THINKING, f"{step}.reasoning") if kind == "reasoning" else (NodeType.ASSISTANT, f"{step}.content")
         if at not in self._streamed:
             self._streamed.add(at)
             self._graph.value(at, type, PARTS[type].label, "")
@@ -331,9 +331,9 @@ class LoopRecorder:
         last = self._step
         self.step_done(step)
         if answer and last is not None:
-            at = f"{last}.{NodeType.TEXT}"
+            at = f"{last}.content"
             if at not in self._streamed:
-                self._graph.value(at, NodeType.TEXT, PARTS[NodeType.TEXT].label, answer)
+                self._graph.value(at, NodeType.ASSISTANT, PARTS[NodeType.ASSISTANT].label, answer)
                 self._graph.edge(last, at, "generated")
             self._graph.retype(at, NodeType.AGENT_MESSAGE, PARTS[NodeType.AGENT_MESSAGE].label)
             self._graph.update(at, value=answer)

@@ -13,7 +13,7 @@ const RELATIONS = ["used", "generated", "continued", "copied", "chose"];
 // The runs drawn with the tool call they alone ran and the result they alone returned, and the
 // parts of a reply drawn on its card.
 const FOLDING = new Set(["tool", "task", "reference"]);
-const REPLY_PARTS = new Set(["thinking", "text"]);
+const REPLY_PARTS = new Set(["thinking", "assistant"]);
 let views = 0;
 
 /**
@@ -299,13 +299,13 @@ export function graphView({ names = (task) => task } = {}) {
     if (node.type === "agent_reply" || node.type === "decision") {
       const total = totals([node]);
       const meta = total.requests ? h("span", { class: "tn-meta" }, h("span", { text: tokensText(total) }), h("span", { text: secondsText(total.seconds) })) : null;
-      // A reply's thinking and text, each a line its streamed tokens change in place.
+      // A reply's thinking and what it wrote, each a line its streamed tokens change in place.
       const line = (part, extra) => {
         if (!part) return null;
         lines[part.id] = h("span", { class: `tn-preview${extra}`, text: preview(part.value, running) });
         return lines[part.id];
       };
-      body = [type, h("span", { class: "tn-row" }, label, meta), line(node.parts?.thinking, " thinking"), line(node.parts?.text, "")];
+      body = [type, h("span", { class: "tn-row" }, label, meta), line(node.parts?.thinking, " thinking"), line(node.parts?.assistant, "")];
     } else if (node.kind === "value" && !node.incomplete && node.value !== null) {
       body = [type, label, h("span", { class: "tn-preview", text: short(shown(node.value), 48) })];
     } else if (withOutput) {
