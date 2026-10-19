@@ -37,6 +37,8 @@ describe('plugin chats as files', () => {
       const {changes} = await fs.changes(as('alice'), {since: 0});
       assert.ok(changes.some(change => change.op === 'create' && change.path === `${folder}/chat.json`));
 
+      // The session's calls as sessions.js reads them, with their time on model requests and tool calls.
+      await applyMigration(db, '0049_ai_usage_model_tool_time.sql');
       const sessions = createPostgresSessions({pool, fs});
       const read = await sessions.get(as('alice'), 'echo', 's1');
       assert.deepEqual(read.chat, [{...turn('one'), graph: {nodes: [1]}}, {...turn('two'), graph: null}]);

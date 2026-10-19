@@ -23,6 +23,16 @@ export function statusPill(text, tone = "neutral", { icon: withIcon = false } = 
 }
 
 /**
+ * Figures as stats, a small label over each value, for a `<dl class="stats">`: the dashboard's,
+ * a run's over its graph, and a model request's.
+ * @param {Array<[string, string, string?]>} figures Each a label, its value and, if any, a title with its exact figure.
+ * @returns {HTMLElement[]}
+ */
+export function statItems(figures) {
+  return figures.map(([label, value, title]) => h("div", { class: "stat", title }, h("dt", { text: label }), h("dd", { text: value })));
+}
+
+/**
  * A collapsible section: a `<details>` with a clickable summary line.
  * @param {{summary: string|Node, open?: boolean, hint?: string, className?: string, onToggle?: (open: boolean) => void}} options
  *   `hint` is a muted note at the right of the summary (e.g. "101 companies").

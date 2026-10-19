@@ -6,7 +6,7 @@
 
 import { onSessionRequest, request } from "./bridge.js";
 import { formatDuration, h, icon, plural } from "./dom.js";
-import { dataTable } from "./display.js";
+import { statItems, statusPill } from "./display.js";
 
 let current = null;
 // Starts the page's session on the host, if it has not started yet.
@@ -64,57 +64,75 @@ export function formatSeconds(seconds) {
   return seconds < 10 ? `${seconds.toFixed(1)} s` : formatDuration(seconds);
 }
 
+/** "373", "4.2k": a count, in thousands once it is a thousand or more. */
+export const thousands = (count) => (count < 1000 ? String(count) : `${(count / 1000).toFixed(1)}k`);
+
 /**
- * One line for what a run cost and how long it took: "$0.012 · first token 1.8 s · generating
- * 6.1 s · 14 s total · 1,200 → 300 tokens". Parts the run did not report are left out.
+ * What one model request took, read and cost, as stats (display.js statItems): Total Time, Time
+ * to First Token, Generation Time, Input Tokens, Output Tokens and Cost. Figures the request did
+ * not report are left out, Time to First Token for one not streamed.
  * @param {{cost?: number|null, ttft_s?: number|null, generation_s?: number|null, duration_s?: number|null, usage?: object}} metrics
- *   A `task.done`'s or a `chat.answer`'s `metrics`.
+ *   A model request's or a `chat.answer`'s `metrics`.
  */
-export function metricsLine(metrics) {
-  const parts = [formatCost(metrics.cost)];
-  if (metrics.ttft_s != null) parts.push(`first token ${formatSeconds(metrics.ttft_s)}`);
-  if (metrics.generation_s) parts.push(`generating ${formatSeconds(metrics.generation_s)}`);
-  if (metrics.duration_s != null) parts.push(`${formatSeconds(metrics.duration_s)} total`);
+export function runStats(metrics) {
+  const figures = [];
+  if (metrics.duration_s != null) figures.push(["Total Time", formatSeconds(metrics.duration_s)]);
+  if (metrics.ttft_s != null) figures.push(["Time to First Token", formatSeconds(metrics.ttft_s)]);
+  if (metrics.generation_s) figures.push(["Generation Time", formatSeconds(metrics.generation_s)]);
   const { prompt_tokens: input, completion_tokens: output } = metrics.usage ?? {};
-  if (input != null && output != null) parts.push(`${input.toLocaleString()} → ${output.toLocaleString()} tokens`);
-  return parts.join(" · ");
+  if (input != null) figures.push(["Input Tokens", thousands(input), input.toLocaleString()]);
+  if (output != null) figures.push(["Output Tokens", thousands(output), output.toLocaleString()]);
+  figures.push(["Cost", formatCost(metrics.cost)]);
+  return h("dl", { class: "stats run-stats" }, statItems(figures));
 }
 
+/** "Oct 19, 2:46 AM", with the year when it is not this one. */
 const when = (at) => {
   const date = new Date(at);
   const year = date.getFullYear() === new Date().getFullYear() ? undefined : "numeric";
-  return date.toLocaleString(undefined, { year, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return `${date.toLocaleDateString(undefined, { year, month: "short", day: "numeric" })}, ${date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
 };
 const titled = (session) => session.title || "Untitled session";
 
-/** Every call one session made, with what each cost and how long it took. */
-function callsTable(calls) {
-  return dataTable({
-    caption: "Runs in this session",
-    empty: "This session has not run anything yet.",
-    sort: { key: "at", dir: "desc" },
-    rows: calls,
-    columns: [
-      { key: "at", label: "When", render: (call) => when(call.at), primary: true },
-      { key: "what", label: "What", value: (call) => (call.kind === "task" ? call.task : "Chat") },
-      {
-        key: "cost",
-        label: "Cost",
-        numeric: true,
-        render: (call) => (call.estimated ? h("span", { title: "The run reported no cost, so it was charged the most a run may cost.", text: `≤ ${formatCost(call.cost)}` }) : formatCost(call.cost)),
-      },
-      { key: "ttftS", label: "First token", numeric: true, render: (call) => formatSeconds(call.ttftS) },
-      { key: "generationS", label: "Generating", numeric: true, render: (call) => formatSeconds(call.generationS) },
-      { key: "durationS", label: "Total", numeric: true, render: (call) => formatSeconds(call.durationS) },
-      {
-        key: "tokens",
-        label: "Tokens in → out",
-        numeric: true,
-        value: (call) => (call.inputTokens == null ? null : call.inputTokens + (call.outputTokens ?? 0)),
-        render: (call) => (call.inputTokens == null ? "—" : `${call.inputTokens.toLocaleString()} → ${(call.outputTokens ?? 0).toLocaleString()}`),
-      },
-    ],
+/** "4.3k" with "4,321" for its title: a count of tokens. */
+const tokens = (count) => [thousands(Math.round(count)), Math.round(count).toLocaleString()];
+// The figures the dashboard's usage shows, a column each, in the order of a run's graph summary:
+// each one's label, the field it is, and how a value of it is written, with a title for the exact figure.
+const FIGURES = [
+  ["End-to-End Latency", "durationS", (value) => [formatSeconds(value)]],
+  ["Model Time", "modelS", (value) => [formatSeconds(value)]],
+  ["Tool Time", "toolsS", (value) => [formatSeconds(value)]],
+  ["Input Tokens", "inputTokens", tokens],
+  ["Output Tokens", "outputTokens", tokens],
+  ["Cost", "cost", (value) => [formatCost(value)]],
+];
+
+/**
+ * The usage of every message in `sessions`, as the dashboard shows it: a column per figure
+ * (FIGURES), its Total over its Average per message. A Total that messages recorded before RUSH
+ * counted its figure lack says so in its title.
+ */
+function sessionsUsage(sessions) {
+  const runs = sessions.reduce((sum, one) => sum + one.runs, 0);
+  const figures = FIGURES.map(([, key, format]) => {
+    const sum = sessions.reduce((total, one) => total + one.usage[key].sum, 0);
+    const count = sessions.reduce((total, one) => total + one.usage[key].count, 0);
+    const total = count ? format(sum) : ["—"];
+    if (count && count < runs) total[1] = `For ${count.toLocaleString()} of ${plural(runs, "message")}: those sent before RUSH counted it lack it`;
+    return { total, average: count ? format(sum / count) : ["—"] };
   });
+  const row = (head, title, cells) => h("tr", {}, h("th", { scope: "row", text: head, title }), cells.map(([text, cellTitle]) => h("td", { text, title: cellTitle })));
+  return h(
+    "div",
+    { class: "usage-summary table-scroll" },
+    h(
+      "table",
+      {},
+      h("caption", { class: "visually-hidden", text: "Usage: in all, and on average per message" }),
+      h("thead", {}, h("tr", {}, h("td"), FIGURES.map(([label]) => h("th", { scope: "col", text: label })))),
+      h("tbody", {}, row("Total", undefined, figures.map((figure) => figure.total)), row("Average", "Per message", figures.map((figure) => figure.average))),
+    ),
+  );
 }
 
 /** What the dashboard's list says with no session in view. */
@@ -125,7 +143,7 @@ function emptyText(archived, closed) {
 
 /**
  * The dashboard: the person's sessions with this plugin, newest first, and what they cost in
- * all; from here they start a new session or resume one, open a session's runs, and archive a
+ * all; from here they start a new session or resume one, and archive a
  * session. Archived sessions leave the list for its Archived view, where they can be opened or
  * restored; chatting in one again restores it.
  * @param {object} options
@@ -136,7 +154,7 @@ function emptyText(archived, closed) {
  *   `refresh` lists the sessions again; `resume` opens session `id`, saying why not when it cannot, and whether it did.
  */
 export function dashboard({ onOpen, closed = false }) {
-  const stats = h("dl", { class: "session-stats" });
+  const stats = h("div", { class: "dashboard-usage" });
   const status = h("p", { class: "error-text", role: "alert" });
   const list = h("ul", { class: "session-list" });
   const heading = h("h2", { text: "Sessions" });
@@ -172,40 +190,21 @@ export function dashboard({ onOpen, closed = false }) {
     }
   }
 
-  async function toggleRuns(session, button, panel) {
-    const opening = panel.hidden;
-    button.setAttribute("aria-expanded", String(opening));
-    panel.hidden = !opening;
-    if (!opening || panel.childElementCount) return;
-    panel.replaceChildren(h("p", { class: "muted", text: "Loading its runs…" }));
-    try {
-      const { session: full } = await request("session.get", { id: session.id });
-      panel.replaceChildren(callsTable(full.calls).element);
-    } catch (problem) {
-      panel.replaceChildren(h("p", { class: "error-text", role: "alert", text: problem.message }));
-    }
-  }
-
   function row(session) {
-    const meta = [when(session.updatedAt), plural(session.runs, "run"), formatCost(session.cost)];
-    if (session.running) meta.unshift("Answering…");
-    if (session.ttftS != null) meta.push(`first token ${formatSeconds(session.ttftS)}`);
+    // Its title over when it was last used, and what it cost and took at the row's end, in line with the others'.
     const open = h(
       "button",
       { type: "button", class: "session-open", title: "Resume this session" },
       h("span", { class: "session-title", text: titled(session) }),
-      h("span", { class: "session-meta", text: meta.join(" · ") }),
+      h("span", { class: "session-meta" }, session.running ? statusPill("Answering", "info") : null, when(session.updatedAt)),
     );
+    const took = session.usage.durationS.count ? formatSeconds(session.usage.durationS.sum) : "—";
+    const spent = h("span", { class: "session-cost", title: "Cost / End-to-End Latency", text: `${formatCost(session.cost)} / ${took}` });
     open.addEventListener("click", () => resume(session.id, open));
-    const panel = h("div", { class: "session-runs", hidden: true });
-    const runs = session.runs
-      ? h("button", { type: "button", class: "button small ghost", "aria-expanded": "false", text: "Runs" })
-      : null;
-    runs?.addEventListener("click", () => toggleRuns(session, runs, panel));
     const label = session.archivedAt ? "Restore" : "Archive";
     const archiving = h("button", { type: "button", class: "button small ghost", text: label, title: `${label} ${titled(session)}` });
     archiving.addEventListener("click", () => archive(session, archiving));
-    return h("li", { class: "session-row" }, h("div", { class: "session-line" }, open, runs, archiving), panel);
+    return h("li", { class: "session-row" }, h("div", { class: "session-line" }, open, spent, archiving));
   }
 
   async function refresh() {
@@ -223,16 +222,7 @@ export function dashboard({ onOpen, closed = false }) {
     heading.textContent = archivedView ? "Archived sessions" : "Sessions";
     viewButton.hidden = !archived.length;
     viewButton.textContent = archivedView ? "Back to sessions" : `Archived (${archived.length})`;
-    const runs = sessions.reduce((sum, one) => sum + one.runs, 0);
-    const timed = sessions.filter((one) => one.ttftS != null);
-    const timedRuns = timed.reduce((sum, one) => sum + one.runs, 0);
-    const figures = [
-      ["Sessions", String(sessions.length)],
-      ["Runs", String(runs)],
-      ["Cost", formatCost(sessions.reduce((sum, one) => sum + one.cost, 0))],
-      ["First token, average", timedRuns ? formatSeconds(timed.reduce((sum, one) => sum + one.ttftS * one.runs, 0) / timedRuns) : "—"],
-    ];
-    stats.replaceChildren(...(sessions.length && !archivedView ? figures.map(([label, value]) => h("div", { class: "session-stat" }, h("dt", { text: label }), h("dd", { text: value }))) : []));
+    stats.replaceChildren(...(sessions.some((one) => one.runs) && !archivedView ? [sessionsUsage(sessions)] : []));
     const newest = [...sessions].sort((x, y) => new Date(y.updatedAt) - new Date(x.updatedAt));
     list.replaceChildren(
       ...(newest.length

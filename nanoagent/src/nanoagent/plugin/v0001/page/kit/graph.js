@@ -2,18 +2,20 @@
 // while its patches stream in: each node in the row of the longest path to it, so every edge
 // points down, from what a call used to what it generated. A tool call is drawn with the
 // arguments and output only it has; a task's call is a box with the task's own run inside it,
-// folded to its totals once it is done. Picking a node shows all of it in the panel under the graph.
+// folded to its totals once it is done. Picking a node shows what it took and holds in the panel
+// under the graph.
 
-import { statusPill } from "./display.js";
+import { statItems, statusPill } from "./display.js";
 import { h, icon } from "./dom.js";
-import { metricsLine } from "./session.js";
+import { formatCost, formatSeconds, runStats, thousands } from "./session.js";
 
 const SVG = "http://www.w3.org/2000/svg";
 const RELATIONS = ["used", "generated", "continued", "copied", "chose"];
 // The runs drawn with the tool call they alone ran and the result they alone returned, and the
-// parts of a reply drawn on its card.
+// parts of a model request drawn on its card: what it thought and what it wrote, its response
+// for the last.
 const FOLDING = new Set(["tool", "task", "reference"]);
-const REPLY_PARTS = new Set(["thinking", "assistant"]);
+const REPLY_PARTS = new Set(["thinking", "assistant", "agent_message"]);
 let views = 0;
 
 /**
@@ -36,6 +38,83 @@ export function applyPatch(graph, patch) {
   } else throw new Error(`Unknown graph patch ${JSON.stringify(patch.op)}.`);
 }
 
+/**
+ * A session's graph, its turns' graphs (one run each) joined: each turn's nodes under
+ * `turns[<n>]/`, and the earlier turns a turn read drawn as the turn before it, which its first
+ * reply continued, using that turn's response, and whose system prompt, when its own is the
+ * same, it read. A turn after one with no graph keeps its node of the earlier turns.
+ * `turn(graph)` starts the next turn, with its whole graph when it is done, and null for a turn
+ * kept with no graph; `patch(patch)` applies a patch of the turn now and returns the session
+ * graph's patches; `redo(graph)` draws the turn now again, from nothing when `graph` is empty.
+ * @returns {{graph: () => {nodes: Array<object>, edges: Array<object>}, turn: (graph?: object|null) => void, patch: (patch: object) => object[], redo: (graph: object|null) => void}}
+ */
+export function sessionGraph() {
+  let graph = { nodes: [], edges: [] };
+  let turns = 0;
+  let before = null; // the turn before the one now: its last reply, its response and its system prompt
+  let now = null;
+  let start = null; // the session graph before the turn now
+  const top = (node) => !node.parent;
+  /** The session graph's patches for the turn now's `patch`. */
+  const translate = (patch) => {
+    const id = (each) => (now.dropped.has(each) ? null : `${now.prefix}${each}`);
+    if (patch.op === "node") {
+      const node = patch.node;
+      if (top(node) && node.type === "earlier_turns" && before?.reply) {
+        now.dropped.set(node.id, node.type);
+        return [];
+      }
+      if (top(node) && node.type === "system_prompt") {
+        now.system = node.value;
+        if (before?.reply && before.system === node.value) {
+          now.dropped.set(node.id, node.type);
+          return [];
+        }
+      }
+      const moved = { ...node, id: id(node.id), ...(node.parent ? { parent: id(node.parent) } : {}) };
+      if (top(node) && node.type === "agent_reply") now.reply = moved.id;
+      if (top(node) && node.type === "agent_message") now.response = moved.id;
+      return [{ op: "node", node: moved }];
+    }
+    if (patch.op === "edge") {
+      const edge = patch.edge;
+      if (now.dropped.get(edge.from) === "earlier_turns") {
+        const to = id(edge.to);
+        return [{ op: "edge", edge: { from: before.reply, to, relation: "continued" } }, before.response ? { op: "edge", edge: { from: before.response, to, relation: "used" } } : null].filter(Boolean);
+      }
+      if (now.dropped.has(edge.from)) return [];
+      return [{ op: "edge", edge: { ...edge, from: id(edge.from), to: id(edge.to) } }];
+    }
+    if (patch.op === "update" && patch.set.type === "agent_message" && top(graph.nodes.find((node) => node.id === id(patch.id)))) now.response = id(patch.id);
+    return [{ ...patch, id: id(patch.id) }];
+  };
+  /** The patches that draw a whole turn's graph. */
+  const whole = (turn) => [...turn.nodes.map((node) => ({ op: "node", node })), ...turn.edges.map((edge) => ({ op: "edge", edge }))];
+  const begin = (turn) => {
+    now = turn ? { prefix: `turns[${turns - 1}]/`, dropped: new Map(), reply: null, response: null, system: null } : null;
+    if (turn) for (const patch of whole(turn)) session.patch(patch);
+  };
+  const session = {
+    graph: () => graph,
+    turn(turn = { nodes: [], edges: [] }) {
+      before = now && { reply: now.reply, response: now.response, system: now.system };
+      start = structuredClone(graph);
+      turns += 1;
+      begin(turn);
+    },
+    patch(patch) {
+      const moved = translate(patch);
+      for (const each of moved) applyPatch(graph, each);
+      return moved;
+    },
+    redo(turn) {
+      graph = structuredClone(start);
+      begin(turn);
+    },
+  };
+  return session;
+}
+
 /** What a node is: the name of its part (nanoagent.plugin.provenance.PARTS). */
 export function kindText(node) {
   if (!node.typeLabel) throw new Error(`The graph node ${JSON.stringify(node.id)} names no part.`);
@@ -44,81 +123,74 @@ export function kindText(node) {
 
 const short = (text, length) => (text.length > length ? `${text.slice(0, length - 1)}…` : text);
 const shown = (value) => (typeof value === "string" ? value : JSON.stringify(value));
+/** A part folded into a node's card, on a line of its own named by its part, as the chat names it (kit/loop.js): "Thinking › …". */
+const partLine = (part, text) => h("span", { class: `tn-preview type-${part.type}` }, h("span", { class: "tn-part", text: kindText(part) }), text);
 const json = (value) => (typeof value === "string" ? value : JSON.stringify(value, null, 2));
 /** What a reply thought or wrote, for its card: the end of it while it streams, else its start (the card cuts it short). */
 const preview = (text, running) => {
   const line = (text ?? "").trim().replace(/\s+/g, " ");
   return running && line.length > 110 ? `…${line.slice(-109)}` : line;
 };
-const secondsText = (seconds) => `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} s`;
 const plural = (count, one) => `${count.toLocaleString()} ${one}${count === 1 ? "" : "s"}`;
-const thousands = (count) => (count < 1000 ? String(count) : `${(count / 1000).toFixed(1)}k`);
-const tokensText = (total) => `${thousands(total.tokensIn)} tokens in, ${thousands(total.tokensOut)} out`;
+const tokensText = (total) => `${thousands(total.tokensIn)} input, ${thousands(total.tokensOut)} output tokens`;
 
 /** What `nodes` cost: their model requests, with the tokens, dollars and seconds those took, and their tool calls. */
 function totals(nodes) {
   const calls = nodes.flatMap((node) => node.modelCalls ?? []);
   const sum = (pick) => calls.reduce((total, call) => total + (pick(call) ?? 0), 0);
   return {
-    requests: nodes.filter((node) => node.modelCalls?.length).length,
-    tools: nodes.filter((node) => node.type === "tool").length,
+    requests: calls.length,
+    tools: nodes.filter((node) => node.type === "tool_call").length,
     tokensIn: sum((call) => call.usage?.prompt_tokens),
     tokensOut: sum((call) => call.usage?.completion_tokens),
     cost: sum((call) => call.cost),
     seconds: sum((call) => call.duration_s),
   };
 }
-/** `totals` as the facts a summary line shows, each its own item: what ran and how long it took, its tokens, and its cost. */
+/** `totals` as the facts a task's box shows on one line, in the order of the run's stats: time, requests, tool calls, tokens and cost. */
 function totalsText(total, seconds) {
-  const ran = [total.requests ? plural(total.requests, "model request") : null, total.tools ? plural(total.tools, "tool call") : null].filter(Boolean).join(" and ");
   return [
-    ran && seconds ? `${ran} in ${secondsText(seconds)}` : ran,
+    seconds ? formatSeconds(seconds) : null,
+    total.requests ? plural(total.requests, "model request") : null,
+    total.tools ? plural(total.tools, "tool call") : null,
     total.requests ? tokensText(total) : null,
-    total.cost ? `$${total.cost < 0.01 ? total.cost.toFixed(4) : total.cost.toFixed(2)}` : null,
+    total.cost ? formatCost(total.cost) : null,
   ].filter(Boolean);
 }
 
-/** One edge as words, from the side `side` ("in" or "out") of the node it is drawn on. */
-function edgeText(edge, byId, side) {
-  const other = byId.get(side === "in" ? edge.from : edge.to).label;
-  const field = (path) => (path ? `.${path}` : "");
-  switch (edge.relation) {
-    case "used":
-      return side === "in" ? `Used ${other}` : `Used by ${other}`;
-    case "generated":
-      return side === "in" ? `Generated by ${other}` : `Generated ${other}`;
-    case "continued":
-      return side === "in" ? `Carried on the conversation of ${other}` : `Its conversation carried on in ${other}`;
-    case "copied":
-      return side === "in" ? `${edge.toPath || "All"} copied from ${other}${field(edge.fromPath)}` : `${edge.fromPath || "All"} copied into ${other}${field(edge.toPath)}`;
-    case "chose":
-      return side === "in" ? `${edge.toPath || "Chosen"}: ${JSON.stringify(edge.option)}, chosen by ${other}` : `Chose ${JSON.stringify(edge.option)} for ${other}${field(edge.toPath)}`;
-  }
-  throw new Error(`Unknown provenance relation ${JSON.stringify(edge.relation)}.`);
+/**
+ * `totals` as the run's stats over its graph (display.js statItems): End-to-End Latency, Model
+ * Time and Tool Time (`modelS` and `toolsS`, the seconds its loop spent on each), Input Tokens,
+ * Output Tokens and Cost, as the dashboard's usage (kit/session.js) shows them.
+ */
+function totalsStats(total, modelS, toolsS) {
+  const seconds = modelS + toolsS;
+  const figures = [
+    seconds ? ["End-to-End Latency", formatSeconds(seconds)] : null,
+    seconds ? ["Model Time", formatSeconds(modelS)] : null,
+    seconds ? ["Tool Time", formatSeconds(toolsS)] : null,
+    total.requests ? ["Input Tokens", thousands(total.tokensIn), total.tokensIn.toLocaleString()] : null,
+    total.requests ? ["Output Tokens", thousands(total.tokensOut), total.tokensOut.toLocaleString()] : null,
+    total.cost ? ["Cost", formatCost(total.cost)] : null,
+  ].filter(Boolean);
+  return statItems(figures);
 }
 
 /**
  * All of `node` (a drawn node: a call with the `parts` folded into it), named `name`, for the
- * panel under the graph: what it is, what it holds, its arguments and output, and the edges of each.
+ * panel under the graph: what it took, its model requests' figures as every page writes them,
+ * and what it holds, each part under its part's name.
  */
-function nodeDetail(node, name, running, graph, byId, close) {
+function nodeDetail(node, name, running, close) {
   const section = (title, ...body) => h("section", { class: "trace-detail-part" }, h("h4", { text: title }), ...body);
-  const edgesOf = (id) => [
-    ...graph.edges.filter((edge) => edge.to === id).map((edge) => edgeText(edge, byId, "in")),
-    ...graph.edges.filter((edge) => edge.from === id).map((edge) => edgeText(edge, byId, "out")),
-  ];
+  const content = (value) => (value.incomplete ? h("p", { class: "muted", text: "Not finished." }) : h("pre", { class: typeof value.value === "string" ? "trace-stream" : null, text: json(value.value) }));
   const parts = [];
-  if (node.modelCalls?.length) for (const call of node.modelCalls) parts.push(h("p", { class: "message-metrics", text: metricsLine(call) }));
-  if (node.duration_s != null) parts.push(h("p", { class: "message-metrics", text: `Took ${secondsText(node.duration_s)}` }));
+  if (node.modelCalls?.length) for (const call of node.modelCalls) parts.push(runStats(call));
+  if (node.duration_s != null) parts.push(h("dl", { class: "stats run-stats" }, statItems([["Total Time", formatSeconds(node.duration_s)]])));
   if (node.type === "agent_reply" && running && !Object.keys(node.parts ?? {}).length) parts.push(h("p", { class: "muted", text: "Waiting for the first token." }));
-  if (node.kind === "value" && !node.incomplete) parts.push(section("Value", h("pre", { text: json(node.value) })));
-  const lists = [node, ...Object.values(node.parts ?? {})].flatMap((each) => edgesOf(each.id));
-  for (const [name, value] of Object.entries(node.parts ?? {})) {
-    const text = typeof value.value === "string";
-    parts.push(section(kindText(value), value.incomplete ? h("p", { class: "muted", text: "Not finished." }) : h("pre", { class: text ? "trace-stream" : null, text: json(value.value) })));
-  }
-  parts.push(lists.length ? section("Provenance", h("ul", { class: "trace-edges-list" }, lists.map((text) => h("li", { text })))) : h("p", { class: "muted", text: "No recorded edge." }));
-  const status = node.isError ? statusPill("Failed", "bad") : running ? statusPill("Running", "info") : node.incomplete ? statusPill("Not finished", "warn") : statusPill(kindText(node), "neutral");
+  if (node.kind === "value") parts.push(section(kindText(node), content(node)));
+  for (const value of Object.values(node.parts ?? {})) parts.push(section(kindText(value), content(value)));
+  const status = node.isError ? statusPill("Failed", "bad") : running ? statusPill("Running", "info") : node.incomplete ? statusPill("Not finished", "warn") : name === kindText(node) ? null : statusPill(kindText(node), "neutral");
   return h(
     "div",
     { class: "trace-detail-body" },
@@ -143,7 +215,7 @@ function folded(nodes, edges) {
       const parts = {};
       for (const edge of out(node.id)) {
         const part = byId.get(edge.to);
-        if (edge.relation === "generated" && REPLY_PARTS.has(part.type) && !out(part.id).length) parts[part.type] = part;
+        if (edge.relation === "generated" && REPLY_PARTS.has(part.type)) parts[part.type] = part;
       }
       for (const part of Object.values(parts)) owner.set(part.id, node.id);
       drawn.set(node.id, { ...node, parts });
@@ -230,10 +302,11 @@ function rows({ nodes, edges }) {
 
 /**
  * A live provenance graph view, under a line with the run's totals. `apply(patch)` draws a patch
- * as it streams in, `replace(graph)` draws a whole graph, and `settle()` says the run ended, so
- * nothing is drawn running any more. While the newest rows are in sight it keeps them there.
+ * as it streams in, `replace(graph)` draws a whole graph, `settle()` says the run ended, so
+ * nothing is drawn running any more, and `resume()` that another run goes on in it, as the next
+ * turn of a session (sessionGraph) does. While the newest rows are in sight it keeps them there.
  * @param {{names?: (task: string) => string}} [options] `names` gives a task's name by its id.
- * @returns {{element: HTMLElement, apply: (patch: object) => void, replace: (graph: object) => void, settle: () => void}}
+ * @returns {{element: HTMLElement, apply: (patch: object) => void, replace: (graph: object) => void, settle: () => void, resume: () => void}}
  */
 export function graphView({ names = (task) => task } = {}) {
   const id = (views += 1);
@@ -250,7 +323,7 @@ export function graphView({ names = (task) => task } = {}) {
   // Each reply part's line on its card, and the drawn node it is on.
   let streamLines = new Map();
   let draws = [];
-  const summary = h("div", { class: "trace-summary", hidden: true });
+  const summary = h("dl", { class: "stats trace-summary", hidden: true });
   const canvas = h("div", { class: "trace-canvas" });
   const detail = h("div", { class: "trace-detail", hidden: true });
   const empty = h("div", { class: "results-empty" }, h("p", { text: "Nothing yet" }), h("p", { class: "muted", text: "What the agent does shows here as it works." }));
@@ -270,7 +343,7 @@ export function graphView({ names = (task) => task } = {}) {
     const drawn = picked !== null && drawnNodes.get(picked);
     if (!drawn) return;
     const members = drawn.node.members ?? [drawn.node];
-    detail.replaceChildren(...members.map((member, index) => nodeDetail(member, member.type === "task" ? names(member.label) : member.label, Boolean(member.running) && !settled, graph, byId, index === 0 ? close : null)));
+    detail.replaceChildren(...members.map((member, index) => nodeDetail(member, member.type === "task" ? names(member.label) : member.label, Boolean(member.running) && !settled, index === 0 ? close : null)));
     detail.hidden = false;
   };
   const pick = (node) => {
@@ -282,7 +355,7 @@ export function graphView({ names = (task) => task } = {}) {
   };
 
   /**
-   * A node's element: a box for a task, a card for an agent reply (its thinking and its message
+   * A node's element: a box for a task, a card for a model request (its thinking and its message
    * on lines of their own), else a tile, each under its type unless its name says it already.
    */
   const nodeElement = (node) => {
@@ -298,18 +371,20 @@ export function graphView({ names = (task) => task } = {}) {
     let body = [type, label];
     if (node.type === "agent_reply" || node.type === "decision") {
       const total = totals([node]);
-      const meta = total.requests ? h("span", { class: "tn-meta" }, h("span", { text: tokensText(total) }), h("span", { text: secondsText(total.seconds) })) : null;
+      const meta = total.requests ? h("span", { class: "tn-meta" }, h("span", { text: formatSeconds(total.seconds) }), h("span", { text: tokensText(total) })) : null;
       // A reply's thinking and what it wrote, each a line its streamed tokens change in place.
-      const line = (part, extra) => {
+      const line = (part) => {
         if (!part) return null;
-        lines[part.id] = h("span", { class: `tn-preview${extra}`, text: preview(part.value, running) });
-        return lines[part.id];
+        lines[part.id] = h("span", { class: "tn-part-text", text: preview(part.value, running) });
+        return partLine(part, lines[part.id]);
       };
-      body = [type, h("span", { class: "tn-row" }, label, meta), line(node.parts?.thinking, " thinking"), line(node.parts?.assistant, "")];
+      body = [type, h("span", { class: "tn-row" }, label, meta), line(node.parts?.thinking), line(node.parts?.assistant), line(node.parts?.agent_message)];
     } else if (node.kind === "value" && !node.incomplete && node.value !== null) {
       body = [type, label, h("span", { class: "tn-preview", text: short(shown(node.value), 48) })];
     } else if (withOutput) {
-      body = [type, h("span", { class: "tn-row" }, label, node.duration_s != null ? h("span", { class: "tn-meta", text: secondsText(node.duration_s) }) : null), h("span", { class: "tn-preview", text: short(shown(output.value), 48) })];
+      const { arguments: given } = node.parts;
+      const shortLine = (part) => (part && !part.incomplete ? partLine(part, h("span", { class: "tn-part-text", text: short(shown(part.value), 48) })) : null);
+      body = [type, h("span", { class: "tn-row" }, label, node.duration_s != null ? h("span", { class: "tn-meta", text: formatSeconds(node.duration_s) }) : null), shortLine(given), shortLine(output)];
     }
     const button = h("button", { type: "button", class: classes.filter(Boolean).join(" "), "aria-pressed": String(node.id === picked), title: kindText(node) }, body);
     button.addEventListener("click", () => pick(node));
@@ -396,8 +471,10 @@ export function graphView({ names = (task) => task } = {}) {
   /** The run's totals: every model request and tool call in it, and the time its own loop took. */
   const drawSummary = () => {
     const top = children.get(null) ?? [];
-    const seconds = top.reduce((total, node) => total + (node.type === "agent_reply" ? totals([node]).seconds : (node.duration_s ?? 0)), 0);
-    summary.replaceChildren(...totalsText(totals(graph.nodes), seconds).map((fact) => h("span", { text: fact })));
+    // Its loop's own time: on its replies' model requests, and on running their tool calls.
+    const modelS = totals(top.filter((node) => node.type === "agent_reply")).seconds;
+    const toolsS = top.reduce((total, node) => total + (node.type === "agent_reply" ? 0 : (node.duration_s ?? 0)), 0);
+    summary.replaceChildren(...totalsStats(totals(graph.nodes), modelS, toolsS));
     summary.hidden = !graph.nodes.length;
   };
 
@@ -445,6 +522,10 @@ export function graphView({ names = (task) => task } = {}) {
     settle() {
       settled = true;
       redraw();
+    },
+    // The next turn of the session it draws runs.
+    resume() {
+      settled = false;
     },
   };
 }

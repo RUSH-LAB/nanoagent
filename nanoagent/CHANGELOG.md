@@ -60,13 +60,28 @@ marketplace to offer it: a version published before 0.7.0 is listed under mainte
   `Thinking ›`, `Assistant ›`, `Tool call ›`, `Tool result ›`, `Response ›`, and inside a task's run,
   indented under its call, `Task input ›`, `Reference output ›`, `Decision ›`, `Task output ›` and
   `Verdict ›` (kit/loop.js). A row holds its part on one line and opens to all of it; the user's
-  message, what the assistant wrote and the response show whole, as Markdown. The rows come from
-  the turn's graph as it streams in; a task's run is open while it runs or when it failed, folded
-  once it passed, and its result row has Open result, which draws the result beside the chat. The
-  session's system prompt shows in its first turn. Under the turn, its line says what it ran on, cost and
-  took, as a kept turn's does too (the host keeps each turn's `metrics`), and Graph draws its
-  graph. In the graph, a task is shown by its name, a reply's card holds its thinking and what it
-  wrote, a finished one from the start, and tokens read `13.9k tokens in, 1.3k out`.
+  message, what the assistant wrote and the response show whole, as Markdown. Every part between
+  the user's message and the response is folded into one `Steps ›` row, which names each task the
+  turn ran and whether it passed; it is open while the turn runs or when it ended with no response, its parts scrolling in a box at
+  most 40% of the window tall that keeps the newest in sight and can be dragged taller or shorter. The rows come from the turn's
+  graph as it streams in; a task's run is open while it runs or when it failed, folded once it
+  passed. The session's system prompt shows in its first turn. Beside the chat, the Result tab draws the latest task's
+  result and the Graph tab the session's graph, every turn's joined (kit/graph.js sessionGraph):
+  a later turn's first reply continues the last reply before it and uses its response, in place
+  of a node of the earlier turns, and a system prompt the same as the one before is drawn once.
+  Its summary says what the session took and cost, a small label over each value: End-to-End
+  Latency, Model Time and Tool Time (the seconds the loop spent on model requests and on running
+  tool calls), Input Tokens, Output Tokens and Cost. The dashboard shows the same figures for
+  every message in a table, their Total over their Average per message (a Total that messages
+  sent before RUSH counted its figure lack says so in its title), and a model request's stats, under its
+  reply and in the graph's panel, are Total Time, Time to First Token, Generation Time, Input
+  Tokens, Output Tokens and Cost, the panel naming a node once (not `Model request` twice); the dashboard lists each session as its title over when it
+  was last used, with its cost and End-to-End Latency at the row's end (`$0.0003 / 12 s`), and a graph's cards and task boxes read
+  `3.7 s · 1 model request · 2 tool calls · 1.1k input, 173 output tokens · $0.0001`; the chat no longer has a line of its own for that, nor Open result and Graph buttons under each turn. In the graph, a task is shown by its name, a model request by its part's name,
+  `Model request` (`NodeType.MODEL_REQUEST`), not numbered `Agent reply 1`; a reply's card holds its thinking and what it
+  wrote, the last its response, a finished one from the start, and a tool's card its call and its result, each line
+  named by its part as the chat's rows are (`Thinking ›`, `Assistant ›`, `Tool call ›`, `Tool result ›`), and a picked node's panel shows what it took, its model requests' figures as every page
+  writes them, and what it holds, each part under its part's name, no longer its provenance edges, and tokens read `13.9k tokens in, 1.3k out`.
 - The page opens on the session its host names (`describe`'s `session`), and tells the host the
   session it shows, or null on the Dashboard (`session.shown {id}`). RUSH keeps it in the
   Plugins page's address (`?session=`), so reloading the window opens the session again.

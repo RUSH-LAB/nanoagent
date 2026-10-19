@@ -107,7 +107,7 @@ describe('plugin sessions over PostgreSQL', () => {
       [started.id],
     );
     await tenancy.recordAiUsage(as('alice'), {
-      kind: 'app', model: 'm', cost: 0.1, estimated: true, pluginId: 'bibtex-check', sessionId: started.id,
+      kind: 'app', model: 'm', cost: 0.1, estimated: true, metrics: {model_s: 6, tools_s: 2.5}, pluginId: 'bibtex-check', sessionId: started.id,
     });
     const read = await sessions.get(as('alice'), 'bibtex-check', started.id);
     assert.deepEqual(read.calls.map(({at: _, ...call}) => call), [
@@ -117,7 +117,11 @@ describe('plugin sessions over PostgreSQL', () => {
     const [listed] = (await sessions.list(as('alice'), 'bibtex-check'));
     assert.equal(listed.runs, 2);
     assert.equal(listed.cost, 0.112);
-    assert.equal(listed.ttftS, 1.5);
+    // Each figure summed over the calls that have it, and how many do: one was recorded before calls kept their model and tool time.
+    assert.deepEqual(listed.usage, {
+      durationS: {sum: 9, count: 1}, modelS: {sum: 6, count: 1}, toolsS: {sum: 2.5, count: 1},
+      inputTokens: {sum: 120, count: 1}, outputTokens: {sum: 30, count: 1}, cost: {sum: 0.112, count: 2},
+    });
   });
 
   it('answers one message at a time, keeping the run until its turn, answered or not, is in the chat', async () => {

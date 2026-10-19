@@ -5,11 +5,11 @@
 import { h, icon } from "./dom.js";
 import { applyPatch, kindText } from "./graph.js";
 import { markdown } from "./markdown.js";
-import { metricsLine } from "./session.js";
+import { formatSeconds, runStats } from "./session.js";
 
 // The parts shown whole, as Markdown, not cut to a line: what a reply wrote.
+const STEPS = "steps"; // the key of whether the turn's Steps row is open, beside each task's id
 const WHOLE = new Set(["assistant", "agent_message"]);
-const secondsText = (seconds) => `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} s`;
 /** A tool's output, which is JSON text, as the value it holds; other text as it is. */
 const parsed = (value) => {
   if (typeof value !== "string" || !/^\s*[[{]/.test(value)) return value;
@@ -35,21 +35,21 @@ const inline = (value) => {
  * One row: its part's name, `›`, and what it holds on one line, opening to all of it; or, for a
  * part shown whole, all of it as Markdown.
  * @param {string} label
- * @param {{text?: string|Node[], whole?: string, full?: Node, meta?: Node|string|null, extra?: Node|null, classes?: string}} content
+ * @param {{text?: string|Node[], whole?: string, full?: Node, meta?: Node|string|null, classes?: string}} content
  */
-export function partRow(label, { text = "", whole = null, full = null, meta = null, extra = null, classes = "" }) {
+export function partRow(label, { text = "", whole = null, full = null, meta = null, classes = "" }) {
   const head = [h("span", { class: "part-label", text: label })];
-  if (whole !== null) return h("li", { class: `part whole ${classes}` }, ...head, h("div", { class: "part-whole" }, markdown(whole)), extra);
+  if (whole !== null) return h("li", { class: `part whole ${classes}` }, ...head, h("div", { class: "part-whole" }, markdown(whole)));
   const body = full ? h("div", { class: "part-full", hidden: true }, full) : null;
   const line = h("span", { class: "part-text" }, text);
-  const after = [meta ? h("span", { class: "part-meta", text: typeof meta === "string" ? meta : null }, typeof meta === "string" ? null : meta) : null, extra];
-  if (!body) return h("li", { class: `part ${classes}` }, ...head, line, ...after);
+  const after = meta ? h("span", { class: "part-meta", text: typeof meta === "string" ? meta : null }, typeof meta === "string" ? null : meta) : null;
+  if (!body) return h("li", { class: `part ${classes}` }, ...head, line, after);
   const toggle = h("button", { type: "button", class: "part-open", "aria-expanded": "false" }, ...head, line);
   toggle.addEventListener("click", () => {
     body.hidden = !body.hidden;
     toggle.setAttribute("aria-expanded", String(!body.hidden));
   });
-  return h("li", { class: `part ${classes}` }, toggle, ...after, body);
+  return h("li", { class: `part ${classes}` }, toggle, after, body);
 }
 
 /** All of a value, for its row's opened part. */
@@ -65,9 +65,9 @@ const fullValue = (value) => {
  * @param {object} options
  * @param {boolean} options.first Whether the turn is its session's first, which shows the system prompt.
  * @param {(task: string) => string} options.names A task's name by its id.
- * @param {(name: string, output: string) => HTMLElement|null} options.result The button that draws a task's
- *   result (its tool result's `output`), made once per result, or null when it has none to draw.
- * @param {(chip: HTMLElement) => void} [options.onResult] Called with each result's button as it comes, while the turn runs.
+ * @param {(name: string, output: string) => ((focus: boolean) => void)|null} options.result What draws a task's
+ *   result (its tool result's `output`) beside the chat, made once per result, or null when it has none to draw.
+ * @param {(draw: (focus: boolean) => void) => void} [options.onResult] Called with what draws each result as it is made.
  */
 export function loopView({ first, names, result, onResult = () => {} }) {
   let graph = { nodes: [], edges: [] };
@@ -75,10 +75,18 @@ export function loopView({ first, names, result, onResult = () => {} }) {
   const element = h("ol", { class: "loop" });
   // A task's run is open while it runs or when it failed, else where the person chose.
   const opened = new Map();
-  // Each task result's button, made once, so it stays picked.
-  const chips = new Map();
+  // What draws each task's result, made once.
+  const results = new Map();
   // Each row opened, by its node's id, so redrawing keeps it open.
   const open = new Set();
+  // The open Steps row's box, kept across redraws with its scroll and the height it was dragged
+  // to; while its end is in sight it keeps the newest part there.
+  const box = h("ol", { class: "loop steps-box" });
+  let follow = true;
+  box.addEventListener("scroll", () => {
+    follow = box.scrollTop + box.clientHeight >= box.scrollHeight - 24;
+    box.classList.toggle("scrolled", box.scrollTop > 0);
+  });
 
   function draw() {
     const byId = new Map(graph.nodes.map((node) => [node.id, node]));
@@ -91,6 +99,11 @@ export function loopView({ first, names, result, onResult = () => {} }) {
       children.get(parent).push(node);
     }
     const running = (node) => Boolean(node?.running) && !settled;
+    /** How the task `call` ended: its name and whether its result passed its check. */
+    const taskMark = (call) => {
+      const verdict = (children.get(call.id) ?? []).find((each) => each.type === "verdict")?.value;
+      return verdict ? `${names(call.label)}: ${verdict.valid ? "Checked" : "Check failed"}` : names(call.label);
+    };
 
     /** The row of the value `node`. */
     const valueRow = (node) => {
@@ -110,7 +123,7 @@ export function loopView({ first, names, result, onResult = () => {} }) {
       if (WHOLE.has(node.type)) return keep(partRow(label, { whole: node.value ?? "", classes: `type-${node.type}` }));
       if (node.type === "thinking") {
         const reply = into(node.id, "generated")[0];
-        const calls = (reply.modelCalls ?? []).map((call) => h("p", { class: "message-metrics", text: metricsLine(call) }));
+        const calls = (reply.modelCalls ?? []).map(runStats);
         return keep(partRow(label, { text: inline(node.value ?? ""), full: h("div", {}, fullValue(node.value ?? ""), ...calls), classes: "type-thinking" }));
       }
       if (node.type === "tool_call") {
@@ -121,18 +134,16 @@ export function loopView({ first, names, result, onResult = () => {} }) {
       }
       if (node.type === "tool_result") {
         const [call] = into(node.id, "generated");
-        const meta = call?.duration_s != null ? secondsText(call.duration_s) : null;
+        const meta = call?.duration_s != null ? formatSeconds(call.duration_s) : null;
         if (call?.isError) return keep(partRow(label, { text: inline(node.value), full: fullValue(node.value), meta, classes: "type-tool_result bad" }));
         if (call?.type === "task") {
           const verdict = (children.get(call.id) ?? []).find((each) => each.type === "verdict")?.value;
-          if (!chips.has(node.id)) {
-            const chip = result(call.label, node.value);
-            chips.set(node.id, chip);
-            if (chip && !settled) onResult(chip);
+          if (!results.has(node.id)) {
+            const draw = result(call.label, node.value);
+            results.set(node.id, draw);
+            if (draw) onResult(draw);
           }
-          const mark = verdict ? (verdict.valid ? "Checked" : "Check failed") : names(call.label);
-          const row = partRow(label, { text: `${names(call.label)}: ${mark}`, meta, extra: chips.get(node.id), classes: `type-tool_result${verdict?.valid === false ? " bad" : ""}` });
-          return keep(row);
+          return keep(partRow(label, { text: taskMark(call), meta, classes: `type-tool_result${verdict?.valid === false ? " bad" : ""}` }));
         }
         return keep(partRow(label, { text: inline(node.value), full: fullValue(node.value), meta, classes: "type-tool_result" }));
       }
@@ -193,7 +204,36 @@ export function loopView({ first, names, result, onResult = () => {} }) {
       return h("li", { class: "loop-task" }, toggle, isOpen ? h("ol", { class: "loop" }, inside) : null);
     };
 
-    element.replaceChildren(...rows(null));
+    /**
+     * The turn: every part on the way to its response folded into one Steps row, which says what
+     * tasks it ran, open while it runs or when it ended with no response, and the response under it.
+     */
+    const turn = () => {
+      const top = children.get(null) ?? [];
+      const made = rows(null);
+      const responses = new Set(top.filter((node) => node.type === "agent_message").map((node) => node.id));
+      const inside = made.filter((row) => !responses.has(row.dataset.id));
+      if (!inside.length) return made;
+      const tasks = top.filter((node) => node.type === "task");
+      const isOpen = opened.get(STEPS) ?? (!settled || !responses.size);
+      const toggle = h(
+        "button",
+        { type: "button", class: "part-open", "aria-expanded": String(isOpen) },
+        h("span", { class: "part-label", text: "Steps" }),
+        h("span", { class: "part-text" }, icon("chevron", { size: 13 }), ` ${tasks.length ? tasks.map(taskMark).join("; ") : `${inside.length} part${inside.length === 1 ? "" : "s"}`}`),
+      );
+      toggle.addEventListener("click", () => {
+        opened.set(STEPS, !isOpen);
+        draw();
+      });
+      const steps = h("li", { class: "part steps" }, toggle, isOpen ? box : null);
+      box.replaceChildren(...inside);
+      return [steps, ...made.filter((row) => responses.has(row.dataset.id))];
+    };
+
+    const scrolled = box.scrollTop;
+    element.replaceChildren(...turn());
+    box.scrollTop = follow ? box.scrollHeight : scrolled;
   }
 
   let frame = 0;
@@ -211,7 +251,7 @@ export function loopView({ first, names, result, onResult = () => {} }) {
       applyPatch(graph, patch);
       redraw();
     },
-    // A whole graph, and the run's end, are drawn at once: a kept turn's result buttons are there to pick.
+    // A whole graph, and the run's end, are drawn at once: a kept turn's results are there to draw.
     replace(whole) {
       graph = structuredClone(whole);
       draw();

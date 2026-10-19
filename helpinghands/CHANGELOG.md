@@ -4,6 +4,7 @@ What each Mochi release changes, one sentence each.
 
 ## Unreleased
 
+- RUSH records the seconds each plugin run spent on model requests and on tool calls, from NanoAgent's metrics, and a plugin's sessions sum each figure over the calls that have it, counting those calls, so its Dashboard shows each figure's Total and Average per message (migration 0049).
 - A plugin session's chat is a folder in your home, `plugins/<plugin>/chats/<yyyy_mm_dd>_<title>/` (lowercase words joined by _), beside the plugin's `files/` its runs are given, with every turn in `chat.json` and each turn's provenance graph and ATIF trajectory (what the model saw and did, sent by NanoAgent as a `trajectory` event) beside it; the session follows the folder when you rename or move it, and the chats kept so far are moved there (migrations 0046 to 0048).
 - The Explorer shows your home first, as home, then the workspace's files, then what others shared from their homes as Shared with me, under their names.
 - App records, chat and plugin blobs are kept under folders starting with a dot (`.apps/`, `.chat/`, `.plugins/`), which the Explorer, search and RUSH Lab's folder leave out, and each plugin's files are `plugins/<plugin>/files/` in your home, while what runs left before plugins had folders goes to the trash, to restore from (migrations 0045, 0047, 0048); every member, viewers included, may edit and delete their own files there.

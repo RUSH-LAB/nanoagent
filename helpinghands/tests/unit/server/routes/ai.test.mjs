@@ -350,7 +350,7 @@ describe('POST /api/ai/stream', () => {
       // The run's provenance graph: its patches stream to the page, and the whole graph is kept.
       request.onEvent({type: 'graph.patch', runId: 'r1', patch: {op: 'node', node: {id: 'message', kind: 'value'}}});
       request.onEvent({type: 'graph.completed', runId: 'r1', graph: {nodes: [{id: 'message', kind: 'value'}], edges: []}});
-      return {...await stream(request), model: 'm', cost: 0.01, usage: {prompt_tokens: 3, completion_tokens: 2}, metrics: {ttft_s: 0.5, generation_s: 1, duration_s: 2}};
+      return {...await stream(request), model: 'm', cost: 0.01, usage: {prompt_tokens: 3, completion_tokens: 2}, metrics: {ttft_s: 0.5, generation_s: 1, duration_s: 2, model_s: 1.5, tools_s: 0.3}};
     };
     const r = await ask({body: {prompt: 'save 1706.03762', appId: 'arxiv-source', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
     assert.equal(r.res.written.status, 200);
@@ -377,7 +377,7 @@ describe('POST /api/ai/stream', () => {
       graph: {nodes: [{id: 'message', kind: 'value'}], edges: []},
       trajectory: null,
       // What it cost and took, as its page shows it.
-      metrics: {model: 'm', cost: 0.01, usage: {prompt_tokens: 3, completion_tokens: 2}, ttft_s: 0.5, generation_s: 1, duration_s: 2},
+      metrics: {model: 'm', cost: 0.01, usage: {prompt_tokens: 3, completion_tokens: 2}, ttft_s: 0.5, generation_s: 1, duration_s: 2, model_s: 1.5, tools_s: 0.3},
       error: null,
     }]);
     assert.equal(ctx.calls.aiUsage[0].pluginId, 'arxiv-source');

@@ -7,12 +7,12 @@ call, and for a value the types of call that make it. The parts start from the m
 NanoAgent's loop, whose transcript is chat messages of four roles: the ``system`` prompt, the
 ``user``'s message, each ``assistant`` reply (what the model thought, its ``reasoning_content``,
 what it wrote, its ``content``, and the tools it called, its ``tool_calls``) and each ``tool``
-result. A reply is a call, an agent reply, that used what was new in its conversation and
+result. A reply is a call, a model request, that used what was new in its conversation and
 generated what it thought (thinking), what it wrote (assistant, while it calls tools, and the
 agent's response for the last) and its tool calls; running a tool call is a call that used it and generated its result. A plugin
 task is a tool call whose run is drawn inside it, its nodes naming it as their ``parent``: its
 input, its own loop, a decide task's decisions, its reference tool, its output, and the
-verifier's verdict on it. An agent reply and a decision hold the model requests they made in
+verifier's verdict on it. A model request and a decision hold the model requests they made in
 ``modelCalls`` (tokens, cost and timing).
 
 Its edges are only what the run recorded, never inferred:
@@ -59,7 +59,7 @@ class NodeType(StrEnum):
     SYSTEM_PROMPT = "system_prompt"  # the system message
     USER_MESSAGE = "user_message"  # the user message the turn answers
     EARLIER_TURNS = "earlier_turns"  # the user and assistant messages of the turns before it
-    AGENT_REPLY = "agent_reply"  # one assistant message: one model request, a call
+    MODEL_REQUEST = "agent_reply"  # one model request, a call, which writes one assistant message; saved graphs hold this value
     THINKING = "thinking"  # a reply's reasoning_content
     ASSISTANT = "assistant"  # a reply's content, when it went on to call tools
     TOOL_CALL = "tool_call"  # one of a reply's tool calls: a tool's name and arguments
@@ -91,19 +91,19 @@ PARTS: dict[NodeType, Part] = {
     NodeType.SYSTEM_PROMPT: Part("System prompt"),
     NodeType.USER_MESSAGE: Part("User message"),
     NodeType.EARLIER_TURNS: Part("Earlier turns"),
-    NodeType.AGENT_REPLY: Part("Agent reply", call=True),
-    NodeType.THINKING: Part("Thinking", made_by=(NodeType.AGENT_REPLY,)),
-    NodeType.ASSISTANT: Part("Assistant", made_by=(NodeType.AGENT_REPLY,)),
-    NodeType.TOOL_CALL: Part("Tool call", made_by=(NodeType.AGENT_REPLY, NodeType.DECISION)),
+    NodeType.MODEL_REQUEST: Part("Model request", call=True),
+    NodeType.THINKING: Part("Thinking", made_by=(NodeType.MODEL_REQUEST,)),
+    NodeType.ASSISTANT: Part("Assistant", made_by=(NodeType.MODEL_REQUEST,)),
+    NodeType.TOOL_CALL: Part("Tool call", made_by=(NodeType.MODEL_REQUEST, NodeType.DECISION)),
     NodeType.TOOL: Part("Tool", call=True),
     NodeType.TOOL_RESULT: Part("Tool result", made_by=(NodeType.TOOL, NodeType.TASK)),
-    NodeType.AGENT_MESSAGE: Part("Response", made_by=(NodeType.AGENT_REPLY,)),
+    NodeType.AGENT_MESSAGE: Part("Response", made_by=(NodeType.MODEL_REQUEST,)),
     NodeType.TASK: Part("Task", call=True),
     NodeType.TASK_INPUT: Part("Task input"),
     NodeType.REFERENCE: Part("Reference", call=True),
     NodeType.REFERENCE_OUTPUT: Part("Reference output", made_by=(NodeType.REFERENCE,)),
     NodeType.DECISION: Part("Decision", call=True),
-    NodeType.TASK_OUTPUT: Part("Task output", made_by=(NodeType.AGENT_REPLY, NodeType.DECISION, NodeType.TOOL)),
+    NodeType.TASK_OUTPUT: Part("Task output", made_by=(NodeType.MODEL_REQUEST, NodeType.DECISION, NodeType.TOOL)),
     NodeType.VERIFIER: Part("Verifier", call=True),
     NodeType.VERDICT: Part("Verdict", made_by=(NodeType.VERIFIER,)),
 }
@@ -244,7 +244,7 @@ class Provenance:
 
 
 class LoopRecorder:
-    """An agent loop drawn into ``graph`` as it runs: each model request an agent reply that
+    """An agent loop drawn into ``graph`` as it runs: each model request a call that
     ``continued`` the one before it and ``used`` what is new in its conversation, starting with
     ``inputs``, and that ``generated`` what it thought and wrote, as they stream, and each tool call
     it made; each tool call's run (of the type ``runs(name)``) and its result, which the next reply
@@ -270,7 +270,7 @@ class LoopRecorder:
         if self._step is None:
             self._step = f"{self._prefix}steps[{self._steps}]"
             self._steps += 1
-            self._graph.call(self._step, NodeType.AGENT_REPLY, f"Agent reply {self._steps}", running=True, modelCalls=[])
+            self._graph.call(self._step, NodeType.MODEL_REQUEST, PARTS[NodeType.MODEL_REQUEST].label, running=True, modelCalls=[])
             if self._last is not None:
                 self._graph.edge(self._last, self._step, "continued")
             for value in self._fresh:

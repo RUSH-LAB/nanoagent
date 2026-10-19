@@ -286,7 +286,7 @@ def test_runs_a_prompt_in_the_callers_workspace(client: TestClient, model: Scrip
     # Each node is typed by the part of the loop it is, the chat's system prompt first, and named by it.
     typed = ("system", "message", "steps[0]", "calls[0].arguments", "calls[0].output", "steps[1].content")
     assert [nodes[key]["type"] for key in typed] == ["system_prompt", "user_message", "agent_reply", "tool_call", "tool_result", "agent_message"]
-    assert [nodes[key]["typeLabel"] for key in typed] == ["System prompt", "User message", "Agent reply", "Tool call", "Tool result", "Response"]
+    assert [nodes[key]["typeLabel"] for key in typed] == ["System prompt", "User message", "Model request", "Tool call", "Tool result", "Response"]
     assert "You operate the Echo plugin" in nodes["system"]["value"]
     assert nodes["calls[0]"]["duration_s"] > 0
     assert [len(nodes[step]["modelCalls"]) for step in ("steps[0]", "steps[1]")] == [1, 1]

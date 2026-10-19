@@ -6,7 +6,7 @@ const {completionPayload} = require('./ai');
 
 /**
  * What an answer cost and how long it took, as its page shows it (the page kit's
- * metricsLine), or null when the run reported none.
+ * runStats), or null when the run reported none.
  */
 function answerMetrics({model, cost, usage, metrics}) {
   if (!metrics) return null;
@@ -17,6 +17,8 @@ function answerMetrics({model, cost, usage, metrics}) {
     ttft_s: metrics.ttft_s ?? null,
     generation_s: metrics.generation_s ?? null,
     duration_s: metrics.duration_s ?? null,
+    model_s: metrics.model_s ?? null,
+    tools_s: metrics.tools_s ?? null,
   };
 }
 

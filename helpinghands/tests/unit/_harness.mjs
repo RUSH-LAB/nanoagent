@@ -904,7 +904,8 @@ export const SESSION = '00000000-0000-4000-8000-000000000001';
  */
 export function fakeSessions(plugins = ['echo', 'arxiv-source']) {
   const {SessionError} = require('../../src/server/postgres/sessions.js');
-  const summary = (id, pluginId) => ({id, pluginId, title: '', runs: 0, cost: 0, ttftS: null, running: [...sessions.rows.values()].some(row => row.sessionId === id)});
+  const usage = Object.fromEntries(['durationS', 'modelS', 'toolsS', 'inputTokens', 'outputTokens', 'cost'].map(key => [key, {sum: 0, count: 0}]));
+  const summary = (id, pluginId) => ({id, pluginId, title: '', runs: 0, cost: 0, usage, running: [...sessions.rows.values()].some(row => row.sessionId === id)});
   const sessions = {
     // The turns runs ended with, and the runs going on, by id.
     turns: [],
@@ -950,7 +951,7 @@ export function fakeSessions(plugins = ['echo', 'arxiv-source']) {
     async archive(context, pluginId, id, archived) {
       await sessions.assertOwned(context, pluginId, id);
       sessions.archived.push({pluginId, id, archived});
-      return {id, pluginId, title: '', archivedAt: archived ? '2026-10-14T00:00:00.000Z' : null, runs: 0, cost: 0, ttftS: null};
+      return {id, pluginId, title: '', archivedAt: archived ? '2026-10-14T00:00:00.000Z' : null, runs: 0, cost: 0, usage};
     },
   };
   return sessions;

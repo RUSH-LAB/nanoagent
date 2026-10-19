@@ -316,11 +316,22 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .dashboard-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .dashboard-head h2 { font-size: 15px; }
 .dashboard-actions { display: flex; align-items: center; gap: 6px; }
-.session-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
-.session-stat { display: grid; gap: 2px; min-width: 0; padding: 10px 14px; }
-.session-stat + .session-stat { border-left: 1px solid var(--border); }
-.session-stat dt { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.session-stat dd { margin: 0; font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+/* Stats (display.js statItems), a small label over each value: a run's over its graph, a model request's. */
+.stats { margin: 0; }
+.stat { display: grid; gap: 2px; min-width: 0; }
+.stat > dt { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat > dd { margin: 0; color: var(--text); font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+/* The dashboard's usage: a column per figure, its Total over its Average. */
+.usage-summary { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+.usage-summary table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.usage-summary th, .usage-summary td { padding: 8px 12px; text-align: right; white-space: nowrap; }
+.usage-summary thead > tr > * { color: var(--muted); font-size: 11.5px; font-weight: 500; border-bottom: 1px solid var(--border); }
+.usage-summary tbody th { color: var(--muted); font-size: 12px; font-weight: 500; text-align: left; }
+.usage-summary tbody td { font-size: 14.5px; font-weight: 600; }
+.usage-summary tbody tr + tr > * { border-top: 1px solid var(--border); }
+/* A model request's, under its reply. */
+.run-stats { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.run-stats > .stat > dd { font-size: 13px; }
 .session-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); overflow: hidden; }
 .session-row + .session-row { border-top: 1px solid var(--border); }
 .session-line { display: flex; align-items: center; gap: 8px; padding-right: 8px; }
@@ -329,10 +340,10 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .session-open:disabled { opacity: .6; cursor: progress; }
 .session-open:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .session-title { font-size: 13.5px; font-weight: 520; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.session-meta { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.session-runs { padding: 2px 14px 12px; }
+.session-meta { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; }
+.session-meta > .pill { padding-block: 0; font-size: 11px; }
+.session-cost { min-width: 5.5em; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; }
 .session-empty { padding: 14px; color: var(--muted); font-size: 13px; }
-.message-metrics { margin: 0; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 
 /* Chat */
 
@@ -343,7 +354,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
    what it holds on one line, opening to all of it; a task's own run indented under its call. */
 .loop { --label: 7.5rem; display: grid; gap: 1px; min-width: 0; margin: 0; padding: 0 0 0 10px; list-style: none; font-size: 13px; line-height: 1.45; }
 .loop:empty { display: none; }
-.part { position: relative; display: grid; grid-template-columns: var(--label) minmax(0, 1fr) auto auto; column-gap: 8px; align-items: baseline; min-width: 0; padding: 3px 4px; border-radius: var(--radius-sm); }
+.part { position: relative; display: grid; grid-template-columns: var(--label) minmax(0, 1fr) auto; column-gap: 8px; align-items: baseline; min-width: 0; padding: 3px 4px; border-radius: var(--radius-sm); }
 .part-open { grid-column: 1 / 3; display: grid; grid-template-columns: subgrid; align-items: baseline; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .part:has(> .part-open:hover) { background: var(--surface-2); }
 .part-open:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
@@ -370,6 +381,14 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .part .part-text .icon { vertical-align: -2px; }
 /* A part still being made: a pulsing dot before its name. */
 .part.live::before { content: ""; position: absolute; left: -8px; top: 10px; width: 6px; height: 6px; border-radius: 50%; background: var(--stage-think); animation: pulse 1.2s ease-in-out infinite; }
+/* Every part on the way to the response, folded into one row. */
+/* Its parts scroll in a box of their own, which the person may drag taller or shorter. */
+.part.steps > .loop { grid-column: 1 / -1; margin-top: 2px; max-height: min(40vh, 420px); overflow: auto; resize: vertical; overscroll-behavior: contain; }
+.part.steps > .loop[style*="height"] { max-height: none; }
+.part.steps > .loop.scrolled { mask-image: linear-gradient(transparent, #000 28px); }
+.part.steps > .part-open .part-text { color: var(--muted); }
+.part.steps > .part-open .icon { vertical-align: -2px; transition: transform .15s; }
+.part.steps > .part-open[aria-expanded="true"] .icon { transform: rotate(90deg); }
 /* A task's own run, under its call. */
 .loop-task { display: grid; gap: 1px; min-width: 0; margin-left: 4px; padding-left: 8px; border-left: 2px solid var(--stage-task); }
 .loop-task > .loop { --label: 6.5rem; }
@@ -378,15 +397,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .loop-task-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .loop-task-toggle .icon { transition: transform .15s; }
 .loop-task-toggle[aria-expanded="true"] .icon { transform: rotate(90deg); }
-/* A task result's button, which draws it beside the chat. */
-.result-open { appearance: none; padding: 1px 9px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface); color: var(--accent); font: inherit; font-size: 12px; font-weight: 560; white-space: nowrap; cursor: pointer; }
-.result-open:hover { background: var(--surface-2); }
-.result-open[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
-.result-open:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-/* Under a turn: what it ran on, took and cost, and the button that draws its graph. */
-.turn-foot { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.turn-foot:not(:has(> :not(:empty, [hidden]))) { display: none; }
-.turn-foot > .button { margin-left: auto; }
+
 /* A task's result beside the chat (kit/result.js): its name and verdict over its output. */
 .result-card { display: grid; gap: 10px; padding: 14px 16px; }
 .result-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -480,8 +491,12 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 /* A model request: what it is thinking or writing, as it streams, over its tokens and time. */
 .tn.type-agent_reply { width: min(340px, 100%); max-width: none; gap: 4px; padding: 8px 12px; border-left: 3px solid var(--stage-think); }
 .tn.type-agent_reply .tn-preview { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; color: var(--text); line-height: 1.4; }
-.tn.type-agent_reply .tn-preview.thinking { color: var(--muted); font-style: italic; }
-.tn.type-agent_reply .tn-preview:empty { display: none; }
+.tn.type-agent_reply .tn-preview.type-thinking > .tn-part-text { color: var(--muted); font-style: italic; }
+.tn-preview.type-agent_message > .tn-part { color: var(--text); }
+.tn-preview:has(> .tn-part-text:empty) { display: none; }
+/* A folded part's name, as the chat's rows name it: "Thinking ›". */
+.tn-part { margin-right: 4px; color: var(--muted); font-style: normal; font-weight: 560; }
+.tn-part::after { content: " ›"; color: var(--border-strong); font-weight: 400; }
 .tn-meta { display: flex; gap: 10px; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tn.type-user_message { border-color: var(--accent); background: var(--accent-soft); }
 .tn.type-earlier_turns, .tn.type-system_prompt { border-style: dashed; color: var(--muted); }
@@ -501,12 +516,12 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .tn-task-toggle .icon { transition: transform .15s; }
 .tn-task-toggle[aria-expanded="true"] .icon { transform: rotate(90deg); }
 .tn-task > .trace-level { margin-top: 6px; }
-/* Facts in a row: a task's totals under its name, and the run's over the graph. */
-.tn-facts, .trace-summary { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 0; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+/* Facts in a row: a task's totals under its name. */
+.tn-facts { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 0; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .tn-facts { padding-left: 34px; }
 .tn-task.failed .tn-facts > :last-child { color: var(--bad); }
-.trace-summary { flex: none; padding: 10px 4px; border-bottom: 1px solid var(--border); }
-.trace-summary > :first-child { color: var(--text); font-weight: 560; }
+/* The run's stats, three to a row. */
+.trace-summary { flex: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 16px; padding: 12px 4px; border-bottom: 1px solid var(--border); }
 /* The picked node, all of it, under the graph. */
 .trace-detail { flex: none; max-height: 45%; overflow: auto; border-top: 1px solid var(--border); background: var(--surface); }
 .trace-detail-body { display: grid; gap: 12px; padding: 12px 4px 16px; }
@@ -516,7 +531,6 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .trace-detail-part { display: grid; gap: 6px; }
 .trace-detail-part > h4 { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: none; letter-spacing: 0; }
 .trace-stream { max-height: 16em; font-family: var(--sans); font-size: 13px; line-height: 1.5; }
-.trace-edges-list { margin: 0; padding-left: 18px; display: grid; gap: 2px; color: var(--muted); font-size: 12.5px; }
 
 /* Narrow frames: the result over the chat, and no empty result column. */
 @media (max-width: 760px) {
@@ -529,9 +543,6 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 
 @media (max-width: 640px) {
   body { font-size: 14.5px; }
-  .session-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .session-stat:nth-child(odd) { border-left: 0; }
-  .session-stat:nth-child(n + 3) { border-top: 1px solid var(--border); }
   .app-header-inner { padding: var(--page-inset) var(--page-inset) 10px; gap: 10px; flex-wrap: wrap; }
   .app-icon { width: 34px; height: 34px; border-radius: 10px; }
   .app-tagline { display: none; }
