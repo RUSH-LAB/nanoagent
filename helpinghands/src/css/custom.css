@@ -84,6 +84,17 @@
   --site-radius-lg: 12px;
   /* Vertical offset when jumping to an anchored element; adjust to control vertical centering. */
   --anchor-scroll-margin: 30vh;
+  /* RUSH Lab's setup screen (theme/Root/LabScreen.js): hairline panels, one accent for what runs. */
+  --setup-ink: #0f172a;
+  --setup-body: #475569;
+  --setup-mute: #94a3b8;
+  --setup-hairline: #e5e9f0;
+  --setup-hairline-strong: #cbd5e1;
+  --setup-inset: #f8fafc;
+  --setup-accent: var(--ifm-color-primary);
+  --setup-done: #16a34a;
+  --setup-failed: #dc2626;
+  --setup-failed-soft: #fef2f2;
 }
 
 /* Between the stacking breakpoint and here, a 240px TOC plus the 300px chapter
@@ -201,6 +212,15 @@ h2[class*="title_"] a:hover {
   --ifm-color-primary-lighter: #ffffff;
   --ifm-color-primary-lightest: #ffffff;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+  --setup-ink: #f1f5f9;
+  --setup-body: #94a3b8;
+  --setup-mute: #64748b;
+  --setup-hairline: #1e293b;
+  --setup-hairline-strong: #334155;
+  --setup-inset: #0f172a;
+  --setup-done: #22c55e;
+  --setup-failed: #f87171;
+  --setup-failed-soft: rgb(239 68 68 / 8%);
 }
 
 /* Add scroll margin to all divs and KaTeX display blocks (applies site-wide, not only equations) */

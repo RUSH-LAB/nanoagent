@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useRef} from 'react';
 import {apiRequest} from '@site/src/utils/api';
 import {inLabApp, useConnectLink, useLabSetup} from '@site/src/utils/labApp';
 import LabInstall from './LabInstall';
@@ -6,9 +6,6 @@ import styles from './authScreen.module.css';
 
 // How often the screen asks whether RUSH Lab has connected.
 const STATUS_MS = 5_000;
-
-// The three phases of arriving in the app's window, each a tab of the screen.
-const PHASES = [['account', 'Sign in'], ['computer', 'Set up this computer'], ['workspace', 'Open workspace']];
 
 // What RUSH Lab does to set this computer up, in the order it does it, by the stage the app
 // reports (useLabSetup): its title, and what it means.
@@ -35,7 +32,6 @@ export default function LabScreen({onConnected, onSignOut}) {
   const inApp = inLabApp();
   const handed = useRef(false);
   const setup = useLabSetup();
-  const [phase, setPhase] = useState('computer');
 
   // Once: the app follows the link itself (the page stays), and says so if it cannot connect.
   useEffect(() => {
@@ -53,47 +49,41 @@ export default function LabScreen({onConnected, onSignOut}) {
 
   if (inApp) {
     const failure = error ?? setup?.error ?? null;
-    const phases = {account: 'done', computer: failure ? 'failed' : 'active', workspace: 'waiting'};
     // The stage the app is at, those before it done; none until the app says.
     const at = SETUP.findIndex(([id]) => id === setup?.stage);
     const stageOf = index => (index < at ? 'done' : index > at ? 'waiting' : failure ? 'failed' : 'active');
     return (
       <div className={styles.page}>
         <div className={`${styles.card} ${styles.setupCard}`}>
-          <img src="/img/rush-lab.png" alt="" className={styles.logo} />
-          <h1 className={styles.title}>Setting up RUSH Lab</h1>
-          <p className={styles.tagline}>Getting this computer ready to run your AI and plugins.</p>
-          <div className={styles.phases} role="tablist" aria-label="Setting up">
-            {PHASES.map(([id, name]) => (
-              <button
-                key={id}
-                type="button"
-                role="tab"
-                aria-selected={phase === id}
-                className={`${styles.phase} ${PHASE_STYLES[phases[id]]}${phase === id ? ` ${styles.phaseSelected}` : ''}`}
-                onClick={() => setPhase(id)}>
-                <span className={styles.phaseDot} />
-                <span className={styles.phaseName}>{name}</span>
-              </button>
-            ))}
+          <header className={styles.setupHeader}>
+            <img src="/img/rush-lab.png" alt="" className={styles.setupLogo} />
+            <span className={styles.setupBrand}>RUSH Lab</span>
+            <button type="button" className={styles.setupSignOut} onClick={onSignOut}>Sign out</button>
+          </header>
+          <h1 className={styles.setupTitle}>{failure ? 'Setup stopped' : 'Setting up this computer'}</h1>
+          <p className={styles.setupLead}>
+            {failure ? 'One step could not finish. See why below, then try again.' : 'Getting it ready to run your AI and plugins. Your workspace opens by itself when it is done.'}
+          </p>
+          <div className={styles.setupPanel} aria-live="polite">
+            <Group name="Account">
+              <Step state="done" title="Signed in" />
+            </Group>
+            <Group name="This computer" count={`${Math.max(at, 0)} / ${SETUP.length}`}>
+              {at === -1
+                ? <Step state={failure ? 'failed' : 'active'} title="Connecting this computer">{failure ?? 'Waiting for RUSH Lab to start.'}</Step>
+                : SETUP.map(([id, title, detail], index) => (
+                  <Step key={id} state={stageOf(index)} title={title}>{stageOf(index) === 'failed' ? failure : detail}</Step>
+                ))}
+            </Group>
+            <Group name="Workspace">
+              <Step state="waiting" title="Open your workspace" />
+            </Group>
           </div>
-          <ol className={styles.progress} role="tabpanel" aria-live="polite">
-            {phase === 'account' && <Step state="done" title="Signed in">Your account is on this computer.</Step>}
-            {phase === 'computer' && (at === -1
-              ? <Step state={failure ? 'failed' : 'active'} title="Connecting this computer">{failure ?? 'Waiting for RUSH Lab to start.'}</Step>
-              : SETUP.map(([id, title, detail], index) => (
-                <Step key={id} state={stageOf(index)} title={title}>{stageOf(index) === 'failed' ? failure : detail}</Step>
-              )))}
-            {phase === 'workspace' && <Step state="waiting" title="Open your workspace">It opens by itself once this computer is connected.</Step>}
-          </ol>
           {failure && (
-            <button type="button" className={styles.submit} onClick={() => window.location.reload()}>
+            <button type="button" className={`${styles.submit} ${styles.setupRetry}`} onClick={() => window.location.reload()}>
               Try again
             </button>
           )}
-          <button type="button" className={styles.switch} onClick={onSignOut}>
-            Sign out
-          </button>
         </div>
       </div>
     );
@@ -115,18 +105,31 @@ export default function LabScreen({onConnected, onSignOut}) {
   );
 }
 
-// Each phase's dot, by its state.
-const PHASE_STYLES = {done: styles.phaseDone, active: styles.phaseActive, failed: styles.phaseFailed, waiting: styles.phaseWaiting};
+// What each step's state is called, beside it.
+const STATE_LABELS = {done: 'Done', active: 'Running', failed: 'Failed', waiting: ''};
 
-// Each step's mark and title, by its state.
-const STEP_STYLES = {done: styles.progressDone, active: styles.progressActive, failed: styles.progressFailed, waiting: styles.progressWaiting};
-
-/** One step of setting up: its mark, its title, and what it means, or why it failed. */
-function Step({state, title, children}) {
+/** One group of steps, with its name and, if given, how far it has got. */
+function Group({name, count, children}) {
   return (
-    <li className={STEP_STYLES[state]}>
-      <span className={styles.progressTitle}>{title}</span>
-      <span className={state === 'failed' ? styles.progressWhy : styles.progressDetail}>{children}</span>
+    <section className={styles.setupGroup}>
+      <h2 className={styles.setupGroupName}>
+        <span>{name}</span>
+        {count && <span>{count}</span>}
+      </h2>
+      <ol className={styles.setupSteps}>{children}</ol>
+    </section>
+  );
+}
+
+/** One step of setting up: its mark, its title, its state and, while it runs or once it fails, what it means or why. */
+function Step({state, title, children}) {
+  const shown = state === 'active' || state === 'failed';
+  return (
+    <li className={`${styles.setupStep} ${styles[`setup_${state}`]}`}>
+      <span className={styles.setupMark} aria-hidden="true" />
+      <span className={styles.setupStepTitle}>{title}</span>
+      <span className={styles.setupState}>{STATE_LABELS[state]}</span>
+      {shown && children && <span className={styles.setupDetail}>{children}</span>}
     </li>
   );
 }
