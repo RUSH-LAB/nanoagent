@@ -79,12 +79,15 @@ export function editorViews(store, scope, {delay = KEEP_DELAY_MS} = {}) {
 
 /**
  * The state a text editor starts from: its own, history included, when its tab
- * was open before, else `text` with the kept selection, cut to the text's end.
+ * was open before with this same text, else `text` with the kept selection,
+ * cut to the text's end. A tab whose text was read in while it was hidden
+ * starts from the new text, its history gone with the old.
  */
 export function textStateJSON(record, text) {
-  if (record?.state) return record.state.toJSON({history: historyField});
+  if (record?.state && record.state.doc.toString() === text) return record.state.toJSON({history: historyField});
+  const kept = record?.state ? {anchor: record.state.selection.main.anchor, head: record.state.selection.main.head} : record;
   const position = value => Math.min(value ?? 0, text.length);
-  return {doc: text, selection: EditorSelection.single(position(record?.anchor), position(record?.head)).toJSON()};
+  return {doc: text, selection: EditorSelection.single(position(kept?.anchor), position(kept?.head)).toJSON()};
 }
 
 /** A live editor's selection as positions in `text` that follow its edits. */

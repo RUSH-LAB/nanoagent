@@ -69,13 +69,21 @@ describe('text editor state', () => {
   it('restores a tab seen before with its undo history', () => {
     let state = EditorState.create({doc: 'one', extensions: [history()]});
     state = state.update({changes: {from: 3, insert: ' two'}, selection: {anchor: 7}}).state;
-    const json = textStateJSON({state, scrollTop: 0}, 'ignored');
+    const json = textStateJSON({state, scrollTop: 0}, 'one two');
     const restored = EditorState.fromJSON(json, {extensions: [history()]}, {history: historyField});
     assert.equal(restored.doc.toString(), 'one two');
     assert.equal(restored.selection.main.head, 7);
     let undone = null;
     undo({state: restored, dispatch: transaction => { undone = transaction.state; }});
     assert.equal(undone.doc.toString(), 'one');
+  });
+
+  it('starts from the text read in while the tab was hidden, at its kept selection', () => {
+    const state = EditorState.create({doc: 'old text', selection: EditorSelection.single(3)});
+    const json = textStateJSON({state}, 'new');
+    assert.equal(json.doc, 'new');
+    assert.deepEqual(json.selection, {ranges: [{anchor: 3, head: 3}], main: 0});
+    assert.equal(json.history, undefined);
   });
 
   it('starts a reopened file at its kept selection, cut to the text', () => {

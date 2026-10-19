@@ -107,16 +107,45 @@
   opacity: 0.55;
 }
 
-.mobileAccount {
-  display: grid;
-}
-
 .mobileSignOut {
   width: 100%;
   border: 0;
   background: transparent;
   color: var(--ifm-color-danger-dark);
-  font: inherit;
+  font-family: inherit;
+  font-size: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+/* The menu's hover bar, tinted as the danger it does. */
+.mobileSignOut:hover:not(:disabled),
+.mobileSignOut:focus-visible {
+  background: color-mix(in srgb, var(--ifm-color-danger) 12%, transparent);
+  color: var(--ifm-color-danger-dark);
+}
+
+/* At the foot of the shell's activity bar: the menu opens to its right, its foot level with the avatar. */
+.compact {
+  display: flex;
+  margin-left: 0;
+  width: var(--site-activity-width);
+  height: var(--site-activity-width);
+  align-items: center;
+  justify-content: center;
+}
+
+.compactMenu {
+  top: auto;
+  right: auto;
+  bottom: 0.25rem;
+  left: calc(100% - 0.25rem);
+}
+
+@media (max-width: 996px) {
+  .compactMenu {
+    right: 0.25rem;
+    bottom: calc(100% + 0.25rem);
+    left: auto;
+  }
 }

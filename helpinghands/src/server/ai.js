@@ -3,7 +3,7 @@
 const fallbackProfiles = require('../ai-profiles.json');
 
 /**
- * Mochi's private connection to NanoAgent.
+ * RUSH's private connection to NanoAgent.
  *
  * The browser never talks to NanoAgent and never receives its bearer token.
  * Routes pass trusted workspace-agent instructions and user conversation data
@@ -15,7 +15,8 @@ const DEFAULT_URL = 'http://127.0.0.1:8787';
 const DEFAULT_TIMEOUT_MS = 190_000;
 // NanoAgent's own bound on building a plugin's environment (nanoagent.plugin.install), and then some.
 const INSTALL_TIMEOUT_MS = 620_000;
-const DEFAULT_MAX_STREAM_BYTES = 2 * 1024 * 1024;
+// A run streams its reasoning, every task's progress and each fragment as its own event.
+const DEFAULT_MAX_STREAM_BYTES = 16 * 1024 * 1024;
 const DEFAULT_PROFILE_CACHE_MS = 30_000;
 const DEFAULT_PROFILE_TIMEOUT_MS = 5_000;
 const CANCELLED = 'The AI request was cancelled.';
@@ -274,6 +275,17 @@ function publicEvent(event, {app = false} = {}) {
       ...(metrics ? {metrics} : {}),
     };
   }
+  if (event?.type === 'tool_start') {
+    return {type: 'tool.started', runId, call: {id: event.id ?? null, name: event.name ?? 'unknown'}};
+  }
+  // What a tool reports while it runs is the app's own: a plugin task's progress.
+  if (event?.type === 'tool_progress' && app) {
+    return {
+      type: 'tool.progress', runId,
+      call: {id: event.id ?? null, name: event.name ?? 'unknown'},
+      event: event.event, data: event.data ?? null,
+    };
+  }
   if (event?.type === 'tool') {
     return {
       type: event.is_error ? 'tool.failed' : 'tool.completed',
@@ -285,6 +297,12 @@ function publicEvent(event, {app = false} = {}) {
       },
     };
   }
+  // A plugin run's provenance graph: each change as it is made, then the whole graph.
+  if (event?.type === 'graph' && app) {
+    return event.patch ? {type: 'graph.patch', runId, patch: event.patch} : {type: 'graph.completed', runId, graph: event.graph};
+  }
+  // What the run's model saw and did, as an ATIF trajectory, once it ends.
+  if (event?.type === 'trajectory' && app) return {type: 'trajectory.completed', runId, trajectory: event.trajectory};
   if (event?.type === 'done') {
     const metrics = publicMetrics(event.metrics);
     return {
@@ -417,6 +435,11 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
           request.onEvent?.({type: 'output_text.delta', runId: event.runId ?? null, text: event.text});
           return;
         }
+        // An app's page shows its run thinking, like its tool calls (publicEvent).
+        if (event.type === 'delta' && event.kind === 'reasoning' && request.install && typeof event.text === 'string') {
+          request.onEvent?.({type: 'reasoning.delta', runId: event.runId ?? null, text: event.text});
+          return;
+        }
         if (event.type === 'done' || event.type === 'error') terminal = event;
         const normalized = publicEvent(event, {app: Boolean(request.install)});
         if (normalized) request.onEvent?.(normalized);
@@ -524,6 +547,10 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
     installPackage: (sha256, data) => nanoFetch(`/v1/installs/${encodeURIComponent(sha256)}`, {
       method: 'PUT', body: data, contentType: 'application/gzip', waitMs: installTimeoutMs,
     }),
+    // A package's page alone, for one NanoAgent refuses to install: nothing of it runs.
+    viewPackage: (sha256, data) => nanoFetch(`/v1/views/${encodeURIComponent(sha256)}`, {
+      method: 'PUT', body: data, contentType: 'application/gzip', waitMs: timeoutMs,
+    }),
     installUiFile: (sha256, version, path) => nanoFetch(
       `/v1/installs/${encodeURIComponent(sha256)}/ui/${encodeURIComponent(version)}/${encodedPath(path)}`, {bytes: true},
     ),
@@ -531,6 +558,10 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
     // and checks from the plugin at `path` in a repository archive.
     packages: () => nanoFetch('/v1/packages'),
     packageFile: id => nanoFetch(`/v1/packages/${encodeURIComponent(id)}`, {bytes: true, waitMs: timeoutMs}),
+    // Check a package without running it: its catalog entry, or 422 with why NanoAgent refuses it.
+    // NanoAgent keeps each answer while it runs, by the package's sha256 (inspection, 404 until then).
+    inspect: data => nanoFetch('/v1/packages/inspect', {method: 'POST', body: data, contentType: 'application/gzip', waitMs: timeoutMs}),
+    inspection: sha256 => nanoFetch(`/v1/packages/inspect/${encodeURIComponent(sha256)}`),
     packageSource: (archive, path) => nanoFetch(`/v1/packages/source?path=${encodeURIComponent(path)}`, {
       method: 'POST', body: archive, contentType: 'application/gzip', waitMs: timeoutMs,
     }),
@@ -579,9 +610,12 @@ module.exports = {
   install: gateway.install,
   installPackage: gateway.installPackage,
   installUiFile: gateway.installUiFile,
+  viewPackage: gateway.viewPackage,
   packages: gateway.packages,
   packageFile: gateway.packageFile,
   packageSource: gateway.packageSource,
+  inspection: gateway.inspection,
+  inspect: gateway.inspect,
   workspaceFiles: gateway.workspaceFiles,
   workspaceFile: gateway.workspaceFile,
   saveWorkspaceFile: gateway.saveWorkspaceFile,

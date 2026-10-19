@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import sys
+import tarfile
 import time
 from pathlib import Path
 
@@ -13,7 +15,9 @@ from starlette.testclient import TestClient
 from nanoagent.core.agent import Reply, ToolCall
 from nanoagent.inference.types import Answer
 from nanoagent.plugin import install
+from nanoagent.plugin.install import FOLDER_HEX
 from nanoagent.plugin.package import pack
+from nanoagent.plugin.provenance import KIT_PARTS, PARTS, NodeType, apply, kit_parts
 from nanoagent.plugin.python import plugin_python
 from nanoagent.runtime.config import load_config_args
 from nanoagent.web.app import create_app
@@ -120,7 +124,7 @@ def test_refuses_a_failed_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     response = client.put(f"/v1/installs/{sha}", content=data)
     assert response.status_code == 502 and "uv sync failed" in response.json()["error"]
     assert client.get(f"/v1/installs/{sha}").status_code == 404
-    assert not (tmp_path / "installs" / sha).exists()
+    assert not (tmp_path / "installs" / sha[:FOLDER_HEX]).exists()
 
 
 def test_keeps_a_finished_install_for_the_next_process(
@@ -131,7 +135,7 @@ def test_keeps_a_finished_install_for_the_next_process(
     data = pack(tmp_path / "echo")
     assert restarted.put(f"/v1/installs/{client.sha}", content=data).status_code == 200
     # An install built on another Python is built again.
-    (tmp_path / "installs" / client.sha / install.INSTALLED).write_text("another python\n", encoding="utf-8")
+    (tmp_path / "installs" / client.sha[:FOLDER_HEX] / install.INSTALLED).write_text("another python\n", encoding="utf-8")
     again = _app(tmp_path, monkeypatch, model, workspaces)
     monkeypatch.setattr(install, "SYNC", ("false",))
     response = again.put(f"/v1/installs/{client.sha}", content=data)
@@ -241,12 +245,54 @@ def test_runs_a_prompt_in_the_callers_workspace(client: TestClient, model: Scrip
     with client.stream("POST", f"{runs(client)}/runs", json={"input": "echo hi"}) as response:
         assert response.status_code == 200
         events = [json.loads(line[len("data: ") :]) for line in response.iter_lines() if line.startswith("data: ")]
-    assert [event["type"] for event in events] == ["start", "tool", "step", "delta", "done"]
+    graphs = [event for event in events if event["type"] == "graph"]
+    events = [event for event in events if event["type"] != "graph"]
+    assert [event["type"] for event in events] == ["start", "tool_start", "tool_progress", "tool", "step", "delta", "trajectory", "done"]
     assert events[0]["profile"] == "plugin-echo"
+    # What the model saw and did, as an ATIF trajectory: the system prompt, the message, the call and the answer.
+    trajectory = events[-2]["trajectory"]
+    assert trajectory["agent"]["name"] == "nanoagent"
+    assert [step["source"] for step in trajectory["steps"]] == ["system", "user", "agent", "agent"]
+    assert trajectory["steps"][2]["tool_calls"][0]["function_name"] == "echo"
     assert events[-1]["metrics"]["ttft_s"] is not None
-    assert events[1]["name"] == "echo" and not events[1]["is_error"]
+    # The task shows as it starts, and reports checking its result before it ends.
+    call = events[3]["id"]
+    assert {key: events[1][key] for key in ("id", "name")} == {"id": call, "name": "echo"}
+    assert {key: events[2][key] for key in ("id", "event", "data")} == {"id": call, "event": "task.result", "data": {}}
+    assert events[3]["name"] == "echo" and not events[3]["is_error"]
+    # The turn's provenance graph streams as patches, which add up to the whole graph sent last:
+    # the message, the request that called the task, the task's run inside it, the request after
+    # it, which used the task's output, and what it wrote, the agent's response.
+    *patches, whole = graphs
+    built: dict = {"nodes": [], "edges": []}
+    for event in patches:
+        apply(built, event["patch"])
+    assert built == whole["graph"]
+    nodes = {node["id"]: node for node in built["nodes"]}
+    edges = {(edge["from"], edge["relation"], edge["to"]) for edge in built["edges"]}
+    assert {
+        ("system", "used", "steps[0]"),
+        ("message", "used", "steps[0]"),
+        ("steps[0]", "generated", "calls[0].arguments"),
+        ("calls[0].arguments", "used", "calls[0]"),
+        ("calls[0]", "generated", "calls[0].output"),
+        ("steps[0]", "continued", "steps[1]"),
+        ("calls[0].output", "used", "steps[1]"),
+        ("steps[1]", "generated", "steps[1].content"),
+        ("calls[0]/input", "used", "calls[0]/calls[0]"),
+        ("calls[0]/calls[0]", "generated", "calls[0]/output"),
+    } <= edges
+    assert nodes["calls[0]"]["type"] == "task" and nodes["calls[0]/calls[0]"]["parent"] == "calls[0]"
+    # Each node is typed by the part of the loop it is, the chat's system prompt first, and named by it.
+    typed = ("system", "message", "steps[0]", "calls[0].arguments", "calls[0].output", "steps[1].content")
+    assert [nodes[key]["type"] for key in typed] == ["system_prompt", "user_message", "agent_reply", "tool_call", "tool_result", "agent_message"]
+    assert [PARTS[NodeType(nodes[key]["type"])].label for key in typed] == ["System prompt", "User message", "Model request", "Tool call", "Tool result", "Response"]
+    assert "You operate the Echo plugin" in nodes["system"]["value"]
+    assert nodes["calls[0]"]["duration_s"] > 0
+    assert [len(nodes[step]["modelCalls"]) for step in ("steps[0]", "steps[1]")] == [1, 1]
+    assert not any(node.get("running") for node in nodes.values())
     # The chat's tool is the echo task: its result is the task's typed output and its verdict.
-    result = json.loads(events[1]["output"])
+    result = json.loads(events[3]["output"])
     assert result["output"] == {"value": "hi"} and result["verdict"]["valid"] is True
     assert "hi" in events[-1]["answer"]
     assert "You operate the Echo plugin" in model.prompts[0]
@@ -272,7 +318,7 @@ def test_plugin_runs_choose_an_apps_profile_within_the_limits(client: TestClient
     assert over.status_code == 400 and "at most 6" in over.json()["error"]
     thinking = client.post(f"{runs(client)}/runs", json={"input": "x", "settings": {"thinking_level": "high"}})
     assert thinking.status_code == 400 and "thinking_level" in thinking.json()["error"]
-    # Mochi's NanoAgent runs only its profiles: a run cannot name a model of its own.
+    # RUSH's NanoAgent runs only its profiles: a run cannot name a model of its own.
     named = client.post(f"{runs(client)}/runs", json={"input": "x", "model": {"provider": "openrouter", "model": "x/y"}})
     assert named.status_code == 400 and "configured profiles" in named.json()["error"]
     assert client.post(f"/v1/workspaces/alice/installs/{SHA}/runs", json={"input": "x"}).status_code == 404
@@ -367,6 +413,41 @@ def test_serves_the_plugin_front_end_confined_to_the_bridge(client: TestClient) 
     assert client.get(f"/v1/installs/{SHA}/ui/{plugin['uiVersion']}/index.html").status_code == 404
     client.headers.pop("Authorization")
     assert client.get(f"{ui}/index.html").status_code == 401
+
+
+def _made_for_0_5(root: Path) -> bytes:
+    """The echo plugin packed as NanoAgent 0.5 made it, before plugins declared their spec."""
+    write_plugin(root)
+    manifest = root / "nanoagent.yaml"
+    manifest.write_text(manifest.read_text().replace("spec: nanoagent.plugin/v0001", "nanoagent: ~=0.5.0").replace("nanoagent.plugin.v0001.", "nanoagent.plugin.manifest."))
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        archive.add(root, arcname="echo")
+    return buffer.getvalue()
+
+
+def test_views_the_page_of_a_package_it_refuses_running_none_of_it(client: TestClient, tmp_path: Path) -> None:
+    from nanoagent.web.app import UI_POLICY
+
+    data = _made_for_0_5(tmp_path / "old" / "echo")
+    sha = hashlib.sha256(data).hexdigest()
+    assert client.put(f"/v1/installs/{sha}", content=data).status_code == 422
+    viewed = client.put(f"/v1/views/{sha}", content=data)
+    assert viewed.status_code == 200, viewed.text
+    version = viewed.json()["view"]["uiVersion"]
+    assert viewed.json()["view"] == {"sha256": sha, "uiVersion": version} and len(version) == 16
+    assert client.put(f"/v1/views/{sha}", content=data).json()["view"]["uiVersion"] == version
+    ui = f"/v1/installs/{sha}/ui/{version}"
+    page = client.get(f"{ui}/index.html")
+    assert page.status_code == 200 and page.headers["content-security-policy"] == UI_POLICY
+    assert client.get(f"{ui}/renderers.js").text == (tmp_path / "old" / "echo" / "ui" / "renderers.js").read_text()
+    assert client.get(f"{ui}/../nanoagent.yaml").status_code == 404
+    # Nothing of it is installed, so nothing of it runs.
+    assert client.get(f"/v1/installs/{sha}").status_code == 404
+    assert client.post(f"/v1/workspaces/alice/installs/{sha}/runs", json={"input": "x"}).status_code == 404
+    assert client.put(f"/v1/views/{SHA}", content=data).status_code == 422
+    client.headers.pop("Authorization")
+    assert client.put(f"/v1/views/{sha}", content=data).status_code == 401
 
 
 def test_a_reference_tool_sees_the_workspace_files(tmp_path: Path) -> None:
@@ -482,8 +563,52 @@ def test_a_chat_runs_an_agent_task_and_counts_its_cost(tmp_path: Path, monkeypat
         events = [json.loads(line[len("data: ") :]) for line in response.iter_lines() if line.startswith("data: ")]
     [tool] = [event for event in events if event["type"] == "tool"]
     assert tool["name"] == "echo-agent" and json.loads(tool["output"])["output"] == {"value": "hi"}
+    # While it runs, the task shows what its agent writes and each tool it calls; the agent's own
+    # calls are the task's progress, not calls of the chat.
+    [started] = [event for event in events if event["type"] == "tool_start"]
+    assert (started["id"], started["name"]) == (tool["id"], "echo-agent")
+    progress = [(event["event"], event["data"]) for event in events if event["type"] == "tool_progress"]
+    assert progress == [
+        ("task.delta", {"kind": "content", "text": "x"}),
+        ("task.tool", {"name": "echo", "isError": False}),
+        ("task.delta", {"kind": "content", "text": "x"}),
+        ("task.tool", {"name": "submit", "isError": False}),
+        ("task.delta", {"kind": "content", "text": "x"}),
+        ("task.result", {}),
+    ]
+    # The task's agent loop is drawn inside its call: each request with what it wrote (the last its
+    # response), the arguments it generated, and the verifier judging what it submitted.
+    graph = [event for event in events if event["type"] == "graph"][-1]["graph"]
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    edges = {(edge["from"], edge["relation"], edge["to"]) for edge in graph["edges"]}
+    task = "calls[0]/"
+    written = [nodes[f"{task}steps[{index}].content"] for index in range(3)]
+    assert [(node["type"], node["value"]) for node in written] == [("assistant", "x"), ("assistant", "x"), ("agent_message", "echoed")]
+    assert {
+        (f"{task}system", "used", f"{task}steps[0]"),
+        (f"{task}input", "used", f"{task}steps[0]"),
+        (f"{task}steps[0]", "generated", f"{task}steps[0].content"),
+        (f"{task}steps[0]", "generated", f"{task}calls[0].arguments"),
+        (f"{task}calls[0].output", "used", f"{task}steps[1]"),
+        (f"{task}steps[1]", "generated", f"{task}calls[1].arguments"),
+        (f"{task}calls[1].arguments", "used", f"{task}verify"),
+        (f"{task}verify", "generated", f"{task}verdict"),
+    } <= edges
+    assert nodes[f"{task}calls[1]"]["label"] == "submit" and nodes[f"{task}calls[1].arguments"]["label"] == "Task output (submitted)"
     # Two chat replies and the task agent's three.
     assert events[-1]["metrics"]["cost"] == pytest.approx(0.05)
     # The task's agent works with its instructions and only its own tools.
     prompt, names = model.task_agent[0]
     assert "Echo the value with the echo tool." in prompt and names == {"echo", "submit"}
+
+
+def test_the_page_kit_draws_each_part_as_parts_registers_it():
+    # kit/parts.js is PARTS as written by `python -m nanoagent.plugin.provenance`.
+    assert KIT_PARTS.read_text(encoding="utf-8") == kit_parts()
+    # Every line is folded into a call, and only a value is.
+    for type, part in PARTS.items():
+        assert (part.shape == "line") == (part.fold is not None), type
+        assert not (part.call and part.shape in ("tile", "line")), type
+        # Only a call has a name of its own; every node says what it is.
+        assert part.call or not part.named, type
+        assert part.about, type

@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import clsx from 'clsx';
 import Highlight from '@site/src/components/Highlight';
+import {FileIcon} from './Explorer';
 import {basename, dirname, quickOpenRows} from './tree';
 import styles from './styles.module.css';
 
@@ -39,6 +40,7 @@ export default function QuickOpen({files, recent, onPick, onClose}) {
       <div className={styles.quickOpen} onMouseDown={event => event.stopPropagation()}>
         <input
           autoFocus
+          aria-label="Search files by name"
           className={styles.quickOpenInput}
           placeholder="Search files by name"
           value={query}
@@ -60,6 +62,7 @@ export default function QuickOpen({files, recent, onPick, onClose}) {
                 onMouseEnter={() => setActive(index)}
                 onClick={() => onPick(file)}
               >
+                <FileIcon name={file.path} />
                 <span className={styles.rowName}>
                   <Highlight text={basename(file.path)} indices={indices.filter(i => i >= nameStart).map(i => i - nameStart)} />
                 </span>
@@ -71,8 +74,13 @@ export default function QuickOpen({files, recent, onPick, onClose}) {
               </li>
             );
           })}
-          {rows.length === 0 && <li className={styles.emptyTree}>No matching files.</li>}
+          {rows.length === 0 && <li className={styles.quickOpenEmpty}>No matching files.</li>}
         </ul>
+        <div className={styles.quickOpenHints}>
+          <span><kbd>↑</kbd> <kbd>↓</kbd> to move</span>
+          <span><kbd>↵</kbd> to open</span>
+          <span><kbd>esc</kbd> to close</span>
+        </div>
       </div>
     </div>
   );

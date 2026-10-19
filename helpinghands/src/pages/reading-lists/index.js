@@ -4,6 +4,7 @@ import Link from '@docusaurus/Link';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import pageStyles from '@site/src/css/page.module.css';
+import {clientPlatform} from '@site/src/platform/client';
 
 function ReadingListsApp() {
   const { default: API_BASE, apiFetch } = require('@site/src/utils/api');
@@ -67,7 +68,7 @@ function ReadingListsApp() {
   };
 
   const handleDeleteList = async (listId) => {
-    if (!confirm('Delete this reading list?')) return;
+    if (!(await clientPlatform.dialogs.confirm('Delete this reading list?'))) return;
     try {
       const res = await apiFetch(`${API_BASE}/api/reading-lists/${listId}`, {method: 'DELETE'});
       if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Failed'); }

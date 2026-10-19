@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import {after, before, describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
@@ -20,9 +21,21 @@ describe('the plugin marketplace', () => {
     source: async url => (url === 'not github'
       ? {error: 'Give a GitHub repository URL', status: 400}
       : {value: {repository: REPOSITORY, archive: Buffer.from(url)}}),
+    newer: async repository => ({value: repository.commit === REPOSITORY.commit ? 'e'.repeat(40) : null}),
   };
+  // RUSH's NanoAgent refuses legacy's packages, published by one whose rules it no longer has,
+  // keeping how it checked each.
+  const inspections = new Map();
   const ai = {
     packages: async () => ({value: {packages: [BUILT_IN]}}),
+    inspection: async sha256 => inspections.get(sha256) ?? {error: 'not inspected', status: 404},
+    inspect: async data => {
+      const sha256 = crypto.createHash('sha256').update(data).digest('hex');
+      inspections.set(sha256, data.toString().startsWith('legacy@')
+        ? {error: 'the package is refused: unexpected run.sh', status: 422}
+        : {value: {package: {sha256}}});
+      return inspections.get(sha256);
+    },
     packageFile: async id => (id === BUILT_IN.id
       ? {value: Buffer.from('nanoagent package'), headers: new Headers({'content-disposition': 'attachment; filename="bibtex-check-0.1.0.tar.gz"'})}
       : {error: 'package not found', status: 404}),
@@ -67,6 +80,12 @@ describe('the plugin marketplace', () => {
     assert.equal(written.body.toString(), 'notes@1.0.0');
   });
 
+  it('lists an upload NanoAgent now refuses as refused, saying why', async () => {
+    assert.equal((await call('alice', 'POST', '/api/market', 'legacy@1.0.0')).status, 201);
+    const listed = (await call('bob', 'GET', '/api/market')).payload.plugins.find(plugin => plugin.id === 'legacy');
+    assert.deepEqual([listed.status, listed.refusal], ['refused', 'the package is refused: unexpected run.sh']);
+  });
+
   it('publishes only for an account signed in with GitHub, its author', async () => {
     const refused = await call('carol-no-github', 'POST', '/api/market', 'nameless@1.0.0');
     assert.equal(refused.status, 403);
@@ -94,13 +113,37 @@ describe('the plugin marketplace', () => {
     assert.equal((await call('alice', 'GET', '/api/market/broken/package')).status, 404);
   });
 
-  it('lets only the uploader replace or remove an upload', async () => {
-    assert.equal((await call('bob', 'POST', '/api/market', 'notes@9.9.9')).status, 409);
-    assert.equal((await call('bob', 'DELETE', '/api/market/notes')).status, 404);
+  it('keeps every version published, and refuses one published already', async () => {
     const updated = await call('alice', 'POST', '/api/market', 'notes@1.1.0');
     assert.equal(updated.payload.plugin.version, '1.1.0');
+    const again = await call('alice', 'POST', '/api/market', 'notes@1.1.0');
+    assert.equal(again.status, 409);
+    assert.match(again.payload.error, /notes 1\.1\.0 is not newer than its latest version, 1\.1\.0/);
+    // By PEP 440: a release candidate comes before its release, 1.10 after 1.9.
+    assert.equal((await call('alice', 'POST', '/api/market', 'notes@1.1.0rc1')).status, 409);
+    assert.equal((await call('alice', 'POST', '/api/market', 'notes@1.0.9')).status, 409);
+    assert.equal((await call('bob', 'GET', '/api/market/notes/package')).written.body.toString(), 'notes@1.1.0');
+    assert.equal((await ctx.market.get('bob', 'notes', '1.0.0')).package.toString(), 'notes@1.0.0');
+    assert.equal(await ctx.market.get('bob', 'notes', '0.1.0'), null);
+    // Publishing again keeps the latest before it, and removes the rest nobody stays on.
+    assert.equal((await call('alice', 'POST', '/api/market', 'notes@1.10.0')).status, 201);
+    assert.equal(await ctx.market.get('bob', 'notes', '1.0.0'), null);
+    assert.equal((await ctx.market.get('bob', 'notes', '1.1.0')).version, '1.1.0');
+  });
+
+  it('tells only the uploader whether GitHub changed their plugin since its latest version', async () => {
+    const newer = await call('alice', 'GET', '/api/market/notes/source');
+    assert.deepEqual([newer.status, newer.payload], [200, {newer: 'e'.repeat(40)}]);
+    assert.equal((await call('bob', 'GET', '/api/market/notes/source')).status, 404);
+    assert.equal((await call('alice', 'GET', '/api/market/missing/source')).status, 404);
+  });
+
+  it('lets only the uploader publish or remove an upload, with every version', async () => {
+    assert.equal((await call('bob', 'POST', '/api/market', 'notes@9.9.9')).status, 409);
+    assert.equal((await call('bob', 'DELETE', '/api/market/notes')).status, 404);
     assert.equal((await call('alice', 'DELETE', '/api/market/notes')).status, 200);
     assert.equal((await call('bob', 'GET', '/api/market/notes/package')).status, 404);
+    assert.equal(await ctx.market.get('bob', 'notes', '1.0.0'), null);
   });
 
   it('caps what one user\'s uploads hold in all', async () => {
@@ -109,8 +152,11 @@ describe('the plugin marketplace', () => {
     const over = await call('carol', 'POST', '/api/market', `big-two@1.0.0@${half + 1}`);
     assert.equal(over.status, 413);
     assert.match(over.payload.error, /50 MB in all/);
-    // A new version replaces the old one, so it counts only once.
-    assert.equal((await call('carol', 'POST', '/api/market', `big-one@1.1.0@${half + 1}`)).status, 201);
+    // Each version kept counts: the latest stays when another is published.
+    assert.equal((await call('carol', 'POST', '/api/market', `big-one@1.1.0@${half + 1}`)).status, 413);
+    assert.equal((await call('carol', 'POST', '/api/market', 'big-one@1.1.0@7')).status, 201);
+    // Once it is not the latest, the version nobody stays on goes, and makes room.
+    assert.equal((await call('carol', 'POST', '/api/market', `big-one@1.2.0@${half + 1}`)).status, 201);
   });
 
   it('keeps NanoAgent\'s plugin ids for NanoAgent', async () => {
@@ -126,10 +172,15 @@ describe('the plugin marketplace', () => {
       await db.exec("begin; select set_config('app.user_id', 'bob', true)");
       const changed = await db.query("update market_plugin set version = '6.6.6' where id = 'mine' returning id");
       assert.deepEqual(changed.rows, []);
+      await db.exec("select set_config('app.user_id', 'alice', true)");
+      // A version is never changed or removed, even by its uploader.
+      assert.deepEqual((await db.query("update market_plugin_version set package = 'x' where plugin_id = 'mine' returning plugin_id")).rows, []);
+      assert.deepEqual((await db.query("delete from market_plugin_version where plugin_id = 'mine' returning plugin_id")).rows, []);
       await db.exec('rollback');
     } finally {
       await db.exec('reset role');
     }
     assert.equal((await ctx.market.list('bob')).find(plugin => plugin.id === 'mine').version, '1.0.0');
   });
+
 });

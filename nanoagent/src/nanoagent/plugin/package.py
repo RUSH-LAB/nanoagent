@@ -1,6 +1,7 @@
 """A plugin as one file: the ``.tar.gz`` package a marketplace stores and people download.
 
-:func:`pack` writes a plugin that follows every rule as a package: its files under one
+:func:`pack` writes a plugin that follows every rule, its spec's and the template's
+(:func:`check_plugin`), as a package: its files under one
 ``<id>/`` folder, in sorted order, with fixed times and owners, so a plugin always packs to the
 same bytes. Nothing its ``.gitignore`` ignores goes in, nor any :data:`TOOL_ARTIFACTS`.
 
@@ -9,7 +10,7 @@ the package into a temporary folder, refusing anything but plain files and folde
 ``<id>/`` folder named by the plugin's id, and at most :data:`PACKAGE_MAX_BYTES` packed and
 :data:`UNPACKED_MAX_BYTES` / :data:`MAX_FILES` unpacked (it is inflated against that limit, so a
 small package cannot unpack to a huge one). It then loads the plugin with
-:func:`load_manifest` in a separate process (the ``package`` helper, :mod:`nanoagent.helpers`)
+:func:`load_manifest`, under its spec's rules alone, in a separate process (the ``package`` helper, :mod:`nanoagent.helpers`)
 with an empty environment, so a manifest
 that interpolates ``${oc.env:...}`` cannot read the host's secrets.
 
@@ -25,7 +26,9 @@ import gzip
 import hashlib
 import io
 import json
+import os
 import subprocess
+import sys
 import tarfile
 import zlib
 from pathlib import Path, PurePosixPath
@@ -33,6 +36,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 from nanoagent import helpers
+from nanoagent.plugin.authoring import check_plugin
 from nanoagent.plugin.manifest import PLUGIN_ID, TOOL_ARTIFACTS, PluginError, PluginManifest, load_manifest
 
 PACKAGE_MAX_BYTES = 10 * 1024 * 1024
@@ -71,7 +75,7 @@ def _ignored(relative: Path, patterns: list[str]) -> bool:
 
 def pack(root: str | Path) -> bytes:
     """The package of the plugin folder ``root``, which must follow every rule."""
-    manifest = load_manifest(root)
+    manifest = check_plugin(root)
     patterns = [
         line.strip().rstrip("/")
         for line in (manifest.root / ".gitignore").read_text(encoding="utf-8").splitlines()
@@ -127,10 +131,11 @@ def _unzip(data: bytes) -> bytes:
 
 
 def _isolated(*args: str) -> dict[str, Any]:
-    """:func:`main` on ``args`` in a fresh process with an empty environment, its JSON answer."""
+    """:func:`main` on ``args`` in a fresh process with an empty environment, its JSON answer. Windows
+    sockets, which asyncio loads, do not start without ``SystemRoot``, so that alone is passed there."""
     completed = subprocess.run(
         helpers.command("package", *args),
-        env={},
+        env={"SystemRoot": os.environ["SystemRoot"]} if sys.platform == "win32" else {},
         capture_output=True,
         text=True,
         timeout=INSPECT_TIMEOUT,

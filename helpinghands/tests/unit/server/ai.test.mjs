@@ -213,7 +213,7 @@ describe('NanoAgent gateway', () => {
     assert.equal((await gateway.profiles()).limits.capped, true);
   });
 
-  it('maps terminal failures and incomplete streams to Mochi errors', async () => {
+  it('maps terminal failures and incomplete streams to RUSH errors', async () => {
     const failed = ai.createNanoAgentGateway({
       env: {},
       fetchImpl: async () => response([sse({type: 'error', runId: 'r', code: 'timeout', error: 'Agent run timed out'})]),
@@ -232,7 +232,7 @@ describe('NanoAgent gateway', () => {
     assert.deepEqual(await gateway.complete({input: 'x'}), {error: 'unauthorized', status: 502});
   });
 
-  it('cancels the upstream request when the Mochi caller disconnects', async () => {
+  it('cancels the upstream request when the RUSH caller disconnects', async () => {
     const caller = new AbortController();
     const gateway = ai.createNanoAgentGateway({
       env: {},
@@ -301,6 +301,29 @@ describe('NanoAgent plugin API', () => {
     const sha = 'a'.repeat(64);
     assert.equal((await gateway.complete({input: 'save it', install: sha, workspace: 'w1'})).text, 'saved');
     assert.deepEqual(seen, [[`http://127.0.0.1:8787/v1/workspaces/w1/installs/${sha}/runs`, {input: 'save it', messages: []}]]);
+  });
+
+  it('shows an app run its thinking and each task as it runs, which other runs keep private', async () => {
+    const chunks = [
+      sse({type: 'delta', runId: 'r1', kind: 'reasoning', text: 'which task?'}),
+      sse({type: 'tool_start', runId: 'r1', id: 'call-1', name: 'echo'}),
+      sse({type: 'tool_progress', runId: 'r1', id: 'call-1', name: 'echo', event: 'task.result', data: {}}),
+      sse({type: 'tool', runId: 'r1', id: 'call-1', name: 'echo', arguments: {value: 'hi'}, output: '{}', is_error: false}),
+      sse({type: 'trajectory', runId: 'r1', trajectory: {steps: []}}),
+      sse({type: 'done', runId: 'r1', answer: 'saved'}),
+    ];
+    const gateway = ai.createNanoAgentGateway({env: {}, fetchImpl: async () => response(chunks)});
+    const events = [];
+    await gateway.stream({input: 'save it', install: 'a'.repeat(64), workspace: 'w1', onEvent: event => events.push(event)});
+    assert.deepEqual(events.slice(0, 3), [
+      {type: 'reasoning.delta', runId: 'r1', text: 'which task?'},
+      {type: 'tool.started', runId: 'r1', call: {id: 'call-1', name: 'echo'}},
+      {type: 'tool.progress', runId: 'r1', call: {id: 'call-1', name: 'echo'}, event: 'task.result', data: {}},
+    ]);
+    assert.deepEqual(events.find(event => event.type === 'trajectory.completed'), {type: 'trajectory.completed', runId: 'r1', trajectory: {steps: []}});
+    const others = [];
+    await gateway.stream({input: 'hi', onEvent: event => others.push(event)});
+    assert.deepEqual(others.map(event => event.type), ['tool.started', 'tool.completed', 'run.completed']);
   });
 
   it('reads a workspace file as bytes and relays a missing one as 404', async () => {

@@ -1,35 +1,30 @@
 import React from 'react';
-import clsx from 'clsx';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
+import Head from '@docusaurus/Head';
 import {Redirect} from '@docusaurus/router';
-import Layout from '@theme/Layout';
-import Heading from '@theme/Heading';
-import {useAccount} from '@site/src/utils/account';
-import styles from './index.module.css';
+import LabInstall from '@site/src/theme/Root/LabInstall';
+import {inLabApp} from '@site/src/utils/labApp';
+import styles from '@site/src/theme/Root/authScreen.module.css';
 
 /**
- * The site's root: the account's workspace, reached before anything is drawn,
- * or, for an account in none, where to start.
+ * The site's root, the landing page, signed in or not (src/utils/signIn.js): RUSH Lab is
+ * the app, so it offers how to install it (LabInstall.js). RUSH Lab's own window is the app
+ * already, and goes on to the site (/w).
  */
-export default function Home() {
+export default function Landing() {
   const {siteConfig} = useDocusaurusContext();
-  const {workspaces, defaultWorkspaceId} = useAccount();
-  const workspace = workspaces.find(item => item.id === defaultWorkspaceId) ?? workspaces[0];
-  if (workspace) return <Redirect to={`/w/${encodeURIComponent(workspace.slug)}`} />;
-
+  if (inLabApp()) return <Redirect to="/w" />;
   return (
-    <Layout
-      title={siteConfig.title}
-      description={siteConfig.tagline}>
-      <header className={clsx('hero hero--primary', styles.heroBanner)}>
-        <div className="container">
-          <Heading as="h1" className="hero__title">
-            {siteConfig.title}
-          </Heading>
-          <p className="hero__subtitle">{siteConfig.tagline}</p>
-          <p>Create or join a workspace to get started.</p>
+    <>
+      <Head><title>{siteConfig.title}</title></Head>
+      <div className={styles.page}>
+        <div className={`${styles.card} ${styles.landingCard}`}>
+          <img src="/img/rush-lab.png" alt="" className={styles.logo} />
+          <h1 className={styles.title}>{siteConfig.title}</h1>
+          <p className={styles.tagline}>Efficient, private and convenient: your AI and plugins run right on your own computer.</p>
+          <LabInstall />
         </div>
-      </header>
-    </Layout>
+      </div>
+    </>
   );
 }

@@ -1,8 +1,8 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  basename, buildTree, comparePath, dirname, entryProblem, invalidName, join, movedPath, quickOpenRows, tabChanges, visibleRows,
-  within,
+  ROOT, basename, buildTree, comparePath, copyName, dirname, entryProblem, invalidName, join, movedPath, quickOpenRows, tabChanges,
+  topmost, trashRows, treeIndex, within,
 } from '../../../../src/components/Workbench/tree.js';
 
 const files = [
@@ -32,12 +32,67 @@ describe('workbench tree', () => {
     assert.equal(tree.children[0].children[0].children[0].path, 'a/b/c.txt');
   });
 
-  it('lists only the rows of open folders, with their depth', () => {
-    const tree = buildTree(files, ['papers', 'papers/attention']);
-    const rows = visibleRows(tree, new Set(['papers']));
-    assert.deepEqual(rows.map(row => [row.node.path, row.depth]), [
-      ['papers', 0], ['papers/attention', 1], ['notes.txt', 0], ['readme.md', 0],
+  it('indexes the tree by path, the root as ROOT, folding single-folder chains into one row', () => {
+    const tree = buildTree(files, ['papers', 'papers/attention', 'papers/attention/figures']);
+    const items = treeIndex(tree);
+    assert.deepEqual(items.get(ROOT).children, ['papers/attention', 'notes.txt', 'readme.md']);
+    assert.equal(items.get('papers/attention').label, 'papers/attention');
+    assert.deepEqual(items.get('papers/attention').children, ['papers/attention/figures', 'papers/attention/ms.tex']);
+    assert.equal(items.has('papers'), false);
+    assert.equal(treeIndex(tree, {compact: false}).get('papers').label, 'papers');
+  });
+
+  it('shows the member\'s home first, as home, and other members\' shared files under their names', () => {
+    const tree = buildTree([
+      ...files,
+      {path: 'home/ada/plugins/echo/out.md', size: 1, modified: 1},
+      {path: 'home/bob/shared.md', size: 1, modified: 1},
+      {path: 'home/gone/old.md', size: 1, modified: 1},
+    ], ['home', 'home/ada']);
+    const home = {userId: 'ada', names: new Map([['ada', 'Ada'], ['bob', 'Bob']])};
+    const items = treeIndex(tree, {home});
+    assert.deepEqual(items.get(ROOT).children, ['home/ada', 'papers/attention', 'notes.txt', 'readme.md', 'home']);
+    assert.equal(items.get('home/ada').label, 'home');
+    assert.deepEqual(items.get('home/ada').children, ['home/ada/plugins/echo']);
+    assert.equal(items.get('home').label, 'Shared with me');
+    assert.deepEqual(items.get('home').children.map(id => items.get(id).label), ['Bob', 'A former member']);
+
+    const fresh = treeIndex(buildTree(files, []), {home});
+    assert.deepEqual(fresh.get(ROOT).children, ['home/ada', 'papers/attention', 'notes.txt', 'readme.md']);
+    assert.deepEqual([fresh.get('home/ada').label, fresh.get('home/ada').children], ['home', []]);
+  });
+
+  it('lists the trash as one row per thing deleted, newest first, homes by name', () => {
+    const at = minute => `2026-10-19T06:${String(minute).padStart(2, '0')}:00Z`;
+    const node = (id, path, minute, kind = 'file') => ({id, path, kind, deletedAt: at(minute)});
+    const rows = trashRows([
+      node('f', 'home/ada/From earlier runs', 10, 'folder'),
+      node('f1', 'home/ada/From earlier runs/papers', 10, 'folder'),
+      node('f2', 'home/ada/From earlier runs/papers/a.tex', 5),
+      node('t1', 'zz-test', 1, 'folder'),
+      node('t2', 'zz-test', 3, 'folder'),
+      node('t3', 'zz-test/a.txt', 3),
+      node('b', 'home/bob/notes.md', 20),
+      node('w', 'notes.md', 2),
+    ], {userId: 'ada', names: new Map([['ada', 'Ada'], ['bob', 'Bob']])});
+    assert.deepEqual(rows.map(({node: {id}, name, where, count}) => [id, name, where, count]), [
+      ['b', 'notes.md', "Bob's home", 1],
+      ['f', 'From earlier runs', 'home', 1],
+      ['t2', 'zz-test', '', 2],
+      ['w', 'notes.md', '', 1],
     ]);
+  });
+
+  it('names copies as VS Code does', () => {
+    assert.equal(copyName('notes.txt', new Set(['notes.txt'])), 'notes copy.txt');
+    assert.equal(copyName('notes.txt', new Set(['notes.txt', 'notes copy.txt'])), 'notes copy 2.txt');
+    assert.equal(copyName('Makefile', new Set()), 'Makefile copy');
+    assert.equal(copyName('v1.2', new Set(), {folder: true}), 'v1.2 copy');
+    assert.equal(copyName('.env', new Set()), '.env copy');
+  });
+
+  it('keeps only the topmost of nested paths', () => {
+    assert.deepEqual(topmost(['a', 'a/b.txt', 'ab', 'c/d']), ['a', 'ab', 'c/d']);
   });
 
   it('does path arithmetic', () => {

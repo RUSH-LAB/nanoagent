@@ -53,7 +53,7 @@ from nanoagent.core.compact import (
 from nanoagent.core.dispatch import _is_arg_malformed, _unquote_arg_keys, invoke_tool_call
 from nanoagent.core.hooks import Hooks, RunHooks
 from nanoagent.core.messages import assistant_message, last_assistant_text
-from nanoagent.core.tool import build_tool_map, Tool
+from nanoagent.core.tool import build_tool_map, tool_progress, Tool
 from nanoagent.profiler import Profiler, RunProfile, StepProfiler
 
 if TYPE_CHECKING:
@@ -290,6 +290,7 @@ class Agent:
         label: str | None = None,
         messages: list[dict[str, Any]] | None = None,
         on_delta: Callable[[str, str], None] | None = None,
+        on_tool: Callable[[dict[str, Any]], None] | None = None,
     ) -> AgentResult:
         """Drive the agent until it answers or hits a limit.
 
@@ -300,7 +301,12 @@ class Agent:
 
         ``on_step`` (if given) is called with the partial :class:`AgentResult` after every turn —
         use it to stream a trajectory to disk so a mid-run crash isn't lost. ``on_delta`` is the
-        REPL's rendering hook, forwarded to the model as its streaming callback. On an unexpected
+        REPL's rendering hook, forwarded to the model as its streaming callback. ``on_tool`` watches
+        each tool call while it runs: ``{"type": "tool_start", "id", "name"}`` as it starts, then
+        ``{"type": "tool_progress", "id", "name", "event", "data"}`` for each event the tool reports
+        (:meth:`~nanoagent.core.tool.Tool.progress`); the call's result comes in ``on_step``'s
+        snapshot as before. A call the loop retries (every call of the reply malformed) starts and
+        never ends there. On an unexpected
         exception the partial result is recorded (``stop_reason="error"``), passed to ``on_step``,
         and re-raised. ``label`` (e.g. the task id) is prefixed to this run's log
         lines so they're attributable when many rollouts log to one console.
@@ -480,7 +486,7 @@ class Agent:
                         break  # final answer — no dispatch to retry on
                     td = time.monotonic()
                     log_rows, tool_msgs = await self._dispatch(
-                        reply.tool_calls, step, hooks, profile_step
+                        reply.tool_calls, step, hooks, profile_step, on_tool
                     )
                     tool_phase = time.monotonic() - td
                     pending["tools"] += tool_phase
@@ -584,6 +590,7 @@ class Agent:
         step: int = 0,
         hooks: RunHooks | None = None,
         profile: StepProfiler | None = None,
+        on_tool: Callable[[dict[str, Any]], None] | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Invoke every tool call concurrently; return (call_log rows, role=tool messages) in INPUT order.
 
@@ -596,6 +603,16 @@ class Agent:
         timers = [profile.start_tool_call(c.id, c.name) for c in calls] if profile else []
 
         async def run_one(index: int, call: ToolCall) -> tuple[dict[str, Any], dict[str, Any]]:
+            # Each call is its own task under gather, so setting this here is this call's alone.
+            if on_tool is None:
+                tool_progress.set(None)
+            else:
+                on_tool({"type": "tool_start", "id": call.id, "name": call.name})
+                tool_progress.set(
+                    lambda kind, data: on_tool(
+                        {"type": "tool_progress", "id": call.id, "name": call.name, "event": kind, "data": data}
+                    )
+                )
             try:
                 row, message = await self._run_one(call, step, hooks)
             except BaseException as error:

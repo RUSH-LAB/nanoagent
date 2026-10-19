@@ -19,6 +19,8 @@
  *   GET    history?path=              every revision, newest first
  *   GET    revision?path=&seq=        the bytes of one revision
  *   GET    changes?since=&limit=      the change feed sync clients follow, and catch up from after a reconnect
+ *   GET    search?q=&case=1&word=1    the lines of text files that have `q` (fs/textSearch.js), by file:
+ *                                     {files: [{path, rev, matches: [{line, column, length, preview}]}], truncated}
  *   GET    events                     the workspace's push channel (fs/events.js), server-sent events:
  *                                     `ready` {stream, cursor}, then `changes` {cursor, structural, changes}
  *                                     batches and `update` {nodeId, update, rev} for the files it follows
@@ -30,8 +32,16 @@
  *   POST   crdt?path=                 apply an editor's Yjs update; the merged text is a new revision
  *   DELETE follow?stream=&node=       stop sending a stream a file's updates
  */
-const ROUTE = /^\/api\/fs\/(tree|stat|file|folder|move|node|restore|trash|access|share|history|revision|changes|events|crdt|follow)$/;
+const {isAppState, isShownChange} = require('../fs/store');
+const {lineMatches} = require('../fs/textSearch');
+
+const ROUTE = /^\/api\/fs\/(tree|stat|file|folder|move|node|restore|trash|access|share|history|revision|changes|events|crdt|follow|search)$/;
 const HEARTBEAT_MS = 25_000;
+// A search reads text files up to the size the workbench edits (EDIT_LIMIT in components/Workbench),
+// and answers with at most this many matches, longest lines cut to PREVIEW_LENGTH around their match.
+const SEARCH_FILE_LIMIT = 2 * 1024 * 1024;
+const SEARCH_MATCH_LIMIT = 2000;
+const PREVIEW_LENGTH = 240;
 
 function fail(json, res, error) {
   if (error?.status && error?.code) {
@@ -61,6 +71,13 @@ function sendBytes(req, res, {body, contentType, etag, filename, download = fals
   res.end(body);
 }
 
+/** A match with its line cut to PREVIEW_LENGTH around it, `column` then counted in what is kept, `cut` how much went before. */
+function preview(match) {
+  if (match.preview.length <= PREVIEW_LENGTH) return {...match, cut: 0};
+  const cut = Math.max(0, Math.min(match.column - 1 - 40, match.preview.length - PREVIEW_LENGTH));
+  return {...match, preview: match.preview.slice(cut, cut + PREVIEW_LENGTH), cut};
+}
+
 module.exports = async function fs_routes(req, res, url, pathname, ctx) {
   const match = ROUTE.exec(pathname);
   if (!match || !req.context) return;
@@ -77,6 +94,18 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
   const param = name => url.searchParams.get(name);
   const changed = () => invalidateCache?.(cacheKey(scope.workspaceId, ''));
   const permit = permission => requireWorkspacePermission(scope, permission);
+  // App state is written only by the service that owns it (fs/store.js isAppState), and every
+  // member, viewers included, may change what is inside their own home, though not publish it.
+  const ownHome = path => typeof path === 'string' && path.startsWith(`home/${scope.userId}/`);
+  const refuseAppState = (...paths) => {
+    const appState = paths.find(path => typeof path === 'string' && isAppState(path));
+    if (appState) throw Object.assign(new Error(`${appState} is app state, which only its app changes`), {status: 403, code: 'app-state'});
+  };
+  const permitChange = (permission, ...paths) => {
+    refuseAppState(...paths);
+    if (!paths.every(ownHome)) permit(permission);
+  };
+  const visible = node => !isAppState(node.path);
 
   try {
     if (req.method === 'GET' && action === 'tree') {
@@ -84,7 +113,7 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
       const nodes = param('deleted') === '1'
         ? await fs.trash(scope)
         : await fs.list(scope, {prefix: param('prefix')});
-      return json(res, 200, {nodes});
+      return json(res, 200, {nodes: nodes.filter(visible)});
     }
 
     if (req.method === 'GET' && action === 'stat') {
@@ -106,7 +135,7 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
     }
 
     if (req.method === 'PUT' && action === 'file') {
-      permit('content:edit');
+      permitChange('content:edit', param('path'));
       const body = await readRawBody(req);
       const baseRev = param('baseRev');
       const node = await fs.write(scope, param('path'), body, {
@@ -121,22 +150,22 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
     }
 
     if (req.method === 'POST' && action === 'folder') {
-      permit('content:edit');
+      permitChange('content:edit', param('path'));
       const node = await fs.mkdir(scope, param('path'));
       changed();
       return json(res, 200, {node});
     }
 
     if (req.method === 'POST' && action === 'move') {
-      permit('content:edit');
       const {from, to, baseRev} = await readBody(req) ?? {};
+      permitChange('content:edit', from, to);
       const node = await fs.move(scope, from, to, {baseRev});
       changed();
       return json(res, 200, {node});
     }
 
     if (req.method === 'DELETE' && action === 'node') {
-      permit('content:delete');
+      permitChange('content:delete', param('path'));
       const baseRev = param('baseRev');
       const node = await fs.remove(scope, param('path'), {...(baseRev === null ? {} : {baseRev: Number(baseRev)})});
       if (!node) return json(res, 404, {error: 'Not found', code: 'not-found'});
@@ -162,6 +191,7 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
     if (req.method === 'PUT' && action === 'access') {
       permit('content:publish');
       const {path, access, members} = await readBody(req) ?? {};
+      refuseAppState(path);
       if (members !== undefined && (!Array.isArray(members) || members.some(member => typeof member !== 'string'))) {
         return json(res, 400, {error: 'members must be a list of user ids', code: 'bad-members'});
       }
@@ -212,7 +242,7 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
     }
 
     if (action === 'crdt' && req.method === 'POST') {
-      permit('content:edit');
+      permitChange('content:edit', param('path'));
       const update = await readRawBody(req);
       const {node, changes} = await crdt.merge(scope, param('path'), update);
       fsHub.broadcast(scope.workspaceId, node.id, changes, node.rev);
@@ -253,9 +283,28 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
       return res.end();
     }
 
+    if (req.method === 'GET' && action === 'search') {
+      permit('content:read');
+      const q = param('q') ?? '';
+      if (!q) return json(res, 400, {error: 'Say what to search for', code: 'bad-query'});
+      const options = {matchCase: param('case') === '1', wholeWord: param('word') === '1'};
+      const files = [];
+      let count = 0;
+      for (const file of await fs.readMany(scope, {text: SEARCH_FILE_LIMIT})) {
+        const matches = lineMatches(file.body.toString('utf8'), q, options, SEARCH_MATCH_LIMIT + 1 - count);
+        if (!matches.length || isAppState(file.path)) continue;
+        files.push({path: file.path, rev: file.rev, matches: matches.map(match => preview(match))});
+        count += matches.length;
+        if (count > SEARCH_MATCH_LIMIT) break;
+      }
+      if (count > SEARCH_MATCH_LIMIT) files.at(-1).matches.pop();
+      return json(res, 200, {files, truncated: count > SEARCH_MATCH_LIMIT});
+    }
+
     if (req.method === 'GET' && action === 'changes') {
       permit('content:read');
-      return json(res, 200, await fs.changes(scope, {since: param('since'), limit: param('limit')}));
+      const page = await fs.changes(scope, {since: param('since'), limit: param('limit')});
+      return json(res, 200, {...page, changes: page.changes.filter(isShownChange)});
     }
   } catch (error) {
     return fail(json, res, error);

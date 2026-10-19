@@ -1,71 +1,53 @@
 name: Helping Hands desktop app
 
-# Builds the Tauri app (helpinghands/desktop) for macOS on Apple silicon, the one platform it
-# ships for now (Windows and Linux: helpinghands/FUTURE.md), only in a run by hand: members install
-# Mochi Lab with one line, not the app, and macOS minutes cost ten Linux ones. The bundle is
-# uploaded as a workflow artifact. NanoAgent is
-# compiled here by Nuitka (scripts/stage.mjs), which cannot cross-compile: each target builds on its
-# own runner.
+# Builds RUSH Lab, the Tauri app (helpinghands/desktop) members download from the site, for each
+# kind of Mac and for x86-64 Windows. Each target builds on its own runner, as the app bundles that
+# system's runtimes (scripts/stage.mjs).
 #
-# The macOS app is ad-hoc signed (signingIdentity "-" in tauri.conf.json), not notarized: on
-# another Mac it opens after right-click -> Open, or Open Anyway in System Settings -> Privacy.
+# The Mac app is ad-hoc signed (signingIdentity "-" in tauri.conf.json), not notarized: the first time
+# it opens from the dmg, macOS blocks it until the member clicks Open Anyway in System Settings ->
+# Privacy & Security. The Windows app is its NSIS installer (tauri.windows.conf.json), unsigned, so
+# SmartScreen asks before an installer downloaded in a browser runs. It is a release (npm run
+# build:release): it updates itself from the site it serves (src-tauri/src/update.rs), with the
+# update this job signs with the app's update key (TAURI_SIGNING_PRIVATE_KEY) and uploads beside
+# each app. On Windows the update is the installer itself.
 
-# A push to production rebuilds the Lab bundles only when something they are built from changed:
-# desktop/ (its scripts and config.yaml), the runner, and the NanoAgent that stage.mjs compiles.
+# The release pull request into production builds the app and checks it installs and runs on each
+# target, so it is merged only once it passes; the push to production that merging makes builds it
+# again and uploads it. Either runs only when something the app is built or installed from changed:
+# desktop/ (the app, its scripts and config.yaml), the runner, the install scripts, and the
+# NanoAgent that stage.mjs bundles. devmode pushes build nothing.
 on:
   workflow_dispatch:
-  push:
+  pull_request:
     branches: [production]
-    paths:
+    paths: &app
       - '.github/workflows/helpinghands-desktop.yml'
       - 'helpinghands/desktop/**'
       - 'helpinghands/src/runner/**'
+      - 'helpinghands/src/server/lab-install.js'
+      - 'helpinghands/src/server/lab-app.js'
+      - 'docs/instructions/skills/publish-plugin/SKILL.md'
       - 'nanoagent/pyproject.toml'
       - 'nanoagent/README.md'
       - 'nanoagent/LICENSE'
       - 'nanoagent/src/**'
       - 'nanoagent/js/pi-runner/**'
       - 'nanoagent/deploy/railway/**'
+  push:
+    branches: [production]
+    paths: *app
 
 defaults:
   run:
     working-directory: helpinghands
 
 jobs:
-  bundle:
-    if: github.event_name == 'workflow_dispatch'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-14
-            target: aarch64-apple-darwin
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: helpinghands/desktop/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
-      - run: npm ci
-        working-directory: helpinghands/desktop
-      - run: npm run build -- --target ${{ matrix.target }}
-        working-directory: helpinghands/desktop
-      - uses: actions/upload-artifact@v4
-        with:
-          name: mochi-lab-${{ matrix.target }}
-          path: helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
-          if-no-files-found: error
-
-  # Mochi Lab without its window (desktop/PLAN.md): the bundle install.sh downloads, one per Mac
-  # architecture and one for Linux (which Windows runs in WSL2), each built on its own runner. The
-  # Linux one is installed and started first, as a member does. A push to production uploads them
-  # to the Mochi it deploys, which may still be deploying the commit that serves the upload, so it
-  # is tried for 15 minutes; a run by hand only builds and checks.
-  lab:
+  # Each dmg and update, uploaded on a push to production to the RUSH it deploys, which serves them
+  # to members (routes/lab.js). That RUSH may still be deploying the commit that serves the upload,
+  # so each is tried for 15 minutes; the pull request and a run by hand only build and check, and
+  # keep them as a workflow artifact.
+  app:
     strategy:
       fail-fast: false
       matrix:
@@ -74,9 +56,8 @@ jobs:
             target: aarch64-apple-darwin
           - os: macos-15-intel
             target: x86_64-apple-darwin
-          # The oldest supported Ubuntu: what is built here runs where glibc is as new or newer.
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -85,27 +66,34 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: helpinghands/desktop/package-lock.json
+          cache-dependency-path: |
+            helpinghands/package-lock.json
+            helpinghands/desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
         working-directory: helpinghands/desktop
-      - run: npm run bundle:lab
+      - run: npm run build:release -- --target ${{ matrix.target }}
         working-directory: helpinghands/desktop
         env:
-          TAURI_ENV_TARGET_TRIPLE: ${{ matrix.target }}
-      - name: Install and start it, as a member does
-        if: runner.os == 'Linux'
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rush-lab-${{ matrix.target }}
+          path: |
+            helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
+            helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz.sig
+            helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe
+            helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe.sig
+          if-no-files-found: error
+      # As a member installs it, run twice against this build served as the site serves it, then
+      # quit: it must reach its NanoAgent through the relay each time, and leave nothing running.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install, run and quit
         working-directory: helpinghands/desktop
-        env:
-          TAURI_ENV_TARGET_TRIPLE: ${{ matrix.target }}
-        # Plugins run in bubblewrap; Mochi Lab runs as a systemd user service, which needs the
-        # runner's user manager.
-        run: |
-          sudo apt-get update && sudo apt-get install -y bubblewrap
-          sudo loginctl enable-linger "$USER"
-          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
-          for i in $(seq 1 30); do systemctl --user show-environment >/dev/null 2>&1 && break; sleep 1; done
-          node scripts/check-lab-install.mjs
-      - name: Upload to Mochi
+        timeout-minutes: 30
+        run: node scripts/check-install.mjs ${{ matrix.target }}
+      - name: Upload to RUSH
         if: github.event_name == 'push'
         working-directory: helpinghands/desktop
         env:
@@ -115,15 +103,19 @@ jobs:
             echo "The LAB_UPLOAD_TOKEN secret is not set" >&2
             exit 1
           fi
-          bundle=dist/mochi-lab-${{ matrix.target }}.tar.gz
-          stamp=$(tar -xOzf "$bundle" mochi-lab/stamp)
-          deadline=$(( $(date +%s) + 900 ))
-          until curl -fsS -X PUT --data-binary @"$bundle" \
-              -H "Authorization: Bearer $LAB_UPLOAD_TOKEN" -H "X-Lab-Stamp: $stamp" \
-              https://rush-lab.org/api/lab/bundles/${{ matrix.target }}; do
-            if [ "$(date +%s)" -ge "$deadline" ]; then
-              echo "Mochi did not take the bundle within 15 minutes" >&2
-              exit 1
-            fi
-            sleep 30
-          done
+          bundle=src-tauri/target/${{ matrix.target }}/release/bundle
+          stamp=$(cat src-tauri/resources/stamp)
+          # put <file> <route> [header]: PUT the file to rush-lab.org's route, for 15 minutes.
+          put() {
+            deadline=$(( $(date +%s) + 900 ))
+            until curl -fsS -X PUT --data-binary @"$1" \
+                -H "Authorization: Bearer $LAB_UPLOAD_TOKEN" -H "X-Lab-Stamp: $stamp" ${3:+-H "$3"} \
+                "https://rush-lab.org$2"; do
+              if [ "$(date +%s)" -ge "$deadline" ]; then
+                echo "RUSH did not take $1 within 15 minutes" >&2
+                exit 1
+              fi
+              sleep 30
+            done
+          }
+

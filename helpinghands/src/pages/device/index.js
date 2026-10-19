@@ -6,8 +6,8 @@ import styles from '@site/src/theme/Root/authScreen.module.css';
 
 /**
  * Where `rush login` sends you, and where RUSH Lab sends you to connect a
- * computer (`client=desktop`: the app's window, desktop/src-tauri/src/supervisor.rs,
- * or lab.log for the one-line install): approve or deny the client's device
+ * computer (`client=desktop`: lab.mjs opens it, and logs it, when a relay's
+ * session has lapsed): approve or deny the client's device
  * code, as the account this browser is signed in to with GitHub.
  *
  * Behind the sign-in gate like every other page, so whoever sees the buttons

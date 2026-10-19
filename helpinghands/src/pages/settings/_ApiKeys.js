@@ -7,8 +7,8 @@ import ai from './ai.module.css';
 const KEY = {env: 'OPENROUTER_API_KEY', label: 'OpenRouter'};
 
 /**
- * Settings → AI → API key: the OpenRouter key Mochi Lab runs your AI with on
- * your own computer. It goes down Mochi Lab's connection (server/runner.js)
+ * Settings → AI → API key: the OpenRouter key RUSH Lab runs your AI with on
+ * your own computer. It goes down RUSH Lab's connection (server/runner.js)
  * and is kept there only; this page learns whether it is set, never the key.
  * Runs use it as soon as it is saved; `onSaved` lets the pane show it.
  */
@@ -109,11 +109,18 @@ const money = value => `$${value.toFixed(2)}`;
  * own part of that marked in it; the amounts alone for a key without a cap.
  */
 function Spend({you, total: {used, cap}}) {
-  const line = `You: ${money(you)} · Total: ${money(used)}${cap == null ? '' : ` of ${money(cap)}`} used`;
-  if (cap == null) return <div className={ai.credit}>{line}</div>;
+  const figures = (
+    <div className={ai.creditFigures}>
+      <span className={ai.creditAmount}>{money(used)}</span>
+      <span>{cap == null ? 'used in total' : `of ${money(cap)} used in total`}</span>
+      <span className={ai.creditYou}>You: {money(you)}</span>
+    </div>
+  );
+  if (cap == null) return <div className={ai.credit}>{figures}</div>;
   const share = value => `${cap > 0 ? (Math.min(value, cap) / cap) * 100 : 100}%`;
   return (
     <div className={ai.credit}>
+      {figures}
       <div
         className={ai.creditBar}
         role="meter"
@@ -126,7 +133,6 @@ function Spend({you, total: {used, cap}}) {
           <div className={ai.creditYours} style={{width: used > 0 ? `${(Math.min(you, used) / used) * 100}%` : '0%'}} />
         </div>
       </div>
-      <span>{line}</span>
     </div>
   );
 }

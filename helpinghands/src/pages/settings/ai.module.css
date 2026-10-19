@@ -3,17 +3,20 @@
 /* ── The OpenRouter key on the member's computer (_ApiKeys.js) ──── */
 
 .linkButton {
-  padding: 0;
+  height: var(--site-control-height);
+  padding: 0 0.6rem;
   border: 0;
+  border-radius: var(--site-radius);
   background: none;
-  color: var(--ifm-color-danger-dark);
+  color: var(--ifm-color-danger);
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
   cursor: pointer;
 }
 
 .linkButton:hover:not(:disabled) {
-  text-decoration: underline;
+  background: color-mix(in srgb, var(--ifm-color-danger) 10%, transparent);
 }
 
 .linkButton:disabled {
@@ -23,8 +26,12 @@
 
 /* How the saved key begins and ends, as the computer reports it. */
 .keyHint {
-  padding: 0.3rem 0.55rem;
-  font-size: 0.82rem;
+  display: inline-flex;
+  align-items: center;
+  height: var(--site-control-height);
+  padding: 0 0.6rem;
+  border-radius: var(--site-radius);
+  font-size: 0.8125rem;
 }
 
 .keyInput {
@@ -36,6 +43,7 @@
 /* The key's row wraps, to take the credit bar under it. */
 .keyRow {
   flex-wrap: wrap;
+  row-gap: 0.75rem;
 }
 
 /* What the key has spent: the row's whole width, under it. */
@@ -43,14 +51,48 @@
   flex-basis: 100%;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  padding-bottom: 0.6rem;
-  color: var(--ifm-color-emphasis-700);
-  font-size: 0.8rem;
+  gap: 0.6rem;
+  padding-bottom: 0.4rem;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.8125rem;
+}
+
+/* What has been spent, large; the cap beside it; the member's part on the right. */
+.creditFigures {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.5rem;
+}
+
+.creditAmount {
+  color: var(--ifm-font-color-base);
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.creditYou {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Its swatch is the bar's own colour for the member's part. */
+.creditYou::before {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 2px;
+  background: var(--ifm-color-primary-dark);
 }
 
 .creditBar {
-  height: 0.4rem;
+  height: 0.5rem;
   overflow: hidden;
   border-radius: 999px;
   background: var(--ifm-color-emphasis-200);
@@ -69,12 +111,34 @@
 
 /* ── Whether RUSH Lab is connected (_Connection.js) ────────────── */
 
+/* A status pill, tinted by its state. */
 .online,
 .offline {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  font-weight: 600;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.online {
+  background: color-mix(in srgb, var(--ifm-color-success) 14%, transparent);
+  color: var(--ifm-color-success-darkest);
+}
+
+.offline {
+  background: color-mix(in srgb, var(--ifm-color-danger) 12%, transparent);
+  color: var(--ifm-color-danger-darkest);
+}
+
+[data-theme='dark'] .online {
+  color: var(--ifm-color-success-lightest);
+}
+
+[data-theme='dark'] .offline {
+  color: var(--ifm-color-danger-lightest);
 }
 
 .online::before,
@@ -93,31 +157,103 @@
   background: var(--ifm-color-danger);
 }
 
+/* The card's footer: a note on a tinted strip, under the facts. */
 .connectionNote {
   margin: 0;
-  padding: 0.6rem 1.1rem 0.75rem;
-  border-top: 1px solid var(--ifm-color-emphasis-200);
-  color: var(--ifm-color-emphasis-600);
-  font-size: 0.8rem;
+  padding: 0.75rem 1.1rem;
+  border-top: 1px solid var(--site-hairline);
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.8125rem;
 }
 
 /* ── Installing RUSH Lab while it is not connected (_Connection.js) ── */
 
-/* The row wraps, to take the command under it. */
-.installRow {
+/* The downloads and the connect link are links, styled as the buttons beside them are. */
+.primaryLink,
+.primaryLink:hover {
+  color: var(--site-on-primary);
+  text-decoration: none;
+}
+
+.secondaryLink,
+.secondaryLink:hover {
+  color: var(--ifm-font-color-base);
+  text-decoration: none;
+}
+
+.secondaryLink[aria-disabled='true'] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* The model every run is on: its name and id, then a tile for each figure the catalog knows of it. */
+.modelSummary {
+  display: flex;
   flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 1rem 1.1rem;
 }
 
-/* The command: the row's whole width, under it. */
-.installCommand {
-  flex-basis: 100%;
-  margin-bottom: 0.6rem;
-  padding: 0.45rem 0.6rem;
-  overflow-wrap: anywhere;
-  font-size: 0.78rem;
+.modelName {
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
-/* The model every run is on, one row for each thing the computer's catalog knows of it. */
+/* Hairlines between the tiles are the grid's gap showing through. */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin: 0;
+  border-top: 1px solid var(--site-hairline);
+  background: var(--site-hairline);
+}
+
+@media (min-width: 700px) {
+  .stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.stat {
+  display: grid;
+  align-content: start;
+  gap: 0.3rem;
+  padding: 0.85rem 1.1rem;
+  background: var(--ifm-background-surface-color);
+}
+
+.stat dt {
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.stat dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem;
+  margin: 0;
+}
+
+.statValue {
+  font-size: 1.125rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.statUnit {
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.75rem;
+}
+
+/* The facts of the connection, one row each. */
 /* Two classes, to outrank the shared row's height and the label's weight. */
 .fact.fact {
   min-height: 0;
@@ -127,6 +263,18 @@
 
 .fact > :first-child {
   color: var(--ifm-color-emphasis-700);
+}
+
+/* A fact is short enough to keep its value beside its label on a phone. */
+@media (max-width: 700px) {
+  .fact.fact {
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .fact > :last-child {
+    text-align: right;
+  }
 }
 
 .modelId {

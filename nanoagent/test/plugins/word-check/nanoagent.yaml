@@ -1,29 +1,29 @@
-_ > nanoagent.plugin.manifest.ManifestConfig:
+_ > nanoagent.plugin.v0001.ManifestConfig:
 id: word-check
 name: Word Check
 version: 0.1.0
 status: ready
-nanoagent: ~=0.5.0
+spec: nanoagent.plugin/v0001
 
-runtime > nanoagent.plugin.manifest.RuntimeConfig:
+runtime > nanoagent.plugin.v0001.RuntimeConfig:
   type: mcp_stdio
   command: [uv, run, --frozen, python, -m, plugin]
 
-permissions > nanoagent.plugin.manifest.PermissionsConfig:
-  network > nanoagent.plugin.manifest.NetworkConfig:
+permissions > nanoagent.plugin.v0001.PermissionsConfig:
+  network > nanoagent.plugin.v0001.NetworkConfig:
     hosts: []
-  filesystem > nanoagent.plugin.manifest.FilesystemConfig:
+  filesystem > nanoagent.plugin.v0001.FilesystemConfig:
     write: []
 
 # One entry per contract.Tool; its input and output classes are contract.TOOLS's.
-tools > dict[contract.Tool, nanoagent.plugin.manifest.ToolConfig]:
+tools > dict[contract.Tool, nanoagent.plugin.v0001.ToolConfig]:
   parse_words:
     description: Read the reference and raw texts' words
   read_words:
     description: Read one text's words
 
 # One entry per contract.Task; its input and output classes are contract.TASKS's.
-tasks > dict[contract.Task, nanoagent.plugin.manifest.TaskConfig]:
+tasks > dict[contract.Task, nanoagent.plugin.v0001.TaskConfig]:
   check-words:
     description: Check words against trusted words
     runner: decide

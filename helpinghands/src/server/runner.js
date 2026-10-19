@@ -1,12 +1,12 @@
 'use strict';
 
 /**
- * Members' own computers, each running NanoAgent for its member (Mochi Lab).
+ * Members' own computers, each running NanoAgent for its member (RUSH Lab).
  *
  * A computer dials in: it opens a WebSocket to /api/runner signed in as its
  * member, and from then on that member's runs go down that socket
- * (runner/protocol.js): every run is on the member's own computer. Mochi cannot reach a laptop, so the laptop reaches
- * Mochi. Settings → AI sets the computer's API keys the same way: Mochi passes
+ * (runner/protocol.js): every run is on the member's own computer. RUSH cannot reach a laptop, so the laptop reaches
+ * RUSH. Settings → AI sets the computer's API keys the same way: RUSH passes
  * them on and keeps nothing, and the computer says only which are set. One
  * computer per member: a second replaces the first. The sockets are
  * this process's, like every other live connection here (fs/events.js).
@@ -23,13 +23,13 @@ const {createNanoAgentGateway, RUNNER_OFFLINE} = require('./ai');
 const MAX_PAYLOAD = 64 * 1024 * 1024;
 const PING_MS = 25_000;
 const REPLACED = 4000;
-// The close code a server shutting down sends, so each Mochi Lab dials its replacement.
+// The close code a server shutting down sends, so each RUSH Lab dials its replacement.
 const GOING_AWAY = 1001;
 const NULL_BODY = new Set([101, 204, 205, 304]);
-// What a key's name and value may be, as Mochi Lab's supervisor checks them again.
+// What a key's name and value may be, as RUSH Lab's lab.mjs checks them again.
 const KEY_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
 const KEY_LENGTH = 1000;
-// A hint is ten characters and an ellipsis (desktop supervisor.rs key_hint); a longer one is cut.
+// A hint is ten characters and an ellipsis (runner/lab.mjs keyHint); a longer one is cut.
 const HINT_LENGTH = 16;
 
 /**
@@ -117,7 +117,7 @@ function socketFetch(entry) {
 }
 
 /**
- * `openrouterKeys` (openrouter-keys.js), when Mochi gives members an OpenRouter
+ * `openrouterKeys` (openrouter-keys.js), when RUSH gives members an OpenRouter
  * key: a computer that connects without one is given one.
  */
 function createRunners({resolveIdentity, openrouterKeys = null}) {
@@ -193,7 +193,7 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
     socket.on('error', () => socket.terminate());
   }
 
-  /** An OpenRouter key from Mochi, saved on the member's computer when it holds none of its own. */
+  /** An OpenRouter key from RUSH, saved on the member's computer when it holds none of its own. */
   function giveKey(userId, entry) {
     const slot = entry.keys.find(key => key.env === openrouterKeys?.ENV);
     if (!slot || slot.set) return;
@@ -305,7 +305,7 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
       onRuns = listener;
     },
 
-    /** Tell the member's computer Mochi has kept what the held request `id` did, if it is connected. */
+    /** Tell the member's computer RUSH has kept what the held request `id` did, if it is connected. */
     release(userId, id) {
       const entry = connected.get(userId);
       if (entry && !entry.closed) entry.socket.send(JSON.stringify({type: 'release', id}));
@@ -321,7 +321,7 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
      * server's any more, so `server.close()` alone would wait on it for ever.
      */
     close() {
-      for (const entry of connected.values()) entry.socket.close(GOING_AWAY, 'Mochi is restarting');
+      for (const entry of connected.values()) entry.socket.close(GOING_AWAY, 'RUSH is restarting');
     },
   });
   return api;

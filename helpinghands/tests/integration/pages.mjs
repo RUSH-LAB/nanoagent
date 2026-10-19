@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────
-// Shared page list for the Mochi Lab integration test scripts.
+// Shared page list for the RUSH Lab integration test scripts.
 //
 // Both test-visual.mjs and test-pages.mjs exercise the SAME ordered
 // set of 17 site routes. Previously each script hardcoded its own
@@ -36,19 +36,19 @@ export const PAGE_PATHS = [
 // ── Per-path content-match strings ──
 // Note: Docusaurus SPA serves a shell HTML for all routes — the actual page
 // content is rendered client-side via JS. The shell HTML typically only
-// contains the site title ("Mochi Lab"), Docusaurus bootstrap, and linked
+// contains the site title ("RUSH Lab"), Docusaurus bootstrap, and linked
 // bundles. For SPA routes we verify: HTTP 200, valid SPA shell, no errors.
 // Content strings are checked case-insensitively against the full HTML
 // including script bundles and route metadata where available.
 export const PAGE_CONTENT_MATCHES = {
-  '/':                ['Mochi Lab'],
+  '/':                ['RUSH Lab'],
   '/bibliography':    ['Bibliography', 'references'],
   '/recommendations': ['Recommend', 'Discover'],
   '/analytics':       ['Analytics', 'Dashboard'],
   '/graph':           ['Graph', 'Knowledge'],
   '/api-docs':        ['API', 'endpoint'],
   '/search':          ['Search', 'search'],
-  '/about':           ['About', 'Mochi Lab'],
+  '/about':           ['About', 'RUSH Lab'],
   '/reading-lists':   ['Reading', 'list'],
   '/compare':         ['Compare', 'comparison'],
   '/stats':           ['Stats', 'Statistics'],

@@ -19,14 +19,14 @@ const scope = workspaceId => ({workspaceId, userId: 'user-1'});
 describe('two workspaces with the same document path', () => {
   it('read their own rows even when the session active workspace is stale', async () => {
     const ctx = makeCtx();
-    ctx.documents.create(scope('mochi'), {path: 'books/math/0-intro.md', markdown: '# Mochi Lab maths'});
+    ctx.documents.create(scope('mochi'), {path: 'books/math/0-intro.md', markdown: '# RUSH Lab maths'});
     ctx.documents.create(scope('hello'), {path: 'books/math/0-intro.md', markdown: '# Hello World maths'});
 
     const query = {path: 'books/math/0-intro.md'};
     const mochi = await callContent(ctx, 'mochi', {path: '/api/content/source', query});
     const hello = await callContent(ctx, 'hello', {path: '/api/content/source', query});
 
-    assert.equal(mochi.payload.markdown, '# Mochi Lab maths');
+    assert.equal(mochi.payload.markdown, '# RUSH Lab maths');
     assert.equal(hello.payload.markdown, '# Hello World maths');
   });
 

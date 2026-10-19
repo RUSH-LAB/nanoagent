@@ -88,7 +88,7 @@ function GroupSwitcher({navigation}) {
   };
 
   const addGroup = async () => {
-    const title = clientPlatform.dialogs.prompt('New group name')?.trim();
+    const title = (await clientPlatform.dialogs.prompt('New group name'))?.trim();
     if (!title || navigation.groups.some(group => group.title.toLocaleLowerCase() === title.toLocaleLowerCase())) return;
     if (await saveGroups([...navigation.groups, {title, count: 0}])) {
       clientPlatform.location.assign(`${navigation.collectionHref}?group=${encodeURIComponent(title)}`);
@@ -174,15 +174,17 @@ export default function BlogGroupSidebar({navigation, collapsed, onCollapse}) {
     <div className={clsx(styles.sidebar, collapsed && styles.sidebarHidden)}>
       <div className={styles.sidebarControls}>
         <GroupSwitcher navigation={navigation} />
-        <button
-          className={styles.collapseButton}
-          type="button"
-          title="Collapse blog navigation"
-          aria-label="Collapse blog navigation"
-          onClick={onCollapse}
-        >
-          <DoubleChevron />
-        </button>
+        {onCollapse && (
+          <button
+            className={styles.collapseButton}
+            type="button"
+            title="Collapse blog navigation"
+            aria-label="Collapse blog navigation"
+            onClick={onCollapse}
+          >
+            <DoubleChevron />
+          </button>
+        )}
       </div>
       <CategoryTree navigation={navigation} />
     </div>

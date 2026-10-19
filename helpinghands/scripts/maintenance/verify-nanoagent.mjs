@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 
 /**
- * Live contract check: every call Mochi's NanoAgent client makes, against a
+ * Live contract check: every call RUSH's NanoAgent client makes, against a
  * running NanoAgent web host and a fake OpenAI API.
  *
  * NanoAgent is started from its own contract configuration
  * (nanoagent/deploy/contract/nanoagent.yaml), whose only package is the plugin
  * the package and install checks use, so this check holds for any pair of
  * checkouts: by default the adjacent one, or the one NANOAGENT_PROJECT_DIR
- * names. CI runs it across versions, this Mochi against production's NanoAgent
- * and production's Mochi against this NanoAgent. No provider credential is used.
+ * names. CI runs it across versions, this RUSH against production's NanoAgent
+ * and production's RUSH against this NanoAgent. No provider credential is used.
  */
 
 import assert from 'node:assert/strict';
@@ -144,6 +144,7 @@ async function main() {
     };
     let offered = null;
     let installed = null;
+    let inspected = null;
 
     // One check per method of the client, in order; a method without one fails the run.
     const checks = {
@@ -217,6 +218,17 @@ async function main() {
         assert.equal(packed.package.id, PLUGIN);
         assert.ok(Buffer.from(packed.data, 'base64').length > 0);
       },
+      async inspect() {
+        // A fresh NanoAgent has checked nothing.
+        assert.equal((await gateway.inspection(offered.sha256)).status, 404);
+        inspected = ok(await gateway.inspect(ok(await gateway.packageFile(PLUGIN))));
+        assert.equal(inspected.package.id, PLUGIN);
+      },
+      async inspection() {
+        // It then answers as it checked the package; production's, which has no such route, 404.
+        const kept = await gateway.inspection(offered.sha256);
+        if (kept.status !== 404) assert.deepEqual(ok(kept), inspected);
+      },
       async install() {
         // A fresh NanoAgent has installed nothing.
         assert.equal((await gateway.install(offered.sha256)).status, 404);
@@ -230,15 +242,25 @@ async function main() {
         installed = plugin;
       },
       async installUiFile() {
-        // The page is NanoAgent's own (plugin/page/); the plugin's ui/ holds the rest.
+        // The page is the plugin's spec's (spec nanoagent.plugin/v0001: plugin/v0001/page/); the
+        // plugin's ui/ holds the rest. COMPAT(spec-page): a plugin with no spec, as production's
+        // NanoAgent's before 0.7.0, is shown NanoAgent's one page, plugin/page/.
+        const {spec} = yaml.load(fs.readFileSync(path.join(nanoagentProject, folder, 'nanoagent.yaml'), 'utf8'));
+        const pageFolder = spec ? path.join('plugin', spec.split('/')[1], 'page') : path.join('plugin', 'page');
         const page = ok(await gateway.installUiFile(offered.sha256, installed.uiVersion, 'index.html'));
-        assert.deepEqual(page, fs.readFileSync(path.join(nanoagentProject, 'src', 'nanoagent', 'plugin', 'page', 'index.html')));
+        assert.deepEqual(page, fs.readFileSync(path.join(nanoagentProject, 'src', 'nanoagent', pageFolder, 'index.html')));
         const files = fs.readdirSync(ui, {recursive: true}).filter(file => fs.statSync(path.join(ui, file)).isFile());
         assert.ok(files.length > 0, `${folder}/ui holds no file`);
         for (const file of files) {
           const served = ok(await gateway.installUiFile(offered.sha256, installed.uiVersion, file));
           assert.deepEqual(served, fs.readFileSync(path.join(ui, file)), `ui/${file} is not served as it is`);
         }
+      },
+      async viewPackage() {
+        // A package opened for its page alone shows the page its install does; production's, which
+        // has no such route, 404.
+        const viewed = await gateway.viewPackage(offered.sha256, ok(await gateway.packageFile(PLUGIN)));
+        if (viewed.status !== 404) assert.deepEqual(ok(viewed).view, {sha256: offered.sha256, uiVersion: installed.uiVersion});
       },
       async saveWorkspaceFile() {
         ok(await gateway.saveWorkspaceFile(workspace, 'notes/a.md', Buffer.from('# A'), {create: true}));

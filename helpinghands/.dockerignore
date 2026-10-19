@@ -5,6 +5,7 @@ build
 node_modules
 var
 desktop
+!desktop/config.yaml
 .env
 .env.*
 !.env.postgres.remote.example

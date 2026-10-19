@@ -6,20 +6,21 @@ import {
   SkipToContentFallbackId,
   ThemeClassNames,
 } from '@docusaurus/theme-common';
-import BrowserOnly from '@docusaurus/BrowserOnly';
-import SkipToContent from '@theme/SkipToContent';
-import AnnouncementBar from '@theme/AnnouncementBar';
+import {PluginHtmlClassNameProvider} from '@docusaurus/theme-common/internal';
 import Navbar from '@theme/Navbar';
 import Footer from '@theme/Footer';
-import LayoutProvider from '@theme/Layout/Provider';
 import ErrorPageContent from '@theme/ErrorPageContent';
 import type {Props} from '@theme/Layout';
 import ReadingProgress from '@site/src/components/ReadingProgress';
-import CommandPalette from '@site/src/components/CommandPalette';
-import SearchDialog from '@site/src/components/SearchDialog';
-import ToastContainer from '@site/src/components/Toast';
+import {useShell} from '@site/src/components/Shell/context';
 import styles from './styles.module.css';
 
+/**
+ * Every page's own frame, inside the one every page shares
+ * (components/Shell/Frame.js). Inside a workspace the member is in, that one
+ * draws the shell, whose activity bar stands in for the navbar and the footer,
+ * and the page tells it no section is open; everywhere else the page has both.
+ */
 export default function Layout(props: Props): ReactNode {
   const {
     children,
@@ -28,43 +29,37 @@ export default function Layout(props: Props): ReactNode {
     title,
     description,
   } = props;
+  const shell = useShell();
+  const show = shell?.show;
+  React.useLayoutEffect(() => show?.(null), [show]);
+
+  const main = (
+    <div
+      id={SkipToContentFallbackId}
+      className={clsx(
+        ThemeClassNames.layout.main.container,
+        ThemeClassNames.wrapper.main,
+        styles.mainWrapper,
+        shell && styles.shellWrapper,
+        wrapperClassName,
+      )}>
+      <ErrorBoundary fallback={(params) => <ErrorPageContent {...params} />}>
+        {children}
+      </ErrorBoundary>
+    </div>
+  );
 
   return (
-    <LayoutProvider>
-      <a
-        className={styles.skipToContent}
-        href={`#${SkipToContentFallbackId}`}
-      >
-        Skip to content
-      </a>
-
-      <BrowserOnly>{() => <CommandPalette />}</BrowserOnly>
-      <BrowserOnly>{() => <SearchDialog />}</BrowserOnly>
+    <PluginHtmlClassNameProvider>
       <ReadingProgress />
-      <ToastContainer />
-
       <PageMetadata title={title} description={description} />
-
-      <SkipToContent />
-
-      <AnnouncementBar />
-
-      <Navbar />
-
-      <div
-        id={SkipToContentFallbackId}
-        className={clsx(
-          ThemeClassNames.layout.main.container,
-          ThemeClassNames.wrapper.main,
-          styles.mainWrapper,
-          wrapperClassName,
-        )}>
-        <ErrorBoundary fallback={(params) => <ErrorPageContent {...params} />}>
-          {children}
-        </ErrorBoundary>
-      </div>
-
-      {!noFooter && <Footer />}
-    </LayoutProvider>
+      {shell ? main : (
+        <>
+          <Navbar />
+          {main}
+          {!noFooter && <Footer />}
+        </>
+      )}
+    </PluginHtmlClassNameProvider>
   );
 }

@@ -317,6 +317,9 @@ describe('POST /api/ai/stream', () => {
     open: async (_context, id) => (id === 'arxiv-source'
       ? {value: {id, sha256: SHA}}
       : {error: `This workspace has no plugin named ${id}`, status: 404}),
+    refusal: async (_context, id) => (id === 'arxiv-source'
+      ? {value: null}
+      : {error: `This workspace has no plugin named ${id}`, status: 404}),
   };
 
   /** A ctx with the workspace's one app, sessions, and plugin runs. */
@@ -333,9 +336,21 @@ describe('POST /api/ai/stream', () => {
     const stream = ctx.ai.stream;
     const call = {id: 'c1', name: 'download_source', arguments: {arxiv_id: '1706.03762'}, output: '{"folder": "papers/1706.03762"}'};
     ctx.ai.stream = async request => {
+      request.onEvent({type: 'reasoning.delta', runId: 'r1', text: 'Find the '});
+      request.onEvent({type: 'reasoning.delta', runId: 'r1', text: 'paper.'});
+      request.onEvent({type: 'tool.started', runId: 'r1', call: {id: 'c1', name: 'download_source'}});
+      request.onEvent({type: 'tool.progress', runId: 'r1', call: {id: 'c1', name: 'download_source'}, event: 'task.tool', data: {name: 'fetch'}});
+      request.onEvent({type: 'tool.progress', runId: 'r1', call: {id: 'c1', name: 'download_source'}, event: 'task.delta', data: {kind: 'reasoning', text: 'It is on arXiv.'}});
+      request.onEvent({type: 'tool.progress', runId: 'r1', call: {id: 'c1', name: 'download_source'}, event: 'task.delta', data: {kind: 'text', text: 'Saved.'}});
       request.onEvent({type: 'tool.completed', runId: 'r1', call});
+      // A call that never ends is not kept.
+      request.onEvent({type: 'tool.started', runId: 'r1', call: {id: 'c3', name: 'download_source'}});
+      request.onEvent({type: 'reasoning.delta', runId: 'r1', text: 'Again.'});
       request.onEvent({type: 'tool.failed', runId: 'r1', call: {...call, id: 'c2', output: 'arXiv is down'}});
-      return stream(request);
+      // The run's provenance graph: its patches stream to the page, and the whole graph is kept.
+      request.onEvent({type: 'graph.patch', runId: 'r1', patch: {op: 'node', node: {id: 'message', kind: 'value'}}});
+      request.onEvent({type: 'graph.completed', runId: 'r1', graph: {nodes: [{id: 'message', kind: 'value'}], edges: []}});
+      return {...await stream(request), model: 'm', cost: 0.01, usage: {prompt_tokens: 3, completion_tokens: 2}, metrics: {ttft_s: 0.5, generation_s: 1, duration_s: 2, model_s: 1.5, tools_s: 0.3}};
     };
     const r = await ask({body: {prompt: 'save 1706.03762', appId: 'arxiv-source', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
     assert.equal(r.res.written.status, 200);
@@ -346,13 +361,23 @@ describe('POST /api/ai/stream', () => {
     assert.equal(ctx.calls.ai[0].run.resume, false);
     assert.equal('profile' in ctx.calls.ai[0], false);
     assert.equal('instructions' in ctx.calls.ai[0], false);
-    // The session keeps the turn with its tool calls, and the call is charged to it.
+    // The session keeps the turn with what the agent did on the way and its tool calls, in the order they started, and the call is charged to it.
     assert.deepEqual(ctx.sessions.turns, [{
       pluginId: 'arxiv-source', id: SESSION, prompt: 'save 1706.03762', answer: 'a completion',
       tools: [
         {name: 'download_source', arguments: {arxiv_id: '1706.03762'}, output: '{"folder": "papers/1706.03762"}', isError: false},
         {name: 'download_source', arguments: {arxiv_id: '1706.03762'}, output: 'arXiv is down', isError: true},
       ],
+      activity: [
+        {kind: 'thought', text: 'Find the paper.'},
+        {kind: 'task', name: 'download_source', steps: [{name: 'fetch', isError: false}], thinking: 'It is on arXiv.', text: 'Saved.'},
+        {kind: 'thought', text: 'Again.'},
+        {kind: 'task', name: 'download_source', steps: [], thinking: '', text: ''},
+      ],
+      graph: {nodes: [{id: 'message', kind: 'value'}], edges: []},
+      trajectory: null,
+      // What it cost and took, as its page shows it.
+      metrics: {model: 'm', cost: 0.01, usage: {prompt_tokens: 3, completion_tokens: 2}, ttft_s: 0.5, generation_s: 1, duration_s: 2, model_s: 1.5, tools_s: 0.3},
       error: null,
     }]);
     assert.equal(ctx.calls.aiUsage[0].pluginId, 'arxiv-source');
@@ -389,10 +414,10 @@ describe('POST /api/ai/stream', () => {
 
   it('keeps a failed app run\'s turn, with why', async () => {
     const ctx = appCtx();
-    ctx.ai.stream = async () => ({error: 'Mochi Lab disconnected, and was not back within 10 minutes', status: 503});
+    ctx.ai.stream = async () => ({error: 'RUSH Lab disconnected, and was not back within 10 minutes', status: 503});
     const r = await ask({body: {prompt: 'save 1706.03762', appId: 'arxiv-source', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
-    assert.match(r.res.writes.join(''), /event: error\ndata: \{"error":"Mochi Lab disconnected, and was not back within 10 minutes","status":503\}/);
-    assert.deepEqual(ctx.sessions.turns.map(({answer, error}) => ({answer, error})), [{answer: '', error: 'Mochi Lab disconnected, and was not back within 10 minutes'}]);
+    assert.match(r.res.writes.join(''), /event: error\ndata: \{"error":"RUSH Lab disconnected, and was not back within 10 minutes","status":503\}/);
+    assert.deepEqual(ctx.sessions.turns.map(({answer, error}) => ({answer, error})), [{answer: '', error: 'RUSH Lab disconnected, and was not back within 10 minutes'}]);
   });
 
   it('runs an app prompt only in one of the caller\'s sessions with it', async () => {
@@ -408,6 +433,14 @@ describe('POST /api/ai/stream', () => {
     const r = await ask({body: {prompt: 'p', appId: 'echo', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
     assert.equal(r.status, 404);
     assert.equal(r.payload.error, 'This workspace has no plugin named echo');
+  });
+
+  it('runs no app prompt on a version NanoAgent refuses', async () => {
+    const ctx = appCtx();
+    ctx.workspaceApps = {...workspaceApps, refusal: async () => ({value: 'the package is refused: made for 0.6'}), open: async () => assert.fail('must not open it')};
+    const r = await ask({body: {prompt: 'p', appId: 'arxiv-source', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
+    assert.equal(r.status, 409);
+    assert.match(r.payload.error, /^arxiv-source is outdated: .*sessions can be read but not continued \(the package is refused: made for 0\.6\)$/);
   });
 
   it('refuses an app prompt without the workspace file system, to a viewer as to an editor', async () => {
@@ -643,7 +676,7 @@ describe('/api/ai/settings and /api/ai/models', () => {
     assert.equal(ctx.preferences.merged.length, 1);
   });
 
-  it('lists the member\'s computer\'s models, each available once Mochi Lab holds its key', async () => {
+  it('lists the member\'s computer\'s models, each available once RUSH Lab holds its key', async () => {
     const ctx = makeCtx();
     assert.deepEqual(
       (await invoke(routes, {path: '/api/ai/models', ctx, auth: {userId: 'u1'}})).payload,
@@ -688,7 +721,7 @@ describe('/api/ai/settings and /api/ai/models', () => {
     assert.deepEqual((await get()).payload, {credit: {you: 0.75, total: {used: 0.75, cap: 10}}});
     computer({value: {...own, limit: null, limit_remaining: null}});
     assert.deepEqual((await get()).payload.credit.total, {used: 0.75, cap: null});
-    // Mochi's: what the member spent on every key Mochi gave them, beside everyone's of the cap.
+    // RUSH's: what the member spent on every key RUSH gave them, beside everyone's of the cap.
     ctx.openrouterKeys = {workspaceId: async () => 'ws1', spent: async userId => (userId === 'u1' ? 3.5 : 0)};
     computer({value: {usage: 0.5, limit: null, limit_remaining: null, workspace_id: 'ws1', workspace_budget: {spend: 6, limit: 10}}});
     assert.deepEqual((await get()).payload, {credit: {you: 3.5, total: {used: 6, cap: 10}}});
@@ -703,7 +736,7 @@ describe('/api/ai/settings and /api/ai/models', () => {
     const ctx = makeCtx();
     ctx.runners = {saveKeys: async (userId, changes) => {
       sent.push([userId, changes]);
-      return changes.BAD ? {error: 'BAD is not a key Mochi Lab holds', status: 400} : {value: {saved: true}};
+      return changes.BAD ? {error: 'BAD is not a key RUSH Lab holds', status: 400} : {value: {saved: true}};
     }};
     const put = body => invoke(routes, {method: 'PUT', path: '/api/runner/keys', body, ctx, auth: {userId: 'u1'}});
     assert.deepEqual((await put({changes: {OPENROUTER_API_KEY: 'sk-1'}})).payload, {saved: true});

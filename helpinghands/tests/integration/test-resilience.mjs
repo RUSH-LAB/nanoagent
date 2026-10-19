@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import {createApiClient} from './api-client.mjs';
 // ─────────────────────────────────────────────────────────────
-// Stress & resilience tests for the Mochi Lab editor server
+// Stress & resilience tests for the RUSH Lab editor server
 // Usage:  node tests/integration/test-resilience.mjs
 // Requires the server running on http://localhost:3001, and a GitHub sign-in
 // saved by `node cli/rush.mjs login http://localhost:3001`
@@ -325,7 +325,7 @@ async function runCleanup() {
 // ────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log(`\n${BOLD}Mochi Lab Stress & Resilience Tests${RESET}`);
+  console.log(`\n${BOLD}RUSH Lab Stress & Resilience Tests${RESET}`);
   console.log(`${DIM}Target: ${BASE}${RESET}\n`);
 
   await preflight();

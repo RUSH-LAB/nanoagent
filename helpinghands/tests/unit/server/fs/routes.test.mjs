@@ -69,11 +69,55 @@ describe('file system API', () => {
     assert.equal(remove.status, 403);
   });
 
+  it('lets every member change what is in their own home, viewers included, but not publish it', async () => {
+    const write = await call({method: 'PUT', path: '/api/fs/file', query: {path: 'home/vic/mine.md'}, body: 'v', requestContext: vic});
+    assert.equal(write.status, 200);
+    const moved = await call({method: 'POST', path: '/api/fs/move', body: {from: 'home/vic/mine.md', to: 'home/vic/kept.md'}, requestContext: vic});
+    assert.equal(moved.status, 200);
+    const published = await call({method: 'PUT', path: '/api/fs/access', body: {path: 'home/vic/kept.md', access: 'public'}, requestContext: vic});
+    assert.equal(published.status, 403);
+    const out = await call({method: 'POST', path: '/api/fs/move', body: {from: 'home/vic/kept.md', to: 'notes/kept.md'}, requestContext: vic});
+    assert.equal(out.status, 403);
+    const removed = await call({method: 'DELETE', path: '/api/fs/node', query: {path: 'home/vic/kept.md'}, requestContext: vic});
+    assert.equal(removed.status, 200);
+  });
+
+  it('leaves app state to its app: never written, listed or searched here', async () => {
+    await fs.write(alice, '.apps/glossary/CRDT.json', '{"key": "CRDT", "value": "findme"}');
+    await fs.write(alice, 'home/alice/.apps/tasks/t.json', '{"key": "t", "value": "findme"}');
+    for (const path of ['.apps/glossary/x.json', 'home/alice/.apps/tasks/x.json']) {
+      const write = await call({method: 'PUT', path: '/api/fs/file', query: {path}, body: '{}', requestContext: alice});
+      assert.deepEqual([write.status, write.payload.code], [403, 'app-state']);
+    }
+    const move = await call({method: 'POST', path: '/api/fs/move', body: {from: 'notes/a.md', to: '.chat/a.md'}, requestContext: alice});
+    assert.equal(move.payload.code, 'app-state');
+    const tree = await call({path: '/api/fs/tree', requestContext: alice});
+    assert.deepEqual(tree.payload.nodes.filter(node => node.path.includes('.apps')), []);
+    const found = await call({path: '/api/fs/search', query: {q: 'findme'}, requestContext: alice});
+    assert.deepEqual(found.payload.files, []);
+    const {changes} = (await call({path: '/api/fs/changes', query: {since: 0}, requestContext: alice})).payload;
+    assert.deepEqual(changes.filter(change => change.path.includes('.apps')), []);
+  });
+
   it('publishes a folder only for someone allowed to publish', async () => {
     const denied = await call({method: 'PUT', path: '/api/fs/access', body: {path: 'notes', access: 'public'}, requestContext: vic});
     assert.equal(denied.status, 403);
     const published = await call({method: 'PUT', path: '/api/fs/access', body: {path: 'notes', access: 'public'}, requestContext: bob});
     assert.equal(published.payload.node.access, 'public');
+  });
+
+  it('searches the text of the files a member may read, line by line', async () => {
+    await call({method: 'PUT', path: '/api/fs/file', query: {path: 'find/one.txt', baseRev: 0}, body: 'alpha\nBeta alpha', requestContext: bob});
+    await call({method: 'PUT', path: '/api/fs/file', query: {path: 'find/pic.png', baseRev: 0}, body: 'alpha', requestContext: bob});
+    const found = await call({path: '/api/fs/search', query: {q: 'ALPHA'}, requestContext: vic});
+    assert.equal(found.status, 200);
+    const one = found.payload.files.find(file => file.path === 'find/one.txt');
+    assert.deepEqual(one.matches.map(match => [match.line, match.column]), [[1, 1], [2, 6]]);
+    assert.ok(!found.payload.files.some(file => file.path === 'find/pic.png'));
+    const exact = await call({path: '/api/fs/search', query: {q: 'ALPHA', case: '1'}, requestContext: vic});
+    assert.deepEqual(exact.payload.files.filter(file => file.path.startsWith('find/')), []);
+    const empty = await call({path: '/api/fs/search', query: {q: ''}, requestContext: vic});
+    assert.equal(empty.status, 400);
   });
 
   it('follows the change feed from a cursor', async () => {

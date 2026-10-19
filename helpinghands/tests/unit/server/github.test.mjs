@@ -48,4 +48,33 @@ describe('a plugin\'s source on GitHub', () => {
     const huge = await fakeGithub({archive: new Response(Buffer.alloc(ARCHIVE_MAX_BYTES + 1))}).github.source('https://github.com/alice/huge');
     assert.equal(huge.status, 413);
   });
+
+  it('names the newest commit that changed the folder since the one published', async () => {
+    const NEWER = 'b'.repeat(40);
+    const repository = {owner: 'alice', repo: 'tools', ref: 'main', path: 'plugins/notes', commit: COMMIT};
+    const answering = (latest, status) => {
+      const asked = [];
+      const github = createGithub({
+        fetchImpl: async url => {
+          asked.push(url);
+          return url.includes('/compare/') ? Response.json({status}) : Response.json(latest ? [{sha: latest}] : []);
+        },
+      });
+      return {github, asked};
+    };
+    const moved = answering(NEWER, 'ahead');
+    assert.deepEqual(await moved.github.newer(repository), {value: NEWER});
+    assert.deepEqual(moved.asked, [
+      'https://api.github.com/repos/alice/tools/commits?sha=main&path=plugins%2Fnotes&per_page=1',
+      `https://api.github.com/repos/alice/tools/compare/${COMMIT}...${NEWER}`,
+    ]);
+    assert.deepEqual(await answering(COMMIT).github.newer(repository), {value: null});
+    // The folder's newest change is one the published commit holds.
+    assert.deepEqual(await answering(NEWER, 'behind').github.newer(repository), {value: null});
+    const root = answering(COMMIT);
+    await root.github.newer({...repository, path: ''});
+    assert.deepEqual(root.asked, ['https://api.github.com/repos/alice/tools/commits?sha=main&per_page=1']);
+    const refused = createGithub({fetchImpl: async () => new Response('', {status: 403})});
+    assert.equal((await refused.newer(repository)).status, 502);
+  });
 });

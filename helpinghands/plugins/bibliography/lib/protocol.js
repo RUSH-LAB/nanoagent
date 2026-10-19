@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Mochi Paper Protocol v1.
+ * RUSH Paper Protocol v1.
  *
  * A paper is deliberately small: enough information to identify and cite it,
  * where that information came from, where the official paper lives, where its

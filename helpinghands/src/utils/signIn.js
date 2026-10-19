@@ -13,15 +13,23 @@
 /** The sign-in page (pages/signin). */
 const SIGN_IN_PATH = '/signin';
 
+/** The site's root: the landing page (pages/index), offering the app and the site. */
+const LANDING_PATH = '/';
+
+/** Where the site itself starts (pages/w): the member's workspace. */
+const START_PATH = '/w';
+
 /**
  * Pages anyone may open.
  *
  * The sign-in page itself, and /join: an invitation link is followed by
  * somebody who has no account yet, and /join is written for exactly that
  * visitor, reading the invitation without a session and saying which
- * workspace, who sent it, and which address it names.
+ * workspace, who sent it, and which address it names. And /download, where
+ * anyone gets the RUSH Lab app, in which members sign in. The landing page, the
+ * root alone, is open too.
  */
-const OPEN = [SIGN_IN_PATH, '/join'];
+const OPEN = [SIGN_IN_PATH, '/join', '/download'];
 
 /**
  * A workspace's documents, which a visitor who is signed out may read when the
@@ -31,7 +39,8 @@ const OPEN = [SIGN_IN_PATH, '/join'];
 const PUBLISHED = /^\/w\/[^/]+\/documents(?:\/|$)/;
 
 function isOpenPage(pathname) {
-  return OPEN.some(page => pathname === page || pathname.startsWith(`${page}/`))
+  return pathname === LANDING_PATH
+    || OPEN.some(page => pathname === page || pathname.startsWith(`${page}/`))
     || PUBLISHED.test(pathname);
 }
 
@@ -44,12 +53,15 @@ function isSignInPage(pathname) {
  * Whether the answer to a request depends on the session: a browser navigation
  * (it accepts HTML) to a page rather than a file, which is either a page that
  * needs a session or the sign-in page, which somebody signed in skips. Scripts,
- * styles, and images carry no workspace data and pass.
+ * styles, and images carry no workspace data and pass, and so does the API,
+ * which answers for itself: RUSH Lab's window opens /api/lab/window-sign-in
+ * signed out, to sign in.
  */
 function asksForSession({method, headers, url}) {
   if (method !== 'GET' && method !== 'HEAD') return false;
   if (!String(headers.accept || '').includes('text/html')) return false;
   const {pathname} = new URL(url, 'http://localhost');
+  if (pathname === '/api' || pathname.startsWith('/api/')) return false;
   if (/\.[^/]+$/.test(pathname) && !pathname.endsWith('.html')) return false;
   return isSignInPage(pathname) || !isOpenPage(pathname);
 }
@@ -71,13 +83,14 @@ function signInUrl(destination) {
 }
 
 /**
- * Where to go after signing in, from the sign-in page's query string. Only a
+ * Where to go after signing in, from the sign-in page's query string, or the
+ * member's workspace when it names nowhere. Only a
  * path on this site: `next` arrives in a URL anybody can write, and following
  * it to another origin would make the sign-in page an open redirect.
  */
 function nextFrom(search) {
   const next = new URLSearchParams(search).get('next');
-  return next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : '/';
+  return next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : START_PATH;
 }
 
 module.exports = {isOpenPage, isSignInPage, asksForSession, redirectFor, signInUrl, nextFrom};

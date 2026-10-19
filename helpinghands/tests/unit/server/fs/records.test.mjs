@@ -28,7 +28,7 @@ describe('app records as files', () => {
     const glossary = store.collection('glossary');
     await glossary.put(alice, 'CRDT', {term: 'CRDT', definition: 'A mergeable data type'});
     assert.deepEqual(await glossary.get(bob, 'CRDT'), {term: 'CRDT', definition: 'A mergeable data type'});
-    const file = await fs.read(bob, 'apps/glossary/CRDT.json');
+    const file = await fs.read(bob, '.apps/glossary/CRDT.json');
     assert.deepEqual(JSON.parse(file.body.toString()), {key: 'CRDT', value: {term: 'CRDT', definition: 'A mergeable data type'}});
   });
 
@@ -37,7 +37,7 @@ describe('app records as files', () => {
     await tasks.put(alice, 't1', {title: 'Write the plan'});
     assert.deepEqual(await tasks.values(alice), [{title: 'Write the plan'}]);
     assert.deepEqual(await tasks.values(bob), []);
-    assert.equal(await fs.stat(bob, 'home/alice/tasks/t1.json'), null);
+    assert.equal(await fs.stat(bob, 'home/alice/.apps/tasks/t1.json'), null);
     assert.equal((await fs.stat(alice, 'home/alice')).access, 'private');
   });
 
@@ -53,10 +53,10 @@ describe('app records as files', () => {
     assert.equal(await tasks.count(alice), 0);
   });
 
-  it('keeps plugin collections under apps/<plugin>/', async () => {
+  it('keeps plugin collections under .plugins/<plugin>/records/', async () => {
     const papers = store.collection('plugin:bibliography:papers');
     await papers.put(alice, 'knuth1984', {title: 'Literate Programming'});
-    assert.ok(await fs.stat(bob, 'apps/bibliography/papers/knuth1984.json'));
+    assert.ok(await fs.stat(bob, '.plugins/bibliography/records/papers/knuth1984.json'));
   });
 
   it('names long and awkward keys safely', async () => {

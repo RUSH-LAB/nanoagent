@@ -1,18 +1,18 @@
 # Platform architecture
 
-Mochi follows the useful part of large systems such as Facebook: each layer
+RUSH follows the useful part of large systems such as Facebook: each layer
 has one clear responsibility, state has an authoritative owner, and derived
 systems can be rebuilt. It does not copy infrastructure that only becomes
 valuable at much larger scale.
 
 ## Current architecture
 
-| Layer | Mochi component | Responsibility |
+| Layer | RUSH component | Responsibility |
 |---|---|---|
 | Client | React + Docusaurus | Application shell, navigation, document rendering |
 | API | Node.js HTTP server | Authentication gate, request context, domain orchestration |
 | Agent runtime | Private NanoAgent service | Model access, bounded agent loop, tool policy, usage and cost |
-| Identity control plane | Better Auth | Users, sessions, workspaces, members, email invitations (GitHub-account invitations are Mochi's own) |
+| Identity control plane | Better Auth | Users, sessions, workspaces, members, email invitations (GitHub-account invitations are RUSH's own) |
 | Transactional data | PostgreSQL | Authoritative workspace and product records |
 | Binary data | PostgreSQL `object_blob` rows | Uploaded asset bytes and integrity metadata |
 | Side-effect delivery | PostgreSQL outbox | Retriable non-database side effects |
@@ -36,7 +36,7 @@ Workspace deletion
   -> foreign-key cascades delete metadata and object bytes together
 ```
 
-Better Auth owns workspace/member/invitation lifecycle. Mochi hooks add product
+Better Auth owns workspace/member/invitation lifecycle. RUSH hooks add product
 state such as settings, the initial channel, channel membership, and audit
 records. There is deliberately no second organization writer.
 
@@ -91,13 +91,13 @@ synthetic workspace fixtures, but production code never reads test fixtures.
 
 NanoAgent is the deliberate exception to the single-process preference below.
 Its Python model runtime has an independent dependency and scaling boundary;
-Mochi remains the only public service and NanoAgent holds no application data.
+RUSH remains the only public service and NanoAgent holds no application data.
 
 ## What we are not adding yet
 
 Facebook needs specialized graph stores, distributed caches, RPC frameworks,
 stream processing, and many independently deployed services because its data
-and organization demand them. Mochi currently gains more from keeping these
+and organization demand them. RUSH currently gains more from keeping these
 boundaries inside one deployable application:
 
 - No GraphQL/Relay layer while REST resources and cache invalidation remain
@@ -126,4 +126,4 @@ Add infrastructure only in response to measured pressure:
    ownership boundary.
 
 This preserves the architectural lesson behind Facebook's stack—specialize at
-clear boundaries—without paying its operational cost before Mochi needs it.
+clear boundaries—without paying its operational cost before RUSH needs it.

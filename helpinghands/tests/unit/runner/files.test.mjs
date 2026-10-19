@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {syncFiles} from '../../../src/runner/files.mjs';
 
-/** Mochi's /api/workspaces and /fs, in memory, for one member: files by workspace id, then path. */
+/** RUSH's /api/workspaces and /fs, in memory, for one member: files by workspace id, then path. */
 function fakeMochi() {
   const workspaces = [{id: 'ws-1', slug: 'comp-480-580', name: 'COMP 480/580'}];
   const files = new Map([['ws-1', new Map()]]);
@@ -51,7 +51,7 @@ const until = async (check, ms = 5000) => {
 };
 const read = file => fs.readFile(file, 'utf8').catch(() => null);
 
-describe('Mochi Lab\'s folder of the member\'s own files', () => {
+describe('RUSH Lab\'s folder of the member\'s own files', () => {
   let mochi;
   let site;
   let root;
@@ -68,14 +68,14 @@ describe('Mochi Lab\'s folder of the member\'s own files', () => {
   });
 
   it('keeps <root>/<slug>/ in sync both ways with the member\'s home, and nothing else', async () => {
-    mochi.write('ws-1', 'home/alice/agent/echo/out.md', 'from a run');
+    mochi.write('ws-1', 'home/alice/plugins/echo/files/out.md', 'from a run');
     mochi.write('ws-1', 'home/bob/secret.md', 'not hers');
     mochi.write('ws-1', 'books/shared.md', 'shared');
     const files = syncFiles({site, token: 't', userId: 'alice', root, log: () => {}});
     try {
       const folder = path.join(root, 'comp-480-580');
-      await until(async () => await read(path.join(folder, 'agent/echo/out.md')) === 'from a run');
-      assert.deepEqual((await fs.readdir(folder)).sort(), ['.mochi', 'agent']);
+      await until(async () => await read(path.join(folder, 'plugins/echo/files/out.md')) === 'from a run');
+      assert.deepEqual((await fs.readdir(folder)).sort(), ['.mochi', 'plugins']);
       await fs.writeFile(path.join(folder, 'notes.md'), 'mine');
       await files.sync();
       await until(() => mochi.files.get('ws-1').get('home/alice/notes.md')?.body.toString() === 'mine');
@@ -92,7 +92,7 @@ describe('Mochi Lab\'s folder of the member\'s own files', () => {
       assert.deepEqual(await fs.readdir(root), ['comp-480']);
       const state = JSON.parse(await fs.readFile(path.join(root, 'comp-480', '.mochi', 'state.json'), 'utf8'));
       assert.equal(state.workspace, 'ws-1');
-      assert.deepEqual(Object.keys(state.files).sort(), ['agent/echo/out.md', 'notes.md']);
+      assert.deepEqual(Object.keys(state.files).sort(), ['notes.md', 'plugins/echo/files/out.md']);
     } finally {
       files.stop();
     }

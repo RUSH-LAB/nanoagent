@@ -13,7 +13,7 @@ const {
   isIntegrationTestPaper,
 } = require('../../../../../plugins/bibliography/lib/protocol.js');
 
-describe('Mochi Paper Protocol v2', () => {
+describe('RUSH Paper Protocol v2', () => {
   it('upgrades an old arXiv entry into the canonical shape', () => {
     const paper = normalizePaper('vaswani2017', {
       title: 'Attention Is All You Need',

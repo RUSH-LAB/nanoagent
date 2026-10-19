@@ -1,7 +1,107 @@
 # Changelog
 
-What each NanoAgent release changes for plugins. A plugin's `nanoagent` range in `nanoagent.yaml`
-names the releases it runs on; a new minor version is one a plugin made for the last may break on.
+What each NanoAgent release changes for plugins. Since 0.7.0 a plugin declares the plugin format it
+follows, its `spec`, and runs on every release that runs that spec (`nanoagent.plugin.manifest.SPECS`).
+
+## 0.7.0
+
+A plugin declares the spec it follows, not the NanoAgent it was made for: `spec:
+nanoagent.plugin/v0001` in `nanoagent.yaml` replaces `nanoagent: ~=0.6.0`, and its files name the
+spec's classes, `nanoagent.plugin.v0001.*` for `nanoagent.plugin.manifest.*`. Each spec is a
+folder of its own, `nanoagent/plugin/v0001/`, holding its rules (the contract's, the verifier's
+and a decide task's among them), its classes and the page its plugins are shown in (`page/`,
+`index.html` and the UI kit), and importing nothing of NanoAgent's but
+`nanoagent.plugin.manifest`. A released spec's folder never changes but to close a security hole:
+a change a plugin could break on is the next folder, `v0002`, and NanoAgent keeps running the
+last for at least three minor releases. `nanoagent plugin migrate <folder>` moves a plugin made
+for 0.6 or earlier onto `nanoagent.plugin/v0001` (and deletes a 0.5 plugin's `run.sh`). Publish it again for RUSH's
+marketplace to offer it: a version published before 0.7.0 is listed under maintenance.
+
+- `nanoagent.plugin/v0001` is 0.6.0's plugin rules less the template's. Every v0001 plugin still has a
+  `LICENSE`, but the rules that follow what `nanoagent plugin new` writes (what `LICENSE`,
+  `README.md`, `pyproject.toml` and `.gitignore` hold, nothing else at the top level, `tests/`, a
+  ready plugin's product page not the template's placeholder) are checked only by `nanoagent
+  plugin new`, `inspect` and `pack` (`nanoagent.plugin.authoring.check_plugin`), never when a
+  plugin is installed, its package inspected (`POST /v1/packages/inspect`) or its tools called.
+- A catalog entry's `spec` is the plugin's own.
+- `load_listing` and `PluginListing` are gone.
+- `PUT /v1/views/<sha256>` opens a package for its page alone, loading and running none of it, so
+  a package NanoAgent refuses still shows its page at `/v1/installs/<sha256>/ui/...`: its spec's
+  page, or the newest spec's when NanoAgent does not run its spec. The page kit
+  reads a plugin the host says is `status: refused` as closed: its Dashboard lists and opens its
+  sessions, which show their chat and results, and starts none, and no message can be sent.
+- A plugin chat's run records its provenance graph (`nanoagent.plugin.provenance`): every model
+  request of the chat's loop (what it thought and wrote, streamed, and its tokens, cost and
+  timing), each task it called with the task's own run inside it (its reference tool, model
+  requests, tool calls, decisions and verifier), and the values between them, joined only by what
+  the run recorded: used, generated, continued (a request carried on the one before it), and for
+  a decide task, each field copied or chosen. `run_task` sends its graph as `task.graph` patches
+  as it is made, and the web run (`GraphRunner`) folds them into the turn's graph, which streams
+  as `graph` patches and ends with the whole graph, kept with the session's turn. The page kit
+  draws it live in a Graph tab beside the chat, the task results in a Result tab, and each node
+  in full when picked: a tool call with the arguments and output only it has, a task as a box
+  folded to its totals (model requests, tool calls, tokens, cost, time) once it is done, and the
+  turn's totals over the graph. Tool and task calls record how long they took, and a decision
+  the model requests that made it (`Answers.model_calls`). Each node's `type`
+  (`nanoagent.plugin.provenance.NodeType`) is the message of the loop it is (system prompt, user
+  message, agent reply with its thinking and text, tool call, tool result, agent message) or a
+  task's own (task input, reference, decision, task output, verifier, verdict), and the page tags
+  each node with it; the chat's and each agent task's system prompt are the first nodes their
+  first reply used. A decide `Question` names the field it fills, `path`.
+- Every type of node is a part of the run registered in `nanoagent.plugin.provenance.PARTS`, a
+  `Part` each: its name, whether it is a call (an action) or a value, and for a value the types of
+  call that make it, which the graph enforces on each `generated` edge. Every node carries its
+  part's name, `typeLabel`. What a reply thought and wrote are parts of their own, values it
+  generated, streamed as `append` patches to their `value`: its `thinking` (`<reply>.reasoning`)
+  and, while it goes on to call tools, what it wrote, `assistant` (`<reply>.content`); the last
+  reply's is the agent's response (`agent_message`, named Response). An agent reply no longer
+  holds `reasoning` and `text`.
+- The chat shows each turn as its agent loop, a row per part named by its part: `User message ›`,
+  `Thinking ›`, `Assistant ›`, `Tool call ›`, `Tool result ›`, `Response ›`, and inside a task's run,
+  indented under its call, `Task input ›`, `Reference output ›`, `Decision ›`, `Task output ›` and
+  `Verdict ›` (kit/loop.js). A row holds its part on one line and opens to all of it; the user's
+  message, what the assistant wrote and the response show whole, as Markdown. Every part between
+  the user's message and the response is folded into one `Steps ›` row, which names each task the
+  turn ran and whether it passed; it is open while the turn runs or when it ended with no response, its parts scrolling in a box at
+  most 40% of the window tall that keeps the newest in sight and can be dragged taller or shorter. The rows come from the turn's
+  graph as it streams in; a task's run is open while it runs or when it failed, folded once it
+  passed. The session's system prompt shows in its first turn. Beside the chat, the Result tab draws the latest task's
+  result and the Graph tab the session's graph, every turn's joined (kit/graph.js sessionGraph):
+  a later turn's first reply continues the last reply before it and uses its response, in place
+  of a node of the earlier turns, and a system prompt the same as the one before is drawn once.
+  Its summary says what the session took and cost, a small label over each value: End-to-End
+  Latency, Model Time and Tool Time (the seconds the loop spent on model requests and on running
+  tool calls), Input Tokens, Output Tokens and Cost. The dashboard shows the same figures for
+  every message in a table, their Total over their Average per message (a Total that messages
+  sent before RUSH counted its figure lack says so in its title), and a model request's stats, under its
+  reply and in the graph's panel, are Total Time, Time to First Token, Generation Time, Input
+  Tokens, Output Tokens and Cost, the panel naming a node once (not `Model request` or `System prompt` twice, a value's content right under its name), and a pill's panel shows what it used and made; the plugin's verifier is the `Output check` (`NodeType.OUTPUT_CHECK`, its saved value `verifier` unchanged), and a task that passed its check no longer says `Checked` (only `Check failed` shows); the dashboard lists each session as its title over when it
+  was last used, with its cost and End-to-End Latency at the row's end (`$0.0003 / 12 s`), and a graph's cards and task boxes read
+  `3.7 s · 1 model request · 2 tool calls · 1.1k input, 173 output tokens · $0.0001`; the chat no longer has a line of its own for that, nor Open result and Graph buttons under each turn. How every node is named and shown, in the chat and the graph, is said in one place,
+  `nanoagent.plugin.provenance.PARTS`: each `Part` has its name, how the chat shows it (`chat`:
+  whole, a line, a run, or hidden), how the graph draws it (`shape`: card, pill, box, tile, or a
+  line folded into the call that made or used it, `fold`), its `hue` and `font`, what it is in a sentence (`about`, at the top of a
+  picked node's panel), whether its nodes have names of their own (`named`: a tool's, a task's,
+  a decision's; the others are called by their part's name, saved graphs too), and whether it
+  shows once a session (`once`), merges with the same in a row (`repeats`) or is a verdict; the
+  page kit reads it from `kit/parts.js`, which `python -m nanoagent.plugin.provenance` writes and
+  a test keeps the same, and no node carries `typeLabel` any more (`NodeType.RESPONSE` is the old
+  `AGENT_MESSAGE`, its saved value unchanged). In the graph, a task is shown by its name, a model request by its part's name,
+  `Model request` (`NodeType.MODEL_REQUEST`), not numbered `Agent reply 1`; a reply's card holds its thinking and what it
+  wrote, the last its response, a finished one from the start, and a tool's card its call and its result, each line
+  named by its part as the chat's rows are (`Thinking ›`, `Assistant ›`, `Tool call ›`, `Tool result ›`), and a picked node's panel shows what it took, its model requests' figures as every page
+  writes them, and what it holds, each part under its part's name, no longer its provenance edges, and tokens read `13.9k tokens in, 1.3k out`.
+- The page opens on the session its host names (`describe`'s `session`), and tells the host the
+  session it shows, or null on the Dashboard (`session.shown {id}`). RUSH keeps it in the
+  Plugins page's address (`?session=`), so reloading the window opens the session again.
+
+## 0.6.0
+
+A plugin no longer ships a `run.sh`: before a plugin starts, NanoAgent itself checks that uv is
+installed, that every variable `.env` names is set and that `uv.lock` matches `pyproject.toml`.
+A plugin declares `nanoagent: ~=0.6.0` and deletes its `run.sh`, which NanoAgent now refuses as
+an unexpected file. Publish it again for Mochi's marketplace to offer it: a version published for
+0.5.0 is listed under maintenance.
 
 ## 0.5.0
 
@@ -60,6 +160,9 @@ Every plugin:
   `kit/workspace.js` (`listFiles`, `readFile`, `readText`, `readJSON`) are gone, and so are the
   bridge's `runTask`, `session.save` and `workspace.*` and the task-run endpoint
   (`POST /v1/workspaces/<ws>/installs/<sha256>/tasks/<task>/runs`): tasks run through the chat.
+- `AGENTS.md`, `CLAUDE.md` and `GEMINI.md`, a coding agent's instructions, may sit anywhere in a
+  plugin and are never packed (`TOOL_ARTIFACTS`), so a plugin made with `rushlab new` packs and
+  imports with them.
 
 ## 0.4.0
 

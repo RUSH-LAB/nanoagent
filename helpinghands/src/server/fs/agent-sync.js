@@ -5,20 +5,21 @@
  *
  * NanoAgent runs a plugin in a scratch folder made for that one run: before it,
  * the folder is filled from the member's folder for that plugin,
- * `home/<user>/agent/<plugin>/`, and from nothing else; after it,
+ * `home/<user>/plugins/<plugin>/files/`, and from nothing else; after it,
  * what the run created, changed, or deleted is written back there, as that
  * member, and the folder is removed. The file system is where the files live;
  * NanoAgent keeps nothing between runs.
  *
  * Writing back is measured against the revisions the run started from, so an
  * edit the member made while the run went on is never overwritten: a file both
- * changed is kept twice, the run's version as a conflicted copy beside it.
+ * changed is kept twice, the run's version as a conflicted copy beside it,
+ * named as RUSH Lab's sync names one (runner/sync.mjs).
  */
 const crypto = require('crypto');
 const {FsError} = require('./store');
 
 const sha256 = body => crypto.createHash('sha256').update(body).digest('hex');
-const agentFolder = (scope, pluginId) => `home/${scope.userId}/agent/${pluginId}`;
+const pluginFolder = (scope, pluginId) => `home/${scope.userId}/plugins/${pluginId}/files`;
 const collided = error => error instanceof FsError && error.status === 409;
 
 function unwrap(result, doing) {
@@ -26,18 +27,18 @@ function unwrap(result, doing) {
   return result.value;
 }
 
-/** Where the run's version of `path` goes when the member changed it too. */
-function conflictPath(path, workspace) {
+/** Where the `n`th copy of `path` made by `source` goes when the member changed it too. */
+function conflictPath(path, source, n = 1) {
   const slash = path.lastIndexOf('/');
   const dot = path.lastIndexOf('.');
   const split = dot > slash + 1 ? dot : path.length;
-  return `${path.slice(0, split)} (agent run ${workspace.slice(0, 8)})${path.slice(split)}`;
+  return `${path.slice(0, split)} (conflicted copy ${source}${n > 1 ? ` ${n}` : ''})${path.slice(split)}`;
 }
 
 function createAgentSync({fs}) {
   /** Copy the member's folder for `pluginId` into the run's folder: what was sent, by path, with its revision. */
   async function push(scope, ai, pluginId, workspace) {
-    const folder = agentFolder(scope, pluginId);
+    const folder = pluginFolder(scope, pluginId);
     const sent = new Map();
     for (const file of await fs.readMany(scope, {prefix: folder})) {
       const relative = file.path.slice(folder.length + 1);
@@ -48,18 +49,25 @@ function createAgentSync({fs}) {
   }
 
   /** Keep the run's `body` at `target`, unless the member changed it since `baseRev`. */
-  async function keep(scope, target, body, baseRev, workspace) {
+  async function keep(scope, target, body, baseRev, pluginId) {
     try {
       await fs.write(scope, target, body, {baseRev});
     } catch (error) {
       if (!collided(error)) throw error;
-      await fs.write(scope, conflictPath(target, workspace), body, {baseRev: 0});
+      const source = `${pluginId} run ${new Date().toISOString().slice(0, 10)}`;
+      for (let n = 1; ; n += 1) {
+        try {
+          return await fs.write(scope, conflictPath(target, source, n), body, {baseRev: 0});
+        } catch (again) {
+          if (!collided(again)) throw again;
+        }
+      }
     }
   }
 
   /** Write what the run changed in its folder back into the member's folder for `pluginId`. */
   async function pull(scope, ai, pluginId, workspace, sent) {
-    const folder = agentFolder(scope, pluginId);
+    const folder = pluginFolder(scope, pluginId);
     const listing = unwrap(await ai.workspaceFiles(workspace), 'list its workspace');
     if (listing.truncated) {
       throw new Error(`NanoAgent listed only part of the run's folder (${listing.files.length} files); nothing was written back`);
@@ -70,7 +78,7 @@ function createAgentSync({fs}) {
       const body = unwrap(await ai.workspaceFile(workspace, file.path), `send ${file.path}`);
       const base = sent.get(file.path);
       if (base?.contentHash === sha256(body)) continue;
-      await keep(scope, `${folder}/${file.path}`, body, base?.rev ?? 0, workspace);
+      await keep(scope, `${folder}/${file.path}`, body, base?.rev ?? 0, pluginId);
     }
     for (const [relative, base] of sent) {
       if (left.has(relative)) continue;
@@ -113,4 +121,4 @@ function createAgentSync({fs}) {
   });
 }
 
-module.exports = {agentFolder, conflictPath, createAgentSync};
+module.exports = {conflictPath, createAgentSync, pluginFolder};

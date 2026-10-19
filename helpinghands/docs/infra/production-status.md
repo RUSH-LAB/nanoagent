@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-09
 
-Mochi is deployed publicly at `https://rush-lab.org`. Railway runs the
+RUSH is deployed publicly at `https://rush-lab.org`. Railway runs the
 application and private NanoAgent service, Cloudflare fronts the custom domain,
 and Neon PostgreSQL is the authoritative store for both relational data and
 uploaded bytes.
@@ -15,10 +15,10 @@ uploaded bytes.
 | Source and CI | Private GitHub repository | Stores the application and runs automated PostgreSQL checks. |
 | Database and objects | Neon PostgreSQL | Stores workspace records, asset metadata, and binary object payloads with row-level workspace isolation. |
 | Domain and DNS | Cloudflare | Proxies `rush-lab.org` to the Railway application, redirects the former `mochi-lab.org` there, and manages application and email DNS. |
-| Sign-in | GitHub OAuth App | The only way to sign in, in the browser and, through device approval, in the `mochi` command-line client. |
-| Transactional email | Resend | Sends workspace-invitation email from the verified Mochi mail domain. |
+| Sign-in | GitHub OAuth App | The only way to sign in, in the browser and, through device approval, in the `rush` command-line client. |
+| Transactional email | Resend | Sends workspace-invitation email from the verified RUSH mail domain. |
 | Application hosting | Railway | Builds the repository container and serves the public application. |
-| Agent runtime | NanoAgent, private Railway service | Mochi calls NanoAgent over its private authenticated endpoint. |
+| Agent runtime | NanoAgent, private Railway service | RUSH calls NanoAgent over its private authenticated endpoint. |
 
 For local work, run:
 

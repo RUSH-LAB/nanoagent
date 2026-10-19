@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────
-// Extra endpoint coverage tests for the Mochi Lab editor server
+// Extra endpoint coverage tests for the RUSH Lab editor server
 // Usage:  node tests/integration/test-extras.mjs
 // Requires the server running on http://localhost:3001, and a GitHub sign-in
 // saved by `node cli/rush.mjs login http://localhost:3001`
@@ -283,7 +283,7 @@ async function testIntegrity() {
 // ────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log(`\n${BOLD}Mochi Lab Extra Endpoint Tests${RESET}`);
+  console.log(`\n${BOLD}RUSH Lab Extra Endpoint Tests${RESET}`);
   console.log(`${DIM}Target: ${BASE}${RESET}\n`);
 
   await preflight();

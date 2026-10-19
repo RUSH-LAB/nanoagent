@@ -1,6 +1,6 @@
 import {defineRailway, project, service} from 'railway/iac';
 
-// This repository owns only the private NanoAgent service. Mochi's repository
+// This repository owns only the private NanoAgent service. RUSH's repository
 // owns the public application service in the same Railway project.
 export const partial = 'nanoagent';
 

@@ -14,12 +14,26 @@ uv run nanoagent --help
 
 ## Plugins
 
-NanoAgent plugins follow the implementation-neutral `nanoagent.plugin/v1`
-contract. Every plugin is a folder with this standard layout
-(`nanoagent.plugin.manifest.REQUIRED_FILES` / `REQUIRED_FOLDERS`):
+Every plugin declares the plugin format it follows, its spec, in `nanoagent.yaml`:
+`spec: nanoagent.plugin/v0001`. Each spec is a folder of its own,
+`src/nanoagent/plugin/v0001/`, holding the whole of it: its rules, the classes a
+plugin's files name (`_ > nanoagent.plugin.v0001.ManifestConfig:`) and the page the
+plugin is shown in, `page/` (`index.html` and the UI kit `kit/`). NanoAgent runs
+every spec in `nanoagent.plugin.manifest.SPECS`, and a released spec's folder never
+changes but to close a security hole, so a plugin keeps loading, running and
+looking the same on every NanoAgent that runs its spec, whatever else a release
+changes. A change a plugin could break on (its rules, the contract, the verifier
+or the UI kit) is a new spec, the next folder (`v0002`), and NanoAgent keeps the
+last for at least three minor releases; it refuses a plugin whose spec it does not
+run, saying which it runs. A plugin made for NanoAgent 0.6 or earlier, which named
+the NanoAgent it was made for (`nanoagent: ~=0.6.0`), moves onto
+`nanoagent.plugin/v0001` with `nanoagent plugin migrate <folder>`.
+
+A plugin is a folder with this standard layout
+(`nanoagent.plugin.authoring.STANDARD_FILES` / `STANDARD_FOLDERS`):
 
 ```text
-nanoagent.yaml   # manifest (a slimconfig ManifestConfig): id, runtime, permissions, tools, tasks
+nanoagent.yaml   # manifest (a slimconfig ManifestConfig): spec, id, runtime, permissions, tools, tasks
 contract.py      # each tool's and task's typed input and output: slimconfig Output classes
 README.md
 LICENSE
@@ -27,7 +41,6 @@ pyproject.toml
 uv.lock
 .gitignore
 .env             # environment variable NAMEs the plugin needs, never values
-run.sh           # exits 0 when this environment can run the plugin
 src/             # the plugin's code, organized as it likes
 tests/           # the plugin's tests, including test_verifier.py
 verifier/        # deterministic verifier package, .py files only
@@ -35,47 +48,42 @@ ui/              # how the page draws task outputs: renderers.js and renderers.c
 product/         # the product page: product.yaml and icon.svg
 ```
 
-Nothing else may sit at the top level. The only exceptions are what tools create in a
-checkout: `.git`, `.venv`, `__pycache__`, `.pytest_cache`, `.ruff_cache`, `.mypy_cache`,
-`.DS_Store` (`TOOL_ARTIFACTS`).
+The rules come in two sets. A spec's rules, in the docstring of its package
+(`nanoagent.plugin.v0001`), are what running and listing a plugin rely on: a
+`.env` holding names only, a `contract.py` of declarations only (snake_case
+tools, kebab-case tasks, classes named `...Input` and `...Output`), a
+`nanoagent.yaml` that fills the spec's `ManifestConfig` under slimconfig's
+rules (tables keyed by the contract's `Tool` and `Task`, the standard
+`runtime.command` `[uv, run, --frozen, python, -m, plugin]`, a PEP 440
+`version`), a deterministic verifier, a `ui/` and a `product/` (below).
+`load_manifest` loads a plugin under them, and so does every install and
+every tool call, which checks them again, so a plugin edited after it loaded
+is refused too.
 
-The rules a plugin must follow are listed in one place, the docstring of
-`nanoagent.plugin.manifest`. These are the layout above, a `.env` holding
-names only, a `contract.py` of declarations only (snake_case tools,
-kebab-case tasks, classes named `...Input` and `...Output`), a
-`nanoagent.yaml` that fills `ManifestConfig` under slimconfig's rules (tables
-keyed by the contract's `Tool` and `Task`, the standard `runtime.command`
-`[uv, run, --frozen, python, -m, plugin]`, a PEP 440 `version`), a
-deterministic verifier, a `ui/` and a
-`product/` (below), no extra files, and standard files that are the
-template's (`nanoagent/plugin/template/`, what `nanoagent plugin new`
-writes): its MIT `LICENSE` naming whoever built it, its `.gitignore` entries, its
-`run.sh` checks first (a plugin adds its own after them), a `README.md`
-opening with `# <name>` with the sections Tools, Layout and Develop and run
-and every tool and task named under Tools, and a `pyproject.toml` naming the
-project `nanoagent-<id>` at the manifest's version, with the template's
-`requires-python`, dependencies and `slimconfig` source and every other
-dependency bounded both ways. A `ready` plugin's `product.yaml` is its own,
-not the template's placeholder. NanoAgent refuses to load a plugin that breaks any rule, and `PluginError` lists every
-violation at once (`nanoagent plugin inspect <path>` prints them). The web
-host refuses to start with such a plugin. Every tool call checks the rules
-again, so a plugin edited after it loaded is refused too.
+The template's rules, in the docstring of `nanoagent.plugin.authoring`, follow
+what `nanoagent plugin new` writes (`nanoagent/plugin/template/`) and change
+with it, so they hold only where a plugin is made and published
+(`nanoagent plugin new`, `inspect` and `pack`, `check_plugin`), never where a
+published one is installed or run: the layout above and nothing else at the
+top level (but what tools create in a checkout: `.git`, `.venv`, `__pycache__`,
+`.pytest_cache`, `.ruff_cache`, `.mypy_cache`, `.DS_Store`, and the coding
+agents' instructions: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `TOOL_ARTIFACTS`,
+none of them ever packed), its MIT `LICENSE` naming whoever built it, its
+`.gitignore` entries, a `README.md` opening with `# <name>` with the sections
+Tools, Layout and Develop and run and every tool and task named under Tools,
+and a `pyproject.toml` naming the project `nanoagent-<id>` at the manifest's
+version, with the template's `requires-python`, dependencies and `slimconfig`
+source and every other dependency bounded both ways. A `ready` plugin's
+`product.yaml` is its own, not the template's placeholder. Either way
+`PluginError` lists every violation at once (`nanoagent plugin inspect <path>`
+prints them).
 
-Every plugin names the NanoAgent versions it runs on: `nanoagent` in
-`nanoagent.yaml` is one NanoAgent minor version, `~=X.Y.0`, and NanoAgent
-refuses a plugin whose range does not hold its own version
-(`nanoagent.__version__`).
-`nanoagent plugin new` writes `~=<this version>`, such as `~=0.3.0`
-(0.3.0 up to, not including, 0.4). NanoAgent raises its minor version
-whenever a plugin made for the last one could break: the plugin rules, the
-contract, the verifier, the UI kit or the `nanoagent.ui/v1` bridge. Any other
-release raises the patch version. Each release is a git tag,
-`nanoagent-v<version>`, and [CHANGELOG.md](CHANGELOG.md) says what a plugin
-must change for it.
+Each release is a git tag, `nanoagent-v<version>`, and
+[CHANGELOG.md](CHANGELOG.md) says what it changes for plugins.
 
-Before each launch NanoAgent runs `run.sh` with the plugin's environment: `NANOAGENT_WORKSPACE` plus each `.env`
-name taken from NanoAgent's own environment. It refuses to launch unless
-`run.sh` exits 0. It then starts the declared MCP runtime with that same
+Before each launch NanoAgent checks the plugin's environment: `NANOAGENT_WORKSPACE` plus each `.env`
+name taken from NanoAgent's own environment, which must be set, and a `uv.lock` that matches `pyproject.toml`.
+It refuses to launch otherwise. It then starts the declared MCP runtime with that same
 environment, builds every input and output into its contract class
 (`slimconfig.build_output`), and runs the verifier, which gets the same typed
 values, before and after each tool call. Every JSON Schema NanoAgent shows (to
@@ -125,7 +133,7 @@ in `verifier/` are imported relatively. NanoAgent enforces determinism
 ### The reference plugin and starting a new one
 
 NanoAgent ships no plugin. Each lives in its own repository and is published to
-Mochi's marketplace from it, as
+RUSH's marketplace from it, as
 [arxiv-source](https://github.com/zeyuyang8/arxiv-source) is.
 arxiv-source is the reference every plugin follows. It searches arXiv, then
 fetches and saves papers' LaTeX source. It has an MCP server with a `TOOLS`
@@ -167,7 +175,7 @@ only to its workspace, which NanoAgent passes as `NANOAGENT_WORKSPACE`.
   `inputs/<name>`.
 - **One plugin process per run.** An agent run keeps one plugin process
   (`nanoagent.plugin.PluginSession`) for the whole task, so a plugin can hold
-  state, such as a browser, between calls. `run.sh` runs once. Every call is
+  state, such as a browser, between calls. The environment is checked once. Every call is
   still checked against the rules, both contract classes and the verifier.
 - **Images.** A tool response's `images` field (a list of
   `{"media_type": "image/png", "data": <base64>}`) is shown to the model as
@@ -178,7 +186,7 @@ only to its workspace, which NanoAgent passes as `NANOAGENT_WORKSPACE`.
 
 What people see of a plugin lives in two folders, and nowhere else.
 
-`product/` is the plugin's product page, what a catalog such as Mochi's
+`product/` is the plugin's product page, what a catalog such as RUSH's
 marketplace shows before anyone downloads it. It holds exactly two files.
 `product.yaml` fills `ProductConfig`: a `tagline`, a `summary`, 2 to 4
 `highlights` and 2 to 5 `steps`, written for the people who use the plugin
@@ -194,7 +202,7 @@ says what they need; the agent, whose only tools are the plugin's tasks (one
 per task, named by its id and taking its input), runs the task that does it
 the verified way, and answers in a sentence or two. Each task it ran shows in
 the chat as a chip, and its result card (the task's output, with its verdict as
-a badge) beside the chat, on the right. Mochi shows the
+a badge) beside the chat, on the right. RUSH shows the
 page in a sandboxed iframe, in the kit's frame of two tabs. **Dashboard**,
 where the app always opens, lists the member's sessions with the plugin,
 newest first, with what each ran and cost, to resume one or start a new one.
@@ -212,9 +220,9 @@ protocol `nanoagent.ui/v1`. The bridge's methods are `describe`, `prompt`,
 A plugin's `ui/` says how to draw its outputs, and nothing else: an output is
 drawn from its JSON Schema (an object as labelled fields, a list of objects as
 a table, a list as a list, text, links, numbers, yes or no) unless
-`ui/renderers.js` draws its class. NanoAgent serves the page from
-`src/nanoagent/plugin/page/` (`index.html` and the shared UI kit `kit/`), so
-every plugin gets the kit of the NanoAgent serving it, and refuses a plugin
+`ui/renderers.js` draws its class. NanoAgent serves the page from the plugin's
+spec, `src/nanoagent/plugin/v0001/page/` (`index.html` and the UI kit `kit/`),
+so every plugin gets the kit of the spec it was made for, and refuses a plugin
 unless:
 
 - `ui/renderers.js` and `ui/renderers.css` exist, and `ui/` holds no
@@ -247,7 +255,7 @@ Each declared plugin tool is also available as a regular NanoAgent `Tool`
 through `nanoagent.plugin.plugin_tools(manifest, workspace, names)`.
 
 The web service runs only plugins it installed, each from a package (below)
-and known by the package's sha256 (`nanoagent.plugin.install`). Mochi Lab
+and known by the package's sha256 (`nanoagent.plugin.install`). RUSH Lab
 installs the plugins each workspace added from its marketplace, and shows them
 as apps:
 
@@ -263,7 +271,7 @@ as apps:
   agent that has the plugin's tools. The body is a run request and the reply is
   a run stream.
 
-Every process a plugin brings (its `run.sh`, MCP server, verifier, and the
+Every process a plugin brings (its MCP server, verifier, and the
 `uv sync` that installs it) runs in the sandbox `WebConfig.sandbox` names
 (`nanoagent.plugin.sandbox`). `bwrap` gives it new namespaces, an
 empty environment, the system and the plugin's own folder read-only, and only
@@ -293,7 +301,7 @@ taken returns 409. NanoAgent keeps nothing between runs, so no volume is needed.
 
 ### Plugin packages and the marketplace
 
-A package is a plugin in one file, for Mochi's marketplace (`/marketplace`),
+A package is a plugin in one file, for RUSH's marketplace (`/marketplace`),
 where people download plugins and share their own. `nanoagent plugin pack
 <folder> <file.tar.gz>` writes one: the plugin, which must follow every rule,
 under a single `<id>/` folder, without what its `.gitignore` ignores, packed
@@ -310,12 +318,14 @@ serves packages, and runs one only once it is installed (above):
   loaded in a separate Python process with an empty environment, so a manifest
   cannot interpolate the host's secrets. The reply is the plugin's catalog
   entry, or 422 with every broken rule.
+- `GET /v1/packages/inspect/{sha256}` answers as that check did for the package
+  with that sha256, kept while NanoAgent runs, or 404 until it is checked.
 - `POST /v1/packages/source?path=<folder>` packs a plugin from its source: the
   body is a repository archive (GitHub's `.tar.gz` of one commit, its files
   under one top folder), and `path` the plugin's folder in it. Only that folder
   is unpacked, under the same limits, and it is packed in the same isolated
   process, then checked as above. The reply is `{"package": <catalog entry>,
-  "data": <the package, base64>}`, or 422 with every broken rule. Mochi
+  "data": <the package, base64>}`, or 422 with every broken rule. RUSH
   publishes plugins to its marketplace this way, from a GitHub URL.
 
 ### Plugin environments
@@ -427,7 +437,7 @@ each follow-up through the selected harness.
 ## Railway service
 
 The repository includes a production container and private Railway service
-configuration for Mochi Lab.
+configuration for RUSH Lab.
 
 Required variables:
 
@@ -437,8 +447,8 @@ OPENROUTER_API_KEY=...
 NANOAGENT_API_TOKEN=...
 ```
 
-Deploy the service without a public domain. Mochi connects over Railway's
+Deploy the service without a public domain. RUSH connects over Railway's
 private network using the same `NANOAGENT_API_TOKEN`.
 
 Local development does not use this deployment unless `NANOAGENT_URL` is
-explicitly set. Mochi's `npm start` uses the adjacent NanoAgent checkout.
+explicitly set. RUSH's `npm start` uses the adjacent NanoAgent checkout.

@@ -1,27 +1,27 @@
-# Mochi Lab
+# RUSH Lab
 
 https://www.alphaxiv.org
 
 A collaborative workspace for knowledge, documents, communication, and AI agents.
 
-Every member's AI runs on their own computer, in Mochi Lab (the desktop app,
-`desktop/`), whether they use the site in a browser or in the app. Its NanoAgent
+Every member's AI runs on their own computer, in RUSH Lab (the Mac app,
+`desktop/`, which they download from the site and connect with one click). Its NanoAgent
 calls OpenRouter with the key kept there, and installs, serves the pages of, and
-runs every plugin. Mochi's servers keep no model key and run no model or plugin:
+runs every plugin. RUSH's servers keep no model key and run no model or plugin:
 they only list the marketplace and hold its plugin packages. While a member's
-Mochi Lab is not connected, their AI and plugins are refused, never run elsewhere.
+RUSH Lab is not connected, their AI and plugins are refused, never run elsewhere.
 
 ## OpenRouter keys
 
 - AI runs on the member's own laptop, using the OpenRouter key saved in their
   RUSH Lab (`settings.env` in its connection folder).
-- If they haven't saved one, Mochi creates one for them: a key of their own,
-  named `Mochi <user id>`, in the OpenRouter workspace `mochi` (`mochi-dev` for
+- If they haven't saved one, RUSH creates one for them: a key of their own,
+  named `RUSH <user id>`, in the OpenRouter workspace `mochi` (`mochi-dev` for
   every site but production), which holds $10 for every member together
   (`src/server/openrouter-keys.js`). If they type their own under Settings →
   Usage, that one is used instead.
-- The only OpenRouter secret Mochi's server needs is `OPENROUTER_MANAGEMENT_KEY`
-  on Railway's `mochi-lab` service, which creates those keys. Mochi keeps none
+- The only OpenRouter secret RUSH's server needs is `OPENROUTER_MANAGEMENT_KEY`
+  on Railway's `mochi-lab` service, which creates those keys. RUSH keeps none
   of the keys it creates.
 
 ## Running locally
@@ -36,7 +36,7 @@ sanitized local environment file:
 Then fill in the GitHub values in `.env` ([scripts/README.md](scripts/README.md));
 `npm run db:setup` sets `OPENROUTER_MANAGEMENT_KEY` in it from Railway.
 
-Start the complete stack—NanoAgent, the Mochi API, and the site—with one
+Start the complete stack—NanoAgent, the RUSH API, and the site—with one
 command:
 
 
@@ -51,7 +51,7 @@ rush-lab.org (docs/infra/neon-postgres-setup.md).
 Open [http://localhost:3000](http://localhost:3000). By default, the supervisor
 uses the adjacent `../nanoagent` checkout. Set `NANOAGENT_PROJECT_DIR` to use a
 checkout elsewhere, or `NANOAGENT_URL` to use an already-running agent service.
-With the local NanoAgent, the checkout is also your Mochi Lab: every AI run goes
+With the local NanoAgent, the checkout is also your RUSH Lab: every AI run goes
 to a member's own computer, so `npm start` prints a sign-in link once; open it,
 signed in as the account you test with, and approve the code. Your runs then use
 the local NanoAgent, and Settings → AI can set its API key (until `npm start`
@@ -61,7 +61,7 @@ The installer never overwrites an existing local environment file.
 NanoAgent ships no plugin: each is published to the marketplace from its own
 repository. To have the local NanoAgent publish plugin packages too, set
 `NANOAGENT_PLUGINS_DIR` to a folder of plugins (each a folder with a
-`nanoagent.yaml`); Mochi shows them as apps at `/apps`, where you can read what
+`nanoagent.yaml`); RUSH shows them as apps at `/apps`, where you can read what
 each one does and run its tasks. A `NANOAGENT_PLUGINS_DIR` that is missing or
 holds no plugin stops the launch.
 

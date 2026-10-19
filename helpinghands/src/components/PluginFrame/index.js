@@ -7,12 +7,18 @@ import styles from './styles.module.css';
 /**
  * A plugin's own page, from its ui/ folder, in a sandboxed frame: scripts,
  * forms and links that open in a new tab, but no same-origin access, so the
- * page has an opaque origin and none of Mochi's session, cookies or network. It reaches NanoAgent only through
- * the `nanoagent.ui/v1` bridge this component hosts (./host.js).
+ * page has an opaque origin and none of RUSH's session, cookies or network. It reaches NanoAgent only through
+ * the `nanoagent.ui/v1` bridge this component hosts (./host.js). `onVersion(app)`
+ * hears that the page changed which version the member runs. `session` is the
+ * session the page opens on, and `onSession(id)` hears the one it shows, or
+ * null for its Dashboard.
  */
-export default function PluginFrame({app, workspace}) {
+export default function PluginFrame({app, workspace, onVersion, session, onSession}) {
   const frame = useRef(null);
   const host = useRef(null);
+  // Read when the page asks, so following the page's session never makes a new host.
+  const shown = useRef(session);
+  shown.current = session;
   const {colorMode} = useColorMode();
   // Addressed by the install it runs from, so a new version is a new page, on
   // the member's computer that opened it (`app.computer`).
@@ -45,6 +51,9 @@ export default function PluginFrame({app, workspace}) {
       workspaceId: workspace.id,
       theme: colorMode,
       request: (path, init) => apiFetch(`${API_BASE}${path}`, init),
+      onVersion: changed => onVersion?.(changed),
+      shown: () => shown.current,
+      onShown: id => onSession(id),
     });
     host.current = bridge;
     window.addEventListener('message', bridge.onMessage);

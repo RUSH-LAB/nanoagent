@@ -119,11 +119,11 @@ function Channels() {
       : `#${channel.name} is back.`,
   );
 
-  const remove = (channel) => {
+  const remove = async (channel) => {
     // The only irreversible thing on this page, so it asks for the name rather
     // than for a click: an archive is one keystroke away and does almost the
     // same job.
-    const typed = clientPlatform.dialogs.prompt(
+    const typed = await clientPlatform.dialogs.prompt(
       `Deleting #${channel.name} deletes every message in it, for everyone, permanently.\n\n` +
       'Archiving keeps them and hides the channel instead.\n\n' +
       `Type the channel name to delete it:`,

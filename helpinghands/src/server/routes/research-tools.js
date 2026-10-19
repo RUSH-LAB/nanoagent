@@ -159,7 +159,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
 
       function fetchS2Recs(fetchUrl) {
         return new Promise((resolve) => {
-          const req = https.get(fetchUrl, { headers: { 'User-Agent': 'MochiLab/1.0' }, timeout: 10000 }, (r) => {
+          const req = https.get(fetchUrl, { headers: { 'User-Agent': 'RUSHLab/1.0' }, timeout: 10000 }, (r) => {
             if (r.statusCode !== 200) { r.resume(); resolve(null); return; }
             const chunks = [];
             r.on('data', c => chunks.push(c));

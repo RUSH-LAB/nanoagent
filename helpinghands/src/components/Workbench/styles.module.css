@@ -1,15 +1,24 @@
 /* A small VS Code inside the site: a fixed region between the navbar and the
-   CLI bar, an explorer on the left and an editor group on the right. Colours
-   come from Infima's tokens so light and dark mode both follow the site. */
+   CLI bar, a file sidebar on the left and an editor group on the right.
+   Hierarchy comes from a ladder of surfaces and 1px hairlines rather than
+   shadows, and the accent is kept for focus and the current place. Colours
+   come from Infima's emphasis scale, which flips with the theme. */
 
 .workbench {
-  --wb-border: var(--ifm-color-emphasis-200);
+  --wb-border: var(--site-hairline);
   --wb-sidebar: var(--ifm-color-emphasis-100);
-  --wb-hover: var(--ifm-color-emphasis-200);
-  --wb-select: color-mix(in srgb, var(--ifm-color-primary) 16%, transparent);
+  --wb-chrome: var(--ifm-color-emphasis-100);
+  --wb-hover: color-mix(in srgb, var(--ifm-color-emphasis-200) 70%, transparent);
+  --wb-select: var(--ifm-color-emphasis-200);
+  --wb-active: color-mix(in srgb, var(--ifm-color-primary) 10%, transparent);
   --wb-focus: var(--ifm-color-primary);
+  --wb-muted: var(--ifm-color-emphasis-600);
+  --wb-subtle: var(--ifm-color-emphasis-500);
+  --wb-indent: 14px;
+  --wb-row: 1.625rem;
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(200px, 280px) minmax(0, 1fr);
+  grid-template-columns: minmax(min-content, var(--site-side-width)) minmax(0, 1fr);
   height: var(--site-shell-height);
   border-top: 1px solid var(--wb-border);
   font-size: 0.8125rem;
@@ -20,12 +29,45 @@
     grid-template-columns: 1fr;
     grid-template-rows: 40% 60%;
   }
+
+  .explorer {
+    border-right: 0;
+    border-bottom: 1px solid var(--wb-border);
+  }
 }
 
-/* ── Explorer ── */
+.icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--wb-muted);
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.25;
+}
+
+/* ── Sidebar ── */
+
+/* The explorer hidden from the shell's activity bar: the editor takes it all. */
+/* Folded from the shell (its data-side-folded): the editor takes it all. */
+:global([data-side-folded]) .workbench {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/* Folded, the explorer keeps its layout, unseen, so its edge can measure it. */
+:global([data-side-folded]) .explorer {
+  position: absolute;
+  inset: 0 auto 0 0;
+  visibility: hidden;
+}
 
 .explorer {
+  position: relative;
   display: flex;
+  min-width: min-content;
   flex-direction: column;
   min-height: 0;
   border-right: 1px solid var(--wb-border);
@@ -34,54 +76,191 @@
 
 .explorerHeader {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: space-between;
-  height: 2.2rem;
-  padding: 0 0.4rem 0 0.9rem;
-  color: var(--ifm-color-emphasis-700);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  height: 2.5rem;
+  padding: 0 0.5rem 0 0.875rem;
+}
+
+/* In the shell the header is the Filesystem section's title row, as every side bar's is
+   (TwoColumnLayout): the name alone, a heading on the hairline, and the
+   explorer on the side bar's surface; its actions are on the row below. */
+.sectionHeader {
+  height: var(--site-side-header-height);
+  padding: 0 0.875rem;
+  border-bottom: 1px solid var(--wb-border);
+}
+
+.sectionHeader .explorerTitle {
+  font-size: var(--site-side-title-size);
+  letter-spacing: var(--site-side-title-tracking);
+}
+
+:global(html.site-shell) .explorer {
+  background: none;
+}
+
+/* The explorer's actions, under its title: how many files at the left, the buttons at the right. */
+.explorerToolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem 0.375rem 0.875rem;
+}
+
+.explorerTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ifm-font-color-base);
+  font-weight: 600;
+}
+
+.explorerCount {
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--wb-select);
+  color: var(--wb-muted);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.125rem;
+}
+
+.fileCount {
+  color: var(--wb-muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .explorerActions {
   display: flex;
-  gap: 0.1rem;
+  gap: 0.125rem;
 }
 
 .explorerActions button {
   display: grid;
-  width: 1.6rem;
-  height: 1.6rem;
+  width: 1.625rem;
+  height: 1.625rem;
   place-items: center;
   border: 0;
-  border-radius: 4px;
+  border-radius: 6px;
   background: none;
-  color: var(--ifm-color-emphasis-700);
+  color: var(--wb-muted);
   cursor: pointer;
 }
 
-.explorerActions button:hover {
-  background: var(--wb-hover);
-}
-
-.explorerActions svg,
-.chevron,
-.fileIcon {
+.explorerActions button svg {
   width: 16px;
   height: 16px;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 1.2;
+  stroke-width: 1.25;
+}
+
+.explorerActions button:hover,
+.explorerActions button[aria-pressed='true'] {
+  background: var(--wb-select);
+  color: var(--ifm-font-color-base);
+}
+
+.explorerActions button:focus-visible,
+.searchButton:focus-visible,
+.textButton:focus-visible,
+.tabClose:focus-visible {
+  outline: 2px solid var(--wb-focus);
+  outline-offset: -2px;
+}
+
+/* Opens quick open; shaped like the field it opens. */
+.searchButton {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.5rem;
+  height: 1.875rem;
+  margin: 0 0.625rem 0.5rem;
+  padding: 0 0.375rem 0 0.5rem;
+  border: 1px solid var(--wb-border);
+  border-radius: 6px;
+  background: var(--ifm-background-color);
+  color: var(--wb-subtle);
+  font: inherit;
+  cursor: pointer;
+}
+
+.searchButton:hover {
+  border-color: var(--site-hairline-strong);
+  color: var(--wb-muted);
+}
+
+.searchButton svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.4;
+}
+
+.searchButton span {
+  flex: 1;
+  text-align: left;
+}
+
+.searchButton kbd,
+.quickOpenHints kbd,
+.welcome kbd {
+  padding: 0 0.3rem;
+  border: 1px solid var(--wb-border);
+  border-radius: 4px;
+  background: var(--wb-chrome);
+  box-shadow: none;
+  color: var(--wb-muted);
+  font-family: inherit;
+  font-size: 0.6875rem;
+  line-height: 1.125rem;
+}
+
+.offlineNote,
+.loadError {
+  margin: 0 0.625rem 0.5rem;
+  padding: 0.375rem 0.625rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+}
+
+.offlineNote {
+  background: var(--ifm-color-warning-contrast-background);
+  color: var(--ifm-color-warning-contrast-foreground);
+}
+
+.loadError {
+  background: var(--ifm-color-danger-contrast-background);
+  color: var(--ifm-color-danger-contrast-foreground);
+}
+
+/* The sidebar's right edge: a grab area wider than the hairline it sits on,
+   showing the accent while hovered, focused or dragged. */
+/* ── Tree ── */
+
+/* Names may be cut, as in VS Code; the rest of the explorer is never
+   (.explorer's min-width), so neither the tree nor a name sets it. */
+.tree,
+.trashText {
+  contain: inline-size;
 }
 
 .tree {
   flex: 1;
   min-height: 0;
-  padding-bottom: 2rem;
+  padding: 0.125rem 0.375rem 2rem;
   overflow: auto;
   outline: none;
 }
@@ -93,10 +272,11 @@
 .row {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
-  height: 1.55rem;
-  padding-right: 0.6rem;
-  border: 1px solid transparent;
+  gap: 0.375rem;
+  height: var(--wb-row);
+  padding: 0 0.375rem 0 0.25rem;
+  border-radius: 6px;
+  color: var(--ifm-color-emphasis-800);
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
@@ -106,31 +286,120 @@
   background: var(--wb-hover);
 }
 
+/* The file open in the editor. */
 .rowActive {
-  background: var(--wb-select);
+  background: var(--wb-active);
+  color: var(--ifm-font-color-base);
 }
 
 .rowSelected {
   background: var(--wb-select);
+  color: var(--ifm-font-color-base);
 }
 
-.tree:focus-within .rowSelected {
-  border-color: var(--wb-focus);
+/* The row keys act on, outlined while it has focus. */
+.rowFocused:focus {
+  box-shadow: inset 0 0 0 1px var(--wb-focus);
+  outline: none;
+}
+
+/* A row whose name has what is typed to find (Explorer's find box). */
+.rowFound .rowName {
+  text-decoration: underline;
+  text-decoration-color: var(--wb-focus);
+  text-underline-offset: 3px;
+}
+
+/* Cut, waiting for ⌘V. */
+.rowCut {
+  opacity: 0.5;
+}
+
+/* Typing in the tree finds rows by name, as VS Code's does. */
+.treeFind {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+  padding: 0.25rem 0.375rem;
+  border: 1px solid var(--wb-focus);
+  border-radius: 6px;
+  background: var(--ifm-background-color);
+  font-size: 0.75rem;
+}
+
+.treeFind input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.treeFind span {
+  flex: none;
+  color: var(--wb-muted);
 }
 
 .rowDrop {
-  background: color-mix(in srgb, var(--ifm-color-primary) 22%, transparent);
+  background: var(--wb-active);
+  box-shadow: inset 0 0 0 1px var(--wb-focus);
+}
+
+/* A new or renamed entry waiting for the server. */
+.rowPending {
+  opacity: 0.6;
 }
 
 .rowName {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.chevron {
+.rowMeta {
+  display: flex;
   flex: none;
-  color: var(--ifm-color-emphasis-600);
-  transition: transform 0.1s ease;
+  align-items: center;
+  gap: 0.375rem;
+  margin-left: auto;
+}
+
+/* Each level of depth is a column with a guide down its middle, under the
+   chevron of the folder above. Guides show while the pointer is over the tree. */
+.indent {
+  position: relative;
+  flex: none;
+  width: var(--wb-indent);
+  height: 100%;
+  margin-right: -0.375rem;
+}
+
+.indent::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 7.5px;
+  width: 1px;
+  background: var(--wb-border);
+  content: '';
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.tree:hover .indent::before,
+.tree:focus-within .indent::before {
+  opacity: 1;
+}
+
+.chevron {
+  color: var(--wb-subtle);
+  transition: transform 0.12s ease;
 }
 
 .chevronOpen {
@@ -142,46 +411,70 @@
   width: 16px;
 }
 
-.fileIcon {
-  flex: none;
-  color: var(--ifm-color-emphasis-600);
-}
-
-.tintText { color: #519aba; }
-.tintTex { color: #3d8a6a; }
-.tintCode { color: #c9a227; }
-.tintData { color: #a074c4; }
-.tintMedia { color: #d0634f; }
-
-.folderIcon {
-  flex: none;
-  width: 16px;
-  height: 12px;
-  border-radius: 2px;
-  background: #c09553;
-  clip-path: polygon(0 0, 40% 0, 50% 18%, 100% 18%, 100% 100%, 0 100%);
-}
-
-.folderOpen {
-  background: #dcb67a;
-}
+.folderIcon { color: var(--site-file-folder); }
+.tintText { color: var(--site-file-text); }
+.tintTex { color: var(--site-file-tex); }
+.tintCode { color: var(--site-file-code); }
+.tintData { color: var(--site-file-data); }
+.tintMedia { color: var(--site-file-media); }
 
 .dirtyDot {
   flex: none;
-  width: 7px;
-  height: 7px;
-  margin-left: auto;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: var(--ifm-color-emphasis-700);
+  background: var(--ifm-color-warning);
+}
+
+/* Who can see a node, when it is not just the workspace. */
+.accessBadge {
+  padding: 0 0.375rem;
+  border-radius: 999px;
+  background: var(--wb-chrome);
+  color: var(--wb-muted);
+  font-size: 0.6875rem;
+  line-height: 1.125rem;
+}
+
+/* Where a file is kept: in the cloud only, on this computer, or waiting to
+   upload. Quiet until it matters: it shows on hover unless the file is kept
+   or waiting. */
+.localStatus {
+  display: grid;
+  width: 14px;
+  place-items: center;
+  color: var(--wb-subtle);
+  opacity: 0;
+}
+
+.localStatus .icon {
+  width: 13px;
+  height: 13px;
+  color: inherit;
+}
+
+.row:hover .localStatus,
+.rowSelected .localStatus,
+.localKept,
+.localPending {
+  opacity: 1;
+}
+
+.localKept {
+  color: var(--ifm-color-success);
+}
+
+.localPending {
+  color: var(--ifm-color-warning);
 }
 
 .nameInput {
   flex: 1;
   min-width: 0;
-  height: 1.3rem;
-  padding: 0 0.3rem;
+  height: 1.375rem;
+  padding: 0 0.375rem;
   border: 1px solid var(--wb-focus);
-  border-radius: 2px;
+  border-radius: 4px;
   outline: none;
   background: var(--ifm-background-color);
   color: inherit;
@@ -192,100 +485,112 @@
   border-color: var(--ifm-color-danger);
 }
 
-/* A new or renamed entry waiting for the server. */
-.rowPending {
-  opacity: 0.6;
-}
-
 .nameError {
-  margin: 0 0.6rem 0.2rem 0;
-  color: var(--ifm-color-danger-dark);
+  margin: 0.125rem 0.375rem 0.25rem calc(0.25rem + var(--depth) * var(--wb-indent) + 22px);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  background: var(--ifm-color-danger-contrast-background);
+  color: var(--ifm-color-danger-contrast-foreground);
   font-size: 0.75rem;
   white-space: normal;
 }
 
-.emptyTree,
-.loadError {
-  margin: 0.75rem 0.9rem;
-  color: var(--ifm-color-emphasis-600);
-  font-size: 0.8rem;
-}
-
-.loadError {
-  color: var(--ifm-color-danger-dark);
-}
-
-/* Who can see a node, when it is not just the workspace. */
-.accessBadge {
-  flex: none;
-  margin-left: auto;
-  padding: 0 0.35rem;
-  border: 1px solid var(--ifm-color-emphasis-300);
-  border-radius: 999px;
-  color: var(--ifm-color-emphasis-700);
-  font-size: 0.65rem;
-  line-height: 1.1rem;
-}
-
-.accessBadge + .dirtyDot {
-  margin-left: 0.4rem;
-}
-
-/* Where a file is kept: in the cloud only, on this computer, or waiting to upload. */
-.localStatus {
-  flex: none;
-  order: 10;
-  width: 1rem;
-  margin-left: auto;
-  color: var(--ifm-color-primary);
-  font-size: 0.7rem;
+.emptyTree {
+  margin: 1.5rem 0.5rem;
+  color: var(--wb-muted);
+  font-size: 0.8125rem;
   text-align: center;
 }
 
-.accessBadge ~ .localStatus,
-.dirtyDot ~ .localStatus {
-  margin-left: 0.3rem;
+.emptyTree p {
+  margin: 0 0 0.25rem;
 }
 
-.cloudOnly {
-  color: var(--ifm-color-emphasis-500);
-}
-
-.offlineNote {
-  margin: 0.5rem 0.9rem;
-  color: var(--ifm-color-warning-darkest);
-  font-size: 0.8rem;
-}
-
-/* The app that edits the open file, when one does. */
-.appLink {
-  margin-left: 0.75rem;
-  color: var(--ifm-color-primary);
-  font-size: 0.75rem;
+.emptyTitle {
+  color: var(--ifm-font-color-base);
+  font-weight: 500;
 }
 
 /* ── Trash ── */
 
 .trash {
-  border-top: 1px solid var(--ifm-color-emphasis-200);
+  display: flex;
+  max-height: 40%;
+  flex: none;
+  flex-direction: column;
+  border-top: 1px solid var(--wb-border);
+}
+
+.trashNote {
+  margin: 0 0.875rem 0.75rem;
+  color: var(--wb-muted);
+}
+
+.trashList {
+  min-height: 0;
+  overflow: auto;
 }
 
 .trashRow {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.15rem 0.9rem;
-  font-size: 0.8rem;
+  min-height: var(--wb-row);
+  margin: 0 0.375rem;
+  padding: 0.25rem 0.25rem 0.25rem 0.5rem;
+  border-radius: 6px;
+  color: var(--ifm-color-emphasis-700);
 }
 
-.trashRow button,
-.trashEmpty {
-  flex: none;
-  border: 0;
-  background: none;
-  color: var(--ifm-color-primary);
+.trashRow:last-child {
+  margin-bottom: 0.5rem;
+}
+
+.trashRow:hover {
+  background: var(--wb-hover);
+}
+
+.trashText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+/* A name too long for the side bar is cut, and its folder below it; the row's title has the whole path. */
+.trashName,
+.trashWhere {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trashWhere {
+  color: var(--wb-muted);
   font-size: 0.75rem;
+}
+
+.textButton {
+  flex: none;
+  padding: 0.125rem 0.5rem;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--wb-muted);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
   cursor: pointer;
+}
+
+.textButton:hover {
+  background: var(--wb-select);
+  color: var(--ifm-font-color-base);
+}
+
+.textButtonDanger:hover {
+  color: var(--ifm-color-danger);
 }
 
 /* ── Quick open ── */
@@ -298,53 +603,89 @@
   justify-content: center;
   align-items: flex-start;
   padding-top: 12vh;
+  background: color-mix(in srgb, var(--ifm-background-color) 40%, transparent);
 }
 
 .quickOpen {
   display: flex;
-  width: min(560px, 92vw);
+  width: min(600px, 92vw);
   max-height: 60vh;
   flex-direction: column;
-  border: 1px solid var(--ifm-color-emphasis-300);
-  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--site-hairline-strong);
+  border-radius: var(--site-radius-lg);
   background: var(--ifm-background-surface-color);
-  box-shadow: 0 6px 20px rgb(0 0 0 / 18%);
+  box-shadow: var(--site-popover-shadow);
   font-size: 0.8125rem;
 }
 
 .quickOpenInput {
-  margin: 0.4rem;
-  padding: 0.3rem 0.5rem;
-  border: 1px solid var(--wb-focus);
-  border-radius: 4px;
-  background: var(--ifm-background-color);
+  flex: none;
+  height: 3rem;
+  padding: 0 1rem;
+  border: 0;
+  border-bottom: 1px solid var(--wb-border);
+  background: none;
   color: inherit;
   font: inherit;
+  font-size: 0.9375rem;
   outline: none;
+}
+
+.quickOpenInput::placeholder {
+  color: var(--wb-subtle);
 }
 
 .quickOpenList {
   margin: 0;
-  padding: 0 0.3rem 0.3rem;
+  padding: 0.375rem;
   overflow: auto;
   list-style: none;
 }
 
 .quickOpenRow {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.5rem;
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
+  height: 2rem;
+  padding: 0 0.625rem;
+  border-radius: 6px;
   cursor: pointer;
   white-space: nowrap;
 }
 
+/* The name keeps its width; the folder after it gives way. */
+.quickOpenRow .rowName {
+  flex: none;
+  max-width: 70%;
+}
+
+.quickOpenRow[aria-selected='true'] {
+  background: var(--wb-select);
+}
+
 .quickOpenFolder {
+  min-width: 0;
   overflow: hidden;
-  color: var(--ifm-color-emphasis-600);
+  color: var(--wb-subtle);
   font-size: 0.75rem;
   text-overflow: ellipsis;
+}
+
+.quickOpenEmpty {
+  padding: 1.5rem 0;
+  color: var(--wb-muted);
+  text-align: center;
+}
+
+.quickOpenHints {
+  display: flex;
+  flex: none;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--wb-border);
+  color: var(--wb-subtle);
+  font-size: 0.6875rem;
 }
 
 /* ── Context menu ── */
@@ -352,13 +693,13 @@
 .contextMenu {
   position: fixed;
   z-index: 1000;
-  min-width: 190px;
+  min-width: 210px;
   margin: 0;
-  padding: 0.3rem;
-  border: 1px solid var(--ifm-color-emphasis-300);
-  border-radius: 6px;
+  padding: 0.25rem;
+  border: 1px solid var(--site-hairline-strong);
+  border-radius: var(--site-radius);
   background: var(--ifm-background-surface-color);
-  box-shadow: 0 6px 20px rgb(0 0 0 / 18%);
+  box-shadow: var(--site-popover-shadow);
   list-style: none;
   font-size: 0.8125rem;
 }
@@ -366,9 +707,11 @@
 .menuItem {
   display: flex;
   width: 100%;
+  align-items: center;
   justify-content: space-between;
   gap: 1.5rem;
-  padding: 0.3rem 0.6rem;
+  height: 1.75rem;
+  padding: 0 0.5rem;
   border: 0;
   border-radius: 4px;
   background: none;
@@ -378,37 +721,54 @@
   cursor: pointer;
 }
 
-.menuItem:hover {
-  background: var(--ifm-color-primary);
-  color: #fff;
+.menuItem:hover,
+.menuItem:focus-visible {
+  background: var(--wb-select);
+  outline: none;
 }
 
 .menuItem kbd {
   border: 0;
   background: none;
   box-shadow: none;
-  color: inherit;
-  opacity: 0.7;
+  color: var(--wb-subtle);
+  font-family: inherit;
   font-size: 0.75rem;
 }
 
 .menuItemDanger {
-  color: var(--ifm-color-danger-dark);
+  color: var(--ifm-color-danger);
 }
 
 .menuSeparator {
   height: 1px;
-  margin: 0.25rem 0.2rem;
-  background: var(--ifm-color-emphasis-200);
+  margin: 0.25rem -0.25rem;
+  background: var(--wb-border);
 }
 
 /* ── Editor group ── */
 
+/* The editor groups, side by side, the one keys act on marked at its top when there are several. */
 .editorArea {
   display: flex;
   min-width: 0;
   min-height: 0;
+}
+
+.editorGroup {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 0;
   flex-direction: column;
+}
+
+.editorGroup + .editorGroup {
+  border-left: 1px solid var(--wb-border);
+}
+
+.editorGroupCurrent .tabs {
+  box-shadow: inset 0 1px 0 var(--wb-focus);
 }
 
 .editor {
@@ -422,36 +782,54 @@
   display: flex;
   flex: none;
   overflow-x: auto;
-  background: var(--wb-sidebar);
-  scrollbar-width: thin;
+  border-bottom: 1px solid var(--wb-border);
+  background: var(--wb-chrome);
+  scrollbar-width: none;
 }
 
 .tab {
   display: flex;
+  flex: none;
   align-items: center;
-  gap: 0.4rem;
-  height: 2.2rem;
-  padding: 0 0.4rem 0 0.8rem;
+  gap: 0.375rem;
+  height: 2.375rem;
+  margin-bottom: -1px;
+  padding: 0 0.375rem 0 0.75rem;
   border-right: 1px solid var(--wb-border);
-  border-top: 1px solid transparent;
-  color: var(--ifm-color-emphasis-700);
+  border-bottom: 1px solid transparent;
+  color: var(--wb-muted);
   cursor: pointer;
   white-space: nowrap;
 }
 
-.tabActive {
-  border-top-color: var(--wb-focus);
-  background: var(--ifm-background-color);
+.tab:hover {
   color: var(--ifm-font-color-base);
+}
+
+/* The open tab joins the editor below it: the same surface, no rule between,
+   and the accent along its top edge. */
+.tabActive {
+  border-bottom-color: var(--ifm-background-color);
+  background: var(--ifm-background-color);
+  box-shadow: inset 0 2px 0 var(--wb-focus);
+  color: var(--ifm-font-color-base);
+}
+
+.tabName {
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tabClose {
   position: relative;
-  width: 1.2rem;
-  height: 1.2rem;
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
   border: 0;
   border-radius: 4px;
   background: none;
+  color: inherit;
   cursor: pointer;
   opacity: 0;
 }
@@ -465,8 +843,8 @@
 .tabClose::before,
 .tabClose::after {
   position: absolute;
-  inset: 50% 25%;
-  height: 1.2px;
+  inset: 50% 28%;
+  height: 1.25px;
   background: currentColor;
   content: '';
 }
@@ -477,9 +855,9 @@
 /* An unsaved tab shows a dot where its close button is, until hovered. */
 .tabDirty:not(:hover)::before {
   inset: 50% 50%;
-  width: 8px;
-  height: 8px;
-  margin: -4px;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px;
   border-radius: 50%;
   transform: none;
 }
@@ -489,29 +867,30 @@
 }
 
 .tabClose:hover {
-  background: var(--wb-hover);
+  background: var(--wb-select);
 }
 
 /* A tab whose file was changed or deleted elsewhere while it had unsaved edits. */
 .tabElsewhere {
-  padding: 0 0.35rem;
+  padding: 0 0.375rem;
   border-radius: 999px;
   background: var(--ifm-color-warning-contrast-background);
-  color: var(--ifm-color-warning-darkest);
-  font-size: 0.7rem;
+  color: var(--ifm-color-warning-contrast-foreground);
+  font-size: 0.6875rem;
+  line-height: 1.125rem;
 }
 
-/* What a tab whose file was deleted elsewhere can do with its unsaved edits. */
+/* What a tab whose file was deleted or changed elsewhere can do with its unsaved edits. */
 .elsewhereBar {
   display: flex;
   flex: none;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.35rem 0.9rem;
+  padding: 0.5rem 1rem;
   border-bottom: 1px solid var(--wb-border);
   background: var(--ifm-color-warning-contrast-background);
-  color: var(--ifm-color-warning-darkest);
-  font-size: 0.8rem;
+  color: var(--ifm-color-warning-contrast-foreground);
+  font-size: 0.8125rem;
 }
 
 .elsewhereBar span {
@@ -519,16 +898,74 @@
 }
 
 .compareBar {
-  background: var(--wb-sidebar);
+  background: var(--wb-chrome);
   color: inherit;
 }
 
 .breadcrumbs {
+  display: flex;
   flex: none;
-  padding: 0.25rem 0.9rem;
+  align-items: center;
+  gap: 0.75rem;
+  height: 1.875rem;
+  padding: 0 1rem;
   border-bottom: 1px solid var(--wb-border);
-  color: var(--ifm-color-emphasis-600);
   font-size: 0.75rem;
+}
+
+.breadcrumbs ol {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  color: var(--wb-subtle);
+  list-style: none;
+  white-space: nowrap;
+}
+
+.breadcrumbs button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.breadcrumbs button:hover {
+  color: var(--ifm-font-color-base);
+  text-decoration: underline;
+}
+
+.breadcrumbs li + li::before {
+  margin: 0 0.375rem;
+  color: var(--ifm-color-emphasis-400);
+  content: '/';
+}
+
+.crumbCurrent {
+  overflow: hidden;
+  color: var(--ifm-font-color-base);
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+
+/* The app that edits the open file, when one does. */
+.appLink {
+  flex: none;
+  padding: 0.0625rem 0.5rem;
+  border: 1px solid var(--wb-border);
+  border-radius: 999px;
+  color: var(--ifm-color-emphasis-800);
+  font-weight: 500;
+}
+
+.appLink:hover {
+  border-color: var(--site-hairline-strong);
+  color: var(--ifm-font-color-base);
+  text-decoration: none;
 }
 
 .editorBody {
@@ -539,7 +976,7 @@
 
 .codemirror {
   height: 100%;
-  font-size: 0.85rem;
+  font-size: 0.8125rem;
 }
 
 .codemirror :global(.cm-editor) {
@@ -548,6 +985,7 @@
 
 .codemirror :global(.cm-scroller) {
   font-family: var(--ifm-font-family-monospace);
+  line-height: 1.6;
 }
 
 .media {
@@ -555,13 +993,15 @@
   height: 100%;
   place-items: center;
   overflow: auto;
-  padding: 1.5rem;
+  padding: 2rem;
+  background: var(--wb-chrome);
 }
 
 .media img {
   max-width: 100%;
   max-height: 100%;
-  box-shadow: 0 2px 12px rgb(0 0 0 / 15%);
+  border: 1px solid var(--wb-border);
+  border-radius: 4px;
 }
 
 .pdf {
@@ -578,7 +1018,7 @@
   align-items: center;
   justify-content: center;
   gap: 0.75rem;
-  color: var(--ifm-color-emphasis-600);
+  color: var(--wb-muted);
 }
 
 .placeholder p {
@@ -588,19 +1028,48 @@
 .statusBar {
   display: flex;
   flex: none;
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  height: 1.5rem;
-  padding: 0 0.9rem;
+  height: 1.625rem;
+  padding: 0 1rem;
+  border-top: 1px solid var(--wb-border);
+  background: var(--wb-chrome);
+  color: var(--wb-muted);
+  font-size: 0.6875rem;
+}
+
+.statusLeft {
+  display: flex;
+  min-width: 0;
   align-items: center;
-  background: var(--ifm-color-primary);
-  color: #fff;
-  font-size: 0.72rem;
+  gap: 0.4rem;
 }
 
 .statusRight {
   display: flex;
   gap: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.statusDot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.toneSaved { background: var(--ifm-color-success); }
+.toneWarning { background: var(--ifm-color-warning); }
+.toneDanger { background: var(--ifm-color-danger); }
+
+.tonePending {
+  background: var(--wb-subtle);
+  animation: pulse 1s ease-in-out infinite alternate;
+}
+
+@keyframes pulse {
+  to { opacity: 0.3; }
 }
 
 /* ── Nothing open ── */
@@ -611,35 +1080,222 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: var(--ifm-color-emphasis-600);
+  padding: 2rem;
+  color: var(--wb-muted);
+  text-align: center;
 }
 
 .welcome svg {
-  width: 72px;
-  height: 72px;
-  margin-bottom: 0.5rem;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 1rem;
+  padding: 0.5rem;
+  border: 1px solid var(--wb-border);
+  border-radius: var(--site-radius-lg);
+  background: var(--wb-chrome);
   fill: none;
-  stroke: var(--ifm-color-emphasis-300);
+  stroke: var(--wb-muted);
   stroke-linejoin: round;
-  stroke-width: 1;
+  stroke-width: 1.25;
 }
 
 .welcome h2 {
   margin-bottom: 0.25rem;
-  color: var(--ifm-color-emphasis-800);
+  color: var(--ifm-font-color-base);
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.welcome p {
+  margin: 0;
 }
 
 .welcome dl {
   display: grid;
-  grid-template-columns: auto auto;
-  gap: 0.4rem 1.25rem;
-  margin: 1.5rem 0 0;
+  width: min(18rem, 100%);
+  grid-template-columns: 1fr auto;
+  margin: 1.75rem 0 0;
+  border: 1px solid var(--wb-border);
+  border-radius: var(--site-radius);
+  font-size: 0.75rem;
+  text-align: left;
+}
+
+.welcome dt,
+.welcome dd {
+  display: flex;
+  align-items: center;
+  min-height: 2.125rem;
+  border-top: 1px solid var(--wb-border);
 }
 
 .welcome dt {
-  text-align: right;
+  padding-left: 0.875rem;
+  color: var(--ifm-color-emphasis-800);
 }
 
 .welcome dd {
+  justify-content: flex-end;
+  gap: 0.25rem;
   margin: 0;
+  padding-right: 0.875rem;
+}
+
+.welcome dt:first-of-type,
+.welcome dd:first-of-type {
+  border-top: 0;
+}
+
+/* A preview tab, which the next file previewed replaces: its name in italics, as VS Code shows one. */
+.tabPreview .tabName {
+  font-style: italic;
+}
+
+/* Where a dragged tab lands: before the tab marked, or at the end of the strip. */
+.tabDrop {
+  box-shadow: inset 2px 0 0 var(--wb-focus);
+}
+
+.tabsDrop {
+  box-shadow: inset -2px 0 0 var(--wb-focus);
+}
+
+/* ── The side bar's two views: the explorer, and Search ── */
+
+.sideView {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.sideView[hidden] {
+  display: none;
+}
+
+.search {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.searchFields {
+  display: flex;
+  gap: 0.125rem;
+  padding: 0 0.625rem 0.375rem 0.25rem;
+}
+
+.searchExpand {
+  display: grid;
+  width: 1.25rem;
+  place-items: start center;
+  padding: 0.4rem 0 0;
+  border: 0;
+  background: none;
+  color: var(--wb-muted);
+  cursor: pointer;
+}
+
+.searchInputs {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.searchField {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  height: 1.875rem;
+  padding: 0 0.25rem 0 0.5rem;
+  border: 1px solid var(--wb-border);
+  border-radius: 6px;
+  background: var(--ifm-background-color);
+}
+
+.searchField:focus-within {
+  border-color: var(--wb-focus);
+}
+
+.searchField input {
+  width: 0;
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.searchToggle {
+  flex: none;
+  padding: 0 0.3rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--wb-muted);
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  cursor: pointer;
+}
+
+.searchToggle:hover:not(:disabled) {
+  background: var(--wb-hover);
+}
+
+.searchToggleOn {
+  border-color: var(--wb-focus);
+  background: var(--wb-active);
+  color: var(--ifm-font-color-base);
+}
+
+.searchSummary {
+  margin: 0;
+  padding: 0 0.875rem 0.375rem;
+  color: var(--wb-muted);
+  font-size: 0.75rem;
+}
+
+/* Results never widen the side bar (.explorer's min-width): their lines are cut. */
+.searchResults {
+  min-height: 0;
+  flex: 1;
+  padding: 0 0.375rem 2rem;
+  overflow: auto;
+  contain: inline-size;
+}
+
+/* A result's file name stays whole beside its folder, which gives way first. */
+.searchFile .rowName {
+  flex: none;
+  max-width: 70%;
+}
+
+.searchFolder {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--wb-subtle);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+}
+
+.searchMatch {
+  padding-left: 2.25rem;
+}
+
+.searchPreview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.searchPreview mark {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ifm-color-warning) 35%, transparent);
+  color: inherit;
 }

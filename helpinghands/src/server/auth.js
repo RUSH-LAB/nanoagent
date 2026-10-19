@@ -52,11 +52,11 @@ const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID?.trim();
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET?.trim();
 if (!(GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET)) {
-  throw new Error('Mochi requires GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET: GitHub is the only way to sign in.');
+  throw new Error('RUSH requires GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET: GitHub is the only way to sign in.');
 }
 const SITE_URL = (process.env.SITE_URL || 'http://localhost:3000').replace(/\/$/, '');
 // The clients allowed to ask for a device code: the sync client (cli/rush.mjs)
-// and Mochi Lab's relay (runner/relay.mjs).
+// and RUSH Lab's relay (runner/relay.mjs).
 const DEVICE_CLIENT_IDS = new Set(['mochi-cli', 'mochi-desktop']);
 // The marketplace plugins every new account starts with installed.
 const PREINSTALLED_PLUGINS = require('js-yaml').load(fs.readFileSync(path.join(__dirname, 'preinstalled-plugins.yaml'), 'utf8')).plugins;
@@ -144,7 +144,7 @@ function resolveSecret() {
     return generated;
   }
 }
-// Also signs Mochi Lab's download tokens (lab-tokens.js).
+// Also signs RUSH Lab's connect links (lab-tokens.js).
 const AUTH_SECRET = resolveSecret();
 
 /**
@@ -256,7 +256,7 @@ const auth = betterAuth({
   ],
   socialProviders: {
     // Every sign-in copies the GitHub account's name, picture, primary email,
-    // username and bio onto the user, so what Mochi shows is what GitHub says now.
+    // username and bio onto the user, so what RUSH shows is what GitHub says now.
     github: {
       clientId: GITHUB_CLIENT_ID, clientSecret: GITHUB_CLIENT_SECRET, overrideUserInfoOnSignIn: true,
       mapProfileToUser: githubProfileFields,
@@ -323,7 +323,7 @@ const auth = betterAuth({
     // Better Auth is the organization and member lifecycle engine, and the
     // email invitation one, in both SQLite and PostgreSQL; invitations to a
     // GitHub account are org.js's own, accepted through Better Auth's
-    // addMember. The PostgreSQL option aliases its logical models onto Mochi's
+    // addMember. The PostgreSQL option aliases its logical models onto RUSH's
     // workspace-named control-plane tables.
     organization(organizationOptions({
       postgresEnabled: postgres.enabled,
@@ -352,6 +352,9 @@ const PUBLIC_PATHS = new Set([
   '/api/health',
   // Whether the sign-in screen offers sign-up.
   '/api/signup-policy',
+  // The scripts that install RUSH Lab (routes/lab.js).
+  '/install.sh',
+  '/install.ps1',
 ]);
 
 /**
@@ -368,10 +371,12 @@ const PUBLIC_PATHS = new Set([
  * origin, whose requests carry no cookies, and the files are the plugin's
  * published assets (routes/apps.js).
  *
- * Mochi Lab's install script, bundles and session: curl fetches them with a
- * download token or the upload token in place of a session (routes/lab.js).
+ * RUSH Lab's download, updates, sign-in, session and uploads: anyone downloads the app and its updates;
+ * its window signs in, and the app asks for a session, with a token in place of
+ * a session; its sign-in sends a visitor without a session to the sign-in page
+ * itself; and the release job uploads with the upload token (routes/lab.js).
  */
-const PUBLIC_PATTERNS = [/^\/api\/invite\/[^/]+$/, /^\/api\/apps\/[^/]+\/ui\/.+$/, /^\/api\/lab\/(?:install\.sh|session|bundles\/[^/]+)$/];
+const PUBLIC_PATTERNS = [/^\/api\/invite\/[^/]+$/, /^\/api\/apps\/[^/]+\/ui\/.+$/, /^\/api\/lab\/(?:session|sign-in|window-sign-in|bundles\/[^/]+|updates\/[^/]+(?:\/app\.tar\.gz)?)$/];
 
 /** Whether `pathname` may be served without a session. */
 function isPublicPath(pathname) {

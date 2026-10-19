@@ -1,6 +1,6 @@
 # Word Check
 
-NanoAgent's test fixture: a `nanoagent.plugin/v1` plugin, created by
+NanoAgent's test fixture: a `nanoagent.plugin/v0001` plugin, created by
 `nanoagent plugin new`, with one `runner: decide` task. A word is `known` when
 a reference word equals it, `changed` when one equals it ignoring case, `new`
 when none does, and `unreadable` when it is not all letters.
@@ -30,7 +30,6 @@ when none does, and `unreadable` when it is not all letters.
 ├── uv.lock
 ├── .gitignore
 ├── .env             # environment variable NAMEs this plugin needs, never values
-├── run.sh           # exits 0 when this environment can run the plugin
 ├── src/plugin/      # the MCP server: __main__.py, its IMPLEMENTATIONS, and the plugin's own modules
 ├── tests/
 ├── ui/              # how the page draws the outputs: renderers.js and renderers.css
@@ -54,8 +53,7 @@ and the workspace and returning its output; write its `verify_input` /
 Tasks table.
 
 `LICENSE` stays the template's, `.gitignore`
-keeps its entries, `run.sh` keeps its checks first (add the plugin's own after
-them), and this README keeps its title and sections: NanoAgent refuses a plugin
+keeps its entries, and this README keeps its title and sections: NanoAgent refuses a plugin
 that changes them (rule 10 of `nanoagent.plugin.manifest`). Renaming the
 plugin means renaming it in `nanoagent.yaml`, this title and `LICENSE` together.
 

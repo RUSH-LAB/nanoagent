@@ -162,7 +162,7 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     assert.equal((await runners.saveKeys('u2', {OPENROUTER_API_KEY: 'sk-1'})).status, 409);
   });
 
-  it('gives a computer without an OpenRouter key Mochi\'s, once a connection, and none to one with its own', async () => {
+  it('gives a computer without an OpenRouter key RUSH\'s, once a connection, and none to one with its own', async () => {
     const given = [];
     runners = createRunners({
       resolveIdentity: async () => ({ok: true, identity: {userId: 'u1'}}),
@@ -229,9 +229,28 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     nano.finishers[0]();
     assert.equal((await running).text, 'hello world');
     assert.deepEqual(deltas, ['hello ', 'world']);
-    // Released once Mochi kept it.
+    // Released once RUSH kept it.
     runners.release('u1', 'run-1');
     await until(() => !held.has('run-1'));
+  });
+
+  it('says how many requests are going, a held run until RUSH releases it, so the app updates only once none is', async () => {
+    const counts = [];
+    await dialIn('member-token', {onEvent: event => event.event === 'requests' && counts.push(event.count)});
+    const ai = await runners.aiFor('u1');
+    await ai.stream({input: 'hi'});
+    await until(() => counts.at(-1) === 0);
+    assert.deepEqual(counts, [1, 0]);
+    counts.length = 0;
+    const deltas = [];
+    const running = ai.stream({input: 'slow', run: {id: 'run-1'}, onDelta: text => deltas.push(text)});
+    await until(() => deltas.length === 1);
+    nano.finishers[0]();
+    await running;
+    // Finished, but still the computer's until RUSH has kept it.
+    assert.equal(counts.at(-1), 1);
+    runners.release('u1', 'run-1');
+    await until(() => counts.at(-1) === 0);
   });
 
   it('hands a held run its computer still has to a server started since, from its first frame', async () => {
@@ -259,7 +278,7 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     await before;
   });
 
-  it('finishes a plugin run in the Mochi started since, keeping its turn, from the computer that held it', async () => {
+  it('finishes a plugin run in the RUSH started since, keeping its turn, from the computer that held it', async () => {
     const held = new Map();
     const sessions = fakeSessions();
     const agentSync = {prepare: async () => ({workspace: 'folder-1', sent: {}}), finish: async () => {}};
@@ -288,12 +307,12 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     await first.cancel({userId: 'u1', workspaceId: 'lab'}, SESSION);
   });
 
-  it('fails a held run at once when a new Mochi Lab without it says hello before the old one\'s socket closes', async () => {
+  it('fails a held run at once when a new RUSH Lab without it says hello before the old one\'s socket closes', async () => {
     await dialIn('member-token', {held: new Map()});
     const deltas = [];
     const running = (await runners.aiFor('u1')).stream({input: 'slow', run: {id: 'run-1'}, onDelta: text => deltas.push(text)});
     await until(() => deltas.length);
-    // Another Mochi Lab signs in: Mochi replaces the first, whose close it hears after the new hello.
+    // Another RUSH Lab signs in: RUSH replaces the first, whose close it hears after the new hello.
     relays.push(connect({site, nanoagent: nanoUrl, token: 'member-token', device: 'desktop', held: new Map(), onEvent: () => {}}));
     assert.deepEqual(await running, {error: 'RUSH Lab stopped while answering', status: 503});
     nano.finishers[0]();

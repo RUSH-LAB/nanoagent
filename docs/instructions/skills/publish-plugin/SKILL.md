@@ -7,7 +7,7 @@ description: Build a NanoAgent plugin from the reference plugin, zeyuyang8/arxiv
 
 A NanoAgent plugin packages one checkable job: typed tools served over MCP,
 tasks built from those tools, a deterministic verifier, and a product page.
-RUSH Lab lists published plugins. Each member's Mochi Lab desktop app runs
+RUSH Lab lists published plugins, and each member's RUSH Lab desktop app runs
 them on that member's own computer.
 
 The reference plugin is https://github.com/zeyuyang8/arxiv-source, a full
@@ -108,7 +108,9 @@ its dependencies and its `slimconfig` source unchanged.
 ## 5. Write the manifest: `nanoagent.yaml`
 
 - `version` is PEP 440 and matches `pyproject.toml`'s `version`.
-- `nanoagent: ~=0.5.0` is the one NanoAgent minor version the plugin runs on.
+- `spec: nanoagent.plugin/v0001` is the plugin format it follows. Every NanoAgent
+  that runs that spec runs the plugin, so it never needs a new version just
+  because NanoAgent has one.
 - `runtime.command` is exactly `[uv, run, --frozen, python, -m, plugin]`.
 - `permissions.network.hosts` lists bare hostnames only (no scheme, port or
   path), and only the ones the plugin needs. `filesystem.write` is
@@ -122,7 +124,7 @@ its dependencies and its `slimconfig` source unchanged.
     It may never copy from the reference tool's output.
 
 Follow slimconfig's rules: the file keeps its class headers (such as
-`_ > nanoagent.plugin.manifest.ManifestConfig:`), sets every field, and adds
+`_ > nanoagent.plugin.v0001.ManifestConfig:`), sets every field, and adds
 no other field.
 
 ## 6. Write the verifier and its tests
@@ -181,8 +183,6 @@ sandbox does, with `build_output(plain_output(...), Class)`.
   every task under `## Tools`.
 - `.env` lists the environment variable names the plugin needs, one per
   line, and never their values.
-- `run.sh` keeps the reference plugin's checks first. Add any checks of your own
-  after them.
 - `.gitignore` keeps every entry the reference plugin has.
 
 When everything above is done, set `status: ready`.
@@ -196,15 +196,16 @@ uv lock                 # after any pyproject.toml change; commit uv.lock
 uv sync --extra dev
 uv run pytest
 uv run ruff check .
-bash run.sh && echo ok  # exits 0 when this machine can run the plugin
+uv lock --check  # uv.lock matches pyproject.toml
 ```
 
 Then walk this list by hand:
 
 - [ ] The top level holds only `nanoagent.yaml`, `contract.py`, `README.md`,
-      `LICENSE`, `pyproject.toml`, `uv.lock`, `.gitignore`, `.env`, `run.sh`,
-      `src/`, `tests/`, `verifier/`, `ui/` and `product/`. No reports, run
-      outputs or notes.
+      `LICENSE`, `pyproject.toml`, `uv.lock`, `.gitignore`, `.env`,
+      `src/`, `tests/`, `verifier/`, `ui/` and `product/`, and a coding
+      agent's instructions, `AGENTS.md`, `CLAUDE.md` and `GEMINI.md`, which
+      are never packed. No reports, run outputs or notes.
 - [ ] The `id`, README title, `nanoagent-<id>` project name and LICENSE
       holder are all renamed. `version` matches in both files.
 - [ ] Every `Tool` and `Task` appears in `nanoagent.yaml`, the README, the
@@ -218,19 +219,24 @@ Then walk this list by hand:
    `gh repo create <id> --public --source . --push`.
 2. The person signs in at https://rush-lab.org and opens their workspace, for
    COMP 480/580 https://rush-lab.org/w/comp-480-580.
-3. They open Mochi Lab on their computer and approve its request to connect.
-   If Mochi Lab has no OpenRouter key, RUSH Lab gives it one with $10 of
+3. They open the RUSH Lab app on their computer and approve its request to connect.
+   If the app has no OpenRouter key, RUSH Lab gives it one with $10 of
    credit. They can save their own key and choose the model under
    **Settings → AI**.
-4. In the workspace's **Marketplace**, they select **Submit your artifact**.
-   On a workspace without submissions, the button is **+ Publish a plugin**.
+4. They open **Marketplace** in the navigation bar and select **Submit Your
+   Artifact** at the foot of its sidebar. On a workspace without submissions,
+   the link is **Publish a Plugin**.
    They paste the repository URL, read the terms, tick the statement, and
    submit. For a plugin in a subfolder, the URL is
    `https://github.com/<owner>/<repo>/tree/<branch>/<folder>`.
 5. RUSH Lab checks every rule without running the plugin and lists every rule
    the plugin breaks. Fix each rule in the code, push, and submit again.
    Submitting again also publishes each later version. Bump `version` in both
-   files and run `uv lock` each time.
+   files and run `uv lock` each time: a version must be newer, by PEP 440, than
+   the latest one published. The marketplace tells you when GitHub has changes
+   to your plugin that its latest version does not have. A member's install updates itself to each new
+   version unless they turn off **Auto-update** under **Settings → Plugins**;
+   **Update**, there, in the Marketplace's **Updates** view or on the plugin's Dashboard, then takes the newest.
 6. Once a workspace owner adds the plugin, the person opens it, asks the chat
    for a task, and checks the verdict on the result card. Passing the
    publication checks only shows the format is right. The verifier's tests
@@ -247,7 +253,8 @@ Lab, and emails it to the course staff instead.
 | `<id> is one of NanoAgent's own plugins` | Choose a new id. |
 | `Your uploads may hold N MB in all` | Remove one of your other published plugins, or shrink this one. |
 | `uv.lock is out of date with pyproject.toml` | Run `uv lock` and commit the result. |
-| A broken README, LICENSE, `.gitignore` or `run.sh` rule | Restore the reference plugin's version of that part, then add yours after it. |
+| `nanoagent.yaml names the NanoAgent it was made for` | The plugin was made before plugins declared their spec: run `nanoagent plugin migrate .`, then commit the result. |
+| A broken README, LICENSE, or `.gitignore` rule | Restore the reference plugin's version of that part, then add yours after it. |
 | A `decide` field that cannot be filled | Make the field an Enum or bool, or make sure an earlier tool output or the task input holds a value of exactly its type. |
 | A verifier import or call that is not allowed | Replace it with a pure standard-library equivalent, or move the work into a tool. |
 | A `ready` product page that still has placeholder text | Rewrite the tagline, summary, highlights and steps for this plugin. |

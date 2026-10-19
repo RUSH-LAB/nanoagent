@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import NavbarLogo from '@theme/Navbar/Logo';
-import { useLocation } from '@docusaurus/router';
+import { useHistory, useLocation } from '@docusaurus/router';
 import { useClickOutside } from '@site/src/hooks/useClickOutside';
 import { switchWorkspace, workspaceSlugFromPath } from '@site/src/utils/workspaces';
 import { useAccount } from '@site/src/utils/account';
@@ -41,8 +41,14 @@ function Check() {
   );
 }
 
-export default function WorkspaceSwitcher() {
+/**
+ * `compact`, in the shell's activity bar (components/Shell): the workspace's
+ * mark alone, whose menu opens beside it; choosing the workspace you are in
+ * there opens its home.
+ */
+export default function WorkspaceSwitcher({compact = false}) {
   const location = useLocation();
+  const history = useHistory();
   const workspaceSite = useWorkspaceSite();
 
   const { workspaces, defaultWorkspaceId: activeId } = useAccount();
@@ -81,6 +87,8 @@ export default function WorkspaceSwitcher() {
   async function choose(workspace) {
     if (workspace.slug === active?.slug) {
       setOpen(false);
+      // In the activity bar the workspace you are in is also the way to its home.
+      if (compact) history.push(homeHref);
       return;
     }
     setBusy(true);
@@ -97,6 +105,64 @@ export default function WorkspaceSwitcher() {
     } finally {
       setBusy(false);
     }
+  }
+
+  const menu = open && (
+    <div className={clsx(styles.menu, compact && styles.compactMenu)} role="menu">
+      {!compact && <p className={styles.heading}>Workspaces</p>}
+      {workspaces.map((workspace) => (
+        <button
+          key={workspace.id}
+          type="button"
+          role="menuitem"
+          className={clsx(styles.option, workspace.id === active.id && styles.current)}
+          disabled={busy}
+          onClick={() => choose(workspace)}
+        >
+          <span className={styles.workspaceMark} aria-hidden="true">
+            {workspace.name.trim().charAt(0).toUpperCase() || 'W'}
+          </span>
+          <span className={styles.optionName}>{workspace.name}</span>
+          <span className={styles.slot}>{workspace.id === active.id && <Check />}</span>
+        </button>
+      ))}
+
+      {error && <p className={styles.error} role="alert">{error}</p>}
+
+      <hr className={styles.divider} />
+      <Link
+        to="/new-workspace"
+        role="menuitem"
+        className={clsx(styles.option, styles.create)}
+        onClick={() => setOpen(false)}
+      >
+        <span className={styles.createMark} aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="14" height="14">
+            <path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+        </span>
+        <span className={styles.optionName}>New Workspace</span>
+      </Link>
+    </div>
+  );
+
+  if (compact) {
+    return (
+      <div className={styles.compact} ref={wrapper}>
+        <button
+          type="button"
+          className={styles.compactMark}
+          onClick={() => setOpen((wasOpen) => !wasOpen)}
+          aria-expanded={open}
+          aria-haspopup="menu"
+          title={`${displayName}: switch workspace`}
+          aria-label={`Switch workspace. Current workspace: ${displayName}`}
+        >
+          {displayName.trim().charAt(0).toUpperCase() || 'W'}
+        </button>
+        {menu}
+      </div>
+    );
   }
 
   return (
@@ -126,43 +192,7 @@ export default function WorkspaceSwitcher() {
         </svg>
       </button>
 
-      {open && (
-        <div className={styles.menu} role="menu">
-          <p className={styles.heading}>Workspaces</p>
-          {workspaces.map((workspace) => (
-            <button
-              key={workspace.id}
-              type="button"
-              role="menuitem"
-              className={clsx(styles.option, workspace.id === active.id && styles.current)}
-              disabled={busy}
-              onClick={() => choose(workspace)}
-            >
-              <span className={styles.workspaceMark} aria-hidden="true">
-                {workspace.name.trim().charAt(0).toUpperCase() || 'W'}
-              </span>
-              <span className={styles.optionName}>{workspace.name}</span>
-              <span className={styles.slot}>{workspace.id === active.id && <Check />}</span>
-            </button>
-          ))}
-
-          {error && <p className={styles.error} role="alert">{error}</p>}
-
-          <Link
-            to="/new-workspace"
-            role="menuitem"
-            className={clsx(styles.option, styles.create)}
-            onClick={() => setOpen(false)}
-          >
-            <span className={styles.createMark} aria-hidden="true">
-              <svg viewBox="0 0 16 16" width="14" height="14">
-                <path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
-            </span>
-            <span className={styles.optionName}>New Workspace</span>
-          </Link>
-        </div>
-      )}
+      {menu}
     </div>
   );
 }

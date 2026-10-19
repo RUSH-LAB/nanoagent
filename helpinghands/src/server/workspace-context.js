@@ -7,6 +7,8 @@
  * do not meet. In particular, activeOrganizationId is deliberately absent:
  * changing a preference in one tab must not change what another tab may read.
  */
+const {APP_UI_ROUTE, LAB_ROUTE, MARKET_ROUTE} = require('./routes/paths');
+
 const WORKSPACE_ROLES = Object.freeze(['owner', 'editor', 'viewer']);
 
 // Existing Better Auth rows use its default vocabulary. Reads normalize them
@@ -15,7 +17,7 @@ const WORKSPACE_ROLES = Object.freeze(['owner', 'editor', 'viewer']);
 const LEGACY_ROLE_MAP = Object.freeze({owner: 'owner', admin: 'editor', member: 'viewer'});
 
 // `apps:use` is running the workspace's apps in the member's own sessions, on
-// their own files (home/<user>/agent/), which every member may.
+// their own files (home/<user>/plugins/<plugin>/files/), which every member may.
 const PERMISSIONS = Object.freeze({
   owner: new Set([
     'workspace:manage', 'members:manage', 'content:read', 'content:create',
@@ -46,10 +48,10 @@ function isGlobalApiPath(pathname) {
     || value.startsWith('/api/auth/')
     || value.startsWith('/api/public/')
     || /^\/api\/invite\/[^/]+(?:\/accept)?$/.test(value)
-    || /^\/api\/apps\/[^/]+\/ui\/.+$/.test(value)
-    || /^\/api\/market(?:\/[^/]+(?:\/package)?)?$/.test(value)
-    // Mochi Lab's one-line install and its bundles (routes/lab.js).
-    || /^\/api\/lab\/(?:install|install\.sh|session|bundles\/[^/]+)$/.test(value)
+    // The routes that serve them match with the same patterns (routes/paths.js).
+    || APP_UI_ROUTE.test(value)
+    || MARKET_ROUTE.test(value)
+    || LAB_ROUTE.test(value)
     || /^\/api\/users\/[^/]+\/role$/.test(value);
 }
 

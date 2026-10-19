@@ -1,9 +1,9 @@
 /**
- * Mochi Lab's folder of its member's own files. For each workspace they are in,
+ * RUSH Lab's folder of its member's own files. For each workspace they are in,
  * `<root>/<slug>/` is kept in sync both ways (sync.mjs) with their home there,
  * `home/<user>/`: private to them, so only they and their plugin runs write it,
  * and the two sides never race another member. The workspace's shared files
- * stay on Mochi.
+ * stay on RUSH.
  *
  * A folder's .mochi/state.json names its workspace by id, so a workspace whose
  * slug changes keeps its folder, renamed to the new slug. A folder of a
@@ -42,7 +42,7 @@ const stateFile = folder => path.join(folder, STATE_DIR, 'state.json');
  */
 export function syncFiles({site, token, userId, root, log}) {
   const request = connect(site, token);
-  const rejected = new Map(); // workspace id -> the paths Mochi refused, by hash
+  const rejected = new Map(); // workspace id -> the paths RUSH refused, by hash
   let running = false;
   let pending = false;
   let pausedUntil = 0;

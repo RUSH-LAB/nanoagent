@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useRef, useState} from 'react';
 import Layout from '@theme/Layout';
 import Link from '@docusaurus/Link';
 import {useLocation} from '@docusaurus/router';
+import {clientPlatform} from '@site/src/platform/client';
 import API_BASE, {apiFetch} from '@site/src/utils/api';
 import styles from './page.module.css';
 
@@ -347,7 +348,7 @@ function PaperInspector({paper, bibliographyPath, onUpdated, onDeleted}) {
   };
 
   const deletePaper = async () => {
-    if (!window.confirm(`Delete “${paper.title || paper.key}” from this workspace?`)) return;
+    if (!(await clientPlatform.dialogs.confirm(`Delete “${paper.title || paper.key}” from this workspace?`))) return;
     setDeleting(true);
     setMessage('');
     try {

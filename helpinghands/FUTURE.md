@@ -22,70 +22,60 @@ To decide:
 Bringing back the navbar items: they are removed in the commit that added this
 file, and `git show` on it restores the code.
 
-## A plugin run that resumes after Mochi Lab quits
+## A search engine
 
-A plugin run survives Mochi restarting and Mochi Lab's connection dropping for less than ten
-minutes (`HOLD_MS`, `src/runner/protocol.js`): the relay holds the run, and Mochi takes it up
-again (`src/server/app-runs.js`). When Mochi Lab itself quits, or the computer shuts down, the
+The navbar's search pill is hidden for now, and so is the dialog it and the `/` key opened
+(`components/SearchTrigger`, `components/SearchDialog`). Their code stays, as does the search
+page (`/content-search`, also in the command palette). Today search is three requests
+(`hooks/useContentSearch.js`): `/api/content/search` matches a document's path or title,
+`/api/search` runs BM25 over the workspace's markdown, and `/api/references` the bibliography's
+papers. We will need a real search engine before bringing it back.
+
+To decide:
+
+- What it searches: documents only, or also plugin sessions, apps, the marketplace and the
+  files apps saved.
+- Where the index lives and how it stays current as content changes, per workspace.
+- Bringing back the pill: it is removed in the commit that added this section, and `git show` on
+  it restores the code.
+
+## A plugin run that resumes after RUSH Lab quits
+
+A plugin run survives RUSH restarting and RUSH Lab's connection dropping for less than ten
+minutes (`HOLD_MS`, `src/runner/protocol.js`): the relay holds the run, and RUSH takes it up
+again (`src/server/app-runs.js`). When RUSH Lab itself quits, or the computer shuts down, the
 run is gone with NanoAgent's process. The session records the message as interrupted, and the
 member sends it again.
 
 Resuming it would mean NanoAgent saving a run's state to disk after each step (each model call
-and each tool call) and, when Mochi Lab starts again, going on from the last step it finished.
+and each tool call) and, when RUSH Lab starts again, going on from the last step it finished.
 The relay would then list that run in its hello as it lists a held one now.
 
 To decide:
 
 - Whether runs get long enough to need it. Today's plugin tasks take seconds to a couple of
   minutes, so quitting mid-run is rare.
-- The step that was in progress when Mochi Lab quit runs again, so every plugin tool has to be
+- The step that was in progress when RUSH Lab quit runs again, so every plugin tool has to be
   safe to run twice. That would be a new rule for every plugin.
 - A model call that runs again is charged again.
-- Where the saved state lives, when it is removed, and how long a run may wait for Mochi Lab to
+- Where the saved state lives, when it is removed, and how long a run may wait for RUSH Lab to
   start again before it is recorded as interrupted.
 
-## Mochi Lab for Windows and Linux
+## RUSH Lab for Windows
 
-Mochi Lab ships for macOS on Apple silicon only: `.github/workflows/helpinghands-desktop.yml`
-builds just that bundle. The app's own code still knows the other two targets
-(`desktop/scripts/stage.mjs` stages Node for `x86_64-pc-windows-msvc` and
-`x86_64-unknown-linux-gnu`), so building them again means adding their matrix entries back
-(`windows-latest`, and `ubuntu-22.04` with WebKitGTK installed) along with their bundle paths
-(`msi`, `nsis`, `appimage`, `deb`).
+RUSH Lab, the app (`desktop/`), ships for macOS only, Apple silicon and Intel:
+`.github/workflows/helpinghands-desktop.yml` builds those two dmgs. Linux is not planned.
+`npm run build:windows` (in `desktop/`, on Windows) builds a per-user NSIS installer: plugins run
+in an AppContainer (`nanoagent/docs/plans/windows-sandbox.md`), lab.mjs and lab.rs run there, and
+the app's data folder is `%LOCALAPPDATA%\lab.mochi.lab`.
 
 To decide:
 
-- Windows has no plugin sandbox yet, so the app refuses to start there, and NanoAgent runs each
-  plugin's `run.sh` with `bash` (`desktop/PLAN.md`). Shipping it needs a sandbox, and a way to
-  run plugins without bash.
-- Linux sandboxes plugins with `bwrap`, so it is closer, but nobody has tested a bundle on a
-  member's machine.
-- Neither bundle is signed.
-- The one-line install (`src/runner/install.sh`, `desktop/PLAN.md`) runs on macOS and on x86-64
-  Linux, and on Windows only inside WSL2, as Linux. Windows itself needs a plugin sandbox first:
-  lab.mjs, like the app, refuses to run plugins unconfined. Linux on ARM (and WSL2 on ARM Windows)
-  needs its own bundle, built on an ARM runner.
-
-## The Mochi Lab desktop app
-
-Members do not need the desktop app (`desktop/src-tauri`): Settings → AI gives them a one-line
-install that runs the same relay and compiled NanoAgent in the background, without a window
-(`src/runner/lab.mjs`, `desktop/PLAN.md`). The app is kept for later, unreleased.
-`.github/workflows/helpinghands-desktop.yml` builds it only in a run by hand, and keeps the dmg only as a workflow artifact of the private repository, which members
-cannot download.
-
-To decide, if it is released:
-
-- What it adds over the one-line install: a window on the site, the keys page, a menu-bar
-  presence, an installer members double-click.
-- Where members download it: Mochi could serve the dmg as it serves the one-line install's
-  bundles (`lab_bundle`, `routes/lab.js`), or GitHub Releases in a public repository that holds
-  only bundles.
-- Auto-update: `tauri-plugin-updater` needs a public `latest.json` beside the bundles.
-- Signing: the app is ad-hoc signed, so a downloaded copy opens only after right-click → Open.
-- Both use port 47311, so a member runs one or the other.
-- First check before release: open the app against the production Mochi it serves, sign in,
-  see the relay connect, and run a plugin.
+- The window signs in through the member's browser, which needs rushlab:// to reach the running
+  app on Windows too, and a random state without `/dev/urandom` (`main.rs`).
+- CI builds no installer, and it is unsigned: SmartScreen warns on a downloaded one. Nor does it
+  update itself: the site serves updates for the Macs only (`routes/lab.js`).
+- Quitting kills lab.mjs and its services at once (`taskkill /T`), as Windows has no SIGTERM.
 
 ## Chat in RUSH Lab
 

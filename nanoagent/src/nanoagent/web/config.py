@@ -38,7 +38,7 @@ class WebConfig(AgentDefinitionConfig):
     # a CPython interpreter's path, or a command on PATH, always named.
     plugin_python: str = MISSING
     # What every plugin process runs in (see nanoagent.plugin.sandbox): `bwrap`, `seatbelt` on
-    # macOS, or `none`, which confines nothing.
+    # macOS, `appcontainer` on Windows, or `none`, which confines nothing.
     sandbox: str = MISSING
     # Root of the scratch workspaces plugin runs use, one per run (see nanoagent.web.workspaces).
     workspaces: str = MISSING
@@ -54,7 +54,7 @@ class WebConfig(AgentDefinitionConfig):
     heartbeat_seconds: float = MISSING
     include_reasoning: bool = MISSING
     # Whether a run may name its own model (any in the PI catalog its credentials reach) and set
-    # its settings beyond the limits above: for a NanoAgent its member runs for themselves (Mochi
+    # its settings beyond the limits above: for a NanoAgent its member runs for themselves (RUSH
     # Lab), whose keys and spending are theirs. Loopback hosts only.
     run_models: bool = MISSING
 
@@ -74,8 +74,8 @@ class WebConfig(AgentDefinitionConfig):
         loopback = self.host in {"127.0.0.1", "localhost", "::1"}
         if not loopback and not self.api_token:
             raise ValueError("api_token is required when the web host is not loopback-only")
-        if self.sandbox not in {"bwrap", "seatbelt", "none", MISSING}:
-            raise ValueError(f"sandbox must be bwrap, seatbelt or none, got {self.sandbox!r}")
+        if self.sandbox not in {"bwrap", "seatbelt", "appcontainer", "none", MISSING}:
+            raise ValueError(f"sandbox must be bwrap, seatbelt, appcontainer or none, got {self.sandbox!r}")
         if self.run_models is True and isinstance(self.host, str) and not loopback:
             raise ValueError("run_models is for a NanoAgent its member runs on their own computer (a loopback host)")
         if self.agent.events is not None:

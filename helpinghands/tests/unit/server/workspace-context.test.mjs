@@ -93,8 +93,17 @@ describe('workspace API paths', () => {
 
 describe('global API allowlist', () => {
   it('keeps account and pre-authentication endpoints outside workspace scope', () => {
-    for (const path of ['/api/health', '/api/workspaces', '/api/preferences', '/api/auth/sign-in/social', '/api/invite/token', '/api/invite/token/accept', '/api/users/u1/role', '/api/users/me/invitations', '/api/org']) {
+    for (const path of ['/api/health', '/api/workspaces', '/api/preferences', '/api/auth/sign-in/social', '/api/invite/token', '/api/invite/token/accept', '/api/users/u1/role', '/api/users/me/invitations', '/api/org', '/api/market', '/api/market/p1', '/api/market/p1/package', '/api/market/p1/source']) {
       assert.equal(isGlobalApiPath(path), true, path);
+    }
+  });
+
+  it('lets through every request the marketplace, RUSH Lab and plugin page routes serve, and only those', () => {
+    for (const path of ['/api/lab/connect', '/api/lab/bundles/aarch64-apple-darwin', '/api/lab/updates/x86_64-apple-darwin/app.tar.gz', '/api/apps/abc/ui/main/0123456789abcdef/index.html']) {
+      assert.equal(isGlobalApiPath(path), true, path);
+    }
+    for (const path of ['/api/market/p1/other', '/api/lab/other', '/api/apps/abc/sessions']) {
+      assert.equal(isGlobalApiPath(path), false, path);
     }
   });
 

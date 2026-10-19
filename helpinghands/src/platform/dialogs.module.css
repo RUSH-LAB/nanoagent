@@ -1,0 +1,59 @@
+.dialog {
+  width: min(420px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid var(--ifm-color-emphasis-300, #d0d7de);
+  border-radius: 10px;
+  background: var(--ifm-background-surface-color, #fff);
+  color: var(--ifm-font-color-base);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+.dialog::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.message {
+  margin: 0 0 16px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.input {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0 0 16px;
+  padding: 8px 10px;
+  border: 1px solid var(--ifm-color-emphasis-400, #b0b7be);
+  border-radius: 6px;
+  background: var(--ifm-background-color, #fff);
+  color: var(--ifm-font-color-base);
+  font: inherit;
+}
+
+.buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.button {
+  padding: 6px 16px;
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ok {
+  border: 1px solid var(--ifm-color-primary, #3b82f6);
+  background: var(--ifm-color-primary, #3b82f6);
+  color: #fff;
+}
+
+.cancel {
+  border: 1px solid var(--ifm-color-emphasis-400, #b0b7be);
+  background: none;
+  color: var(--ifm-font-color-base);
+}

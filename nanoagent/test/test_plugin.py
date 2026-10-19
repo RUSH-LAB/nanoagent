@@ -12,6 +12,8 @@ from pathlib import Path
 import pytest
 
 from nanoagent.plugin import call_tool, load_manifest, plugin_tools
+from nanoagent.plugin.authoring import check_plugin
+from nanoagent.plugin.manifest import SPECS
 
 
 CONTRACT = """from dataclasses import dataclass
@@ -43,22 +45,22 @@ TOOLS = {Tool.ECHO: (EchoInput, EchoOutput)}
 TASKS = {Task.ECHO: (EchoInput, EchoOutput)}
 """
 
-MANIFEST = """_ > nanoagent.plugin.manifest.ManifestConfig:
+MANIFEST = """_ > nanoagent.plugin.v0001.ManifestConfig:
 id: echo
 name: Echo
 version: 1.0.0
 status: ready
-nanoagent: ~=0.5.0
-runtime > nanoagent.plugin.manifest.RuntimeConfig:
+spec: nanoagent.plugin/v0001
+runtime > nanoagent.plugin.v0001.RuntimeConfig:
   type: mcp_stdio
   command: [uv, run, --frozen, python, -m, plugin]
-permissions > nanoagent.plugin.manifest.PermissionsConfig:
-  network > nanoagent.plugin.manifest.NetworkConfig: {hosts: []}
-  filesystem > nanoagent.plugin.manifest.FilesystemConfig: {write: [workspace]}
-tools > dict[contract.Tool, nanoagent.plugin.manifest.ToolConfig]:
+permissions > nanoagent.plugin.v0001.PermissionsConfig:
+  network > nanoagent.plugin.v0001.NetworkConfig: {hosts: []}
+  filesystem > nanoagent.plugin.v0001.FilesystemConfig: {write: [workspace]}
+tools > dict[contract.Tool, nanoagent.plugin.v0001.ToolConfig]:
   echo:
     description: Echo input
-tasks > dict[contract.Task, nanoagent.plugin.manifest.TaskConfig]:
+tasks > dict[contract.Task, nanoagent.plugin.v0001.TaskConfig]:
   echo:
     description: Echo input
     runner: tool
@@ -68,7 +70,7 @@ tasks > dict[contract.Task, nanoagent.plugin.manifest.TaskConfig]:
 """
 
 
-PRODUCT = """_ > nanoagent.plugin.manifest.ProductConfig:
+PRODUCT = """_ > nanoagent.plugin.v0001.ProductConfig:
 tagline: Echo what you say
 summary: It repeats its input.
 highlights: [Exact, Instant]
@@ -116,7 +118,7 @@ pythonpath = ["."]
 
 @functools.cache
 def _uv_lock() -> str:
-    """The fixture's lock, as this machine's uv writes it, so the template's run.sh accepts it."""
+    """The fixture's lock, as this machine's uv writes it, so the preflight accepts it."""
     with tempfile.TemporaryDirectory() as folder:
         (Path(folder) / "pyproject.toml").write_text(PYPROJECT, encoding="utf-8")
         subprocess.run(["uv", "lock", "--quiet"], cwd=folder, check=True)
@@ -124,7 +126,7 @@ def _uv_lock() -> str:
 
 
 def write_plugin(root: Path) -> Path:
-    from nanoagent.plugin.manifest import TEMPLATE
+    from nanoagent.plugin.authoring import TEMPLATE
 
     for name, content in {
         "README.md": README,
@@ -133,7 +135,6 @@ def write_plugin(root: Path) -> Path:
         "uv.lock": _uv_lock(),
         ".gitignore": (TEMPLATE / "dot.gitignore").read_text(),
         ".env": "# no variables\n",
-        "run.sh": (TEMPLATE / "run.sh").read_text(),
         "src/plugin/__init__.py": "",
         "src/plugin/__main__.py": SERVER,
         "tests/test_verifier.py": "",
@@ -162,11 +163,11 @@ def write_plugin(root: Path) -> Path:
 
 
 def test_loads_strict_plugin_manifest(tmp_path: Path) -> None:
-    from nanoagent.plugin.manifest import RUNTIME_COMMAND
+    from nanoagent.plugin.v0001 import RUNTIME_COMMAND
 
     manifest = load_manifest(write_plugin(tmp_path).parent)
     assert manifest.command == RUNTIME_COMMAND
-    assert manifest.public()["spec"] == "nanoagent.plugin/v1"
+    assert manifest.public()["spec"] == "nanoagent.plugin/v0001"
 
 
 def test_rejects_missing_standard_file(tmp_path: Path) -> None:
@@ -183,7 +184,7 @@ def test_rejects_missing_standard_folder(tmp_path: Path, name: str) -> None:
     write_plugin(tmp_path)
     shutil.rmtree(tmp_path / name)
     with pytest.raises(ValueError, match=f"{name}/"):
-        load_manifest(tmp_path)
+        check_plugin(tmp_path)
 
 
 def test_env_names_variables_without_values(tmp_path: Path) -> None:
@@ -196,10 +197,10 @@ def test_env_names_variables_without_values(tmp_path: Path) -> None:
             load_manifest(tmp_path)
 
 
-def test_failing_run_sh_stops_the_launch(tmp_path: Path) -> None:
+def test_an_unset_variable_stops_the_launch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     write_plugin(tmp_path)
-    with (tmp_path / "run.sh").open("a", encoding="utf-8") as run_sh:
-        run_sh.write("echo 'API_KEY is not set' >&2\nexit 1\n")
+    (tmp_path / ".env").write_text("API_KEY\n", encoding="utf-8")
+    monkeypatch.delenv("API_KEY", raising=False)
     with pytest.raises(RuntimeError, match="API_KEY is not set"):
         call_tool(load_manifest(tmp_path), "echo", {"value": "x"}, workspace=tmp_path)
 
@@ -414,7 +415,7 @@ async def test_a_decide_task_checks_words_with_no_model(tmp_path: Path) -> None:
     outcome = await _run_decide(manifest, manifest.task("check-words"), arguments, tmp_path, _Scripted(answer), events)
     assert outcome.verdict.valid and outcome.verdict.score == 1.0, outcome.verdict.message
     assert [verdict["differs"] for verdict in outcome.output["verdicts"]] == [None, ["first"], ["first", "rest"], None, None]
-    assert [kind for kind, _ in events if kind != "task.decision"] == [
+    assert [kind for kind, _ in events if kind not in ("task.decision", "task.graph")] == [
         "task.started",
         "task.reference",
         "task.tool",
@@ -423,6 +424,26 @@ async def test_a_decide_task_checks_words_with_no_model(tmp_path: Path) -> None:
         "task.verdict",
     ]
     assert [data["arguments"] for kind, data in events if kind == "task.tool"] == [{"text": arguments["reference"]}, {"text": arguments["raw"]}]
+    # Its provenance graph: every edge between its nodes, each copy the value it came from, each
+    # tool call chosen by a decision, and the verdict generated by the verifier from the output.
+    from nanoagent.plugin.provenance import apply
+
+    graph: dict = {"nodes": [], "edges": []}
+    for kind, data in events:
+        if kind == "task.graph":
+            apply(graph, data)
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    assert not any(node.get("incomplete") for node in nodes.values())
+    assert all(edge["from"] in nodes and edge["to"] in nodes for edge in graph["edges"])
+    copies = [edge for edge in graph["edges"] if edge["relation"] == "copied"]
+    assert copies and all(
+        _resolve(nodes[edge["from"]]["value"], edge["fromPath"]) == _resolve(nodes[edge["to"]]["value"], edge["toPath"]) for edge in copies
+    )
+    chosen = {edge["to"]: edge["option"] for edge in graph["edges"] if edge["relation"] == "chose" and nodes[edge["to"]]["kind"] == "call"}
+    assert chosen == {"calls[0]": "read_words", "calls[1]": "read_words"}
+    assert {(edge["from"], edge["to"]) for edge in graph["edges"] if "verify" in (edge["from"], edge["to"])} == {
+        ("input", "verify"), ("output", "verify"), ("reference.output", "verify"), ("verify", "verdict"),
+    }
 
 
 async def test_a_decide_task_only_chooses_or_copies(tmp_path: Path) -> None:
@@ -539,8 +560,10 @@ async def test_a_model_deciders_record_holds_its_requests_cost(tmp_path: Path) -
     from nanoagent.trajectory.atif import to_atif
 
     decider = ModelDecider(_FirstOption(), "decide", max_steps=5, cost_limit=0.015, token_limit=None)
-    question = Question("next", "one", "What comes next?", ("echo", "submit"))
-    assert (await decider.decide({"calls": []}, [question])).values == {"next": "echo"}
+    question = Question("next", "one", "What comes next?", ("echo", "submit"), "next")
+    answers = await decider.decide({"calls": []}, [question])
+    # The answers carry the model request that made them, for the decision's node in the graph.
+    assert answers.values == {"next": "echo"} and [call["cost"] for call in answers.model_calls] == [0.01]
     await decider.decide({"calls": []}, [question])
     with pytest.raises(RuntimeError, match="reaching its cost_limit"):
         await decider.decide({"calls": []}, [question])
@@ -851,12 +874,12 @@ def test_product_is_what_a_catalog_shows(tmp_path: Path) -> None:
     )
     (tmp_path / "product" / "notes.txt").write_text("draft\n")
     with pytest.raises(PluginError) as error:
-        load_manifest(tmp_path)
+        check_plugin(tmp_path)
     assert error.value.violations == [
-        "unexpected product/notes.txt",
         "product/product.yaml tagline is blank",
         "product/product.yaml highlights must hold 2 to 4 entries, not 1",
         "product/product.yaml steps has a blank entry",
+        "unexpected product/notes.txt",
     ]
 
 
@@ -888,18 +911,14 @@ def test_reports_every_broken_rule_at_once(tmp_path: Path) -> None:
     from nanoagent.plugin import PluginError
 
     path = write_plugin(tmp_path)
-    (tmp_path / "run.sh").unlink()
     (tmp_path / "tests" / "test_verifier.py").unlink()
     (tmp_path / ".env").write_text("TOKEN=secret\n", encoding="utf-8")
     path.write_text(path.read_text().replace("name: Echo\n", "name: Echo\nauthor: someone\n"))
     with pytest.raises(PluginError) as error:
-        load_manifest(tmp_path)
-    assert error.value.violations[:3] == [
-        "missing run.sh",
-        "missing tests/test_verifier.py",
-        ".env line 1 must be a variable NAME alone, with no = or value",
-    ]
-    assert "sets `author`, which is not a field of" in error.value.violations[3]
+        check_plugin(tmp_path)
+    assert error.value.violations[0] == ".env line 1 must be a variable NAME alone, with no = or value"
+    assert "sets `author`, which is not a field of" in error.value.violations[1]
+    assert error.value.violations[2:] == ["missing tests/test_verifier.py"]
 
 
 def test_refuses_a_plugin_edited_after_it_loaded(tmp_path: Path) -> None:
@@ -916,21 +935,49 @@ def test_allows_tool_artifacts_but_refuses_extra_files(tmp_path: Path) -> None:
     for artifact in (".git/HEAD", ".venv/pyvenv.cfg", "verifier/__pycache__/x.pyc", "src/.DS_Store"):
         (tmp_path / artifact).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / artifact).write_text("", encoding="utf-8")
-    load_manifest(tmp_path)
+    check_plugin(tmp_path)
 
     (tmp_path / "downloads").mkdir()
     (tmp_path / "notes.txt").write_text("", encoding="utf-8")
     (tmp_path / "schemas").mkdir()
     (tmp_path / "verifier" / "data.csv").write_text("", encoding="utf-8")
     (tmp_path / "src" / "data.csv").write_text("", encoding="utf-8")
+    # Running a plugin checks its spec's rules alone, which extra files do not break.
+    load_manifest(tmp_path)
     with pytest.raises(PluginError) as error:
-        load_manifest(tmp_path)
+        check_plugin(tmp_path)
     assert error.value.violations == [
         "unexpected downloads",
         "unexpected notes.txt",
         "unexpected schemas",
         "unexpected verifier/data.csv: only .py files belong there",
     ]
+
+
+# What RUSH Lab writes into a plugin project for the coding agents there.
+AGENT_INSTRUCTIONS = ("AGENTS.md", "CLAUDE.md", "GEMINI.md")
+
+
+def test_a_plugin_may_hold_coding_agent_instructions_which_are_never_packed(tmp_path: Path) -> None:
+    import shutil
+
+    from nanoagent.plugin.package import pack, pack_source
+
+    plugin = tmp_path / "echo"
+    write_plugin(plugin)
+    plain = pack(plugin)
+    for name in AGENT_INSTRUCTIONS:
+        (plugin / name).write_text("# Instructions\n", encoding="utf-8")
+    assert load_manifest(plugin).id == "echo"
+    assert pack(plugin) == plain
+    repo = tmp_path / "repo"
+    shutil.copytree(plugin, repo)
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run([*git, "add", "-A"], check=True)
+    subprocess.run([*git, "commit", "-qm", "plugin"], check=True)
+    source = subprocess.run([*git, "archive", "--format=tar.gz", "--prefix=echo-0abc/", "HEAD"], check=True, capture_output=True).stdout
+    assert pack_source(source, "")[1] == plain
 
 
 # NanoAgent's fixture plugins, each one following every plugin rule.
@@ -945,19 +992,29 @@ def _layout(folder: Path) -> set[str]:
 
 @pytest.mark.parametrize("plugin", sorted(path.name for path in PLUGINS.iterdir() if path.is_dir()))
 def test_every_fixture_plugin_follows_every_rule(plugin: str) -> None:
-    assert load_manifest(PLUGINS / plugin).id == plugin
+    assert check_plugin(PLUGINS / plugin).id == plugin
 
 
 def test_plugin_new_creates_a_plugin_with_the_standard_layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from nanoagent.cli.plugin import main
-    from nanoagent.plugin.manifest import REQUIRED_FILES, REQUIRED_FOLDERS
+    import shutil
 
+    from nanoagent.cli.plugin import main
+    from nanoagent.plugin import scaffold
+    from nanoagent.plugin.authoring import STANDARD_FILES, STANDARD_FOLDERS, TEMPLATE
+
+    # A template holding coding-agent instructions: plugin new copies none of them.
+    template = tmp_path / "template"
+    shutil.copytree(TEMPLATE, template)
+    for name in AGENT_INSTRUCTIONS:
+        (template / name).write_text("# Instructions\n", encoding="utf-8")
+    monkeypatch.setattr(scaffold, "TEMPLATE", template)
     (tmp_path / "gitconfig").write_text("[user]\n\tname = Ada Lovelace\n")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
     assert main(["new", str(tmp_path / "my-notes")]) == 0
-    manifest = load_manifest(tmp_path / "my-notes")
-    assert (manifest.id, manifest.name) == ("my-notes", "My Notes")
-    assert _layout(tmp_path / "my-notes") == {*REQUIRED_FILES, *REQUIRED_FOLDERS}
+    manifest = check_plugin(tmp_path / "my-notes")
+    assert (manifest.id, manifest.name, manifest.spec) == ("my-notes", "My Notes", "nanoagent.plugin/v0001")
+    assert _layout(tmp_path / "my-notes") == {*STANDARD_FILES, *STANDARD_FOLDERS}
+    assert not any((tmp_path / "my-notes" / name).exists() for name in AGENT_INSTRUCTIONS)
     license_text = (tmp_path / "my-notes" / "LICENSE").read_text()
     assert "{{" not in license_text and "Ada Lovelace" in license_text
     assert main(["new", str(tmp_path / "my-notes")]) == 1
@@ -1024,25 +1081,39 @@ async def test_plugin_tool_images_reach_the_model_as_images() -> None:
 
 
 @pytest.mark.parametrize(
-    ("versions", "problem"),
+    ("line", "problem"),
     [
-        ("~=0.3.0", "nanoagent.yaml nanoagent: the plugin runs on NanoAgent ~=0.3.0, not this NanoAgent, 0.5.0"),
-        ("~=0.6.0", "nanoagent.yaml nanoagent: the plugin runs on NanoAgent ~=0.6.0, not this NanoAgent, 0.5.0"),
-        ('">=0.5"', "nanoagent.yaml nanoagent '>=0.5' is not one NanoAgent minor version, such as ~=0.5.0"),
-        ("~=0.5.1", "nanoagent.yaml nanoagent '~=0.5.1' is not one NanoAgent minor version, such as ~=0.5.0"),
-        ("latest", "nanoagent.yaml nanoagent 'latest' is not one NanoAgent minor version, such as ~=0.5.0"),
-        ('""', "nanoagent.yaml nanoagent '' is not one NanoAgent minor version, such as ~=0.5.0"),
+        ("spec: nanoagent.plugin/v0002", "nanoagent.yaml spec 'nanoagent.plugin/v0002' is not one this NanoAgent runs: nanoagent.plugin/v0001"),
+        ("", "nanoagent.yaml declares no spec, the plugin format it follows: this NanoAgent runs nanoagent.plugin/v0001"),
+        (
+            "nanoagent: ~=0.6.0",
+            "nanoagent.yaml names the NanoAgent it was made for, nanoagent: ~=0.6.0, from before plugins declared their"
+            " spec; `nanoagent plugin migrate <folder>` moves it to nanoagent.plugin/v0001",
+        ),
     ],
 )
-def test_a_plugin_names_the_nanoagent_versions_it_runs_on(tmp_path: Path, versions: str, problem: str) -> None:
+def test_a_plugin_declares_a_spec_this_nanoagent_runs(tmp_path: Path, line: str, problem: str) -> None:
     from nanoagent.plugin import PluginError
 
-    write_plugin(tmp_path)
-    manifest = tmp_path / "nanoagent.yaml"
-    manifest.write_text(manifest.read_text().replace("nanoagent: ~=0.5.0", f"nanoagent: {versions}"))
+    manifest = write_plugin(tmp_path)
+    manifest.write_text(manifest.read_text().replace("spec: nanoagent.plugin/v0001", line))
     with pytest.raises(PluginError) as error:
         load_manifest(tmp_path)
     assert error.value.violations == [problem]
+
+
+def test_migrate_moves_a_plugin_made_before_specs_onto_v1(tmp_path: Path) -> None:
+    from nanoagent.cli.plugin import main
+
+    manifest = write_plugin(tmp_path)
+    manifest.write_text(manifest.read_text().replace("spec: nanoagent.plugin/v0001", "nanoagent: ~=0.5.0").replace("nanoagent.plugin.v0001.", "nanoagent.plugin.manifest."))
+    product = tmp_path / "product" / "product.yaml"
+    product.write_text(product.read_text().replace("nanoagent.plugin.v0001.", "nanoagent.plugin.manifest."))
+    (tmp_path / "run.sh").write_text("#!/bin/sh\nexec uv run --frozen python -m plugin\n")
+    assert main(["migrate", str(tmp_path)]) == 0
+    assert manifest.read_text() == MANIFEST and product.read_text() == PRODUCT
+    assert not (tmp_path / "run.sh").exists()
+    assert main(["migrate", str(tmp_path)]) == 1
 
 
 def test_ui_is_the_renderers_of_nanoagents_page(tmp_path: Path) -> None:
@@ -1121,17 +1192,62 @@ def test_ui_scripts_draw_only_their_output(tmp_path: Path) -> None:
     ]
 
 
-def test_serves_the_plugin_page_in_nanoagents_own_kit(tmp_path: Path) -> None:
-    from nanoagent.plugin.manifest import PAGE
+def test_serves_the_plugin_page_in_its_specs_own_kit(tmp_path: Path) -> None:
+    from nanoagent.plugin.v0001 import PAGE
     from nanoagent.web.app import _ui_file
 
     write_plugin(tmp_path)
     manifest = load_manifest(tmp_path)
-    assert _ui_file(manifest, "") == PAGE / "index.html"
-    assert _ui_file(manifest, "kit/dom.js") == PAGE / "kit" / "dom.js"
-    assert _ui_file(manifest, "kit/server.py") is None
-    assert _ui_file(manifest, "renderers.js") == (tmp_path / "ui" / "renderers.js").resolve()
-    assert _ui_file(manifest, "../nanoagent.yaml") is None
+    assert _ui_file(manifest.root, PAGE, "") == PAGE / "index.html"
+    assert _ui_file(manifest.root, PAGE, "kit/dom.js") == PAGE / "kit" / "dom.js"
+    assert _ui_file(manifest.root, PAGE, "kit/server.py") is None
+    assert _ui_file(manifest.root, PAGE, "renderers.js") == (tmp_path / "ui" / "renderers.js").resolve()
+    assert _ui_file(manifest.root, PAGE, "../nanoagent.yaml") is None
+
+
+def test_a_plugin_loads_and_shows_under_the_spec_it_declares(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import types
+
+    from nanoagent.plugin import manifest as manifests
+    from nanoagent.web.app import _ui_file
+
+    page = tmp_path / "v0002-page"
+    (page / "kit").mkdir(parents=True)
+    (page / "index.html").write_text("v0002's page")
+    v0002 = types.ModuleType("nanoagent_test_v0002")
+    v0002.PAGE = page
+    v0002.load = lambda root: ("loaded by v0002", root)
+    monkeypatch.setitem(sys.modules, v0002.__name__, v0002)
+    monkeypatch.setitem(manifests.SPECS, "nanoagent.plugin/v0002", v0002.__name__)
+    write_plugin(tmp_path / "echo")
+    old = load_manifest(tmp_path / "echo")
+    manifest = tmp_path / "echo" / "nanoagent.yaml"
+    manifest.write_text(manifest.read_text().replace("spec: nanoagent.plugin/v0001", "spec: nanoagent.plugin/v0002"))
+
+    assert load_manifest(tmp_path / "echo") == ("loaded by v0002", (tmp_path / "echo").resolve())
+    assert old.spec == "nanoagent.plugin/v0001"
+    assert _ui_file(old.root, manifests.spec_module("nanoagent.plugin/v0002").PAGE, "") == page / "index.html"
+    assert _ui_file(old.root, manifests.spec_module(old.spec).PAGE, "") != page / "index.html"
+
+
+@pytest.mark.parametrize("spec", sorted(SPECS))
+def test_a_spec_is_its_own_folder_importing_only_the_manifest(spec: str) -> None:
+    import ast
+    import importlib
+
+    module = importlib.import_module(SPECS[spec])
+    folder = Path(module.__file__).parent
+    assert module.SPEC == spec and module.PAGE == folder / "page" and (module.PAGE / "index.html").is_file()
+    assert {"load", "verifier_problems", "VERIFIER_IMPORTS"} <= set(vars(module))
+    imported = set()
+    for path in folder.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module)
+            elif isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+    outside = {name for name in imported if name.split(".")[0] == "nanoagent" and not name.startswith(SPECS[spec])}
+    assert outside == {"nanoagent.plugin.manifest"}
 
 
 @pytest.mark.parametrize(
@@ -1140,7 +1256,6 @@ def test_serves_the_plugin_page_in_nanoagents_own_kit(tmp_path: Path) -> None:
         ("LICENSE", lambda text: text.replace("Ada Lovelace", ""), "LICENSE must be the template's MIT license"),
         ("LICENSE", lambda text: text.replace("MIT License", "BSD License"), "LICENSE must be the template's MIT license"),
         (".gitignore", lambda text: text.replace("*.pyc\n", ""), ".gitignore must ignore *.pyc"),
-        ("run.sh", lambda text: "exit 0\n", "run.sh must begin with the template's checks"),
         ("README.md", lambda text: text.replace("# Echo", "# Repeat"), "README.md must open with # Echo"),
         ("README.md", lambda text: text.replace("## Layout\n", ""), "README.md must have the sections"),
         ("README.md", lambda text: text.replace("`echo`", "echo"), "README.md ## Tools does not name echo"),
@@ -1154,8 +1269,10 @@ def test_standard_files_are_the_templates(tmp_path: Path, path: str, edit, probl
     write_plugin(tmp_path)
     file = tmp_path / path
     file.write_text(edit(file.read_text() if file.exists() else ""), encoding="utf-8")
+    # The template's rules hold where a plugin is made and published, never where it runs.
+    load_manifest(tmp_path)
     with pytest.raises(PluginError) as error:
-        load_manifest(tmp_path)
+        check_plugin(tmp_path)
     assert [violation for violation in error.value.violations if problem in violation], error.value.violations
 
 
@@ -1179,7 +1296,6 @@ def test_a_plugin_runs_the_standard_server_with_standard_names(tmp_path: Path) -
         "nanoagent.yaml runtime.command must be [uv, run, --frozen, python, -m, plugin]",
         "nanoagent.yaml tool 'Echo' is not a snake_case tool name",
         "nanoagent.yaml task 'Echo' is not a kebab-case task id",
-        "pyproject.toml must give the project nanoagent.yaml's version, banana",
         "contract.py TOOLS['Echo']: output class EchoResult must be named ...Output",
         "contract.py TASKS['Echo']: output class EchoResult must be named ...Output",
     ]
@@ -1197,7 +1313,7 @@ def test_pyproject_keeps_the_templates_environment(tmp_path: Path) -> None:
         .replace('branch = "master"', 'branch = "main"')
     )
     with pytest.raises(PluginError) as error:
-        load_manifest(tmp_path)
+        check_plugin(tmp_path)
     assert error.value.violations == [
         "pyproject.toml must require Python >=3.12",
         "pyproject.toml must depend on slimconfig",
@@ -1209,14 +1325,14 @@ def test_pyproject_keeps_the_templates_environment(tmp_path: Path) -> None:
 
 def test_a_ready_plugin_describes_itself_and_names_its_tasks(tmp_path: Path) -> None:
     from nanoagent.plugin import PluginError
-    from nanoagent.plugin.manifest import TEMPLATE
+    from nanoagent.plugin.authoring import TEMPLATE
 
     write_plugin(tmp_path)
     (tmp_path / "product" / "product.yaml").write_text((TEMPLATE / "product" / "product.yaml").read_text().replace("{{name}}", "Echo"))
     readme = tmp_path / "README.md"
     readme.write_text(readme.read_text().replace("`echo` repeats its input.", "The echo tool repeats its input."))
     with pytest.raises(PluginError) as error:
-        load_manifest(tmp_path)
+        check_plugin(tmp_path)
     assert error.value.violations == [
         "README.md ## Tools does not name echo, echo",
         "product/product.yaml still holds the template's placeholder text; a ready plugin describes itself",
@@ -1224,7 +1340,7 @@ def test_a_ready_plugin_describes_itself_and_names_its_tasks(tmp_path: Path) -> 
     manifest = tmp_path / "nanoagent.yaml"
     manifest.write_text(manifest.read_text().replace("status: ready", "status: in-development"))
     readme.write_text(readme.read_text().replace("The echo tool", "`echo`"))
-    load_manifest(tmp_path)
+    check_plugin(tmp_path)
 
 
 def test_renderers_draw_only_task_outputs_from_inside_their_own(tmp_path: Path) -> None:

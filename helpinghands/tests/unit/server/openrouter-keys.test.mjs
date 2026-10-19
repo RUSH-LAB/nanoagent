@@ -47,8 +47,8 @@ function fakeOpenRouter({workspace = false, pageSize = 2, slug = 'mochi', name =
   return {keys, calls, budgets, fetchImpl};
 }
 
-describe('the OpenRouter key Mochi gives a member (server/openrouter-keys.js)', () => {
-  it('makes Mochi\'s workspace once, with every member\'s budget together, and finds it after', async () => {
+describe('the OpenRouter key RUSH gives a member (server/openrouter-keys.js)', () => {
+  it('makes RUSH\'s workspace once, with every member\'s budget together, and finds it after', async () => {
     const openrouter = fakeOpenRouter();
     const keys = createOpenRouterKeys({managementKey: 'mgmt', production: true, fetchImpl: openrouter.fetchImpl});
     assert.equal(await keys.give('u1'), 'sk-or-h1');
@@ -64,7 +64,7 @@ describe('the OpenRouter key Mochi gives a member (server/openrouter-keys.js)', 
   });
 
   it('keeps every other site\'s keys, whose accounts copy production\'s, in a workspace of their own', async () => {
-    const openrouter = fakeOpenRouter({slug: 'mochi-dev', name: 'Mochi (development)'});
+    const openrouter = fakeOpenRouter({slug: 'mochi-dev', name: 'RUSH (development)'});
     const keys = createOpenRouterKeys({managementKey: 'mgmt', production: false, fetchImpl: openrouter.fetchImpl});
     assert.equal(keys.workspace, 'mochi-dev');
     await keys.give('u1');
@@ -82,7 +82,7 @@ describe('the OpenRouter key Mochi gives a member (server/openrouter-keys.js)', 
     assert.equal(await keys.give('u1'), 'sk-or-h3');
     openrouter.keys.get('h3').usage = 0.25;
     assert.deepEqual([...openrouter.keys.values()].map(key => [key.hash, key.name, key.disabled]), [
-      ['h1', 'Mochi u1', true], ['h2', 'Mochi u2', false], ['h3', 'Mochi u1', false],
+      ['h1', 'RUSH u1', true], ['h2', 'RUSH u2', false], ['h3', 'RUSH u1', false],
     ]);
     assert.equal(await keys.spent('u1'), 1.75);
     assert.equal(await keys.spent('u2'), 4);

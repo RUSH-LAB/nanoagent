@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import gzip
+import hashlib
 import io
 import shutil
 import subprocess
@@ -100,12 +101,16 @@ def test_refuses_what_is_not_a_package() -> None:
         inspect_package(b"not a package")
 
 
-def test_lists_every_broken_rule_of_the_packaged_plugin(plugin: Path) -> None:
+def test_inspects_a_package_under_its_specs_rules_alone(plugin: Path) -> None:
     files = _files(pack(plugin))
+    # The template's .gitignore is held to where a plugin is packed, not where its package is inspected.
+    files["echo/.gitignore"] = b"*.pyc\n"
+    assert inspect_package(_tar(files))["id"] == "echo"
     files.pop("echo/LICENSE")
+    files.pop("echo/contract.py")
     with pytest.raises(PackageError) as error:
         inspect_package(_tar(files))
-    assert "missing LICENSE" in error.value.violations
+    assert error.value.violations[:2] == ["missing contract.py", "missing LICENSE"]
 
 
 def test_the_package_folder_is_named_by_the_plugin_id(plugin: Path) -> None:
@@ -191,6 +196,17 @@ def test_inspects_an_upload(client: TestClient, plugin: Path) -> None:
     assert accepted.status_code == 200 and accepted.json()["package"]["id"] == "echo"
     refused = client.post("/v1/packages/inspect", content=b"not a package")
     assert refused.status_code == 422 and "not a .tar.gz" in refused.json()["violations"][0]
+
+
+def test_keeps_how_a_package_was_inspected(client: TestClient, plugin: Path) -> None:
+    data = pack(plugin)
+    sha = hashlib.sha256(data).hexdigest()
+    assert client.get(f"/v1/packages/inspect/{sha}").status_code == 404
+    accepted = client.post("/v1/packages/inspect", content=data)
+    assert client.get(f"/v1/packages/inspect/{sha}").json() == accepted.json()
+    refused = client.post("/v1/packages/inspect", content=b"not a package")
+    again = client.get(f"/v1/packages/inspect/{hashlib.sha256(b'not a package').hexdigest()}")
+    assert again.status_code == 422 and again.json() == refused.json()
 
 
 def test_packs_a_plugin_from_a_source_archive(client: TestClient, plugin: Path, tmp_path: Path) -> None:

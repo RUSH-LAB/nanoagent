@@ -1,7 +1,7 @@
-import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
-import { useLocation } from '@docusaurus/router';
+import { Redirect, useLocation } from '@docusaurus/router';
 import PageTracker from '@site/src/components/Analytics/PageTracker';
 import {clientPlatform} from '@site/src/platform/client';
 import {isOpenPage, signInUrl} from '@site/src/utils/signIn';
@@ -59,7 +59,7 @@ function IdleCommandBar() {
  *
  * Nor is a workspace. Every AI run goes to RUSH Lab on the member's own
  * computer (server/runner.js), so a member whose computer is not connected is
- * held at LabScreen, which offers the line that installs it and lets them in
+ * held at LabScreen, which offers the app and the link that connects it, and lets them in
  * once it connects. It is asked once, beside the workspaces: a computer that
  * leaves later (asleep, offline) does not throw the member out of the page they
  * are on, and the runs say it is not connected. The page that approves a
@@ -97,7 +97,7 @@ function accountOf(data, refresh) {
 function AuthGate({ children }) {
   // Required lazily, inside BrowserOnly, because workspace discovery reads the
   // authenticated API and should never run during the static build.
-  const { loadWorkspaces } = require('@site/src/utils/workspaces');
+  const { loadWorkspaces, workspaceSlugFromPath } = require('@site/src/utils/workspaces');
   const [status, setStatus] = useState(CHECKING);
   const [detail, setDetail] = useState(null);
   const [data, setData] = useState(null);
@@ -161,6 +161,13 @@ function AuthGate({ children }) {
   if (status === CHECKING) return null;
 
   if (status === SIGNED_IN) {
+    // A workspace the account is not in, or that does not exist, has no page:
+    // its address goes to the landing page, as any address without one does
+    // (theme/NotFound).
+    const slug = workspaceSlugFromPath(pathname);
+    if (slug !== null && !ungated && !account.workspaces.some(item => item.slug === slug)) {
+      return <Redirect to="/" />;
+    }
     const workspaces = account.workspaces.length;
     if (workspaces === 0 && !ungated) {
       return (
@@ -218,10 +225,24 @@ function AuthGate({ children }) {
 // reaches rush-lab.org unless a workspace is pushed.
 function DevelopmentBanner() {
   const {pulledAt} = useDocusaurusContext().siteConfig.customFields;
+  const banner = useRef(null);
+  // Its height, wrapped or not, goes to --site-banner-height, so pages sized to
+  // the window (--site-shell-height) leave room for it.
+  useEffect(() => {
+    const element = banner.current;
+    if (!element) return undefined;
+    const root = document.documentElement.style;
+    const observer = new ResizeObserver(() => root.setProperty('--site-banner-height', `${element.offsetHeight}px`));
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      root.removeProperty('--site-banner-height');
+    };
+  }, []);
   if (process.env.NODE_ENV !== 'development') return null;
   const copy = pulledAt ? `a copy of rush-lab.org pulled ${new Date(pulledAt).toLocaleString()}` : 'a database never pulled from rush-lab.org';
   return (
-    <div role="status" className="development-banner">
+    <div ref={banner} role="status" className="development-banner">
       Local site on {copy}. Nothing here reaches rush-lab.org unless you push a workspace (npm run db:push).
     </div>
   );

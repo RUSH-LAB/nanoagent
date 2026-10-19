@@ -1,9 +1,9 @@
 # Plan: plugin front ends (`ui/`, protocol `nanoagent.ui/v1`)
 
 Every plugin's page is NanoAgent's: a chat with the plugin's agent, in which each task the agent
-runs shows its typed output (docs/plans/ai-native-plugins.md). Mochi shows the page in a
+runs shows its typed output (docs/plans/ai-native-plugins.md). RUSH shows the page in a
 sandboxed iframe. The page reaches NanoAgent only through a small `postMessage` bridge that
-Mochi hosts, so it has no access to Mochi's session, cookies or the network. A plugin's `ui/`
+RUSH hosts, so it has no access to RUSH's session, cookies or the network. A plugin's `ui/`
 only says how to draw its outputs.
 
 ## 1. The rule (NanoAgent, `nanoagent.plugin.manifest`)
@@ -43,7 +43,7 @@ All require the operator bearer token, like every `/v1` route.
   prompt to the plugin's agent, in that workspace, as an SSE stream; each of the agent's tools is
   one of the plugin's tasks, run the verified way (`nanoagent.plugin.tasks.run_task`).
 
-## 3. The Mochi host
+## 3. The RUSH host
 
 - The apps page shows the plugin's page in
   `<iframe sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" src="/api/apps/{id}/ui/{uiVersion}/index.html">`
@@ -53,7 +53,7 @@ All require the operator bearer token, like every `/v1` route.
   header through. It is public (no login): a sandboxed page's subresource requests carry no
   cookies, and the files are the plugin's published assets.
 - A bridge host component answers the page's requests (below) with the signed-in user's
-  workspace, through Mochi's existing server routes.
+  workspace, through RUSH's existing server routes.
   It accepts messages only from that iframe (`event.source === iframe.contentWindow`) and posts
   replies to it with target origin `*` (the page's origin is opaque).
 
@@ -69,24 +69,29 @@ Methods:
 
 | method | params | result | events |
 |---|---|---|---|
-| `describe` | `{}` | `{plugin, workspace: {id}, theme: "light"\|"dark"}` (`plugin`: the catalog entry, tasks with `inputSchema`) | — |
-| `prompt` | `{text}` | `{runId}` | `chat.delta {text}`, `chat.tool {name, arguments, output, isError}`, `chat.answer {text}`, `chat.error {message}`, `chat.done` |
+| `describe` | `{}` | `{plugin, workspace: {id}, theme: "light"\|"dark", session}` (`session`: the id of the session the page opens on in place of the Dashboard, or null; `plugin`: the catalog entry, tasks with `inputSchema`; with `latest`, its newest version, when the host can update it, and `repository` and `latestRepository`, `{owner, repo, path, commit}` on GitHub, of the version it runs and the newest, when they were published from one) | — |
+| `prompt` | `{text}` | `{runId}` | `chat.reasoning {text}`, `chat.delta {text}`, `chat.tool.started {id, name}`, `chat.tool.progress {id, name, event, data}` (a task's `task.reference {tool}`, `task.tool {name, isError}`, `task.delta {kind, text}` and `task.result {}` while it runs), `chat.graph {patch}` (a change to the turn's provenance graph, `nanoagent.plugin.provenance`, as it is made) and `chat.graph {graph}` (the whole graph once the turn ends), `chat.tool {id, name, arguments, output, isError}`, `chat.answer {text}`, `chat.error {message}`, `chat.restart {}` (the stream dropped and the run is followed again from its first event), `chat.turn {turn}` (it ended while the stream was down: the turn the session kept), `chat.done` |
 | `follow` | `{}` | `{runId, prompt}` | as `prompt`'s, for the message the current session was still answering when it was resumed (`running`) |
 | `cancel` | `{runId}` | `{}` | — |
 | `sessions.list` | `{}` | `{sessions: [summary]}`, each `{id, pluginId, title, createdAt, updatedAt, archivedAt, runs, cost, ttftS, running}`, archived ones too; `running` is whether it is answering a message | — |
 | `session.get` | `{id}` | `{session}`: the summary with `chat` and `calls` (every run, with its cost and timings) | — |
 | `session.start` | `{}` | `{session}`, a new one with `chat: []`; it becomes the current session. The kit sends it on a new session's first `prompt` | — |
 | `session.resume` | `{id}` | `{session}`, with `running: {prompt}` while it is still answering a message, else null; it becomes the current session, and `prompt` continues its conversation | — |
+| `session.shown` | `{id}` | `{}`: the page shows session `id`, or with `id` null its Dashboard or a new session not started yet; the host opens the page on it next time (`describe`'s `session`) | — |
 | `session.archive` | `{id, archived}` | `{session}` (its summary); an archived session leaves the Dashboard's list for its Archived view until it is restored (`archived: false`) or chatted in again | — |
+| `plugin.version` | `{version}` | `{version, latest, repository, latestRepository}`: the person runs `version` from now on, or with `version` null follows the newest; the host opens the page again when the version changed. The Dashboard's header shows the version, a link to its source, and when a newer one is out What's new (GitHub's comparison of the two commits) and Update | — |
 
 `prompt` is today's chat: a free-form message to the plugin's agent; the session keeps the
-conversation (its last 12 turns, each `{prompt, answer, tools, error}`). `prompt` runs in the
+conversation (its last 12 turns, each `{prompt, answer, tools, activity, graph, metrics, error}`,
+`activity` being what the agent did on the way, in order: each `{kind: "thought", text}` and each
+finished task's `{kind: "task", name, steps, thinking, text}`, whose calls `tools` are, in the
+same order; and `metrics` what the answer cost and took, as `chat.answer` gives them). `prompt` runs in the
 current session, and the host refuses it until a session is started or resumed. A run is the
 host's, not the page's: a page closed, reloaded or left mid-answer leaves it going, and a page
 that resumes the session meanwhile shows the message being answered and `follow`s it to its end.
-Mochi restarting does not stop it either, nor Mochi Lab's connection dropping for less than ten
-minutes: Mochi Lab holds the run and hands it to the Mochi it reconnects to. Every message ends
-as a turn: answered, or with `error` saying why not (it failed, was stopped, or Mochi Lab quit or
+RUSH restarting does not stop it either, nor RUSH Lab's connection dropping for less than ten
+minutes: RUSH Lab holds the run and hands it to the RUSH it reconnects to. Every message ends
+as a turn: answered, or with `error` saying why not (it failed, was stopped, or RUSH Lab quit or
 was away longer), which the agent's conversation leaves out. Only `cancel` stops a run, and a
 session answers one message at a time. The host also sends `{protocol, event: "host.theme",
 data: {theme}}` when the site's theme changes.
@@ -97,7 +102,7 @@ A page is served from one URL folder, `ui/{uiVersion}/`, holding NanoAgent's pag
 plugin's renderers:
 
 ```
-src/nanoagent/plugin/page/   NanoAgent's, served to every plugin
+src/nanoagent/plugin/v0001/page/   the spec's, served to every v0001 plugin
   index.html     loads kit/kit.css, preloads renderers.css, loads kit/boot.js as a module
   kit/
     boot.js        mounts the page with renderers.js's default export
@@ -108,7 +113,7 @@ src/nanoagent/plugin/page/   NanoAgent's, served to every plugin
     chat.js        the chat
     result.js      a task's result: the card, and the view drawn from a JSON Schema
     dom.js  display.js  markdown.js
-    kit.css        the look: Mochi's tokens, light and dark, narrow widths
+    kit.css        the look: RUSH's tokens, light and dark, narrow widths
 <plugin>/ui/                 the plugin's
   renderers.js   its renderers, by output class name (`{}` in the template)
   renderers.css  their styles (a comment in the template)
@@ -124,7 +129,7 @@ goes stale. `uiVersion` digests both halves, so a new kit is a new URL.
 The kit's frame (`mountApp`, `kit/shell.js`) has two tabs, the same for every plugin:
 
 - **Dashboard**, where the app always opens. It lists the member's sessions with this plugin in
-  this workspace (Mochi keeps them in PostgreSQL), newest first, each with when it was last
+  this workspace (RUSH keeps them in PostgreSQL), newest first, each with when it was last
   used, its runs, cost and time to first token; clicking one resumes it, and its Runs button
   shows each run. "New session" opens a new one.
 - **Session**: the chat, always one click away: the tab shows the open session or, with none

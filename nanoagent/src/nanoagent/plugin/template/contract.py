@@ -1,4 +1,4 @@
-"""Each tool's and task's typed input and output (see nanoagent.plugin.contract): declarations only."""
+"""Each tool's and task's typed input and output (see nanoagent.plugin.v0001.contract): declarations only."""
 
 from dataclasses import dataclass
 from enum import Enum

@@ -1,6 +1,6 @@
 # {{name}}
 
-A `nanoagent.plugin/v1` plugin, created by `nanoagent plugin new` with the
+A `nanoagent.plugin/v0001` plugin, created by `nanoagent plugin new` with the
 structure of NanoAgent's reference plugin,
 [arxiv-source](https://github.com/zeyuyang8/arxiv-source).
 
@@ -28,7 +28,6 @@ structure of NanoAgent's reference plugin,
 ├── uv.lock
 ├── .gitignore
 ├── .env             # environment variable NAMEs this plugin needs, never values
-├── run.sh           # exits 0 when this environment can run the plugin
 ├── src/plugin/      # the MCP server: __main__.py, its IMPLEMENTATIONS, and the plugin's own modules
 ├── tests/
 ├── ui/              # how the page draws the outputs: renderers.js and renderers.css
@@ -52,8 +51,7 @@ and the workspace and returning its output; write its `verify_input` /
 Tasks table.
 
 `LICENSE` stays the template's MIT license under your name, `.gitignore`
-keeps its entries, `run.sh` keeps its checks first (add the plugin's own after
-them), and this README keeps its title and sections: NanoAgent refuses a plugin
+keeps its entries, and this README keeps its title and sections: NanoAgent refuses a plugin
 that changes them (rule 10 of `nanoagent.plugin.manifest`). Renaming the
 plugin means renaming it in `nanoagent.yaml` and this title together.
 

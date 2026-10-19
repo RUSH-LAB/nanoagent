@@ -5,15 +5,15 @@
  * postgres/chat.js, so the chat routes and the page are unchanged. A channel
  * is a folder:
  *
- *   chat/<channel id>/channel.json                       kind, name, topic, created, archived
- *   chat/<channel id>/members/<user>.json                joined, last read message
- *   chat/<channel id>/messages/<seq>-<user>[-deleted].json   one message per file
+ *   .chat/<channel id>/channel.json                       kind, name, topic, created, archived
+ *   .chat/<channel id>/members/<user>.json                joined, last read message
+ *   .chat/<channel id>/messages/<seq>-<user>[-deleted].json   one message per file
  *
  * A public channel is the workspace's to see; a private channel or a direct
  * message is shared, without an owner, with exactly its members, so leaving
  * one takes it out of sight. Two small registries keep channel names and
- * direct-message pairs unique: chat/.names/<name>.json for the workspace, and
- * chat/.dms/<pair>.json shared with the pair.
+ * direct-message pairs unique: .chat/.names/<name>.json for the workspace, and
+ * .chat/.dms/<pair>.json shared with the pair.
  */
 const crypto = require('crypto');
 const {
@@ -24,7 +24,7 @@ const SEQ_DIGITS = 12;
 const json = value => `${JSON.stringify(value, null, 2)}\n`;
 const seqName = seq => String(seq).padStart(SEQ_DIGITS, '0');
 const MESSAGE = /^(\d+)-(.+?)(-deleted)?\.json$/;
-const channelFolder = id => `chat/${id}`;
+const channelFolder = id => `.chat/${id}`;
 
 function createFsChat({fs, now = () => new Date().toISOString(), newId = prefix => `${prefix}_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`}) {
   const scopeOf = (workspaceId, userId) => ({workspaceId, userId});
@@ -100,8 +100,8 @@ function createFsChat({fs, now = () => new Date().toISOString(), newId = prefix 
     async listChannels(workspaceId, userId, {includeArchived = false} = {}) {
       return run(workspaceId, userId, async tree => {
         if (!await member(tree, workspaceId, userId)) return [];
-        const nodes = await tree.list({prefix: 'chat'});
-        const ids = nodes.map(node => /^chat\/([\w-]+)\/channel\.json$/.exec(node.path)?.[1]).filter(Boolean);
+        const nodes = await tree.list({prefix: '.chat'});
+        const ids = nodes.map(node => /^\.chat\/([\w-]+)\/channel\.json$/.exec(node.path)?.[1]).filter(Boolean);
         const files = await readAll(tree, ids.flatMap(id => [`${channelFolder(id)}/channel.json`, `${channelFolder(id)}/members/${userId}.json`]));
         const channels = [];
         for (const id of ids) {
@@ -163,7 +163,7 @@ function createFsChat({fs, now = () => new Date().toISOString(), newId = prefix 
         const id = newId('ch');
         const at = now();
         try {
-          await tree.write(`chat/.names/${encodeURIComponent(clean)}.json`, json({channelId: id}), {baseRev: 0});
+          await tree.write(`.chat/.names/${encodeURIComponent(clean)}.json`, json({channelId: id}), {baseRev: 0});
         } catch (error) {
           if (error.code === 'exists') return {error: 'name-taken'};
           throw error;
@@ -190,12 +190,12 @@ function createFsChat({fs, now = () => new Date().toISOString(), newId = prefix 
           if (nextName.length > MAX_NAME) return {error: 'name-too-long'};
           if (nextName !== channel.name) {
             try {
-              await tree.write(`chat/.names/${encodeURIComponent(nextName)}.json`, json({channelId}), {baseRev: 0});
+              await tree.write(`.chat/.names/${encodeURIComponent(nextName)}.json`, json({channelId}), {baseRev: 0});
             } catch (error) {
               if (error.code === 'exists') return {error: 'name-taken'};
               throw error;
             }
-            await tree.remove(`chat/.names/${encodeURIComponent(channel.name)}.json`);
+            await tree.remove(`.chat/.names/${encodeURIComponent(channel.name)}.json`);
           }
         }
         let nextTopic = channel.topic;
@@ -236,7 +236,7 @@ function createFsChat({fs, now = () => new Date().toISOString(), newId = prefix 
         if (!manages) return {error: 'not-org-admin'};
         const count = (await messageNodes(tree, channelId)).length;
         await tree.remove(channelFolder(channelId));
-        await tree.remove(`chat/.names/${encodeURIComponent(channel.name)}.json`);
+        await tree.remove(`.chat/.names/${encodeURIComponent(channel.name)}.json`);
         await audit(tree, {workspaceId, userId, action: 'channel.delete', targetLabel: `#${channel.name}`, detail: {messages: count, kind: channel.kind}});
         return {deleted: {id: channel.id, name: channel.name, messages: count}};
       });
@@ -268,13 +268,13 @@ function createFsChat({fs, now = () => new Date().toISOString(), newId = prefix 
         if (!members.has(userId)) return {error: 'forbidden'};
         if (!members.has(otherUserId)) return {error: 'not-in-organization'};
         const key = dmKeyFor(userId, otherUserId);
-        const registry = `chat/.dms/${encodeURIComponent(key)}.json`;
+        const registry = `.chat/.dms/${encodeURIComponent(key)}.json`;
         const known = await read(tree, registry);
         if (known) return {channel: await visible(tree, workspaceId, userId, known.channelId), created: false};
         const id = newId('dm');
         const at = now();
         const people = [...new Set([userId, otherUserId])];
-        await tree.mkdir('chat/.dms');
+        await tree.mkdir('.chat/.dms');
         await tree.write(registry, json({channelId: id}), {baseRev: 0});
         await tree.setAccess(registry, 'shared', {members: people, unowned: true});
         await tree.mkdir(channelFolder(id));
@@ -376,8 +376,8 @@ function createFsChat({fs, now = () => new Date().toISOString(), newId = prefix 
 
     async deleteMessage(workspaceId, userId, messageId) {
       return run(workspaceId, userId, async tree => {
-        const nodes = (await tree.list({prefix: 'chat'})).filter(node => {
-          const match = /^chat\/[\w-]+\/messages\/[^/]+\.json$/.test(node.path) && MESSAGE.exec(node.path.split('/').pop());
+        const nodes = (await tree.list({prefix: '.chat'})).filter(node => {
+          const match = /^\.chat\/[\w-]+\/messages\/[^/]+\.json$/.test(node.path) && MESSAGE.exec(node.path.split('/').pop());
           return match && !match[3];
         });
         const files = await readAll(tree, nodes.map(node => node.path));
@@ -400,11 +400,11 @@ function createFsChat({fs, now = () => new Date().toISOString(), newId = prefix 
      */
     async provisionMember(workspaceId, userId, {isOwner, name, topic}) {
       return run(workspaceId, userId, async tree => {
-        let registry = await read(tree, `chat/.names/${encodeURIComponent(name)}.json`);
+        let registry = await read(tree, `.chat/.names/${encodeURIComponent(name)}.json`);
         if (!registry && isOwner) {
           const id = newId('ch');
           const at = now();
-          await tree.write(`chat/.names/${encodeURIComponent(name)}.json`, json({channelId: id}), {baseRev: 0});
+          await tree.write(`.chat/.names/${encodeURIComponent(name)}.json`, json({channelId: id}), {baseRev: 0});
           await tree.mkdir(channelFolder(id));
           await tree.write(`${channelFolder(id)}/channel.json`, json({
             id, kind: 'public', name, topic, dmKey: null, createdBy: userId, createdAt: at, archivedAt: null,
@@ -418,8 +418,8 @@ function createFsChat({fs, now = () => new Date().toISOString(), newId = prefix 
     /** A member leaving the workspace leaves every channel, and every private one stops showing them. */
     async removeMember(workspaceId, userId) {
       return run(workspaceId, userId, async tree => {
-        const files = (await tree.list({prefix: 'chat'}))
-          .filter(node => /^chat\/[\w-]+\/members\/[^/]+$/.test(node.path) && node.path.endsWith(`/members/${userId}.json`));
+        const files = (await tree.list({prefix: '.chat'}))
+          .filter(node => /^\.chat\/[\w-]+\/members\/[^/]+$/.test(node.path) && node.path.endsWith(`/members/${userId}.json`));
         for (const file of files) {
           const channelId = file.path.split('/')[1];
           await tree.remove(file.path);

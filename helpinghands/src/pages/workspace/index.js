@@ -20,12 +20,21 @@ function WorkspaceContent() {
   return <Workbench key={workspace.id} workspace={workspace} />;
 }
 
+/** The page's Layout props, here and in the shell (components/Shell/registry.js). */
+export const page = {title: 'Filesystem', description: 'Your files', noFooter: true};
+
+export function WorkspaceSection() {
+  return (
+    <BrowserOnly fallback={<div className={styles.message}>Loading…</div>}>
+      {() => <ErrorBoundary><WorkspaceContent /></ErrorBoundary>}
+    </BrowserOnly>
+  );
+}
+
 export default function WorkspacePage() {
   return (
-    <Layout title="Workspace" description="Your files" noFooter>
-      <BrowserOnly fallback={<div className={styles.message}>Loading…</div>}>
-        {() => <ErrorBoundary><WorkspaceContent /></ErrorBoundary>}
-      </BrowserOnly>
+    <Layout {...page}>
+      <WorkspaceSection />
     </Layout>
   );
 }

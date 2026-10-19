@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────
-// Lightweight visual regression test for Mochi Lab pages
+// Lightweight visual regression test for RUSH Lab pages
 // For each page, fetches HTML and extracts content metrics:
 //   - Page title (from <title>)
 //   - Content length (bytes)
@@ -184,7 +184,7 @@ function saveBaseline(snapshot) {
 
 // ── Main ──
 async function main() {
-  console.log(`\n${BOLD}Mochi Lab — Visual Regression Test${RESET}`);
+  console.log(`\n${BOLD}RUSH Lab — Visual Regression Test${RESET}`);
   console.log(`${DIM}Target: ${BASE}${RESET}`);
   console.log(`${DIM}Pages:  ${PAGES.length}${RESET}`);
   console.log(`${DIM}Threshold: >${(THRESHOLD * 100).toFixed(0)}% change in any metric${RESET}`);

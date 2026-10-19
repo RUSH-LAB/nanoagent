@@ -1,0 +1,221 @@
+.shell {
+  display: flex;
+  flex: 1 0 auto;
+}
+
+/* The activity bar: one column of icons, the open section's marked by a bar at
+   its left edge in the accent and full-strength ink; the rest are muted until
+   hovered. It stays in view as the page scrolls. */
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: calc(var(--ifm-z-index-fixed) + 1);
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  justify-content: space-between;
+  width: var(--site-activity-width);
+  height: calc(100vh - var(--site-banner-height));
+  padding: 0.35rem 0;
+  border-right: 1px solid var(--site-hairline);
+  background: var(--ifm-color-emphasis-100);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.item {
+  position: relative;
+  display: flex;
+  width: var(--site-activity-width);
+  height: var(--site-activity-width);
+  align-items: center;
+  justify-content: center;
+  isolation: isolate;
+  color: var(--ifm-color-emphasis-600);
+  transition: color var(--ifm-transition-fast) ease;
+}
+
+/* The tile behind an icon: faint on hover, filled for the section that is open,
+   so the open one never reads as merely hovered. */
+.item::after {
+  position: absolute;
+  z-index: -1;
+  inset: 0.35rem;
+  border-radius: var(--site-radius);
+  content: '';
+  transition: background var(--ifm-transition-fast) ease;
+}
+
+.item:hover {
+  color: var(--ifm-font-color-base);
+  text-decoration: none;
+}
+
+.item:hover::after {
+  background: var(--ifm-color-emphasis-100);
+}
+
+.item:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ifm-color-primary) 40%, transparent);
+  outline-offset: -6px;
+}
+
+.item svg {
+  width: 1.4rem;
+  height: 1.4rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.active,
+.active:hover {
+  color: var(--ifm-color-primary);
+}
+
+.active::after,
+.active:hover::after {
+  background: color-mix(in srgb, var(--ifm-color-primary) 14%, transparent);
+}
+
+.active svg {
+  stroke-width: 1.75;
+}
+
+.active::before {
+  position: absolute;
+  top: 0.5rem;
+  bottom: 0.5rem;
+  left: 0;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--ifm-color-primary);
+  content: '';
+}
+
+/* A count on an icon (updates waiting in the marketplace). Dark mode's primary
+   is white, so the count is the surface color on it. */
+.badge {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.4rem;
+  min-width: 1rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: var(--ifm-color-primary);
+  color: var(--ifm-background-surface-color);
+  font-size: 0.6rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1rem;
+  text-align: center;
+}
+
+.theme {
+  width: var(--site-activity-width);
+  height: var(--site-activity-width);
+  color: var(--ifm-color-emphasis-600);
+}
+
+.main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* The side bar's right edge (./Sash.js), inside it: a strip that shows a line
+   in the accent on the hairline when hovered, focused or dragged. Folded, the
+   side bar is unseen but the strip stays, at its left edge. */
+.sash {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 6px;
+  cursor: col-resize;
+  outline: none;
+  touch-action: none;
+  visibility: visible;
+}
+
+.shell[data-side-folded] .sash {
+  right: auto;
+  left: 0;
+}
+
+.sash::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 2px;
+  background: var(--ifm-color-primary);
+  content: '';
+  opacity: 0;
+  transition: opacity 0.15s ease 0.1s;
+}
+
+.sash:hover::after,
+.sash:focus-visible::after,
+.resizing .sash::after {
+  opacity: 1;
+}
+
+/* While dragging, the pointer keeps its resize cursor wherever it goes. */
+.resizing,
+.resizing * {
+  cursor: col-resize;
+}
+
+/* Where the window is narrow, the bar runs along the bottom, the account and
+   Settings at its right end. */
+@media (max-width: 996px) {
+  .shell {
+    flex-direction: column;
+  }
+
+  .bar {
+    position: fixed;
+    top: auto;
+    right: 0;
+    bottom: var(--site-cli-height);
+    left: 0;
+    flex-direction: row;
+    width: auto;
+    height: var(--site-activity-width);
+    padding: 0 0.35rem;
+    border-top: 1px solid var(--site-hairline);
+    border-right: 0;
+  }
+
+  .group {
+    flex-direction: row;
+  }
+
+  .active::before {
+    top: auto;
+    right: 0.6rem;
+    bottom: 0;
+    left: 0.6rem;
+    width: auto;
+    height: 2px;
+    border-radius: 2px 2px 0 0;
+  }
+
+  .main {
+    padding-bottom: var(--site-activity-width);
+  }
+
+  .sash {
+    display: none;
+  }
+}

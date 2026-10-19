@@ -19,7 +19,8 @@ const nanoagentStartupTimeoutMs = 30_000;
  * The local server runs on the local database (scripts/db/local.mjs), which it
  * migrates as its owner and serves as the runtime role, as Railway does
  * production's. A database URL anywhere else would be another database, so
- * .env and the shell may hold none.
+ * .env and the shell may hold none. It is the site RUSH Lab Dev serves, so its
+ * links are that app's (MOCHI_LOCAL_SITE, src/server/lab-app.js).
  */
 export function environmentFor({base = process.env, envFile = localEnvFile} = {}) {
   if (!fs.existsSync(envFile)) throw new Error('Run npm run db:setup before npm start');
@@ -27,7 +28,7 @@ export function environmentFor({base = process.env, envFile = localEnvFile} = {}
   const env = {...file, ...base, EDITOR_PORT: base.EDITOR_PORT || '3001'};
   const named = ['DATABASE_URL', 'DATABASE_MIGRATION_URL'].filter(key => env[key]);
   if (named.length) throw new Error(`${named.join(' and ')} must not be set: npm start runs on the local database. Run npm run db:setup`);
-  return {...env, DATABASE_URL: LOCAL_RUNTIME_URL, DATABASE_MIGRATION_URL: LOCAL_OWNER_URL, PG_SSL: 'disable'};
+  return {...env, DATABASE_URL: LOCAL_RUNTIME_URL, DATABASE_MIGRATION_URL: LOCAL_OWNER_URL, PG_SSL: 'disable', MOCHI_LOCAL_SITE: '1'};
 }
 
 export function portIsAvailable(port, host = 'localhost') {
@@ -135,7 +136,8 @@ export async function waitForNanoAgent(env, child = null, {
 
 function run(command, args, options) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, options);
+    // On Windows npm is npm.cmd, which Node runs only through a shell.
+    const child = spawn(command, args, command === 'npm' && process.platform === 'win32' ? {...options, shell: true} : options);
     child.once('error', reject);
     child.once('exit', (code, signal) => {
       if (code === 0) resolve();
@@ -182,14 +184,14 @@ export function npmInstallProblems(projectRoot) {
 }
 
 /**
- * Before any service runs, Mochi's node_modules and NanoAgent's .venv are installed from their
+ * Before any service runs, RUSH's node_modules and NanoAgent's .venv are installed from their
  * lockfiles, so a pull or branch switch never leaves them behind. A lockfile that no longer agrees
  * with its manifest stops startup: npm ci and uv sync --locked refuse it rather than resolve again.
  */
 async function syncDependencies(env, nanoagentRoot) {
   const problems = npmInstallProblems(root);
   if (problems.length) {
-    console.log(`Installing Mochi's node_modules from package-lock.json:\n  ${problems.join('\n  ')}`);
+    console.log(`Installing RUSH's node_modules from package-lock.json:\n  ${problems.join('\n  ')}`);
     await run('npm', ['ci'], {cwd: root, env, stdio: 'inherit'});
   }
   if (usesLocalNanoAgent(env)) {
@@ -238,7 +240,7 @@ export async function startLocal(argv = process.argv.slice(2)) {
   const env = environmentFor({base: {...localEnv, ...process.env}});
   const nanoagentRoot = nanoagentProjectFrom(env);
   if (usesLocalNanoAgent(env) && !fs.existsSync(path.join(nanoagentRoot, 'pyproject.toml'))) {
-    throw new Error(`NanoAgent checkout not found at ${nanoagentRoot}. Clone it beside Mochi or set NANOAGENT_PROJECT_DIR.`);
+    throw new Error(`NanoAgent checkout not found at ${nanoagentRoot}. Clone it beside RUSH or set NANOAGENT_PROJECT_DIR.`);
   }
   const apiPort = validatedPort(env.EDITOR_PORT, 'EDITOR_PORT');
   const sitePort = validatedPort(env.SITE_PORT || 3000, 'SITE_PORT');
@@ -282,10 +284,11 @@ export async function startLocal(argv = process.argv.slice(2)) {
     const ready = await waitForNanoAgent(env);
     console.log(`NanoAgent ready: ${ready.profile.id} (${ready.profile.model})`);
   }
-  const api = spawn(process.execPath, ['src/server/index.js'], options(root));
+  // Restarts when the server's code changes, so the API is never older than the checkout the site and the apps are built from.
+  const api = spawn(process.execPath, ['--watch-path=src/server', '--watch-preserve-output', 'src/server/index.js'], options(root));
   processes.push(
     {name: 'API', child: api},
-    {name: 'site', child: spawn(process.execPath, [docusaurusCli, 'start', '--no-open', '--port', String(sitePort)], options(root))},
+    {name: 'site', child: spawn(process.execPath, [docusaurusCli, 'start', '--no-open', '--host', '127.0.0.1', '--port', String(sitePort)], options(root))},
   );
   let stopping = false;
 

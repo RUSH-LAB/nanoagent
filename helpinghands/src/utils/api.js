@@ -99,7 +99,7 @@ export async function apiFetch(input, init = {}) {
 }
 
 /**
- * Call one of Mochi's JSON endpoints and turn its error response into the
+ * Call one of RUSH's JSON endpoints and turn its error response into the
  * consistent Error shape expected throughout the client.
  */
 export async function apiRequest(path, init, {failureLabel = 'Request failed'} = {}) {

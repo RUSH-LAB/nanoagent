@@ -123,6 +123,7 @@ class NanoAgentRunner:
                     messages=transcript,
                     on_delta=on_delta,
                     on_step=on_step,
+                    on_tool=emit,
                 )
             else:
                 with workspace.use(request.workspace):
@@ -131,6 +132,7 @@ class NanoAgentRunner:
                         messages=transcript,
                         on_delta=on_delta,
                         on_step=on_step,
+                        on_tool=emit,
                     )
         except Exception:
             if terminal_snapshot is None:

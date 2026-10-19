@@ -3,6 +3,7 @@ const fallbackProfiles = require('../../ai-profiles.json');
 const {budgetRefusal} = require('../ai-metering');
 const {completionPayload} = require('../ai');
 const aiSettings = require('../ai-settings');
+const {outdated} = require('../workspace-apps');
 // Route module organized from server/index.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
@@ -261,7 +262,7 @@ async function answerRun(req, ctx, ai, kind, composed, send, signal) {
       // establish the wire contract for future tool progress without
       // changing text streaming or inventing a second transport later.
       onEvent: event => {
-        if (event.type === 'step.completed') ran = true;
+        if (event.type === 'step.completed' || event.type === 'reasoning.delta') ran = true;
         if (event.type !== 'output_text.delta') send('agent', event);
       },
     });
@@ -364,6 +365,9 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
         throw error;
       }
       // The app runs as the member installed it: NanoAgent's install of its package.
+      const refusal = await ctx.workspaceApps.refusal(req.context, composed.request.app);
+      if (refusal.error) return json(res, refusal.status, {error: refusal.error});
+      if (refusal.value) return json(res, 409, {error: outdated(composed.request.app, refusal.value)});
       const opened = await ctx.workspaceApps.open(req.context, composed.request.app, ai);
       if (opened.error) return json(res, opened.status, {error: opened.error});
       composed.request.install = opened.value.sha256;
@@ -458,7 +462,7 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
   }
 
   // ── What the OpenRouter key on the member's computer has spent, as OpenRouter says ──
-  // `you`: what the member has spent, on every key Mochi gave them when the key is Mochi's (its
+  // `you`: what the member has spent, on every key RUSH gave them when the key is RUSH's (its
   // workspace), else on this key; `total`: what everyone has spent against the cap, the
   // workspace's lifetime budget, or the key's own spend against its own limit, if it has one.
   if (req.method === 'GET' && pathname === '/api/runner/credit') {
@@ -499,7 +503,7 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
   }
 };
 
-/** The member's computer's catalog as models to choose, each available once Mochi Lab holds its provider's key. */
+/** The member's computer's catalog as models to choose, each available once RUSH Lab holds its provider's key. */
 function localModels(listing, catalog) {
   const providers = new Map(listing.providers.map(provider => [provider.id, provider]));
   const models = listing.models.map(model => {

@@ -5,7 +5,9 @@
  *
  *   GET    /api/market                every plugin: NanoAgent's own, then the uploads
  *   POST   /api/market                publish {url}, a plugin's folder in a public GitHub repository
- *   GET    /api/market/{id}/package   download one
+ *   GET    /api/market/{id}/package   download one, at its latest version
+ *   GET    /api/market/{id}/source    for its uploader, the newest commit on GitHub that changed
+ *                                     their upload's folder since its latest version, or null
  *   DELETE /api/market/{id}           remove an upload of yours
  *
  * NanoAgent's own plugins come from the NanoAgent service (/v1/packages); the
@@ -13,15 +15,17 @@
  * repository (server/github.js): the commit its ref names now is fetched, and
  * NanoAgent packs the plugin folder in it as a `nanoagent plugin pack` archive,
  * checking every plugin rule without running it. Publishing again takes the
- * ref's newest commit. Nothing here runs a plugin either: whoever downloads one
- * runs it on their own machine (market-publish.js). A plugin's author is the
- * GitHub account of whoever published it, so publishing takes an account signed
- * in with GitHub.
+ * ref's newest commit, as a new version newer than the latest (postgres/market.js).
+ * Nothing here runs a plugin either: whoever downloads one runs it on their own
+ * machine (market-publish.js). A plugin's author is the GitHub account of
+ * whoever published it, so publishing takes an account signed in with GitHub.
+ * An upload RUSH's NanoAgent now refuses is listed `refused`, with its `refusal` (market-checks.js).
  */
+const {checkedUploads} = require('../market-checks');
 const {publishFromGithub} = require('../market-publish');
+const {MARKET_ROUTE: ROUTE} = require('./paths');
 
 const PLUGIN_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const ROUTE = /^\/api\/market(?:\/([^/]+)(\/package)?)?$/;
 
 function sendPackage(res, data, filename) {
   res.writeHead(200, {
@@ -41,14 +45,16 @@ module.exports = async function market(req, res, url, pathname, ctx) {
   const userId = req.auth?.userId;
   if (!userId) return json(res, 401, {error: 'Sign in to use the marketplace'});
   if (!uploads) return json(res, 503, {error: 'The marketplace needs PostgreSQL (DATABASE_URL)'});
-  const [, id, download] = match;
+  const [, id, part] = match;
   if (id !== undefined && !PLUGIN_ID.test(id)) return json(res, 404, {error: 'No plugin by that name'});
 
   if (req.method === 'GET' && id === undefined) {
     const builtIn = await ai.packages();
     if (builtIn.error) return json(res, builtIn.status, {error: builtIn.error});
     const listed = builtIn.value.packages.map(entry => ({...entry, source: 'nanoagent', owner: null, mine: false}));
-    const uploaded = (await uploads.list(userId)).map(plugin => ({...plugin, mine: plugin.owner.id === userId}));
+    const checked = await checkedUploads({ai, market: uploads}, userId);
+    if (checked.error) return json(res, checked.status, {error: checked.error});
+    const uploaded = checked.value.map(plugin => ({...plugin, mine: plugin.owner.id === userId}));
     return json(res, 200, {plugins: [...listed, ...uploaded]});
   }
 
@@ -66,7 +72,15 @@ module.exports = async function market(req, res, url, pathname, ctx) {
     return json(res, 201, {plugin: published.plugin});
   }
 
-  if (req.method === 'GET' && download) {
+  if (req.method === 'GET' && part === 'source') {
+    const upload = await uploads.get(userId, id);
+    if (!upload || upload.owner.id !== userId || !upload.repository) return json(res, 404, {error: `You have no upload named ${id} from GitHub`});
+    const newer = await github.newer(upload.repository);
+    if (newer.error) return json(res, newer.status, {error: newer.error});
+    return json(res, 200, {newer: newer.value});
+  }
+
+  if (req.method === 'GET' && part === 'package') {
     const upload = await uploads.get(userId, id);
     if (upload) return sendPackage(res, upload.package, `${upload.id}-${upload.version}.tar.gz`);
     const builtIn = await ai.packageFile(id);
@@ -76,7 +90,7 @@ module.exports = async function market(req, res, url, pathname, ctx) {
     return sendPackage(res, builtIn.value, filename);
   }
 
-  if (req.method === 'DELETE' && id !== undefined && !download) {
+  if (req.method === 'DELETE' && id !== undefined && !part) {
     if (!await uploads.remove(userId, id)) return json(res, 404, {error: `You have no upload named ${id}`});
     return json(res, 200, {removed: id});
   }

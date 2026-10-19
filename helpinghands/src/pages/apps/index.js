@@ -1,19 +1,19 @@
 import React from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import Link from '@docusaurus/Link';
-import {useLocation} from '@docusaurus/router';
+import {useHistory, useLocation} from '@docusaurus/router';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE, {apiJson} from '@site/src/utils/api';
 import Layout from '@theme/Layout';
 import PluginFrame from '@site/src/components/PluginFrame';
 import PluginSidebar, {pluginNavigation} from '@site/src/components/PluginSidebar';
 import TwoColumnLayout from '@site/src/components/TwoColumnLayout';
-import useWorkspaceApps from '@site/src/hooks/useWorkspaceApps';
+import useWorkspaceApps, {forgetWorkspaceApps, prepareWorkspaceApps} from '@site/src/hooks/useWorkspaceApps';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 import styles from './styles.module.css';
 
 /**
- * The plugins the member installed from the marketplace: `nanoagent.plugin/v1`
+ * The plugins the member installed from the marketplace: `nanoagent.plugin/v0001`
  * packages, which NanoAgent runs in its sandbox.
  *
  * Choosing an app shows its own front end, the page in its ui/ folder, in a
@@ -57,13 +57,19 @@ function UnavailableNotice({app}) {
 /**
  * A ready app is its own page, opened once NanoAgent has it installed: the
  * first open after NanoAgent starts builds its environment, which takes a while.
- * One still being built is our notice.
+ * An outdated one (`refused`, server/market-checks.js) is its page too, never
+ * installed, in which the member reads their sessions and starts none.
+ * One still being built is our notice. The page moving the member to another
+ * version opens that version. The page opens on `session`, and `onSession`
+ * hears the session it shows.
  */
-function AppDetail({app, workspace}) {
+function AppDetail({app, workspace, session, onSession}) {
   const [opened, setOpened] = React.useState({app: null, error: null});
-  const ready = app.status === 'ready';
+  // Counts the versions the page moved to, so each opens again.
+  const [moved, setMoved] = React.useState(0);
+  const opens = app.status === 'ready' || app.status === 'refused';
   React.useEffect(() => {
-    if (!ready) return undefined;
+    if (!opens) return undefined;
     let cancelled = false;
     apiJson(`${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/apps/${encodeURIComponent(app.id)}`, {fresh: true}).then(
       result => !cancelled && setOpened(result.ok
@@ -72,12 +78,17 @@ function AppDetail({app, workspace}) {
       () => !cancelled && setOpened({app: null, error: 'Could not reach the API server'}),
     );
     return () => { cancelled = true; };
-  }, [ready, workspace.id, app.id, app.name]);
+  }, [opens, workspace.id, app.id, app.name, moved]);
   if (app.status === 'unavailable') return <UnavailableNotice app={app} />;
-  if (!ready) return <MaintenanceNotice app={app} />;
+  if (!opens) return <MaintenanceNotice app={app} />;
   if (opened.error) return <div className={styles.error}>{opened.error}</div>;
   if (!opened.app) return <p className={styles.muted}>Preparing {app.name}…</p>;
-  return <PluginFrame app={opened.app} workspace={workspace} />;
+  const onVersion = changed => {
+    forgetWorkspaceApps(workspace.id);
+    prepareWorkspaceApps(workspace.id, {again: true});
+    if (changed.sha256 !== opened.app.sha256) setMoved(count => count + 1);
+  };
+  return <PluginFrame app={opened.app} workspace={workspace} onVersion={onVersion} session={session} onSession={onSession} />;
 }
 
 function AppsColumns() {
@@ -85,6 +96,18 @@ function AppsColumns() {
   const {slug, workspace} = useWorkspaceSite();
   const {apps, error} = useWorkspaceApps(workspace);
   const navigation = pluginNavigation(apps ?? [], location.search, `/w/${encodeURIComponent(slug)}/apps`);
+  // The address names the session the plugin's page shows (?session=), so reloading opens it again.
+  const history = useHistory();
+  const session = new URLSearchParams(location.search).get('session');
+  const onSession = id => {
+    // Hidden, Plugins keeps running (components/Shell/Sections.js) and the address is another section's.
+    if (history.location.pathname !== location.pathname) return;
+    const params = new URLSearchParams(history.location.search);
+    if (id) params.set('session', id);
+    else params.delete('session');
+    const search = params.size ? `?${params}` : '';
+    if (search !== history.location.search) history.replace({...history.location, search});
+  };
 
   let content = null;
   if (!slug) content = <p className={styles.muted}>Open Plugins from a workspace.</p>;
@@ -100,7 +123,7 @@ function AppsColumns() {
   } else if (apps && navigation.requestedApp && !navigation.app) {
     content = <div className={styles.error}>No app named {navigation.requestedApp}.</div>;
   } else if (apps) {
-    content = <AppDetail key={navigation.app.id} app={navigation.app} workspace={workspace} />;
+    content = <AppDetail key={navigation.app.id} app={navigation.app} workspace={workspace} session={session} onSession={onSession} />;
   }
 
   return (
@@ -124,10 +147,15 @@ function AppsColumns() {
   );
 }
 
+/** The page's title and description, for its Layout here and in the shell (components/Shell/registry.js). */
+export const page = {title: 'Plugins', description: 'Apps built on NanoAgent'};
+
+export const AppsSection = AppsColumns;
+
 export default function AppsPage() {
   return (
-    <Layout title="Plugins" description="Apps built on NanoAgent">
-      <AppsColumns />
+    <Layout {...page}>
+      <AppsSection />
     </Layout>
   );
 }

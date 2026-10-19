@@ -1,6 +1,6 @@
 /**
  * server/app-runs.js: a plugin run outlives its page and this process. These
- * are the runs a Mochi started since finds in PostgreSQL: taken up again where
+ * are the runs a RUSH started since finds in PostgreSQL: taken up again where
  * the member's computer still holds them, and otherwise recorded as
  * interrupted, never left to vanish. The computer's side is runner.test.mjs.
  */
@@ -19,8 +19,8 @@ const until = async test => {
   assert.ok(test(), 'timed out');
 };
 
-/** Runs as a Mochi started since sees them: `rows` already in PostgreSQL, none of them this process's. */
-function restarted(rows = [{id: 'run-1', folder: 'folder-1', sent: {'a.md': {rev: 1, contentHash: 'x'}}}]) {
+/** Runs as a RUSH started since sees them: `rows` already in PostgreSQL, none of them this process's. */
+function restarted(rows = [{id: 'run-1', folder: 'folder-1', sent: {'a.md': {rev: 1, contentHash: 'x'}}}], stream = null) {
   const ctx = makeCtx();
   const sessions = fakeSessions();
   for (const row of rows) {
@@ -35,6 +35,7 @@ function restarted(rows = [{id: 'run-1', folder: 'folder-1', sent: {'a.md': {rev
   const ai = {
     stream: async request => {
       asked.push(request);
+      if (stream) return stream(request);
       request.onDelta('Saved');
       return {text: 'Saved it.'};
     },
@@ -48,7 +49,7 @@ function restarted(rows = [{id: 'run-1', folder: 'folder-1', sent: {'a.md': {rev
   return {runs, sessions, finished, released, asked, usage: ctx.calls.aiUsage};
 }
 
-describe('plugin runs a restarted Mochi finds', () => {
+describe('plugin runs a restarted RUSH finds', () => {
   it('takes up a run the member\'s computer still holds, from its first frame, and ends it', async () => {
     const {runs, sessions, finished, released, asked, usage} = restarted();
     const events = [];
@@ -67,6 +68,22 @@ describe('plugin runs a restarted Mochi finds', () => {
     assert.equal(usage[0].sessionId, SESSION);
   });
 
+  it('keeps a run\'s graph and trajectory with its turn, sending the page the graph only', async () => {
+    const graph = {nodes: [], edges: []};
+    const trajectory = {schema_version: 'ATIF-v1.8', steps: []};
+    const {runs, sessions} = restarted(undefined, request => {
+      request.onEvent({type: 'graph.completed', graph});
+      request.onEvent({type: 'trajectory.completed', trajectory});
+      return {text: 'Saved it.'};
+    });
+    const events = [];
+    runs.subscribe(SESSION, (event, data) => events.push([event, data?.type]), () => events.push('end'));
+    await runs.adopt('test-user', ['run-1']);
+    await until(() => events.includes('end'));
+    assert.deepEqual(sessions.turns.map(turn => [turn.graph, turn.trajectory]), [[graph, trajectory]]);
+    assert.deepEqual(events.filter(event => event[0] === 'agent').map(event => event[1]), ['graph.completed']);
+  });
+
   it('records as interrupted a run the computer does not hold any more, writing back what it did', async () => {
     const {runs, sessions, finished, asked, usage} = restarted();
     const events = [];
@@ -81,7 +98,7 @@ describe('plugin runs a restarted Mochi finds', () => {
     assert.equal(usage[0].ran, true);
   });
 
-  it('lets go of a run the computer holds that Mochi has no record of', async () => {
+  it('lets go of a run the computer holds that RUSH has no record of', async () => {
     const {runs, released} = restarted([]);
     await runs.adopt('test-user', ['run-9']);
     assert.deepEqual(released, [['test-user', 'run-9']]);

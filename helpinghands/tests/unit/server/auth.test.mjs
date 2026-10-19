@@ -51,7 +51,7 @@ const GITHUB = {GITHUB_CLIENT_ID: 'test-client', GITHUB_CLIENT_SECRET: 'test-sec
 const authModule = loadAuth({DATABASE_FILE: undefined, ...GITHUB});
 
 describe('isPublicPath', () => {
-  for (const p of ['/api/health']) {
+  for (const p of ['/api/health', '/install.sh', '/install.ps1']) {
     it(`treats ${p} as public`, () => {
       assert.equal(authModule.isPublicPath(p), true);
     });
@@ -363,7 +363,7 @@ describe('productionAuthError', () => {
       ...configured,
       MAIL_WEBHOOK_URL: undefined,
       RESEND_API_KEY: 're_test',
-      MAIL_FROM: 'Mochi <mail@example.test>',
+      MAIL_FROM: 'RUSH <mail@example.test>',
     }), null);
   });
 

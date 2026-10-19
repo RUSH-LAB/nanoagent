@@ -15,8 +15,8 @@ Then sign in, clone a workspace into a new folder, and keep it in sync:
 
 ```bash
 rush login https://rush-lab.org
-rush clone https://rush-lab.org my-workspace ~/Mochi/my-workspace
-rush sync ~/Mochi/my-workspace
+rush clone https://rush-lab.org my-workspace ~/RUSH/my-workspace
+rush sync ~/RUSH/my-workspace
 ```
 
 `login` prints a link and a code. Open the link in a browser, sign in with
@@ -29,7 +29,8 @@ syncs within a second of a local change and checks the server every 30 seconds.
 - Every file in the workspace is a file at the same path, text or binary.
   Markdown keeps its frontmatter.
 - Anything with a path segment starting with a dot stays on its own side:
-  `.mochi/` locally, `.plugins/` in the workspace.
+  `.mochi/` locally, the apps' own state (`.apps/`, `.chat/`, `.plugins/`) in
+  the workspace.
 - Renaming or moving a file moves it in the workspace, keeping its history and
   who can see it. A new file inherits its folder's access.
 
@@ -39,9 +40,9 @@ The workspace's drive lives in the cloud and is shared with its members; the
 local folder is a cache of it. Choose what is kept locally:
 
 ```bash
-rush clone https://rush-lab.org my-workspace ~/Mochi/my-workspace papers notes
-rush online-only ~/Mochi/my-workspace papers/2024
-rush download ~/Mochi/my-workspace papers/2024
+rush clone https://rush-lab.org my-workspace ~/RUSH/my-workspace papers notes
+rush online-only ~/RUSH/my-workspace papers/2024
+rush download ~/RUSH/my-workspace papers/2024
 ```
 
 - `clone` with folder names downloads only those top-level folders; every

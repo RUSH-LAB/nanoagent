@@ -40,6 +40,7 @@ function fakeApps(overrides = {}) {
     add: async (context, id) => { calls.push(['add', id]); return {value: APP}; },
     tag: async (context, id, tags) => { calls.push(['tag', id, tags]); return id === 'echo'; },
     remove: async (context, id) => { calls.push(['remove', id]); return id === 'echo'; },
+    refusal: async () => ({value: null}),
     open: async (context, id) => {
       calls.push(['open', id]);
       return {value: {...APP, id, uiVersion: '0123456789abcdef'}};
@@ -153,8 +154,8 @@ describe('NanoAgent apps', () => {
     assert.equal(added.status, 404);
   });
 
-  it('lists only the caller\'s own agent folder', async () => {
-    const fs = fakeFs({'home/test-user/agent/echo/attention/ms.tex': '\\section{}', 'home/other/agent/echo/x.md': 'not yours'});
+  it('lists only the caller\'s own folder for the plugin', async () => {
+    const fs = fakeFs({'home/test-user/plugins/echo/files/attention/ms.tex': '\\section{}', 'home/other/plugins/echo/files/x.md': 'not yours'});
     const listed = await invoke(routes, {method: 'GET', path: '/api/agent-files', query: '?plugin=echo', ctx: ctxWith({}, fs), requestContext: context});
     assert.equal(listed.status, 200);
     assert.deepEqual(listed.payload, {files: [{path: 'attention/ms.tex', size: 10}]});
@@ -168,7 +169,7 @@ describe('NanoAgent apps', () => {
   });
 
   it('serves text as plain text and never as HTML', async () => {
-    const fs = fakeFs({'home/test-user/agent/echo/attention/ms.tex': '\\section{Intro}', 'home/test-user/agent/echo/page.html': '<script>x</script>'});
+    const fs = fakeFs({'home/test-user/plugins/echo/files/attention/ms.tex': '\\section{Intro}', 'home/test-user/plugins/echo/files/page.html': '<script>x</script>'});
     for (const path of ['attention/ms.tex', 'page.html']) {
       const served = await invoke(routes, {method: 'GET', path: '/api/agent-files/content', query: `?plugin=echo&path=${path}`, ctx: ctxWith({}, fs), requestContext: context});
       assert.equal(served.res.written.status, 200);
@@ -178,7 +179,7 @@ describe('NanoAgent apps', () => {
   });
 
   it('sends a viewable file as an attachment when asked to download it', async () => {
-    const fs = fakeFs({'home/test-user/agent/echo/notes/a.txt': 'text'});
+    const fs = fakeFs({'home/test-user/plugins/echo/files/notes/a.txt': 'text'});
     const served = await invoke(routes, {
       method: 'GET', path: '/api/agent-files/content', query: '?plugin=echo&path=notes/a.txt&download=1', ctx: ctxWith({}, fs), requestContext: context,
     });
@@ -190,7 +191,7 @@ describe('NanoAgent apps', () => {
     assert.equal(result.status, 404);
   });
 
-  it('saves a file to the caller\'s agent folder, refusing to replace one when creating', async () => {
+  it('saves a file to the caller\'s folder for the plugin, refusing to replace one when creating', async () => {
     const fs = fakeFs();
     const ctx = ctxWith({}, fs);
     ctx.readRawBody = async () => Buffer.from('hello');
@@ -201,12 +202,12 @@ describe('NanoAgent apps', () => {
     assert.deepEqual(created.payload, {path: 'notes/a.md', size: 5});
     await invoke(routes, {method: 'PUT', path: '/api/agent-files/content', query: '?plugin=echo&path=notes/a.md', ctx, requestContext: context});
     assert.deepEqual(fs.writes, [
-      ['home/test-user/agent/echo/notes/a.md', 'hello', {baseRev: 0}],
-      ['home/test-user/agent/echo/notes/a.md', 'hello', {}],
+      ['home/test-user/plugins/echo/files/notes/a.md', 'hello', {baseRev: 0}],
+      ['home/test-user/plugins/echo/files/notes/a.md', 'hello', {}],
     ]);
   });
 
-  it('lets a viewer change their own agent folder', async () => {
+  it('lets a viewer change their own folder for the plugin', async () => {
     const result = await invoke(routes, {method: 'PUT', path: '/api/agent-files/content', query: '?plugin=echo&path=a.txt', ctx: ctxWith({}, fakeFs()), requestContext: {...context, role: 'viewer'}});
     assert.equal(result.status, 200);
   });
@@ -321,6 +322,18 @@ describe('an app\'s sessions', () => {
     assert.deepEqual(ctx.sessions.created, ['echo']);
     const read = await invoke(routes, {method: 'GET', path: `${PATH}/${SESSION}`, ctx, requestContext: context});
     assert.deepEqual(read.payload.session.calls, []);
+  });
+
+  it('starts no session with a version NanoAgent refuses, whose sessions it still lists, reads and archives', async () => {
+    const ctx = ctxWith({});
+    ctx.workspaceApps.refusal = async () => ({value: 'the package is refused: made for 0.6'});
+    const started = await invoke(routes, {method: 'POST', path: PATH, ctx, requestContext: context});
+    assert.equal(started.status, 409);
+    assert.match(started.payload.error, /^echo is outdated: /);
+    assert.deepEqual(ctx.sessions.created, []);
+    assert.equal((await invoke(routes, {method: 'GET', path: PATH, ctx, requestContext: context})).status, 200);
+    assert.equal((await invoke(routes, {method: 'GET', path: `${PATH}/${SESSION}`, ctx, requestContext: context})).status, 200);
+    assert.equal((await invoke(routes, {method: 'PATCH', path: `${PATH}/${SESSION}`, body: {archived: true}, ctx, requestContext: context})).status, 200);
   });
 
   it('refuses to change a session, and any id that is not one', async () => {

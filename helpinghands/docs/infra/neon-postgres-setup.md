@@ -1,7 +1,7 @@
 # Neon Postgres setup
 
 Production's database is the `production` branch of the Neon project
-`curly-rice-08210507`, which Railway's Mochi service (rush-lab.org) uses.
+`curly-rice-08210507`, which Railway's RUSH service (rush-lab.org) uses.
 Local `npm start` runs on a database of its own on your machine, a copy of
 production's that you refresh when you choose. Nothing you change locally
 reaches rush-lab.org unless you push a workspace. The local site's banner
@@ -41,7 +41,7 @@ npm run db:pull                    # replace the local database with a copy of p
 npm run db:push -- comp-480-580    # replace that workspace on production with the local one
 ```
 
-`db:pull` copies all of production's data except Mochi Lab's desktop bundles,
+`db:pull` copies all of production's data except RUSH Lab's desktop bundles,
 then clears every session, verification and device code and every account's
 stored tokens and password, so no sign-in travels. It replaces everything
 local, including work not pushed yet. Sign in again on the local site.
@@ -98,7 +98,7 @@ in `.github/workflows/helpinghands-postgres.yml`).
 
 - `.neon` names the Neon organization, project and the `production` branch.
   It holds no password and is committed.
-- `.env` holds Mochi's private local configuration, and no database URL. It is
+- `.env` holds RUSH's private local configuration, and no database URL. It is
   git-ignored.
 - `infra/neon.ts` is committed configuration-as-code (`neon:plan`,
   `neon:deploy`).

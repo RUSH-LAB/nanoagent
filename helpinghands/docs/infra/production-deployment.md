@@ -1,12 +1,12 @@
 # Production deployment
 
-Mochi's public surface is one Node process serving both the built Docusaurus
+RUSH's public surface is one Node process serving both the built Docusaurus
 shell and `/api/*`. Keeping one public origin lets Better Auth use HttpOnly,
 Secure, same-site cookies without exposing credentials to browser JavaScript.
 It calls NanoAgent over Railway's private network; NanoAgent is never public.
 That NanoAgent offers no plugin package of its own and only packs the plugins
 published to the marketplace from GitHub: every run, plugin install and plugin
-page is on the member's own computer, through Mochi Lab
+page is on the member's own computer, through RUSH Lab
 (`src/server/runner.js`), and is refused while it is not connected.
 
 ## Required services
@@ -22,16 +22,16 @@ page is on the member's own computer, through Mochi Lab
 - A container host with HTTPS termination and secret management.
 - A private NanoAgent service with a shared `NANOAGENT_API_TOKEN`, and no
   model-provider key.
-- An OpenRouter management key, `OPENROUTER_MANAGEMENT_KEY`: a member's Mochi
+- An OpenRouter management key, `OPENROUTER_MANAGEMENT_KEY`: a member's RUSH
   Lab that connects without an OpenRouter key is given one of its own on this
-  account, in the OpenRouter workspace `mochi` that Mochi makes, with a
+  account, in the OpenRouter workspace `mochi` that RUSH makes, with a
   lifetime budget of $10 for every member together
   (`src/server/openrouter-keys.js`); OpenRouter stops every key in it once
-  that is spent. Mochi keeps none of the keys; a member who saves their own
+  that is spent. RUSH keeps none of the keys; a member who saves their own
   key is given none. Without it, members add their own.
 - An upload token, `LAB_UPLOAD_TOKEN`: a long random string the release job
   sends as `Authorization: Bearer` to `PUT /api/lab/bundles/<target>`, the
-  Mochi Lab bundles the one-line install downloads (`src/server/routes/lab.js`).
+  RUSH Lab app's dmgs that members download (`src/server/routes/lab.js`).
   Without it, uploads answer 503.
 
 The current deployment target is Railway. It builds the committed `Dockerfile`,
@@ -59,6 +59,17 @@ npm run mail:verify
 `MAIL_TEST_TO` is used only by this command. The application sends invitation
 messages to their actual recipients.
 
+## RUSH Lab on a member's computer
+
+A member installs nothing but RUSH Lab: from the dmg on `/download`, or
+`curl -fsSL <site>/install.sh | sh` on macOS (`src/server/lab-install.js`).
+The app bundles Node.js, uv and git (`desktop/scripts/stage.mjs`). Python is
+not bundled: on first launch, the setup screen's Prepare Python step has the
+bundled uv download Python 3.12 and NanoAgent's packages from PyPI and GitHub
+(`src/runner/lab.mjs`), about a minute online. So the first launch needs the
+internet; this is deliberate, and bundling Python and the packages as well is
+not planned. A member also needs a GitHub account, the only sign-in.
+
 ## Release sequence
 
 1. Back up the legacy database, content tree, and uploaded objects.
@@ -72,7 +83,7 @@ messages to their actual recipients.
 
 ## Railway
 
-Create the public Mochi service from `RUSH-LAB/nanoagent`, branch `production`,
+Create the public RUSH service from `RUSH-LAB/nanoagent`, branch `production`,
 with root directory `helpinghands` and watch path `/helpinghands/**`. Railway
 reads `railway.toml` from the root directory, which sets the build
 (`Dockerfile`), the pre-deploy migrations, and the health check; keep those
@@ -91,7 +102,7 @@ root directory `nanoagent` and watch path `/nanoagent/**`. Run
 release. Install the `nanoagent[hermes]` extra to enable Hermes profiles and
 install/link `@nanoagent/pi-runner` with Node 22.19 or newer to enable PI
 profiles; profiles whose runner is missing remain visible as unavailable. Give it no
-model-provider credential: it runs nothing. On Mochi, set
+model-provider credential: it runs nothing. On RUSH, set
 `NANOAGENT_URL` to the private Railway URL and set the same
 `NANOAGENT_API_TOKEN`. Do not expose a public domain for NanoAgent.
 

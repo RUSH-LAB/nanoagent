@@ -115,18 +115,21 @@ function GroupTree({groups, activePane}) {
 export default function SettingsSidebar({groups, activePane, collapsed, onCollapse}) {
   return (
     <div className={clsx(styles.sidebar, collapsed && styles.sidebarHidden)}>
-      <div className={styles.sidebarControls}>
-        <PlaceSwitcher />
-        <button
-          className={styles.collapseButton}
-          type="button"
-          title="Collapse settings navigation"
-          aria-label="Collapse settings navigation"
-          onClick={onCollapse}
-        >
-          <DoubleChevron />
-        </button>
-      </div>
+      {/* Inside the shell the side bar's title names Settings, and the activity bar hides it. */}
+      {onCollapse && (
+        <div className={styles.sidebarControls}>
+          <PlaceSwitcher />
+          <button
+            className={styles.collapseButton}
+            type="button"
+            title="Collapse settings navigation"
+            aria-label="Collapse settings navigation"
+            onClick={onCollapse}
+          >
+            <DoubleChevron />
+          </button>
+        </div>
+      )}
       <GroupTree groups={groups} activePane={activePane} />
     </div>
   );

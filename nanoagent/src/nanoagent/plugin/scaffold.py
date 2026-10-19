@@ -2,10 +2,10 @@
 
 The template (``nanoagent/plugin/template/``) is the layout of the reference plugin, arxiv-source
 (https://github.com/zeyuyang8/arxiv-source), with one small tool. Its files are copied with
-``{{id}}``, ``{{name}}``, ``{{year}}``, ``{{author}}`` (git's ``user.name``: the builder holds the
-LICENSE's copyright) and ``{{nanoagent}}`` (this NanoAgent's minor version, ``X.Y.0``) filled in;
+``{{id}}``, ``{{name}}``, ``{{year}}`` and ``{{author}}`` (git's ``user.name``: the builder holds the
+LICENSE's copyright) filled in;
 ``dot.<name>`` files become ``.<name>`` (dotfiles stay out of the package's ignore rules).
-``uv lock`` then writes the lock, and the result must load under every plugin rule.
+``uv lock`` then writes the lock, and the result must pass every rule (:func:`check_plugin`).
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ import subprocess
 from datetime import date
 from pathlib import Path
 
-from nanoagent import __version__
-from nanoagent.plugin.manifest import PLUGIN_ID, TEMPLATE, TOOL_ARTIFACTS, PluginManifest, load_manifest
+from nanoagent.plugin.authoring import TEMPLATE, check_plugin
+from nanoagent.plugin.manifest import PLUGIN_ID, TOOL_ARTIFACTS, PluginManifest
 
 
 def create_plugin(folder: Path) -> PluginManifest:
@@ -36,7 +36,6 @@ def create_plugin(folder: Path) -> PluginManifest:
         "{{name}}": plugin_id.replace("-", " ").title(),
         "{{year}}": str(date.today().year),
         "{{author}}": author,
-        "{{nanoagent}}": ".".join(__version__.split(".")[:2]) + ".0",
     }
     for source in sorted(TEMPLATE.rglob("*")):
         relative = source.relative_to(TEMPLATE)
@@ -55,4 +54,4 @@ def create_plugin(folder: Path) -> PluginManifest:
     locked = subprocess.run(["uv", "lock", "--quiet"], cwd=folder, capture_output=True, text=True, check=False)
     if locked.returncode:
         raise RuntimeError(f"uv lock failed in {folder}: {locked.stderr.strip()}")
-    return load_manifest(folder)
+    return check_plugin(folder)

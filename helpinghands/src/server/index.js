@@ -1,5 +1,5 @@
 /**
- * Mochi Lab API server. Exposes a REST API on port 3001 (or EDITOR_PORT) for
+ * RUSH Lab API server. Exposes a REST API on port 3001 (or EDITOR_PORT) for
  * file CRUD, references, analytics, snapshots, and more.
  * All routes live under /api/* and return JSON with CORS headers.
  */
@@ -16,7 +16,10 @@ const {
 } = require('./server-utils');
 
 const {PROJECT_ROOT, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
+const {makeSignature} = require('better-auth/crypto');
 const {auth, AUTH_SECRET, SITE_URL, tenancy, githubUsers, resolveIdentity, isPublicPath, productionAuthError} = require('./auth');
+const {INSTALL_SCRIPTS} = require('./lab-install');
+const {servedApp} = require('./lab-app');
 const {asksForSession, redirectFor} = require('../utils/signIn');
 const {createAiMeter} = require('./ai-metering');
 const {
@@ -33,7 +36,7 @@ const {contextualChat, contextualOrg} = require('./context-services');
 const roles = postgresServices?.roles ?? require('./roles');
 const chat = contextualChat(postgresServices?.chat ?? require('./chat'));
 const org = contextualOrg(postgresServices?.org ?? require('./org'));
-// Mochi's own NanoAgent: the marketplace's plugin packages only. Every run, install and
+// RUSH's own NanoAgent: the marketplace's plugin packages only. Every run, install and
 // plugin page is on the member's own computer (server/runner.js).
 const ai = require('./ai');
 const {createGithub} = require('./github');
@@ -53,10 +56,10 @@ const store = postgresServices?.store ?? require('./store');
 // everything else here: a test substitutes them.
 const documents = postgresServices?.documents ?? require('./documents');
 const preferences = postgresServices?.preferences ?? require('./preferences');
-// The OpenRouter key Mochi gives each member's computer, on its own account: production's in its
+// The OpenRouter key RUSH gives each member's computer, on its own account: production's in its
 // own OpenRouter workspace, any other site's (npm start's) in another.
 if (!process.env.OPENROUTER_MANAGEMENT_KEY?.trim()) {
-  throw new Error('Mochi requires OPENROUTER_MANAGEMENT_KEY: it gives each member\'s computer its OpenRouter key.');
+  throw new Error('RUSH requires OPENROUTER_MANAGEMENT_KEY: it gives each member\'s computer its OpenRouter key.');
 }
 const openrouterKeys = createOpenRouterKeys({
   managementKey: process.env.OPENROUTER_MANAGEMENT_KEY.trim(),
@@ -215,7 +218,7 @@ function json(res, status, data, opts) {
     ...corsHeaders(res.req),
     'X-API-Version': '1.0',
     // A stable protocol identifier, unlike the deployment's display name.
-    'X-Powered-By': 'Mochi Lab',
+    'X-Powered-By': 'RUSH Lab',
   };
   if (status === 200 && res.req?.method === 'GET') {
     const etag = '"' + crypto.createHash('md5').update(body).digest('hex').slice(0, 16) + '"';
@@ -500,7 +503,7 @@ function recordPerfMetric(endpoint, ms) {
 let requestCounter = 0;
 
 // ── Shared context handed to every route module in server/routes/ ──
-// Plugin runs work on a copy of the member's agent folder (fs/agent-sync.js), and
+// Plugin runs work on a copy of the member's folder for the plugin (fs/agent-sync.js), and
 // outlive their pages and this process (app-runs.js): each computer that says
 // hello hands over the runs it holds that no call here has.
 const appRuns = postgresServices?.fs
@@ -519,7 +522,7 @@ const ctx = {
   // The NanoAgent a member's runs go to: their own computer's (server/runner.js).
   aiFor: runners.aiFor,
   runners,
-  // The OpenRouter keys Mochi gives members' computers, or null (openrouter-keys.js).
+  // The OpenRouter keys RUSH gives members' computers, or null (openrouter-keys.js).
   openrouterKeys,
   // What a member chose in Settings → AI (ai-settings.js).
   aiSettings: async userId => aiSettings.stored(userId ? (await preferences.get(userId)).ai : null),
@@ -556,22 +559,39 @@ const ctx = {
   fsHub: postgresServices?.fsHub ?? null,
   // The plugin marketplace's uploads; PostgreSQL only.
   market: postgresServices?.market ?? null,
-  // Mochi Lab's one-line install (routes/lab.js): its bundles, PostgreSQL only; the
-  // secret its download tokens are signed with; and the token its uploads carry.
+  // RUSH Lab, the app (routes/lab.js): its downloads, PostgreSQL only; the secret its connect
+  // links are signed with; the scheme of the app serving this site; and the token its uploads carry.
   lab: {
     bundles: postgresServices?.labBundles ?? null,
     secret: AUTH_SECRET,
     siteUrl: SITE_URL,
+    scheme: servedApp().scheme,
     uploadToken: process.env.LAB_UPLOAD_TOKEN || null,
-    installScript: path.join(__dirname, '../runner/install.sh'),
-    // A Better Auth session for the member, as the device grant makes one (its token); null when
+    // The member's GitHub login, which names their files' folder on their computer; null when
     // there is no such member any more.
-    // A session for the member, and their GitHub login, which names their files' folder there.
+    findMember: async userId => {
+      const {internalAdapter} = await auth.$context;
+      const user = await internalAdapter.findUserById(userId);
+      return user ? {login: user.githubLogin} : null;
+    },
+    // A Better Auth session for the member, as the device grant makes one (its token), and their
+    // GitHub login; null when there is no such member any more.
     createSession: async userId => {
       const {internalAdapter} = await auth.$context;
       const user = await internalAdapter.findUserById(userId);
       if (!user) return null;
       return {token: (await internalAdapter.createSession(userId)).token, login: user.githubLogin};
+    },
+    // The Set-Cookie header that signs a browser in with the session `token`, as Better Auth's
+    // own sign-in sets it.
+    sessionCookie: async token => {
+      const context = await auth.$context;
+      const {name, attributes} = context.authCookies.sessionToken;
+      const signed = `${token}.${await makeSignature(token, context.secret)}`;
+      return [
+        `${name}=${encodeURIComponent(signed)}`, `Path=${attributes.path ?? '/'}`, `Max-Age=${attributes.maxAge}`,
+        'HttpOnly', `SameSite=${attributes.sameSite ?? 'Lax'}`, ...(attributes.secure ? ['Secure'] : []),
+      ].join('; ');
     },
   },
   // What members submit to their workspace; PostgreSQL only.
@@ -670,7 +690,8 @@ async function handleRequest(req, res) {
 
   // A production process serves the Docusaurus application shell and API from
   // one origin, so the session cookie never has to be exposed to JavaScript.
-  if (pathname !== '/api' && !pathname.startsWith('/api/') && process.env.NODE_ENV === 'production') {
+  // RUSH Lab's install scripts are the server's to write, with its SITE_URL (routes/lab.js).
+  if (pathname !== '/api' && !pathname.startsWith('/api/') && !INSTALL_SCRIPTS.has(pathname) && process.env.NODE_ENV === 'production') {
     const root = path.join(PROJECT_ROOT, 'build');
     // A page that needs a session is never sent to a visitor without one, who
     // goes to the sign-in page instead of seeing the page and then losing it.

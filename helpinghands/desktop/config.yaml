@@ -1,27 +1,55 @@
-# The desktop app's build inputs. scripts/stage.mjs reads it at build time and bundles it;
-# src-tauri/src/supervisor.rs reads the bundled copy at run time.
+# The RUSH Lab app's build inputs. scripts/stage.mjs reads it at build time and bundles it as
+# config.json (with --dev, `dev` merged over it), which src-tauri/src/lab.rs and src/runner/lab.mjs
+# read at run time.
 
-# The Mochi this app serves: its window shows the site, and its relay (src/runner/relay.mjs)
-# lends this computer's NanoAgent to the signed-in member's runs there.
+# Who this app is. These are RUSH Lab's, the release members install; `dev` overrides exactly these
+# for RUSH Lab Dev, which only `npm run desktop:dev` builds (scripts/stage.mjs --dev,
+# scripts/dev/desktop-dev.mjs). Both are built by the same code and the same steps, and can run at
+# once on one computer.
+#
+# The name the app is installed by and that its menu, dialogs and windows say; tauri.conf.json's
+# productName, which tests/unit/desktop/config.test.mjs keeps the same.
+product_name: RUSH Lab
+# The app's identifier (tauri.conf.json's), and its data folder in ~/Library/Application Support/,
+# on Windows %LOCALAPPDATA%. It serves a connection there for each member of its site connected on
+# this computer, each with its own NanoAgent on a free port.
+label: lab.mochi.lab
+# The app's links (<scheme>://connect, ://sign-in): tauri.conf.json's deep-link scheme.
+scheme: rushlab
+# The one RUSH this app serves: its window's, and the only site a connect link may name.
 site_url: https://rush-lab.org
-# NanoAgent's loopback port. Away from npm start's 8787, so the app and a development checkout
-# run side by side.
-nanoagent_port: 47311
-# The member's own files in each workspace they are in, <home>/<files_folder>/<workspace>/, kept in
+# The member's own files in each workspace they are in, <home>/<files_folder>/<login>/, kept in
 # sync both ways with their home there by the relay (src/runner/files.mjs).
 files_folder: rushlab
-
-# RUSH Lab without its window (src/runner/install.sh, lab.mjs) is installed once per account on a
-# computer, under `label`: its service, and its data folder in ~/Library/Application Support/ or
-# ~/.local/share/. It serves a connection for each member of each site installed there, each with
-# its own NanoAgent on a free port, and each member's files in <home>/<files folder>/<login>/:
-# files_folder for site_url, other_site's for any other (a development checkout's npm start).
-label: lab.mochi.lab
-other_site:
+# The command the app puts on the member's PATH, <home>/.local/bin/<command> (src/runner/lab.mjs),
+# which makes and previews plugin projects and runs the app's own nanoagent and uv in any terminal.
+command: rushlab
+# RUSH Lab Dev: on this checkout's `npm start`, beside RUSH Lab and sharing nothing with it.
+dev:
+  product_name: RUSH Lab Dev
+  label: lab.mochi.lab.dev
+  scheme: rushlab-dev
+  site_url: http://localhost:3000
   files_folder: rushlab-dev
+  command: rushlab-dev
 
-# Bundled runtimes. Node runs the relay and NanoAgent's PI runner; uv installs NanoAgent's
-# dependencies (uv.lock) on first launch, on the Python NanoAgent is compiled for, and runs its plugins.
+# Bundled runtimes. Node runs lab.mjs, the relay and NanoAgent's PI runner; uv installs NanoAgent's
+# dependencies (uv.lock) on first launch, on the Python NanoAgent runs on, and runs its plugins.
 node_version: 22.23.3
 uv_version: 0.12.22
 python_version: "3.12"
+
+# The app bundles git, which uv runs to fetch a git dependency, NanoAgent's own and plugins'.
+# macOS only: a Mac without Xcode's Command Line Tools has no git, so the app bundles git built from
+# this source (kernel.org), checked against this sha256.
+git_version: 2.56.0
+git_sha256: 26c56c296b38c0695b26fa95f475f1d01704d2d38e73465ca30b0b2f5dc789d3
+
+# Windows only: Git for Windows' own shell (MSYS) cannot start in the AppContainer plugins run in
+# (nanoagent.plugin.sandbox), so the app bundles MinGit with busybox-w32 as its usr/bin/sh.exe, both
+# checked against these sha256s.
+mingit_release: v2.56.0.windows.2
+mingit_version: 2.56.0.2
+mingit_sha256: da35e72aa21c005a5a0d298cfbae110bc1609a815730ea0dde84b01a1b3cd3be
+busybox_build: FRP-6075-g169694ebd
+busybox_sha256: 6e263d154d8548d1eb936f65d1d8312c80df31c45974e48d6335e4dcc0f4f34c

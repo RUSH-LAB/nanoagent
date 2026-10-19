@@ -1,7 +1,8 @@
-"""`nanoagent plugin`: start a plugin, inspect one, or run one of its tasks as a slimconfig run.
+"""`nanoagent plugin`: start a plugin, inspect or migrate one, or run one of its tasks as a slimconfig run.
 
     nanoagent plugin new <folder>
-    nanoagent plugin inspect <path>
+    nanoagent plugin inspect <path>                                                # every rule, the spec's and the template's
+    nanoagent plugin migrate <folder>                                              # a plugin made before specs
     nanoagent plugin pack <folder> <file.tar.gz>                                   # for a marketplace
     nanoagent plugin run config=<run.yaml> home=<run folder> [-- key=value ...]    # runner: tool
     nanoagent plugin agent config=<run.yaml> home=<run folder> [-- key=value ...]  # runner: agent or decide
@@ -39,6 +40,7 @@ from nanoagent.llm.bedrock import BedrockConfig
 from nanoagent.llm.openrouter import OpenRouterConfig
 from nanoagent.core.agent import Agent
 from nanoagent.plugin import PluginError, PluginManifest, load_manifest
+from nanoagent.plugin.authoring import check_plugin, migrate
 from nanoagent.plugin.dataflow import Decider
 from nanoagent.plugin.manifest import TaskDefinition
 from nanoagent.plugin.package import pack
@@ -52,6 +54,7 @@ from nanoagent.trajectory.atif import AtifTrajectory, to_atif
 _USAGE = """usage:
   nanoagent plugin new <folder>
   nanoagent plugin inspect <path>
+  nanoagent plugin migrate <folder>
   nanoagent plugin pack <folder> <file.tar.gz>
   nanoagent plugin run config=<run.yaml> home=<run folder> [-- key=value ...]
   nanoagent plugin agent config=<run.yaml> home=<run folder> [-- key=value ...]"""
@@ -59,11 +62,11 @@ _USAGE = """usage:
 
 @dataclass
 class PluginRunConfig(Config):
-    # The plugin folder (a `nanoagent.plugin/v1` package).
+    # The plugin folder, following a spec this NanoAgent runs (nanoagent.plugin.manifest.SPECS).
     plugin: str = MISSING
     # One of the plugin's tasks whose runner is `tool`.
     task: str = MISSING
-    # The task's input: a JSON file of its contract input class (see nanoagent.plugin.contract).
+    # The task's input: a JSON file of its contract input class (see nanoagent.plugin.v0001.contract).
     arguments: str = MISSING
     # Files the task reads, copied to workspace/inputs/<file name>; [] for none.
     inputs: list[str] = MISSING
@@ -304,11 +307,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if argv[:1] == ["inspect"] and len(argv) == 2:
         try:
-            manifest = load_manifest(Path(argv[1]))
+            manifest = check_plugin(Path(argv[1]))
         except PluginError as error:
             print(error, file=sys.stderr)
             return 1
         print(json.dumps(manifest.public(), indent=2))
+        return 0
+    if argv[:1] == ["migrate"] and len(argv) == 2:
+        try:
+            manifest = migrate(Path(argv[1]))
+        except (ValueError, FileNotFoundError) as error:
+            print(error, file=sys.stderr)
+            return 1
+        print(f"moved plugin {manifest.id} onto {manifest.spec}")
         return 0
     if argv[:1] == ["pack"] and len(argv) == 3:
         try:

@@ -6,7 +6,7 @@ description: Open the release pull request from `devmode` into `production`, the
 # Open a pull request into production
 
 `production` in `RUSH-LAB/nanoagent` is what Railway runs. Merging into it
-deploys Mochi (`helpinghands/`) and/or NanoAgent (`nanoagent/`), whichever
+deploys RUSH (`helpinghands/`) and/or NanoAgent (`nanoagent/`), whichever
 directory changed. The rules are in `helpinghands/docs/infra/release-policy.md`;
 read it before starting.
 
@@ -43,14 +43,14 @@ If there are no commits, stop: there is nothing to release.
 
 Record:
 
-- **Services:** Mochi if anything under `helpinghands/` changed, NanoAgent if
+- **Services:** RUSH if anything under `helpinghands/` changed, NanoAgent if
   anything under `nanoagent/` changed.
 - **Migrations:** new files under `helpinghands/src/server/postgres/migrations/`.
-  Railway applies them before the new Mochi container starts, and they are not
+  Railway applies them before the new RUSH container starts, and they are not
   rolled back with the image.
 - **Contract:** changes under `nanoagent/src/nanoagent/web/` or
   `nanoagent/deploy/railway/profiles/`. If any of these changes the `/v1` HTTP/SSE
-  contract incompatibly, or renames or removes a profile ID, *and* Mochi also
+  contract incompatibly, or renames or removes a profile ID, *and* RUSH also
   changed, stop. The policy requires releasing NanoAgent alone first; tell the
   user how to split the branch.
 
@@ -78,7 +78,7 @@ The body, written for whoever reviews and merges it:
 <one bullet per user-visible change, grouped by service>
 
 ## Services redeployed
-- Mochi: yes/no
+- RUSH: yes/no
 - NanoAgent: yes/no
 
 ## Migrations
@@ -87,8 +87,8 @@ The body, written for whoever reviews and merges it:
 ## After merging
 - [ ] Railway health check passes for each redeployed service
 - [ ] NanoAgent: `/health` and `/v1/profiles` respond (if redeployed)
-- [ ] Mochi: sign-in, profile discovery, one streamed assistant response
-- [ ] If anything fails, roll back Mochi first, then NanoAgent, to the previous
+- [ ] RUSH: sign-in, profile discovery, one streamed assistant response
+- [ ] If anything fails, roll back RUSH first, then NanoAgent, to the previous
       successful Railway deployment
 ```
 
@@ -99,5 +99,7 @@ gh pr checks <number> --repo RUSH-LAB/nanoagent
 ```
 
 Give the user the PR URL, the services it redeploys, any migrations, and the CI
-state. If a check fails, show its name and link. Remind the user that merging
-deploys.
+state. If a check fails, show its name and link. When the PR changes the
+desktop app, the `app` checks (each Mac and Windows) install and run it as
+members do and take about 30 minutes; it is ready to merge only once all three
+pass. Remind the user that merging deploys.

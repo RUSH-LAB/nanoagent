@@ -127,6 +127,14 @@ describe('workspace file system', () => {
     assert.equal(await fs.stat(bob, 'home/vic/notes/a.md'), null);
   });
 
+  it('lets no one else make, open up or move a member\'s home', async () => {
+    await assert.rejects(fs.write(bob, 'home/alice/planted.md', 'hi'), {code: 'not-your-home'});
+    await assert.rejects(fs.write(bob, 'home/vic/planted.md', 'hi'));
+    await assert.rejects(fs.setAccess(vic, 'home/vic', 'workspace'), /a folder private to them/);
+    await assert.rejects(fs.move(vic, 'home/vic', 'vic-home'), /cannot move/);
+    await assert.rejects(fs.write(alice, 'home', 'a file'));
+  });
+
   it('lets a viewer read but not write', async () => {
     assert.ok(await fs.read(vic, 'notes/a.md'));
     await assert.rejects(() => fs.write(vic, 'notes/b.md', 'nope'));

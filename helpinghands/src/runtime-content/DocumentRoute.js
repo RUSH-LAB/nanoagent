@@ -602,7 +602,7 @@ function DocumentBody({
   const createDocument = useCallback(async (collection, adjacent = null, group = null) => {
     if (!state.workspaceId || (state.workspaceRole !== 'owner' && state.workspaceRole !== 'editor')) return;
     const type = collection?.type === 'blog' ? 'post' : 'page';
-    const title = clientPlatform.dialogs.prompt(`New ${type} title`)?.trim();
+    const title = (await clientPlatform.dialogs.prompt(`New ${type} title`))?.trim();
     if (!title) return;
     try {
       const directory = adjacent?.document.path.includes('/')
@@ -613,7 +613,7 @@ function DocumentBody({
       let author = null;
       if (targetCollection?.type === 'blog') {
         author = account?.githubLogin;
-        if (!author) throw new Error('Sign in with GitHub again so Mochi knows your GitHub username.');
+        if (!author) throw new Error('Sign in with GitHub again so RUSH knows your GitHub username.');
       }
       const draft = newDocumentDraft({
         collection: targetCollection,
@@ -635,14 +635,14 @@ function DocumentBody({
       const route = routeForDocument(data.document.path);
       navigateClient(`/w/${encodeURIComponent(workspaceSlug)}/documents/${route}?edit=1`);
     } catch (error) {
-      window.alert(error.message);
+      await clientPlatform.dialogs.alert(error.message);
     }
   }, [account, state.documents, state.site, state.workspaceId, state.workspaceRole, workspaceSlug]);
 
   const deleteDocument = useCallback(async (document, collection) => {
     if (!state.workspaceId || state.workspaceRole !== 'owner') return;
     const type = collection?.type === 'blog' ? 'post' : 'page';
-    if (!clientPlatform.dialogs.confirm(`Delete ${type} “${document.title}”? It will be moved to trash.`)) return;
+    if (!(await clientPlatform.dialogs.confirm(`Delete ${type} “${document.title}”? It will be moved to trash.`))) return;
     try {
       const apiRoot = `/api/workspaces/${encodeURIComponent(state.workspaceId)}/documents`;
       await request(apiRoot, {
@@ -668,7 +668,7 @@ function DocumentBody({
         : `/w/${encodeURIComponent(workspaceSlug)}/documents`;
       navigateClient(destination, {replace: true});
     } catch (error) {
-      window.alert(error.message);
+      await clientPlatform.dialogs.alert(error.message);
     }
   }, [state.workspaceId, state.workspaceRole, workspaceSlug]);
 

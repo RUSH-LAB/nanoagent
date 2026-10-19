@@ -20,13 +20,18 @@
  * about content that still has to happen then; knowing a single page is not.
  */
 
+const {SECTIONS} = require('../components/Shell/sectionList');
+
 module.exports = function runtimeContentPlugin(_context, options = {}) {
   const routeBasePath = String(options.routeBasePath ?? 'w').replace(/^\/+|\/+$/g, '');
   const workspacePages = [
-    'analytics', 'apps', 'channels', 'compare', 'content-search', 'files', 'flashcards',
-    'glossary', 'graph', 'marketplace', 'mindmap', 'reading-lists',
-    'recommendations', 'settings', 'stats', 'submit', 'tasks', 'timeline', 'whiteboard', 'workspace',
+    'analytics', 'channels', 'compare', 'content-search', 'files', 'flashcards',
+    'glossary', 'graph', 'mindmap', 'reading-lists',
+    'recommendations', 'stats', 'submit', 'tasks', 'timeline', 'whiteboard',
   ];
+  // The workspace's sections, which the shell holds (components/Shell/Sections.js),
+  // are one route, Home at the workspace's own path; its page only names the open one.
+  const shellSections = SECTIONS.map(section => section.path).filter(Boolean);
 
   return {
     name: 'runtime-content',
@@ -47,9 +52,9 @@ module.exports = function runtimeContentPlugin(_context, options = {}) {
         component: require.resolve('./LegacyDocumentRedirect.js'),
       });
       actions.addRoute({
-        path: `/${routeBasePath}/:workspaceSlug`,
+        path: `/${routeBasePath}/:workspaceSlug/:section(${shellSections.join('|')})?`,
         exact: true,
-        component: require.resolve('./WorkspaceHomeRoute.js'),
+        component: require.resolve('../components/Shell/SectionPage.js'),
       });
       for (const page of workspacePages) {
         actions.addRoute({

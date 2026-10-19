@@ -1,6 +1,6 @@
 # Desktop readiness
 
-Mochi Lab remains a web application for now. The goal of the current work is
+RUSH Lab remains a web application for now. The goal of the current work is
 to preserve that fast development loop while keeping operating-system
 integration behind replaceable boundaries.
 
@@ -55,7 +55,7 @@ window.__MOCHI_RUNTIME_CONFIG__ = {
 ### 2. Desktop proof of concept
 
 - Create a Tauri 2 shell in a separate desktop package.
-- Load the same built frontend and point it at the hosted Mochi API.
+- Load the same built frontend and point it at the hosted RUSH API.
 - Install a desktop adapter during bootstrap.
 - Decide and test the desktop authentication transport early: cross-origin web
   cookies may be restricted by the webview, so browser OAuth may need to return

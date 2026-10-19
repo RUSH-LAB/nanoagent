@@ -53,13 +53,11 @@ function createWebAdapter() {
         return clipboard.writeText(text);
       },
     },
+    // Drawn in the page (./dialogs.js), loaded when first asked for.
     dialogs: {
-      confirm: message => browserScope()?.confirm(message) ?? false,
-      prompt: (message, defaultValue) => {
-        const scope = browserScope();
-        if (!scope) return null;
-        return (defaultValue === undefined ? scope.prompt(message) : scope.prompt(message, defaultValue)) ?? null;
-      },
+      alert: async message => (await import('./dialogs')).alert(message),
+      confirm: async message => (await import('./dialogs')).confirm(message),
+      prompt: async (message, defaultValue) => (await import('./dialogs')).prompt(message, defaultValue),
     },
     notifications: {
       permission: () => typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
@@ -86,6 +84,13 @@ function capability(group, method, args, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function dialog(method, args) {
+  const owner = activeAdapter().dialogs;
+  const fn = owner?.[method];
+  if (typeof fn !== 'function') return Promise.reject(new Error(`This platform has no ${method} dialog`));
+  return Promise.resolve().then(() => fn.apply(owner, args));
 }
 
 /** Install the adapter supplied by a desktop bootstrap. */
@@ -146,9 +151,11 @@ export const clientPlatform = Object.freeze({
       }
     },
   }),
+  // Each answers with a Promise: a dialog is drawn in the page or by the shell, and the member answers later.
   dialogs: Object.freeze({
-    confirm: message => capability('dialogs', 'confirm', [message], false),
-    prompt: (message, defaultValue) => capability('dialogs', 'prompt', [message, defaultValue], null),
+    alert: message => dialog('alert', [message]),
+    confirm: message => dialog('confirm', [message]),
+    prompt: (message, defaultValue) => dialog('prompt', [message, defaultValue]),
   }),
   notifications: Object.freeze({
     permission: () => capability('notifications', 'permission', [], 'unsupported'),

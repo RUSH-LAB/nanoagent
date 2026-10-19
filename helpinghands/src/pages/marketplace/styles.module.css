@@ -1,122 +1,297 @@
-.page {
-  width: 100%;
-  max-width: 1240px;
-  margin: 0 auto;
-  padding: 2rem 1.25rem 3rem;
+/* Pending updates: the one count drawn in the accent. Dark mode's primary is
+   white, so the count is the surface color on it. */
+.updateCount {
+  min-width: 1.25rem;
+  margin-left: auto;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--ifm-color-primary);
+  color: var(--ifm-background-surface-color);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
 }
 
 .header {
+  /* The search's height, which the header keeps without it too, so the title sits as high in every view. */
+  --market-search-height: 2.75rem;
   display: flex;
-  gap: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem 1.5rem;
   align-items: center;
   justify-content: space-between;
+  min-height: var(--market-search-height);
+  margin-bottom: 1.25rem;
 }
 
 .header h1 {
   margin: 0;
 }
 
-.publish {
-  margin-top: 1.25rem;
+.stacked {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.lead {
+  max-width: 40rem;
+  margin: 0;
+  color: var(--ifm-color-emphasis-700);
+}
+
+/* Inputs: a hairline that strengthens on focus, not a colored ring. */
+.publishForm input,
+.search {
+  border: 1px solid var(--site-hairline);
+  border-radius: var(--site-radius);
+  background: var(--ifm-background-surface-color);
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  transition: border-color 0.15s ease;
+}
+
+.publishForm input:focus,
+.search:focus-within {
+  border-color: var(--site-hairline-strong);
+  outline: none;
 }
 
 .publishForm {
   display: flex;
   gap: 0.6rem;
-}
-
-.publishForm input,
-.search {
-  padding: 0.55rem 0.8rem;
-  border: 1px solid var(--ifm-color-emphasis-300);
-  border-radius: 10px;
-  background: var(--ifm-background-surface-color);
-  color: var(--ifm-font-color-base);
-  font: inherit;
+  max-width: 40rem;
 }
 
 .publishForm input {
   flex: 1;
-}
-
-.toolbar {
-  display: flex;
-  gap: 0.6rem;
-  margin: 1.5rem 0 1.25rem;
+  padding: 0.55rem 0.8rem;
 }
 
 .search {
-  flex: 1;
+  display: flex;
+  flex: 0 1 20rem;
+  height: var(--market-search-height);
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0 0.8rem;
+  color: var(--ifm-color-emphasis-600);
 }
 
+.search svg {
+  flex: none;
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  outline: none;
+}
+
+/* The views as pill tabs, where the window is too narrow for the sidebar.
+   The active one lifts by one surface notch. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.chip {
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--site-hairline);
+  border-radius: 999px;
+  color: var(--ifm-color-emphasis-800);
+  font-size: 0.85rem;
+}
+
+.chip:hover {
+  border-color: var(--site-hairline-strong);
+  color: var(--ifm-font-color-base);
+  text-decoration: none;
+}
+
+.chipActive {
+  border-color: var(--site-hairline-strong);
+  background: var(--ifm-color-emphasis-200);
+  color: var(--ifm-font-color-base);
+}
+
+.chipCount {
+  color: var(--ifm-color-emphasis-600);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 997px) {
+  .chips {
+    display: none;
+  }
+}
+
+/* The way to the Updates view, above the cards of every other one. */
+.updatesBanner {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--site-hairline-strong);
+  border-radius: var(--site-radius);
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-font-color-base);
+  font-size: 0.9rem;
+}
+
+.updatesBanner:hover {
+  color: var(--ifm-font-color-base);
+  text-decoration: none;
+}
+
+.updatesLink {
+  flex: none;
+  color: var(--ifm-color-primary);
+  font-weight: 600;
+}
+
+.updatesBanner:hover .updatesLink {
+  text-decoration: underline;
+}
+
+/* A store's two-up column of cards, one-up where it is narrow. */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 1.1rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr));
+  gap: 1rem;
 }
 
-.tile {
+/* A store card: the plugin at the left, which opens its page, and its action at
+   the right edge. Its edge is the hairline, which strengthens on hover and focus. */
+.card {
   display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 0;
-  border: 1px solid var(--ifm-color-emphasis-200);
-  border-radius: 14px;
-  background: var(--ifm-background-surface-color);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-.tile:hover,
-.tile:focus-visible {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
-}
-
-.art {
-  display: flex;
+  gap: 0.75rem;
   align-items: center;
-  justify-content: center;
-  height: 120px;
+  padding: 1rem;
+  border: 1px solid var(--site-hairline);
+  border-radius: var(--site-radius-lg);
+  background: var(--ifm-background-surface-color);
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.card:hover,
+.card:focus-within {
+  border-color: var(--site-hairline-strong);
   background: var(--ifm-color-emphasis-100);
 }
 
-.art img {
-  width: 64px;
-  height: 64px;
-  border-radius: 16px;
+.cardOpen {
+  display: flex;
+  flex: 1;
+  gap: 1rem;
+  align-items: flex-start;
+  min-width: 0;
+  color: inherit;
 }
 
-.tileBody {
+.cardOpen:hover {
+  color: inherit;
+  text-decoration: none;
+}
+
+.cardOpen:focus-visible {
+  border-radius: var(--site-radius);
+  outline: 2px solid color-mix(in srgb, var(--ifm-color-primary) 28%, transparent);
+  outline-offset: 4px;
+}
+
+.icon {
+  flex: none;
+  width: 3rem;
+  height: 3rem;
+  border-radius: var(--site-radius-lg);
+}
+
+.cardBody {
   display: flex;
   flex: 1;
   flex-direction: column;
-  padding: 0.85rem 1rem 1rem;
+  min-width: 0;
 }
 
 .name {
   display: flex;
   gap: 0.4rem;
   align-items: center;
-  margin: 0;
   font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
-.added {
-  padding: 0 0.45rem;
-  border: 1px solid var(--ifm-color-success);
-  border-radius: 999px;
+.nameText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tagline {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 0.15rem;
+  color: var(--ifm-color-emphasis-800);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.6rem;
+  align-items: center;
+  margin-top: 0.4rem;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.8rem;
+}
+
+.stateInstalled {
   color: var(--ifm-color-success-darkest);
+}
+
+[data-theme='dark'] .stateInstalled {
+  color: var(--ifm-color-success-lightest);
+}
+
+.stateUpdate {
+  color: var(--ifm-font-color-base);
+  font-weight: 600;
+}
+
+.action {
+  flex: none;
+  min-width: 4.75rem;
+}
+
+.badge {
+  flex: none;
+  padding: 0 0.45rem;
+  border: 1px solid var(--site-hairline-strong);
+  border-radius: 999px;
   font-size: 0.65rem;
   font-weight: 600;
   line-height: 1.6;
 }
 
-[data-theme='dark'] .added {
-  color: var(--ifm-color-success-lightest);
+/* Dark mode's primary is white, so it is the text and edge color, never a fill under white text. */
+.official {
+  border-color: var(--ifm-color-primary);
+  color: var(--ifm-color-primary);
 }
 
 .more {
@@ -137,8 +312,8 @@
   width: max-content;
   margin: 0;
   padding: 0.3rem;
-  border: 1px solid var(--ifm-color-emphasis-200);
-  border-radius: 10px;
+  border: 1px solid var(--site-hairline);
+  border-radius: var(--site-radius);
   background: var(--ifm-background-surface-color);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
   list-style: none;
@@ -174,71 +349,96 @@
   font-size: 0.9rem;
 }
 
-.author {
+/* A view with nothing in it: one quiet panel, centered, with the next step. */
+.emptyState {
   display: flex;
-  gap: 0.4rem;
+  flex-direction: column;
   align-items: center;
-  margin: 0.15rem 0 0;
-  color: var(--ifm-color-emphasis-600);
-  font-size: 0.8rem;
+  padding: 3.5rem 1.5rem;
+  border: 1px solid var(--site-hairline);
+  border-radius: var(--site-radius-lg);
+  background: var(--ifm-background-surface-color);
+  text-align: center;
 }
 
-.official {
-  padding: 0 0.45rem;
+.emptyIcon {
+  display: flex;
+  width: 3rem;
+  height: 3rem;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1rem;
+  border: 1px solid var(--site-hairline);
   border-radius: 999px;
-  background: var(--ifm-color-primary);
-  color: #fff;
-  font-size: 0.65rem;
-  line-height: 1.6;
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-color-emphasis-700);
 }
 
-.tagline {
-  display: -webkit-box;
-  flex: 1;
-  overflow: hidden;
-  margin: 0.55rem 0;
-  font-size: 0.875rem;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+.emptyIcon svg {
+  width: 1.4rem;
+  height: 1.4rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
 }
 
-.empty {
-  color: var(--ifm-color-emphasis-600);
+.emptyTitle {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.emptyText {
+  max-width: 26rem;
+  margin: 0.35rem 0 1.25rem;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.9rem;
 }
 
 .detail {
   max-width: 720px;
-  margin: 0 auto;
 }
 
 .back {
+  display: inline-block;
   margin-bottom: 1.5rem;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--ifm-color-primary);
-  font: inherit;
-  cursor: pointer;
+  font-size: 0.9rem;
 }
 
-.back:hover {
-  text-decoration: underline;
-}
-
+.notice,
+.updateNotice,
 .error {
-  margin: 1rem 0;
+  margin: 0 0 1rem;
   padding: 0.7rem 0.9rem;
-  border: 1px solid var(--ifm-color-danger-light);
-  border-radius: 8px;
-  background: var(--ifm-color-danger-contrast-background);
+  border-radius: var(--site-radius);
   font-size: 0.875rem;
 }
 
+.notice {
+  border: 1px solid var(--ifm-color-info-light);
+  background: var(--ifm-color-info-contrast-background);
+}
+
+.updateNotice {
+  border: 1px solid var(--ifm-color-warning);
+  background: var(--ifm-color-warning-contrast-background);
+  color: var(--ifm-color-warning-contrast-foreground);
+}
+
+.error {
+  border: 1px solid var(--ifm-color-danger-light);
+  background: var(--ifm-color-danger-contrast-background);
+}
+
 @media (max-width: 640px) {
-  .header,
-  .toolbar,
   .publishForm {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .search {
+    flex-basis: 100%;
   }
 }

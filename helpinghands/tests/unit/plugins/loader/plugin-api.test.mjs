@@ -510,13 +510,13 @@ describe('the network capability', () => {
     let seen = null;
     globalThis.fetch = async (target, init) => { seen = {target: String(target), init}; return {ok: true}; };
     try {
-      const reply = await api.fetch('https://api.example.test/x', {headers: {'User-Agent': 'MochiLab/1.0'}});
+      const reply = await api.fetch('https://api.example.test/x', {headers: {'User-Agent': 'RUSHLab/1.0'}});
       assert.deepEqual(reply, {ok: true});
     } finally {
       globalThis.fetch = original;
     }
     assert.equal(seen.target, 'https://api.example.test/x');
-    assert.deepEqual(seen.init.headers, {'User-Agent': 'MochiLab/1.0'});
+    assert.deepEqual(seen.init.headers, {'User-Agent': 'RUSHLab/1.0'});
     assert.ok(seen.init.signal instanceof AbortSignal);
   });
 

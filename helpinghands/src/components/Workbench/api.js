@@ -56,6 +56,26 @@ export async function readRevision(path, seq) {
   return response.text();
 }
 
+/** The bytes of `path`, as a Blob, for a copy of it. */
+export async function readBytes(path) {
+  const response = await apiFetch(`${API_BASE}/api/fs/file?${query(path)}`);
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || `Could not read ${path} (${response.status})`);
+  }
+  return response.blob();
+}
+
+/** Write `body` (a Blob or File) at `path`, replacing what is there unless `create`, which requires nothing to be. */
+export async function writeBytes(path, body, {create = false} = {}) {
+  const {node} = await apiRequest(
+    `/api/fs/file?${query(path)}${create ? '&baseRev=0' : ''}`,
+    {method: 'PUT', headers: {'Content-Type': 'application/octet-stream'}, body},
+    {failureLabel: `Could not write ${path}`},
+  );
+  return describe(node);
+}
+
 /** Save `text` at `path`. `baseRev` is the revision it was read at; `create` requires that nothing is there yet. */
 export async function saveFile(path, text, {create = false, baseRev} = {}) {
   const revision = create ? 0 : baseRev;
@@ -68,8 +88,8 @@ export async function saveFile(path, text, {create = false, baseRev} = {}) {
 }
 
 const remove = path => apiRequest(`/api/fs/node?${query(path)}`, {method: 'DELETE'}, {failureLabel: `Could not delete ${path}`});
+/** Delete a file, or a folder with everything in it, to the trash; resolves with `{node}`, whose id restores it. */
 export const deleteFile = remove;
-export const deleteFolder = remove;
 export const makeFolder = path => apiRequest(`/api/fs/folder?${query(path)}`, {method: 'POST'}, {failureLabel: `Could not create ${path}`});
 export const moveEntry = (from, to) => apiRequest('/api/fs/move', {
   method: 'POST',

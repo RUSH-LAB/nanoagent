@@ -26,7 +26,7 @@ from nanoagent.harness.registry import loop_model
 from nanoagent.inference.providers import MissingKeyError
 from nanoagent.plugin import PluginManifest, sandbox
 from nanoagent.plugin.install import InstallError, Installed, Installs, ui_version
-from nanoagent.plugin.manifest import PAGE, is_page_path, load_manifest, page_files, ui_files
+from nanoagent.plugin.manifest import is_page_path, load_manifest, page_files, spec_module, ui_files
 from nanoagent.plugin.package import (
     PACKAGE_MAX_BYTES,
     SOURCE_MAX_BYTES,
@@ -58,9 +58,9 @@ def _sse(event: dict[str, Any]) -> bytes:
     ).encode()
 
 
-# COMPAT(mochi-groups): Mochi on production files each plugin under the group its manifest named.
+# COMPAT(mochi-groups): RUSH on production files each plugin under the group its manifest named.
 # Manifests name none now (a workspace tags its plugins), so every catalog entry says one. Remove
-# once the Mochi that tags plugins per workspace is released.
+# once the RUSH that tags plugins per workspace is released.
 COMPAT_GROUP = {"group": "Plugins"}
 # The credentials PUT /v1/keys may set: a provider's API key, as PI and the loop read it.
 KEY_NAME = re.compile(r"[A-Z][A-Z0-9_]*_API_KEY|HF_TOKEN")
@@ -102,13 +102,13 @@ UI_POLICY = (
 )
 
 
-def _ui_file(manifest: PluginManifest, path: str) -> Path | None:
-    """The file ``path`` names in the page as served, :data:`PAGE`'s or the plugin's own in its
-    ``ui/``, or None for anything else."""
+def _ui_file(root: Path, page: Path, path: str) -> Path | None:
+    """The file ``path`` names in the page as served, the spec's page folder ``page``'s or the
+    plugin's own in the ``ui/`` of the plugin folder ``root``, or None for anything else."""
     path = path or "index.html"
     if is_page_path(path):
-        return next((file for file in page_files() if file.relative_to(PAGE).as_posix() == path), None)
-    ui = (manifest.root / "ui").resolve()
+        return next((file for file in page_files(page) if file.relative_to(page).as_posix() == path), None)
+    ui = (root / "ui").resolve()
     target = (ui / path).resolve()
     return target if target.is_relative_to(ui) and target in ui_files(ui) else None
 
@@ -154,7 +154,7 @@ def create_app(
             },
             data,
         )
-        package_manifests[manifest.id] = (manifest, ui_version(manifest))
+        package_manifests[manifest.id] = (manifest, ui_version(manifest.root, spec_module(manifest.spec).PAGE))
     plugin_slots = asyncio.Semaphore(cfg.max_concurrency)
     workspaces = Workspaces(cfg.workspaces)
     owned_model: Any = None
@@ -304,7 +304,7 @@ def create_app(
     async def set_keys(request: Request) -> JSONResponse:
         """Set (a key) or remove (null) provider API keys, for every run from now on.
 
-        The caller keeps them (Mochi Lab's supervisor); this process only holds them in its
+        The caller keeps them (RUSH Lab's supervisor); this process only holds them in its
         environment, which PI's runs and the catalog inherit, and forgets every model built
         with the old ones.
         """
@@ -432,8 +432,8 @@ def create_app(
         create = request.query_params.get("create") == "1"
         return in_workspace(lambda: workspaces.write(workspace_id, path, body, create=create))
 
-    # COMPAT(mochi-workspace-edits): Mochi on production deletes files, makes and deletes folders,
-    # and moves entries in a workspace. Remove these routes once the Mochi that only saves files
+    # COMPAT(mochi-workspace-edits): RUSH on production deletes files, makes and deletes folders,
+    # and moves entries in a workspace. Remove these routes once the RUSH that only saves files
     # and removes whole workspaces is released.
     async def workspace_folder(request: Request) -> JSONResponse:
         """POST makes the folder (and its parents); DELETE removes it and everything in it."""
@@ -483,9 +483,9 @@ def create_app(
             },
         )
 
-    # COMPAT(mochi-installs): Mochi on production names plugins by id, at /v1/plugins and under
+    # COMPAT(mochi-installs): RUSH on production names plugins by id, at /v1/plugins and under
     # /plugins/{plugin_id}. These serve NanoAgent's own packages by id, each installed the first
-    # time it is asked for. Remove once the Mochi that installs what its workspaces added is released.
+    # time it is asked for. Remove once the RUSH that installs what its workspaces added is released.
     async def built_in(plugin_id: str) -> Installed | None:
         package = packages.get(plugin_id)
         if package is None:
@@ -494,7 +494,7 @@ def create_app(
         async with plugin_slots:
             return await asyncio.to_thread(installs.install, entry["sha256"], data)
 
-    # Listed and their pages served from their own folders, without installing: that Mochi waits
+    # Listed and their pages served from their own folders, without installing: that RUSH waits
     # seconds for these, and minutes for a run.
     async def list_plugins(request: Request) -> JSONResponse:
         if not authorized(request):
@@ -507,7 +507,8 @@ def create_app(
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         if request.path_params["plugin_id"] not in package_manifests:
             return JSONResponse({"error": "not found"}, status_code=404)
-        return ui_file(*package_manifests[request.path_params["plugin_id"]], request.path_params["path"])
+        manifest, version = package_manifests[request.path_params["plugin_id"]]
+        return ui_file(manifest.root, spec_module(manifest.spec).PAGE, version, request.path_params["path"])
 
     def by_id(handler: Callable[[Request], Any]) -> Callable[[Request], Any]:
         async def route(request: Request) -> Any:
@@ -570,6 +571,10 @@ def create_app(
             headers={"Content-Disposition": f'attachment; filename="{entry["id"]}-{entry["version"]}.tar.gz"'},
         )
 
+    # How each package POST /v1/packages/inspect checked was answered, by its sha256, while this
+    # process runs: a package never changes, and the rules only with NanoAgent.
+    inspected: dict[str, tuple[dict[str, Any], int]] = {}
+
     async def inspect_upload(request: Request) -> JSONResponse:
         """Check an uploaded package without running it: its catalog entry, or every reason it is refused."""
         if not authorized(request):
@@ -582,13 +587,21 @@ def create_app(
             return JSONResponse({"error": "package is too large"}, status_code=413)
         try:
             async with plugin_slots:
-                entry = await asyncio.to_thread(inspect_package, body)
+                answer = ({"package": await asyncio.to_thread(inspect_package, body)}, 200)
         except PackageError as error:
-            return JSONResponse(
-                {"error": f"the package is refused: {'; '.join(error.violations)}", "violations": error.violations},
-                status_code=422,
-            )
-        return JSONResponse({"package": entry})
+            refused = f"the package is refused: {'; '.join(error.violations)}"
+            answer = ({"error": refused, "violations": error.violations}, 422)
+        inspected[hashlib.sha256(body).hexdigest()] = answer
+        return JSONResponse(answer[0], status_code=answer[1])
+
+    async def inspection(request: Request) -> JSONResponse:
+        """How the package with this sha256 was checked, or 404 until one is."""
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        answer = inspected.get(request.path_params["sha256"])
+        if answer is None:
+            return JSONResponse({"error": "not inspected"}, status_code=404)
+        return JSONResponse(answer[0], status_code=answer[1])
 
     async def package_source(request: Request) -> JSONResponse:
         """Pack the plugin at ``?path=`` in a source archive and check it, running none of it."""
@@ -610,18 +623,43 @@ def create_app(
             )
         return JSONResponse({"package": {**entry, **COMPAT_GROUP}, "data": base64.b64encode(data).decode("ascii")})
 
-    async def plugin_ui(request: Request) -> Any:
-        """A file of an installed plugin's front end, under the policy that confines it to the bridge."""
+    async def view(request: Request) -> JSONResponse:
+        """Open the body, the package with this sha256, for its page alone: its ``uiVersion``. Nothing
+        of it loads or runs, so a package this NanoAgent refuses to install still shows its page."""
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        installed = installs.get(request.path_params["sha256"])
-        if installed is None:
-            return JSONResponse({"error": "not found"}, status_code=404)
-        return ui_file(installed.manifest, installed.entry["uiVersion"], request.path_params["path"])
+        length = request.headers.get("content-length")
+        if length and length.isdigit() and int(length) > PACKAGE_MAX_BYTES:
+            return JSONResponse({"error": "package is too large"}, status_code=413)
+        body = await request.body()
+        if len(body) > PACKAGE_MAX_BYTES:
+            return JSONResponse({"error": "package is too large"}, status_code=413)
+        sha256 = request.path_params["sha256"]
+        try:
+            viewed = await asyncio.to_thread(installs.view, sha256, body)
+        except PackageError as error:
+            return JSONResponse(
+                {"error": f"the package is refused: {'; '.join(error.violations)}", "violations": error.violations},
+                status_code=422,
+            )
+        return JSONResponse({"view": {"sha256": sha256, "uiVersion": viewed.ui_version}})
 
-    def ui_file(manifest: PluginManifest, ui_version: str, versioned_path: str) -> Any:
+    async def plugin_ui(request: Request) -> Any:
+        """A file of the front end of the plugin installed or viewed as this sha256, under the policy
+        that confines it to the bridge."""
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        sha256 = request.path_params["sha256"]
+        installed, viewed = installs.get(sha256), installs.viewed(sha256)
+        if installed is not None:
+            return ui_file(installed.manifest.root, installed.page, installed.entry["uiVersion"], request.path_params["path"])
+        if viewed is not None:
+            return ui_file(viewed.root, viewed.page, viewed.ui_version, request.path_params["path"])
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    def ui_file(root: Path, page: Path, ui_version: str, versioned_path: str) -> Any:
         version, _, path = versioned_path.partition("/")
-        target = _ui_file(manifest, path) if version == ui_version else None
+        target = _ui_file(root, page, path) if version == ui_version else None
         if target is None:
             return JSONResponse({"error": "not found"}, status_code=404)
         media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
@@ -664,10 +702,12 @@ def create_app(
             Route("/v1/plugins", list_plugins, methods=["GET"]),
             Route("/v1/packages", list_packages, methods=["GET"]),
             Route("/v1/packages/inspect", inspect_upload, methods=["POST"]),
+            Route("/v1/packages/inspect/{sha256}", inspection, methods=["GET"]),
             Route("/v1/packages/source", package_source, methods=["POST"]),
             Route("/v1/packages/{package_id}", download_package, methods=["GET"]),
             Route("/v1/installs/{sha256}", install, methods=["GET", "PUT"]),
             Route("/v1/installs/{sha256}/ui/{path:path}", plugin_ui, methods=["GET"]),
+            Route("/v1/views/{sha256}", view, methods=["PUT"]),
             Route(
                 "/v1/workspaces/{workspace_id}/installs/{sha256}/runs",
                 start_plugin_run,

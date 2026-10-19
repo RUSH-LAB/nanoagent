@@ -546,7 +546,7 @@ async function runCleanup() {
 // ────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log(`\n${BOLD}Mochi Lab — New Features Integration Tests${RESET}`);
+  console.log(`\n${BOLD}RUSH Lab — New Features Integration Tests${RESET}`);
   console.log(`${DIM}Target: ${BASE}${RESET}`);
   console.log(`${DIM}Testing: Glossary, Flashcards, Tasks, Streak, Snapshots, Schedule (26 tests)${RESET}\n`);
 

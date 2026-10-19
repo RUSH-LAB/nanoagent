@@ -9,9 +9,13 @@
  * their own revisions and history and two members editing different records
  * never touch the same file:
  *
- *   apps/<domain>/<key>.json                  the workspace's (glossary, schedule, whiteboards, agents)
- *   apps/<plugin>/<collection>/<key>.json     a plugin's collection (plugin:<plugin>:<collection>)
- *   home/<user>/<domain>/<key>.json           one member's (bookmarks, tasks, notes, …), private to them
+ *   .apps/<domain>/<key>.json                          the workspace's (glossary, schedule, whiteboards, agents)
+ *   .plugins/<plugin>/records/<collection>/<key>.json  a plugin's collection (plugin:<plugin>:<collection>)
+ *   home/<user>/.apps/<domain>/<key>.json              one member's (bookmarks, tasks, notes, …), private to them
+ *
+ * Every folder starts with a dot: records are app state, which the Explorer
+ * and the sync clients leave out and /api/fs does not write
+ * (docs/plans/filesystem-layout.md).
  *
  * Internal state that is not content (page analytics, study streaks, snapshots
  * of the tree) stays in the legacy store, which `legacy` serves.
@@ -43,17 +47,16 @@ function folderFor(domain, scope) {
   }
   if (domain.startsWith('plugin:')) {
     const [, plugin, ...collection] = domain.split(':');
-    return `apps/${[plugin, ...collection].map(part => encodeURIComponent(part)).join('/')}`;
+    return `.plugins/${encodeURIComponent(plugin)}/records/${collection.map(part => encodeURIComponent(part)).join('/')}`;
   }
-  if (!isPerUser(domain)) return `apps/${domain}`;
+  if (!isPerUser(domain)) return `.apps/${domain}`;
   if (!scope.userId) {
     throw Object.assign(new Error(`The ${domain} store holds one person's items and this request has no signed-in user`),
       {status: 401, code: 'no-identity'});
   }
-  return `home/${scope.userId}/${domain}`;
+  return `home/${scope.userId}/.apps/${domain}`;
 }
 
-const homeOf = folder => (folder.startsWith('home/') ? folder.split('/').slice(0, 2).join('/') : null);
 const parse = row => {
   const record = JSON.parse(row.body.toString('utf8'));
   return {key: record.key, value: record.value, createdAt: row.createdAt, updatedAt: row.updatedAt};
@@ -64,14 +67,6 @@ function createFsRecords({fs, legacy}) {
   function collection(domain) {
     if (!isDomain(domain)) throw new Error(`Unknown store domain: ${domain}. Add it to server/store/domains.js.`);
     if (SYSTEM_DOMAINS.has(domain)) return legacy.collection(domain);
-
-    /** A member's home folder exists, and is private to them, before anything is written in it. */
-    async function prepare(tree, folder) {
-      const home = homeOf(folder);
-      if (!home || await tree.nodeAt(home)) return;
-      await tree.mkdir(home);
-      await tree.setAccess(home, 'private');
-    }
 
     const api = {
       domain,
@@ -96,10 +91,7 @@ function createFsRecords({fs, legacy}) {
       async put(scope, key, value) {
         if (value === undefined) throw new TypeError('Cannot store undefined; use remove() to delete an item');
         const folder = folderFor(domain, scope);
-        await fs.transaction(scope, async tree => {
-          await prepare(tree, folder);
-          await tree.write(`${folder}/${fileNameFor(checkKey(key))}`, serialize(key, value));
-        });
+        await fs.write(scope, `${folder}/${fileNameFor(checkKey(key))}`, serialize(key, value));
         return value;
       },
       async update(scope, key, transform) {
@@ -113,7 +105,6 @@ function createFsRecords({fs, legacy}) {
             if (node) await tree.remove(filePath);
             return undefined;
           }
-          await prepare(tree, folder);
           await tree.write(filePath, serialize(key, next), node ? {baseRev: node.rev} : {baseRev: 0});
           return next;
         });
@@ -133,7 +124,6 @@ function createFsRecords({fs, legacy}) {
         const folder = folderFor(domain, scope);
         const items = await api.list(scope);
         await fs.transaction(scope, async tree => {
-          await prepare(tree, folder);
           for (const item of items) {
             if (!Object.prototype.hasOwnProperty.call(object ?? {}, item.key)) await tree.remove(`${folder}/${fileNameFor(item.key)}`);
           }

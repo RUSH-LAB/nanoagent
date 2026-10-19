@@ -24,7 +24,7 @@ async function publishFromGithub({ai, github, market}, userId, url) {
   try {
     return {status: 201, plugin: await market.publish(userId, entry, data, repository)};
   } catch (error) {
-    if (error.code === 'taken') return {status: 409, error: error.message};
+    if (error.code === 'taken' || error.code === 'published') return {status: 409, error: error.message};
     if (error.code === 'quota') return {status: 413, error: error.message};
     // Row-level security refused it: the id became someone else's meanwhile.
     if (error.code === '42501') return {status: 409, error: `Someone else already publishes a plugin named ${entry.id}`};

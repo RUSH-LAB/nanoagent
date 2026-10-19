@@ -1,6 +1,6 @@
 /**
  * Two-way sync between a workspace file system and a local folder: the rush
- * CLI's (cli/rush.mjs) and Mochi Lab's (files.mjs).
+ * CLI's (cli/rush.mjs) and RUSH Lab's (files.mjs).
  *
  * Every cycle compares three views of each path: the file on disk, the file in
  * the workspace, and what both looked like after the last successful sync (the
@@ -12,7 +12,7 @@
  *
  * Every file takes part, text or binary, except anything with a path segment
  * starting with a dot, on either side: .mochi/ itself, editor swap files, and
- * the workspace's .plugins/.
+ * the apps' own state in the workspace (.apps/, .chat/, .plugins/).
  *
  * Paths in `onlineOnly` stay in the workspace without a local copy. A synced
  * file under one is synced once more, so a pending local edit is uploaded,

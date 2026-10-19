@@ -34,7 +34,7 @@ describe('chat as files', () => {
     assert.deepEqual([first.message.seq, second.message.seq], [1, 2]);
     const {messages} = await chat.listMessages('lab', 'alice', general.id);
     assert.deepEqual(messages.map(message => [message.body, message.username]), [['hello from a viewer', 'Vic'], ['hi vic', 'Alice']]);
-    assert.ok(await fs.stat(as('alice'), `chat/${general.id}/messages/000000000001-vic.json`));
+    assert.ok(await fs.stat(as('alice'), `.chat/${general.id}/messages/000000000001-vic.json`));
   });
 
   it('counts unread messages until they are read', async () => {
@@ -51,7 +51,7 @@ describe('chat as files', () => {
     await chat.addMember('lab', 'bob', channel.id, 'alice');
     assert.ok(await chat.visibleChannel('lab', 'alice', channel.id));
     await chat.postMessage('lab', 'alice', channel.id, 'in the room');
-    assert.equal(await fs.stat(as('vic'), `chat/${channel.id}/channel.json`), null);
+    assert.equal(await fs.stat(as('vic'), `.chat/${channel.id}/channel.json`), null);
     await chat.leaveChannel('lab', 'bob', channel.id);
     assert.equal(await chat.visibleChannel('lab', 'bob', channel.id), null);
     assert.ok(await chat.visibleChannel('lab', 'alice', channel.id));

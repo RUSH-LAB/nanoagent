@@ -356,7 +356,7 @@ const CATEGORIES = [
     endpoints: [
       {
         method: 'POST', path: '/api/ai/complete', description: 'Generate AI text completions. Supports continue, improve, explain, summarize, and inline modes. Rate-limited to 10/min per IP.',
-        request: '{ "prompt": "The transformer architecture...", "messages": [{ "role": "user", "content": "Earlier question" }, { "role": "assistant", "content": "Earlier answer" }], "type": "continue", "agentId": "researcher" }\n\nValid types: "continue", "improve", "explain", "summarize", "inline". The optional agentId selects a trusted workspace-defined identity. The run uses your Chat model from Settings → Usage, on your computer in Mochi Lab; model {"provider", "model"} chooses another for this request.',
+        request: '{ "prompt": "The transformer architecture...", "messages": [{ "role": "user", "content": "Earlier question" }, { "role": "assistant", "content": "Earlier answer" }], "type": "continue", "agentId": "researcher" }\n\nValid types: "continue", "improve", "explain", "summarize", "inline". The optional agentId selects a trusted workspace-defined identity. The run uses your Chat model from Settings → Usage, on your computer in RUSH Lab; model {"provider", "model"} chooses another for this request.',
         response: '{ "text": "...generated continuation..." }',
       },
       {
@@ -375,11 +375,11 @@ const CATEGORIES = [
         response: 'event: agent\ndata: {"type":"tool.completed","call":{"name":"download_source"}}\n\nevent: delta\ndata: {"text":"..."}\n\nevent: done\ndata: {"text":"...complete answer..."}',
       },
       {
-        method: 'GET', path: '/api/ai/profiles', description: 'List the NanoAgent profiles on your computer, in Mochi Lab, with what each is for (chat, inline, apps), price, availability, and the limits a run may ask for.',
+        method: 'GET', path: '/api/ai/profiles', description: 'List the NanoAgent profiles on your computer, in RUSH Lab, with what each is for (chat, inline, apps), price, availability, and the limits a run may ask for.',
         response: '{ "defaultProfile": "pi-deepseek", "profiles": [{ "id": "pi-deepseek", "label": "DeepSeek V4 Flash · PI", "harness": "pi", "provider": "openrouter", "model": "deepseek/deepseek-v4-flash-0731", "uses": ["chat", "inline"], "price": { "input": 0.05, "output": 0.2 }, "available": true }], "limits": { "capped": false } }',
       },
       {
-        method: 'GET', path: '/api/ai/settings', description: 'Your AI settings, for your computer in Mochi Lab: NanoAgent behaviour and your own instructions, beside the one model chat, inline completion and apps all run on.',
+        method: 'GET', path: '/api/ai/settings', description: 'Your AI settings, for your computer in RUSH Lab: NanoAgent behaviour and your own instructions, beside the one model chat, inline completion and apps all run on.',
         response: '{ "settings": { "behaviour": { "thinking": "low" }, "instructions": "" }, "model": { "provider": "openrouter", "model": "deepseek/deepseek-v4-flash-0731" } }',
       },
       {
@@ -388,19 +388,19 @@ const CATEGORIES = [
         response: '{ "settings": { ... } }',
       },
       {
-        method: 'GET', path: '/api/ai/models', description: 'The models you may choose: every model on your computer, available once Mochi Lab holds its provider\'s key; none while it is not connected.',
+        method: 'GET', path: '/api/ai/models', description: 'The models you may choose: every model on your computer, available once RUSH Lab holds its provider\'s key; none while it is not connected.',
         response: '{ "connected": true, "device": "laptop", "models": [{ "key": "anthropic/claude-sonnet-4-5", "choice": { "provider": "anthropic", "model": "claude-sonnet-4-5" }, "label": "Claude Sonnet 4.5", "uses": ["chat", "inline"], "available": false, "unavailableReason": "Needs your Anthropic key: add it under API keys" }], "defaults": { "chat": "openrouter/deepseek/deepseek-v4-flash-0731" }, "limits": { "capped": false } }',
       },
       {
-        method: 'GET', path: '/api/runner/status', description: 'Whether Mochi Lab is connected for you and since when, what it calls your computer, and which API keys it holds (never their values).',
+        method: 'GET', path: '/api/runner/status', description: 'Whether RUSH Lab is connected for you and since when, what it calls your computer, and which API keys it holds (never their values).',
         response: '{ "connected": true, "device": "laptop", "keys": [{ "env": "OPENROUTER_API_KEY", "label": "OpenRouter", "set": true }] }',
       },
       {
-        method: 'GET', path: '/api/runner/credit', description: 'What the OpenRouter key in Mochi Lab has spent, in dollars, as OpenRouter says: `you`, what you have spent (on every key Mochi gave you, when it is Mochi\'s key); `total`, what everyone has spent against the cap, the workspace\'s lifetime budget, or the key\'s own spend against its limit (null for none). Null while Mochi Lab holds no OpenRouter key.',
+        method: 'GET', path: '/api/runner/credit', description: 'What the OpenRouter key in RUSH Lab has spent, in dollars, as OpenRouter says: `you`, what you have spent (on every key RUSH gave you, when it is RUSH\'s key); `total`, what everyone has spent against the cap, the workspace\'s lifetime budget, or the key\'s own spend against its limit (null for none). Null while RUSH Lab holds no OpenRouter key.',
         response: '{ "credit": { "you": 1.25, "total": { "used": 6, "cap": 10 } } }',
       },
       {
-        method: 'PUT', path: '/api/runner/keys', description: 'Set (a key) or remove (null) API keys in Mochi Lab. Mochi passes them on and keeps nothing; your runs use them at once.',
+        method: 'PUT', path: '/api/runner/keys', description: 'Set (a key) or remove (null) API keys in RUSH Lab. RUSH passes them on and keeps nothing; your runs use them at once.',
         request: '{ "changes": { "ANTHROPIC_API_KEY": "sk-ant-..." } }',
         response: '{ "saved": true }',
       },
@@ -424,11 +424,11 @@ const CATEGORIES = [
         response: '{ "apps": [{ "id": "arxiv-source", "name": "arXiv Source Downloader", "version": "0.1.0", "permissions": { "network": { "hosts": ["export.arxiv.org"] }, "filesystem": { "write": ["workspace"] } }, "tasks": [{ "id": "save-paper-source", "tools": ["download_source"] }], "tools": [{ "name": "download_source", "inputSchema": {}, "outputSchema": {} }], "readme": "# ..." }] }',
       },
       {
-        method: 'GET', path: '/api/apps/:sha256/ui/:computer/:uiVersion/:path', description: 'A file of an app\'s own page (its ui/ folder), from the computer whose Mochi Lab opened the app (its `computer`), with NanoAgent\'s Content-Security-Policy. Public and outside any workspace: the page runs in a sandboxed frame, and its requests carry no session.',
+        method: 'GET', path: '/api/apps/:sha256/ui/:computer/:uiVersion/:path', description: 'A file of an app\'s own page (its ui/ folder), from the computer whose RUSH Lab opened the app (its `computer`), with NanoAgent\'s Content-Security-Policy. Public and outside any workspace: the page runs in a sandboxed frame, and its requests carry no session.',
         response: '<!doctype html>...',
       },
       {
-        method: 'POST', path: '/api/app-installs', description: 'Install every ready app you installed on your computer, so opening one does not wait; 503 while Mochi Lab is not connected. Answers at once; the installs continue in the background. Mochi calls it when you enter a workspace and after you install a plugin.',
+        method: 'POST', path: '/api/app-installs', description: 'Install every ready app you installed on your computer, so opening one does not wait; 503 while RUSH Lab is not connected. Answers at once; the installs continue in the background. RUSH calls it when you enter a workspace and after you install a plugin.',
         response: '{ "preparing": true }',
       },
       {

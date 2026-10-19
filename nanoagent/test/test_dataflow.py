@@ -5,11 +5,12 @@ from typing import Annotated
 
 import pytest
 
-from nanoagent.plugin.dataflow import Answers, DecisionError, Question, answer_schema, check, fill, unfillable, values
+from nanoagent.plugin.dataflow import Answers, DecisionError, Question, answer_schema, check, fill, values
+from nanoagent.plugin.v0001.dataflow import unfillable
 
 QUESTIONS = [
-    Question("next", "one", "Which tool runs next?", ("read_bibtex", "submit")),
-    Question("differs", "some", "Which fields differ?", ("title", "year", "venue")),
+    Question("next", "one", "Which tool runs next?", ("read_bibtex", "submit"), "next"),
+    Question("differs", "some", "Which fields differ?", ("title", "year", "venue"), "output.differs"),
 ]
 
 

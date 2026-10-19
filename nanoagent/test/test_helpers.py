@@ -8,20 +8,19 @@ import pytest
 from packaging.tags import sys_tags
 
 from nanoagent import helpers
-from nanoagent.__main__ import ENTRY
 from nanoagent.plugin import sandbox
 from nanoagent.plugin.python import plugin_python
 
 
 def test_a_helper_runs_on_this_python() -> None:
-    assert helpers.command("package", "x") == [sys.executable, "-I", "-c", ENTRY, "helper", "package", "x"]
+    assert helpers.command("package", "x") == [sys.executable, "-I", "-m", "nanoagent", "helper", "package", "x"]
     with pytest.raises(ValueError, match="no NanoAgent helper 'nope'"):
         helpers.command("nope")
 
 
 def test_an_unknown_helper_is_refused() -> None:
     completed = subprocess.run(helpers.command("package")[:-1] + ["nope"], capture_output=True, text=True, check=False)
-    assert completed.returncode == 2 and "usage: nanoagent helper {package|verifier|egress-bridge}" in completed.stderr
+    assert completed.returncode == 2 and "usage: nanoagent helper {package|verifier|egress-bridge|appcontainer}" in completed.stderr
 
 
 def test_a_helper_starts_without_the_cli() -> None:

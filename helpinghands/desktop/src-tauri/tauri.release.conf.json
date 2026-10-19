@@ -1,0 +1,8 @@
+{
+  "build": {
+    "beforeBuildCommand": "node scripts/stage.mjs --release"
+  },
+  "bundle": {
+    "createUpdaterArtifacts": true
+  }
+}

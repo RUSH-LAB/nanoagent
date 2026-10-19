@@ -77,6 +77,13 @@ const parentOf = value => (value.includes('/') ? value.slice(0, value.lastIndexO
 const sha256 = body => crypto.createHash('sha256').update(body).digest('hex');
 const contentTypeFor = value => CONTENT_TYPES[path.posix.extname(value).toLowerCase()] ?? 'application/octet-stream';
 const isMarkdown = value => MARKDOWN.test(value);
+// App state (records, chat, plugin blobs) is under a segment starting with a dot: the services
+// that own it write it, and the Explorer and sync clients leave it out (docs/plans/filesystem-layout.md).
+const isAppState = value => value.split('/').some(part => part.startsWith('.'));
+// A change clients are told of: one not to app state, or a move out of sight, so they drop the old path.
+const isShownChange = change => !isAppState(change.path) || Boolean(change.fromPath && !isAppState(change.fromPath));
+// The content types searched as text (readMany's `text`), as the workbench opens them as text.
+const TEXT_TYPES = /^(text\/|application\/(json|yaml|javascript|x-))/;
 // node-postgres returns bytea as a Buffer; other drivers return a Uint8Array.
 const asBuffer = value => (value == null || Buffer.isBuffer(value) ? value : Buffer.from(value));
 
@@ -149,9 +156,11 @@ function operations(client, scope, logged = () => {}) {
       return existing;
     }
     const parent = await ensureFolder(parentOf(folderPath));
-    // A member's home is private to them from the moment it is made, however it is made.
-    const access = folderPath === `home/${scope.userId}` ? 'private' : undefined;
-    return insertNode({nodePath: folderPath, kind: 'folder', parent, access});
+    // A member's home is private to them from the moment it is made, and only they make it
+    // (migration 0044 refuses any other).
+    const home = /^home\/([^/]+)$/.exec(folderPath)?.[1];
+    if (home && home !== scope.userId) throw new FsError(403, 'not-your-home', `${folderPath} is another member's home`);
+    return insertNode({nodePath: folderPath, kind: 'folder', parent, access: home ? 'private' : undefined});
   }
 
   async function insertNode({nodePath, kind, parent, content = null, contentType = null, meta = {}, access, id}) {
@@ -265,12 +274,14 @@ function operations(client, scope, logged = () => {}) {
     },
 
     // `markdown` keeps the read to Markdown files in the database, so the
-    // bytes of the images and other files beside them never leave it.
-    async readMany({prefix, paths, markdown = false} = {}) {
+    // bytes of the images and other files beside them never leave it; `text`
+    // keeps it to text files of at most that many bytes, for a search.
+    async readMany({prefix, paths, markdown = false, text = null} = {}) {
       const clean = cleanPrefix(prefix);
       const parameters = paths ? [paths.map(cleanPath)] : clean ? [clean] : [];
       const filter = (paths ? ' and n.path = any($1::text[])' : clean ? ` and ${underPrefix('n.path', '$1')}` : '')
-        + (markdown ? ` and n.path ~* '${MARKDOWN.source}'` : '');
+        + (markdown ? ` and n.path ~* '${MARKDOWN.source}'` : '')
+        + (text ? ` and n.content_type ~ '${TEXT_TYPES.source}' and n.size <= ${Number(text)}` : '');
       return (await client.query(
         `select ${NODE_COLUMNS}, c.body from fs_node n
            join fs_content c on c.workspace_id = n.workspace_id and c.hash = n.content_hash
@@ -583,5 +594,6 @@ function createPublicFsReader({pool}) {
 }
 
 module.exports = {
-  ACCESS, CONTENT_TYPES, FsError, cleanPath, contentTypeFor, createPostgresFs, createPublicFsReader, isMarkdown, parentOf,
+  ACCESS, CONTENT_TYPES, FsError, cleanPath, contentTypeFor, createPostgresFs, createPublicFsReader, isAppState, isMarkdown,
+  isShownChange, parentOf,
 };

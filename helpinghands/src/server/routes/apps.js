@@ -1,12 +1,14 @@
 'use strict';
 const {APPS_NEED_FS, followRun, openEventStream} = require('./ai');
-const {agentFolder} = require('../fs/agent-sync');
+const {pluginFolder} = require('../fs/agent-sync');
 const {FsError} = require('../fs/store');
 const {RUNNER_OFFLINE} = require('../ai');
+const {APP_UI_ROUTE: UI_ROUTE} = require('./paths');
+const {outdated} = require('../workspace-apps');
 
 // Apps: the marketplace plugins a member installed (workspace-apps.js), which
 // they install, tag and uninstall at /api/apps/{id}, and the caller's own folder
-// for each app, `home/<user>/agent/<app>/` in the workspace file system, where
+// for each app, `home/<user>/plugins/<app>/files/` in the workspace file system, where
 // that app leaves its files (/api/agent-files?plugin=<app>).
 // Opening an app (GET /api/apps/{id}) has the NanoAgent on the member's own
 // computer install its package, by sha256; its own page (its ui/ folder) comes
@@ -21,7 +23,7 @@ const {RUNNER_OFFLINE} = require('../ai');
 // folder of NanoAgent's own (fs/agent-sync.js).
 
 // Shown in the browser as themselves; everything else is text or a download.
-// Never HTML or SVG, which would run in Mochi's origin.
+// Never HTML or SVG, which would run in RUSH's origin.
 const INLINE_TYPES = {png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', pdf: 'application/pdf'};
 
 function contentTypeFor(path, body) {
@@ -34,7 +36,6 @@ function contentTypeFor(path, body) {
 const ROUTES = new Set(['/api/apps', '/api/app-installs', '/api/agent-files', '/api/agent-files/content']);
 const PLUGIN_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const APP_ROUTE = /^\/api\/apps\/([^/]+)$/;
-const UI_ROUTE = /^\/api\/apps\/([^/]+)\/ui\/([^/]+)\/([^/]+)\/(.+)$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const UI_VERSION = /^[0-9a-f]{16}$/;
 const SESSIONS_ROUTE = /^\/api\/apps\/([^/]+)\/sessions(?:\/([^/]+)(\/run)?)?$/;
@@ -128,6 +129,10 @@ async function sessionRoute(req, res, ctx, app, id, run) {
     }
     if (id === null && req.method === 'POST') {
       requireWorkspacePermission(req.context, 'apps:use');
+      // A version NanoAgent refuses keeps its sessions to read, and starts none.
+      const refusal = await ctx.workspaceApps.refusal(req.context, app);
+      if (refusal.error) return json(res, refusal.status, {error: refusal.error});
+      if (refusal.value) return json(res, 409, {error: outdated(app, refusal.value)});
       return json(res, 200, {session: await ctx.sessions.create(req.context, app)});
     }
     if (id !== null && req.method === 'GET') {
@@ -163,8 +168,9 @@ function tagsOf(body) {
  * One of the caller's apps: GET opens it, installed and ready to run on the
  * member's own computer, with the `computer` page id its page is served by; PUT
  * installs the marketplace plugin of that id, PATCH replaces the tags the
- * caller files it under, and DELETE uninstalls it. Each is the member's own to
- * do, in any role: an install is theirs, not the workspace's.
+ * caller files it under (`{tags}`) or for an upload the version it stays on
+ * (`{version}`, null to follow the latest), and DELETE uninstalls it. Each is
+ * the member's own to do, in any role: an install is theirs, not the workspace's.
  */
 async function appRoute(req, res, ctx, id) {
   const {json, readBody, requireWorkspacePermission, workspaceApps} = ctx;
@@ -191,9 +197,16 @@ async function appRoute(req, res, ctx, id) {
     } catch {
       body = null;
     }
+    if (body && 'version' in body) {
+      if (body.version !== null && (typeof body.version !== 'string' || !body.version || body.version.length > 64)) {
+        return json(res, 400, {error: 'Request body must be {"version": "<a published version>"} or {"version": null}'});
+      }
+      const pinned = await workspaceApps.pin(req.context, id, body.version);
+      return pinned.error ? json(res, pinned.status, {error: pinned.error}) : json(res, 200, {app: pinned.value});
+    }
     const tags = tagsOf(body);
     if (!tags) {
-      return json(res, 400, {error: `Request body must be {"tags": [...]}: at most ${MAX_TAGS} names, each 1 to ${MAX_TAG_LENGTH} characters`});
+      return json(res, 400, {error: `Request body must be {"tags": [...]} (at most ${MAX_TAGS} names, each 1 to ${MAX_TAG_LENGTH} characters) or {"version": …}`});
     }
     if (!await workspaceApps.tag(req.context, id, tags)) return json(res, 404, {error: `You have not installed a plugin named ${id}`});
     return json(res, 200, {tags});
@@ -248,7 +261,7 @@ module.exports = async function app_routes(req, res, url, pathname, ctx) {
   const scope = req.context;
   const plugin = url.searchParams.get('plugin');
   if (!plugin || !PLUGIN_ID.test(plugin)) return json(res, 400, {error: 'plugin is required'});
-  const folder = agentFolder(scope, plugin);
+  const folder = pluginFolder(scope, plugin);
   if (req.method === 'GET' && pathname === '/api/agent-files') {
     requireWorkspacePermission(scope, 'content:read');
     const files = (await fs.list(scope, {prefix: folder})).filter(node => node.kind === 'file');

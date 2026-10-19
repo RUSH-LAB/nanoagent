@@ -27,9 +27,14 @@ describe('plugin navigation', () => {
     assert.equal(pluginNavigation(apps, '?tag=Writing', base).app.id, 'bibtex-check');
   });
 
+  it('lists an outdated plugin as one that runs, its page saying it is outdated', () => {
+    const outdated = apps.map(item => (item.id === 'arxiv-source' ? {...item, status: 'refused'} : item));
+    assert.equal(pluginNavigation(outdated, '', base).links[0].badge, null);
+  });
+
   it('lists every plugin with the chosen tag, and keeps the tag when one opens', () => {
     const nav = pluginNavigation(apps, '?tag=Research&app=arxiv-source', base);
-    assert.deepEqual(nav.links.map(link => [link.id, link.maintenance]), [['arxiv-source', false], ['bibtex-check', true]]);
+    assert.deepEqual(nav.links.map(link => [link.id, link.badge]), [['arxiv-source', null], ['bibtex-check', 'maintenance']]);
     assert.equal(nav.app.id, 'arxiv-source');
     assert.equal(nav.links[1].permalink, `${base}?tag=Research&app=bibtex-check`);
   });

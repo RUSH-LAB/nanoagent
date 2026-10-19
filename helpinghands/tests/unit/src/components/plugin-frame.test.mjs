@@ -14,11 +14,11 @@ const SESSIONS = '/api/apps/arxiv-source/sessions';
 const sessionWith = (chat = []) => ({id: SESSION, pluginId: 'arxiv-source', title: '', chat, calls: []});
 
 /**
- * A host on a fake frame, with `request` answering Mochi API paths, and a
+ * A host on a fake frame, with `request` answering RUSH API paths, and a
  * session already started (with `chat` as its conversation); every message
  * posted and every request made after that is in `posted` and `calls`.
  */
-async function hostWith(request, {chat = [], started = true} = {}) {
+async function hostWith(request, {chat = [], started = true, onVersion = () => {}, shown = null, onShown = () => {}} = {}) {
   const posted = [];
   const frame = {postMessage: (message, origin) => posted.push({message, origin})};
   const calls = [];
@@ -31,6 +31,9 @@ async function hostWith(request, {chat = [], started = true} = {}) {
       calls.push({path, init});
       return request(path, init);
     },
+    onVersion,
+    shown: () => shown,
+    onShown,
   });
   const send = (id, method, params = {}) => host.onMessage({source: frame, data: {protocol: PROTOCOL, id, method, params}});
   if (started) {
@@ -78,6 +81,10 @@ describe('nanoagent.ui/v1 requests', () => {
       ['follow', {}],
       ['cancel', {runId: 'run-1'}],
       ['session.archive', {id: SESSION, archived: true}],
+      ['session.shown', {id: SESSION}],
+      ['session.shown', {id: null}],
+      ['plugin.version', {version: '1.2.0'}],
+      ['plugin.version', {version: null}],
     ];
     for (const [method, params] of valid) assert.equal(invalidRequest({method, params}), null, method);
     const invalid = [
@@ -95,6 +102,10 @@ describe('nanoagent.ui/v1 requests', () => {
       ['session.save', {state: {}}],
       ['session.archive', {id: SESSION}],
       ['session.archive', {id: 'not-an-id', archived: true}],
+      ['session.shown', {}],
+      ['session.shown', {id: 'not-an-id'}],
+      ['plugin.version', {}],
+      ['plugin.version', {version: ''}],
     ];
     for (const [method, params] of invalid) assert.equal(typeof invalidRequest({method, params}), 'string', method);
   });
@@ -103,11 +114,23 @@ describe('nanoagent.ui/v1 requests', () => {
 describe('run events on the bridge', () => {
   it('maps the chat stream onto chat events', () => {
     assert.deepEqual(chatEvent({event: 'delta', data: {text: 'he'}}), {event: 'chat.delta', data: {text: 'he'}});
-    assert.deepEqual(chatEvent({event: 'agent', data: {type: 'tool.failed', call: {name: 'move', arguments: {a: 1}, output: 'bad'}}}), {
-      event: 'chat.tool', data: {name: 'move', arguments: {a: 1}, output: 'bad', isError: true},
+    // The run's provenance graph: each change, then the whole graph.
+    const patch = {op: 'append', id: 'steps[0]', field: 'text', text: 'hi'};
+    assert.deepEqual(chatEvent({event: 'agent', data: {type: 'graph.patch', patch}}), {event: 'chat.graph', data: {patch}});
+    assert.deepEqual(chatEvent({event: 'agent', data: {type: 'graph.completed', graph: {nodes: [], edges: []}}}), {event: 'chat.graph', data: {graph: {nodes: [], edges: []}}});
+    assert.deepEqual(chatEvent({event: 'agent', data: {type: 'reasoning.delta', text: 'hm'}}), {event: 'chat.reasoning', data: {text: 'hm'}});
+    assert.deepEqual(chatEvent({event: 'agent', data: {type: 'tool.started', call: {id: 'c1', name: 'move'}}}), {
+      event: 'chat.tool.started', data: {id: 'c1', name: 'move'},
+    });
+    assert.deepEqual(chatEvent({event: 'agent', data: {type: 'tool.progress', call: {id: 'c1', name: 'move'}, event: 'task.tool', data: {name: 'step', isError: false}}}), {
+      event: 'chat.tool.progress', data: {id: 'c1', name: 'move', event: 'task.tool', data: {name: 'step', isError: false}},
+    });
+    assert.deepEqual(chatEvent({event: 'agent', data: {type: 'tool.failed', call: {id: 'c1', name: 'move', arguments: {a: 1}, output: 'bad'}}}), {
+      event: 'chat.tool', data: {id: 'c1', name: 'move', arguments: {a: 1}, output: 'bad', isError: true},
     });
     assert.equal(chatEvent({event: 'agent', data: {type: 'step.completed'}}), null);
-    assert.deepEqual(chatEvent({event: 'done', data: {text: 'all done'}}), {event: 'chat.answer', data: {text: 'all done', metrics: null}, final: true});
+    assert.deepEqual(chatEvent({event: 'done', data: {text: 'all done'}}), {event: 'chat.answer', data: {text: 'all done', metrics: null, version: null}, final: true});
+    assert.equal(chatEvent({event: 'done', data: {text: 'all done', version: '1.2.0'}}).data.version, '1.2.0');
     assert.deepEqual(chatEvent({event: 'error', data: {error: 'nope'}}), {event: 'chat.error', data: {message: 'nope'}, final: true});
   });
 
@@ -121,14 +144,24 @@ describe('run events on the bridge', () => {
 });
 
 describe('the bridge host', () => {
-  it('describes the plugin, workspace and theme, replying to origin *', async () => {
-    const {posted, send} = await hostWith(() => assert.fail('describe needs no request'));
+  it('describes the plugin, workspace, theme and the session to open on, replying to origin *', async () => {
+    const {posted, send} = await hostWith(() => assert.fail('describe needs no request'), {shown: SESSION});
     send('d1', 'describe');
     await until(() => posted.length);
     assert.deepEqual(posted, [{
-      message: {protocol: PROTOCOL, id: 'd1', result: {plugin: PLUGIN, workspace: {id: 'ws-1'}, theme: 'light'}},
+      message: {protocol: PROTOCOL, id: 'd1', result: {plugin: PLUGIN, workspace: {id: 'ws-1'}, theme: 'light', session: SESSION}},
       origin: '*',
     }]);
+  });
+
+  it('hears the session the page shows, or null for its Dashboard', async () => {
+    const heard = [];
+    const {posted, send} = await hostWith(() => assert.fail('session.shown needs no request'), {onShown: id => heard.push(id)});
+    send('s1', 'session.shown', {id: SESSION});
+    send('s2', 'session.shown', {id: null});
+    await until(() => heard.length === 2);
+    assert.deepEqual(heard, [SESSION, null]);
+    assert.deepEqual(messages(posted), [{protocol: PROTOCOL, id: 's1', result: {}}, {protocol: PROTOCOL, id: 's2', result: {}}]);
   });
 
   it('ignores another window\'s messages and answers a bad request with an error', async () => {
@@ -140,18 +173,51 @@ describe('the bridge host', () => {
   });
 
   it('relays a refused prompt as the request\'s error', async () => {
-    const {posted, send} = await hostWith(() => Response.json({error: 'Mochi Lab is not connected'}, {status: 503}));
+    const {posted, send} = await hostWith(() => Response.json({error: 'RUSH Lab is not connected'}, {status: 503}));
     send('p1', 'prompt', {text: 'Save 1706.03762'});
     await until(() => posted.length);
-    assert.deepEqual(messages(posted), [{protocol: PROTOCOL, id: 'p1', error: {message: 'Mochi Lab is not connected'}}]);
+    assert.deepEqual(messages(posted), [{protocol: PROTOCOL, id: 'p1', error: {message: 'RUSH Lab is not connected'}}]);
   });
 
-  it('ends a prompt that stops early, or is cancelled, with chat.error and chat.done', async () => {
-    const truncated = await hostWith(() => eventStream(sse('delta', {text: 'Sav'})));
-    truncated.send('p1', 'prompt', {text: 'Save 1706.03762'});
-    await until(() => messages(truncated.posted).some(message => message.event === 'chat.done'));
-    assert.deepEqual(eventsOf(truncated.posted, 'run-1').slice(1), [
-      ['chat.error', {message: 'The connection closed before the app finished. The session keeps its answer when it does: open the session again to see it.'}],
+  it('follows a run again when its stream drops, from its first event', async () => {
+    const {posted, calls, send} = await hostWith(path => (path === '/api/ai/stream'
+      ? eventStream(sse('agent', {type: 'reasoning.delta', text: 'Find'}) + sse('delta', {text: 'Sav'}))
+      : eventStream(sse('agent', {type: 'reasoning.delta', text: 'Find'}) + sse('delta', {text: 'Saved'}) + sse('done', {text: 'Saved it.'}))));
+    send('p1', 'prompt', {text: 'Save 1706.03762'});
+    await until(() => messages(posted).some(message => message.event === 'chat.done'));
+    assert.deepEqual(eventsOf(posted, 'run-1').map(([event]) => event), [
+      'chat.reasoning', 'chat.delta', 'chat.restart', 'chat.reasoning', 'chat.delta', 'chat.answer', 'chat.done',
+    ]);
+    assert.deepEqual(calls.map(({path}) => path), ['/api/ai/stream', `${SESSIONS}/${SESSION}/run`]);
+    // The answer is the conversation's, as if the stream had never dropped.
+    send('p2', 'prompt', {text: 'Why?'});
+    await until(() => calls.length === 3);
+    assert.deepEqual(JSON.parse(calls[2].init.body).messages.at(-1), {role: 'assistant', content: 'Saved it.'});
+  });
+
+  it('shows the turn the session kept when its run ended while the stream was down', async () => {
+    const turn = {prompt: 'Save 1706.03762', answer: 'Saved it.', tools: [], activity: [{kind: 'thought', text: 'Find'}], error: null};
+    const {posted, calls, send} = await hostWith(path => {
+      if (path === '/api/ai/stream') return eventStream(sse('delta', {text: 'Sav'}));
+      if (path === `${SESSIONS}/${SESSION}/run`) return Response.json({error: 'This session is not answering a message any more.'}, {status: 404});
+      return Response.json({session: sessionWith([turn])});
+    });
+    send('p1', 'prompt', {text: 'Save 1706.03762'});
+    await until(() => messages(posted).some(message => message.event === 'chat.done'));
+    assert.deepEqual(eventsOf(posted, 'run-1').slice(1), [['chat.turn', {turn}], ['chat.done', {}]]);
+    send('p2', 'prompt', {text: 'Why?'});
+    await until(() => calls.length === 4);
+    assert.deepEqual(JSON.parse(calls[3].init.body).messages.at(-1), {role: 'assistant', content: 'Saved it.'});
+  });
+
+  it('ends a prompt that stops early and cannot be followed again, or is cancelled, with chat.error and chat.done', async () => {
+    const refused = await hostWith(path => (path === '/api/ai/stream'
+      ? eventStream(sse('delta', {text: 'Sav'}))
+      : Response.json({error: 'Sign in to use plugins'}, {status: 401})));
+    refused.send('p1', 'prompt', {text: 'Save 1706.03762'});
+    await until(() => messages(refused.posted).some(message => message.event === 'chat.done'));
+    assert.deepEqual(eventsOf(refused.posted, 'run-1').slice(1), [
+      ['chat.error', {message: 'Sign in to use plugins'}],
       ['chat.done', {}],
     ]);
 
@@ -166,7 +232,7 @@ describe('the bridge host', () => {
     await until(() => messages(hanging.posted).some(message => message.event === 'chat.done'));
     assert.deepEqual(messages(hanging.posted).find(message => message.id === 'c1'), {protocol: PROTOCOL, id: 'c1', result: {}});
     assert.deepEqual(eventsOf(hanging.posted, 'run-1'), [['chat.error', {message: 'Cancelled'}], ['chat.done', {}]]);
-    // Mochi stops the run; the page's connection only follows it.
+    // RUSH stops the run; the page's connection only follows it.
     assert.deepEqual(hanging.calls.slice(1).map(({path, init}) => [path, init.method]), [[`${SESSIONS}/${SESSION}/run`, 'DELETE']]);
     hanging.send('c2', 'cancel', {runId: 'run-1'});
     await until(() => messages(hanging.posted).some(message => message.id === 'c2'));
@@ -176,15 +242,15 @@ describe('the bridge host', () => {
   it('prompts the app\'s agent, keeping the conversation for the next prompt', async () => {
     const answer = sse('delta', {text: 'Saved'})
       + sse('agent', {type: 'run.started'})
-      + sse('agent', {type: 'tool.completed', call: {name: 'download_source', arguments: {arxiv_id: '1706.03762'}, output: {path: 'attention'}}})
-      + sse('done', {text: 'Saved it.', cost: 0.01, model: 'm', usage: {prompt_tokens: 3}, metrics: {ttft_s: 0.5, generation_s: 1, duration_s: 2}});
+      + sse('agent', {type: 'tool.completed', call: {id: 'call-1', name: 'download_source', arguments: {arxiv_id: '1706.03762'}, output: {path: 'attention'}}})
+      + sse('done', {text: 'Saved it.', version: '1.2.0', cost: 0.01, model: 'm', usage: {prompt_tokens: 3}, metrics: {model: 'm', cost: 0.01, usage: {prompt_tokens: 3}, ttft_s: 0.5, generation_s: 1, duration_s: 2}});
     const {posted, calls, send} = await hostWith(() => eventStream(answer));
     send('p1', 'prompt', {text: 'Save 1706.03762'});
     await until(() => messages(posted).some(message => message.event === 'chat.done'));
     assert.deepEqual(eventsOf(posted, 'run-1'), [
       ['chat.delta', {text: 'Saved'}],
-      ['chat.tool', {name: 'download_source', arguments: {arxiv_id: '1706.03762'}, output: {path: 'attention'}, isError: false}],
-      ['chat.answer', {text: 'Saved it.', metrics: {model: 'm', cost: 0.01, usage: {prompt_tokens: 3}, ttft_s: 0.5, generation_s: 1, duration_s: 2}}],
+      ['chat.tool', {id: 'call-1', name: 'download_source', arguments: {arxiv_id: '1706.03762'}, output: {path: 'attention'}, isError: false}],
+      ['chat.answer', {text: 'Saved it.', metrics: {model: 'm', cost: 0.01, usage: {prompt_tokens: 3}, ttft_s: 0.5, generation_s: 1, duration_s: 2}, version: '1.2.0'}],
       ['chat.done', {}],
     ]);
     send('p2', 'prompt', {text: 'Why?'});
@@ -225,7 +291,7 @@ describe('the bridge host', () => {
   it('continues a resumed session\'s conversation', async () => {
     const {calls, send} = await hostWith(() => eventStream(sse('done', {text: 'ok'})), {chat: [
       {prompt: 'Hi', answer: 'Hello', error: null},
-      {prompt: 'Save it', answer: '', error: 'Mochi Lab stopped while answering'},
+      {prompt: 'Save it', answer: '', error: 'RUSH Lab stopped while answering'},
     ]});
     send('p1', 'prompt', {text: 'Again'});
     await until(() => calls.length);
@@ -294,6 +360,20 @@ describe('the bridge host', () => {
     send('p2', 'prompt', {text: 'Again?'});
     await until(() => calls.length === 2);
     assert.deepEqual(JSON.parse(calls[1].init.body).messages, []);
+  });
+
+  it('moves the member to another version of the plugin, or to follow its latest, and says so', async () => {
+    const moved = [];
+    const repository = {owner: 'alice', repo: 'notes', ref: 'HEAD', path: '', commit: 'd'.repeat(40)};
+    const app = {id: PLUGIN.id, version: '1.2.0', latest: '1.2.0', autoUpdate: false, repository, latestRepository: repository, sha256: 'f'.repeat(64)};
+    const {posted, calls, send} = await hostWith(() => Response.json({app}), {onVersion: changed => moved.push(changed)});
+    send('v', 'plugin.version', {version: '1.2.0'});
+    await until(() => moved.length);
+    assert.deepEqual(calls.map(({path, init}) => [path, init.method, JSON.parse(init.body)]), [
+      [`/api/apps/${PLUGIN.id}`, 'PATCH', {version: '1.2.0'}],
+    ]);
+    assert.deepEqual(messages(posted), [{protocol: PROTOCOL, id: 'v', result: {version: '1.2.0', latest: '1.2.0', repository, latestRepository: repository}}]);
+    assert.deepEqual(moved, [app]);
   });
 
   it('tells the page the site\'s theme', async () => {

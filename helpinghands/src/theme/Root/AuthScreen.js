@@ -4,6 +4,7 @@ import {authClient} from '@site/src/utils/authClient';
 import API_BASE from '@site/src/utils/api';
 import {clientPlatform} from '@site/src/platform/client';
 import {isSignInPage, nextFrom} from '@site/src/utils/signIn';
+import {inLabApp, labAppSignsIn, useLabLink} from '@site/src/utils/labApp';
 import styles from './authScreen.module.css';
 
 /**
@@ -18,6 +19,7 @@ import styles from './authScreen.module.css';
  */
 export default function AuthScreen({ unreachable = null }) {
   const {siteConfig} = useDocusaurusContext();
+  const signInLink = useLabLink('sign-in');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [policy, setPolicy] = useState(null);
@@ -30,6 +32,12 @@ export default function AuthScreen({ unreachable = null }) {
   }, []);
 
   async function signInWithGitHub() {
+    // In the RUSH Lab app on macOS, GitHub's sign-in asks for passkeys its window cannot give: the
+    // app signs it in in macOS's sign-in sheet instead (server/routes/lab.js).
+    if (labAppSignsIn()) {
+      window.location.href = signInLink;
+      return;
+    }
     setError(null);
     setBusy(true);
     try {
@@ -79,6 +87,8 @@ export default function AuthScreen({ unreachable = null }) {
             </span>
           </p>
         )}
+
+        {!inLabApp() && <a className={styles.switch} href="/download">Get the RUSH Lab app</a>}
       </div>
     </div>
   );

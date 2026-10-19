@@ -15,7 +15,7 @@ downloads/
 eggs/
 .eggs/
 lib/
-# Mochi's plugin source keeps modules in lib/ directories.
+# RUSH's plugin source keeps modules in lib/ directories.
 !helpinghands/**/lib/
 lib64/
 parts/
@@ -221,3 +221,6 @@ __marimo__/
 
 # macOS
 .DS_Store
+
+# Secrets kept by hand: never in this public repository.
+KEY

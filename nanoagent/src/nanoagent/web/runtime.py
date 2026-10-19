@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from jsonschema import Draft202012Validator
 
+from nanoagent import __version__
 from nanoagent.harness import (
     Harness as Runner,
     HarnessError as RunnerError,
@@ -25,6 +26,7 @@ from nanoagent.harness import (
 from nanoagent.harness.choice import RunModel, RunSettings
 from nanoagent.harness.nanoagent import AgentFactory
 from nanoagent.runtime.config import HarnessProfileConfig, load_registry
+from nanoagent.trajectory.atif import to_atif
 from nanoagent.web.config import WebConfig
 
 logger = logging.getLogger(__name__)
@@ -337,6 +339,18 @@ class RunHost:
                         ),
                         progress,
                     )
+            # What the model saw and did, as an ATIF trajectory, for a caller that keeps it (RUSH's chat folders).
+            if result.native is not None:
+                emit(
+                    "trajectory",
+                    trajectory=to_atif(
+                        result.native,
+                        session_id=run_id,
+                        harness=profile.harness,
+                        harness_version=__version__,
+                        model=profile.model,
+                    ),
+                )
             if len(result.answer) > self.cfg.max_output_chars:
                 raise OutputLimitError("agent output exceeded the configured character limit")
             if result.error:
