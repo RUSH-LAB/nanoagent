@@ -1,10 +1,9 @@
 import React from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
-import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import {useHistory, useLocation} from '@docusaurus/router';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
-import API_BASE, {apiJson, apiRequest} from '@site/src/utils/api';
+import API_BASE, {apiJson} from '@site/src/utils/api';
 import Layout from '@theme/Layout';
 import PluginFrame from '@site/src/components/PluginFrame';
 import PluginSidebar, {pluginNavigation} from '@site/src/components/PluginSidebar';
@@ -55,53 +54,34 @@ function UnavailableNotice({app}) {
   );
 }
 
-// The states of an install (server/workspace-apps.js) that open as the plugin's page.
+// The states of an install (server/workspace-apps.js) that open as the plugin's page, and of
+// those the ones whose version no longer runs here.
 const OPENS = new Set(['ready', 'update', 'needs-update', 'outdated']);
+const STOPPED = new Set(['needs-update', 'outdated']);
 
 /**
- * What a plugin's page has above it, for its state (server/workspace-apps.js): that a newer
- * version is out, with the button that updates to it (`onUpdate`); or that the version the
- * member runs no longer runs here, so they read its sessions and start none, and what makes it
- * run again: updating, or its author publishing a version that does.
+ * Above the page of a plugin whose version no longer runs here, that the member reads its
+ * sessions and starts none, and what makes it run again: updating it, with the button the
+ * page has for it (kit/shell.js), or its author publishing a version that does.
  */
-function VersionBar({app, slug, busy, error, onUpdate}) {
-  const update = (
-    <button type="button" className="button button--primary button--sm" disabled={busy} onClick={onUpdate}>
-      Update to v{app.latest}
-    </button>
-  );
-  const marketplace = <Link to={`/w/${encodeURIComponent(slug)}/marketplace?plugin=${encodeURIComponent(app.id)}`}>See it in the Marketplace</Link>;
-  let bar;
-  if (app.state === 'update') {
-    bar = (
-      <div className={styles.versionBar}>
-        <span>v{app.latest} of {app.name} is out. You have v{app.version}.</span>
-        {update}
-      </div>
-    );
-  } else if (app.state === 'needs-update') {
-    bar = (
-      <div className={clsx(styles.versionBar, styles.versionBarStopped)}>
-        <span><strong>Update needed.</strong> v{app.version} no longer runs here: you can read its sessions, but not start one.</span>
-        {update}
-      </div>
-    );
-  } else {
-    bar = (
-      <div className={clsx(styles.versionBar, styles.versionBarStopped)}>
+function StoppedNotice({app, slug}) {
+  return (
+    <div className={styles.stoppedNotice}>
+      {app.state === 'needs-update' ? (
+        <span>
+          <strong>Update needed.</strong> v{app.version} no longer runs here: you can read its sessions, but start one
+          only once you update it to v{app.latest}.
+        </span>
+      ) : (
         <span>
           <strong>Outdated.</strong> v{app.version} no longer runs here: you can read its sessions, but not start one.
           It runs again once its author publishes a version that does.
         </span>
-        {marketplace}
-      </div>
-    );
-  }
-  return (
-    <>
-      {bar}
-      {error && <div className={styles.error}>{error}</div>}
-    </>
+      )}
+      {app.state === 'outdated' && (
+        <Link to={`/w/${encodeURIComponent(slug)}/marketplace?plugin=${encodeURIComponent(app.id)}`}>See it in the Marketplace</Link>
+      )}
+    </div>
   );
 }
 
@@ -109,16 +89,14 @@ function VersionBar({app, slug, busy, error, onUpdate}) {
  * An app that runs is its own page, opened once NanoAgent has it installed: the
  * first open after NanoAgent starts builds its environment, which takes a while.
  * One whose version no longer runs (`needs-update`, `outdated`) is its page too, never
- * installed, in which the member reads their sessions and starts none; VersionBar says so
- * above it, and above one a newer version is out for. One still being built is our notice.
- * The page moving the member to another version opens that version, as updating does. The
- * page opens on `session`, and `onSession` hears the session it shows.
+ * installed, in which the member reads their sessions and starts none, StoppedNotice above
+ * it saying so. One still being built is our notice. The page moving the member to another
+ * version opens that version. The page opens on `session`, and `onSession` hears the session it shows.
  */
 function AppDetail({app, workspace, slug, session, onSession}) {
   const [opened, setOpened] = React.useState({app: null, error: null});
   // Counts the versions the page moved to, so each opens again.
   const [moved, setMoved] = React.useState(0);
-  const [updating, setUpdating] = React.useState({busy: false, error: null});
   const opens = OPENS.has(app.state);
   React.useEffect(() => {
     if (!opens) return undefined;
@@ -140,23 +118,11 @@ function AppDetail({app, workspace, slug, session, onSession}) {
     prepareWorkspaceApps(workspace.id, {again: true});
     if (changed.sha256 !== opened.app.sha256) setMoved(count => count + 1);
   };
-  const onUpdate = async () => {
-    setUpdating({busy: true, error: null});
-    try {
-      const data = await apiRequest(`/api/workspaces/${encodeURIComponent(workspace.id)}/apps/${encodeURIComponent(app.id)}`, {
-        method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({version: app.latest}),
-      });
-      setUpdating({busy: false, error: null});
-      onVersion(data.app);
-    } catch (err) {
-      setUpdating({busy: false, error: err.message});
-    }
-  };
   const frame = <PluginFrame app={opened.app} workspace={workspace} onVersion={onVersion} session={session} onSession={onSession} />;
-  if (app.state === 'ready') return frame;
+  if (!STOPPED.has(app.state)) return frame;
   return (
-    <div className={styles.barred}>
-      <VersionBar app={app} slug={slug} busy={updating.busy} error={updating.error} onUpdate={onUpdate} />
+    <div className={styles.stopped}>
+      <StoppedNotice app={app} slug={slug} />
       {frame}
     </div>
   );
