@@ -79,8 +79,8 @@ function homePage(plugin, ...children) {
 }
 
 /**
- * A session: a chat with the plugin's agent on the left, and on the right the result of the task
- * picked in it. Each of the agent's tools is one of the plugin's tasks, and each task it runs shows
+ * A session: a chat with the plugin's agent on the left, and on the right, in two tabs, a turn's
+ * provenance graph, streamed in while it runs, and the result of the task picked in the chat. Each of the agent's tools is one of the plugin's tasks, and each task it runs shows
  * as a result card: its output, drawn by the plugin's renderer for its output class or from its
  * JSON Schema, and its verdict. With `closed`, the chat is only read.
  * @returns {{element: HTMLElement, busy: () => boolean}} `busy` is true while its chat is being answered.
@@ -100,7 +100,7 @@ function sessionPage(plugin, renderers, closed) {
     h("h1", { text: plugin.name }),
     h("p", { class: "muted", text: plugin.product.summary }),
   );
-  const chat = chatPanel({ intro, placeholder: `Tell ${plugin.name} what you need`, tasks, show: results.show, closed });
+  const chat = chatPanel({ intro, placeholder: `Tell ${plugin.name} what you need`, tasks, show: results.show, trace: results.trace, closed });
   return { element: h("div", { class: "chat-page" }, chat.element, results.element), busy: chat.busy };
 }
 

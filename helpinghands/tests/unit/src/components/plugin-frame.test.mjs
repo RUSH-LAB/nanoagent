@@ -108,6 +108,10 @@ describe('nanoagent.ui/v1 requests', () => {
 describe('run events on the bridge', () => {
   it('maps the chat stream onto chat events', () => {
     assert.deepEqual(chatEvent({event: 'delta', data: {text: 'he'}}), {event: 'chat.delta', data: {text: 'he'}});
+    // The run's provenance graph: each change, then the whole graph.
+    const patch = {op: 'append', id: 'steps[0]', field: 'text', text: 'hi'};
+    assert.deepEqual(chatEvent({event: 'agent', data: {type: 'graph.patch', patch}}), {event: 'chat.graph', data: {patch}});
+    assert.deepEqual(chatEvent({event: 'agent', data: {type: 'graph.completed', graph: {nodes: [], edges: []}}}), {event: 'chat.graph', data: {graph: {nodes: [], edges: []}}});
     assert.deepEqual(chatEvent({event: 'agent', data: {type: 'reasoning.delta', text: 'hm'}}), {event: 'chat.reasoning', data: {text: 'hm'}});
     assert.deepEqual(chatEvent({event: 'agent', data: {type: 'tool.started', call: {id: 'c1', name: 'move'}}}), {
       event: 'chat.tool.started', data: {id: 'c1', name: 'move'},

@@ -297,6 +297,10 @@ function publicEvent(event, {app = false} = {}) {
       },
     };
   }
+  // A plugin run's provenance graph: each change as it is made, then the whole graph.
+  if (event?.type === 'graph' && app) {
+    return event.patch ? {type: 'graph.patch', runId, patch: event.patch} : {type: 'graph.completed', runId, graph: event.graph};
+  }
   if (event?.type === 'done') {
     const metrics = publicMetrics(event.metrics);
     return {

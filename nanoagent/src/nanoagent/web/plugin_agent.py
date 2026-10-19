@@ -3,7 +3,8 @@
 Its tools are the plugin's tasks, one tool each, named by the task's id and taking its input. A
 call runs the task the verified way (:func:`nanoagent.plugin.tasks.run_task`) in the caller's
 workspace and returns the task's typed output and its verdict, which the plugin's page draws.
-The plugin's own tools are used only inside its tasks.
+The plugin's own tools are used only inside its tasks. Each run records its provenance graph
+(:class:`GraphRunner`), the chat's own loop with each task's run inside its call.
 """
 
 from __future__ import annotations
@@ -18,11 +19,13 @@ from typing import Any, Protocol
 from nanoagent.core.agent import Agent, ChatModel, DecisionModel
 from nanoagent.core.tool import Tool, ToolText
 from nanoagent.extensions import get_hooks
+from nanoagent.harness.base import ProgressSink, RunnerRequest, RunnerResult
 from nanoagent.harness.nanoagent import NanoAgentRunner
 from nanoagent.harness.registry import RunnerProfile
 from nanoagent.plugin import PluginManifest
 from nanoagent.plugin.dataflow import Decider
 from nanoagent.plugin.manifest import TaskDefinition
+from nanoagent.plugin.provenance import LoopRecorder, Provenance
 from nanoagent.plugin.tasks import ModelDecider, run_task
 from nanoagent.runtime.build import build_prompt_and_tools
 from nanoagent.runtime.config import AgentConfig
@@ -131,10 +134,11 @@ class TaskTool(Tool):
     def report(self, kind: str, data: dict[str, Any]) -> None:
         """Pass on a task event for the page to show while the task runs: its reference tool
         (``task.reference``), each tool it calls (``task.tool``, name and whether it failed), what
-        its agent writes (``task.delta``, reasoning only where the host shows reasoning) and that
-        its result is being checked (``task.result``, empty). What the task returned and its
-        verdict come with the call's result, so they are not repeated here."""
-        if kind == "task.reference":
+        its agent writes (``task.delta``, reasoning only where the host shows reasoning), that
+        its result is being checked (``task.result``, empty), and once it ends, its provenance
+        graph (``task.graph``, :mod:`nanoagent.plugin.provenance`), which the session keeps. What
+        the task returned and its verdict come with the call's result, so they are not repeated here."""
+        if kind in ("task.reference", "task.graph"):
             self.progress(kind, data)
         elif kind == "task.tool":
             self.progress(kind, {"name": data["name"], "isError": data["isError"]})
@@ -142,6 +146,57 @@ class TaskTool(Tool):
             self.progress(kind, data)
         elif kind == "task.result":
             self.progress(kind, {})
+
+
+class GraphRunner:
+    """A run of NanoAgent's loop recorded as its provenance graph (:mod:`nanoagent.plugin.provenance`)
+    while it runs. The graph starts with the message, and the turns before it when there are
+    any; the chat's model requests and the tasks they call follow, each task's own run drawn
+    inside its call from its ``task.graph`` events, which go no further. Each change is a
+    ``{"type": "graph", "patch": ...}`` event, and once the run ends, done or not, the whole graph
+    is ``{"type": "graph", "graph": ...}``."""
+
+    name = NanoAgentRunner.name
+    capabilities = NanoAgentRunner.capabilities
+
+    def __init__(self, runner: NanoAgentRunner) -> None:
+        self._runner = runner
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._runner, name)
+
+    async def run(self, request: RunnerRequest, emit: ProgressSink) -> RunnerResult:
+        graph = Provenance(lambda patch: emit({"type": "graph", "patch": patch}))
+        inputs = ["message"]
+        if request.messages:
+            graph.value("history", "Earlier turns", {"messages": len(request.messages)}, origin="session")
+            inputs.insert(0, "history")
+        graph.value("message", "Message", request.input, origin="user")
+        loop = LoopRecorder(graph, inputs, role=lambda _name: "task")
+
+        def relay(event: dict[str, Any]) -> None:
+            match event["type"]:
+                case "delta":
+                    loop.delta(event["kind"], event["text"])
+                case "tool_start":
+                    loop.tool_started(event["id"], event["name"])
+                case "tool_progress" if event["event"] == "task.graph":
+                    graph.merge(event["data"], prefix=f"{loop.node(event['id'])}/", parent=loop.node(event["id"]))
+                    return
+                case "tool":
+                    loop.tool_done(event["id"], event["name"], event["arguments"], event["output"], event["is_error"])
+                case "step":
+                    loop.step_done(event["metrics"])
+            emit(event)
+
+        result = None
+        try:
+            result = await self._runner.run(request, relay)
+        finally:
+            steps = (result.profile or {}).get("steps") if result is not None else None
+            loop.finish(result.answer if result is not None and result.error is None else None, steps[-1] if steps else None)
+            emit({"type": "graph", "graph": graph.to_dict()})
+        return result
 
 
 def plugin_prompt(manifest: PluginManifest) -> str:
@@ -209,5 +264,5 @@ def plugin_profile(
         label=f"{manifest.name} · NanoAgent",
         harness=NanoAgentRunner.name,
         model=model_name or cfg.model.model,
-        runner=NanoAgentRunner(cfg, agent_factory=factory),
+        runner=GraphRunner(NanoAgentRunner(cfg, agent_factory=factory)),
     )

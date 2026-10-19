@@ -197,6 +197,7 @@ function createPostgresSessions({pool}) {
           activity: turn.activity.map(entry => (entry.kind === 'thought'
             ? {kind: 'thought', text: entry.text.slice(0, ACTIVITY_MAX)}
             : {...entry, thinking: entry.thinking.slice(0, ACTIVITY_MAX), text: entry.text.slice(0, ACTIVITY_MAX)})),
+          graph: turn.graph,
           error: turn.error === null ? null : turn.error.slice(0, TURN_MAX),
           version,
         };

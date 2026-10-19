@@ -76,6 +76,8 @@ export function chatEvent({event, data}) {
   if (event === 'agent' && data?.type === 'tool.progress') {
     return {event: 'chat.tool.progress', data: {id: data.call.id, name: data.call.name, event: data.event, data: data.data}};
   }
+  if (event === 'agent' && data?.type === 'graph.patch') return {event: 'chat.graph', data: {patch: data.patch}};
+  if (event === 'agent' && data?.type === 'graph.completed') return {event: 'chat.graph', data: {graph: data.graph}};
   if (event === 'agent' && (data?.type === 'tool.completed' || data?.type === 'tool.failed')) {
     return {
       event: 'chat.tool',

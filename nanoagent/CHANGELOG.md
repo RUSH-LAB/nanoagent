@@ -30,6 +30,20 @@ marketplace to offer it: a version published before 0.7.0 is listed under mainte
   page, or the newest spec's when NanoAgent does not run its spec. The page kit
   reads a plugin the host says is `status: refused` as closed: its Dashboard lists and opens its
   sessions, which show their chat and results, and starts none, and no message can be sent.
+- A plugin chat's run records its provenance graph (`nanoagent.plugin.provenance`): every model
+  request of the chat's loop (what it thought and wrote, streamed, and its tokens, cost and
+  timing), each task it called with the task's own run inside it (its reference tool, model
+  requests, tool calls, decisions and verifier), and the values between them, joined only by what
+  the run recorded: used, generated, continued (a request carried on the one before it), and for
+  a decide task, each field copied or chosen. `run_task` sends its graph as `task.graph` patches
+  as it is made, and the web run (`GraphRunner`) folds them into the turn's graph, which streams
+  as `graph` patches and ends with the whole graph, kept with the session's turn. The page kit
+  draws it live in a Graph tab beside the chat, the task results in a Result tab, and each node
+  in full when picked: a tool call with the arguments and output only it has, a task as a box
+  folded to its totals (model requests, tool calls, tokens, cost, time) once it is done, and the
+  turn's totals over the graph. Tool and task calls record how long they took, and a decision
+  the model requests that made it (`Answers.model_calls`). A decide `Question` names the field it
+  fills, `path`.
 
 ## 0.6.0
 

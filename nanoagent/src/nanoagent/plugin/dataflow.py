@@ -62,20 +62,24 @@ class DecisionError(ValueError):
 
 @dataclasses.dataclass(frozen=True)
 class Question:
-    """One choice: ``one`` picks a single option, ``some`` a duplicate-free subset of them."""
+    """One choice: ``one`` picks a single option, ``some`` a duplicate-free subset of them. ``path``
+    is what it fills in the decide state, e.g. ``calls[0].arguments.mode``, or ``next``."""
 
     id: str
     kind: Literal["one", "some"]
     text: str
     options: tuple[str, ...]
+    path: str
 
 
 @dataclasses.dataclass(frozen=True)
 class Answers:
-    """One value per question id; ``probabilities`` only when a backend reports a distribution."""
+    """One value per question id; ``probabilities`` only when a backend reports a distribution, and
+    ``model_calls`` the profile JSON of each model request made for them (none when no model was asked)."""
 
     values: dict[str, str | list[str]]
     probabilities: dict[str, dict[str, float]] | None = None
+    model_calls: tuple[dict[str, Any], ...] = ()
 
 
 class Decider(Protocol):
@@ -176,7 +180,7 @@ async def _level(slots: list[tuple[str, str, Any]], pool: list[tuple[Any, str, A
         nullable = [NULL] if _nullable(declared) else []
         item = _item(annotation)
         if item is not None and _closed(item) and item is not bool and not nullable:
-            questions.append(Question(slot, "some", text, tuple(str(member.value) for member in item)))
+            questions.append(Question(slot, "some", text, tuple(str(member.value) for member in item), path))
             continue
         if annotation is bool:
             options = ["true", "false"]
@@ -198,7 +202,7 @@ async def _level(slots: list[tuple[str, str, Any]], pool: list[tuple[Any, str, A
         if len(options) == 1:
             forced[path] = picked[slot] = options[0]
         else:
-            questions.append(Question(slot, "one", text, tuple(options)))
+            questions.append(Question(slot, "one", text, tuple(options), path))
     if questions or forced:
         picked.update(await ask(questions, forced))
     filled: dict[str, Any] = {}
@@ -229,7 +233,7 @@ async def _build(annotation: Any, path: str, pool: list[tuple[Any, str, Any]], a
         return (await _level([("value", path, annotation)], pool, ask))["value"]
     items: list[Any] = []
     while True:
-        more = Question(ADD, "one", f"{path}: add item {len(items)} ({_name(_item(annotation))}), or done", (ADD, DONE))
+        more = Question(ADD, "one", f"{path}: add item {len(items)} ({_name(_item(annotation))}), or done", (ADD, DONE), path)
         if (await ask([more], {}))[ADD] == DONE:
             return items
         items.append((await _level([("item", f"{path}[{len(items)}]", _item(annotation))], pool, ask))["item"])

@@ -120,17 +120,33 @@ function scoped(node) {
 }
 
 /**
- * The column beside the chat that draws one task's result at a time.
- * @returns {{element: HTMLElement, show: (node: Node) => void}}
+ * The column beside the chat, in two tabs: Graph, a turn's provenance graph (kit/graph.js), and
+ * Result, the result of one task the agent ran. `show(node)` puts a result in Result and
+ * `trace(node)` a graph in Graph, each opening its tab unless `focus` is false.
+ * @returns {{element: HTMLElement, show: (node: Node, options?: {focus?: boolean}) => void, trace: (node: Node, options?: {focus?: boolean}) => void}}
  */
 export function resultsPane() {
-  const empty = h("div", { class: "results-empty" }, h("p", { text: "Results show here" }), h("p", { class: "muted", text: "Each task the agent runs shows its result here." }));
-  const element = h("section", { class: "results-pane", "aria-label": "Result", "aria-live": "polite" }, empty);
-  return {
-    element,
-    show(node) {
-      element.replaceChildren(node);
-      element.scrollTop = 0;
-    },
+  const empty = (title, text) => h("div", { class: "results-empty" }, h("p", { text: title }), h("p", { class: "muted", text }));
+  const panels = {
+    graph: h("div", { class: "results-panel trace-panel", role: "tabpanel", "aria-label": "Graph" }, empty("The agent's work shows here", "Each turn draws what the agent did as it works: every model request, tool call and value.")),
+    result: h("div", { class: "results-panel", role: "tabpanel", "aria-label": "Result", hidden: true }, empty("Results show here", "Each task the agent runs shows its result here.")),
   };
+  const tabs = Object.fromEntries(
+    Object.keys(panels).map((name) => [name, h("button", { type: "button", class: "kit-tab", role: "tab", "aria-selected": String(name === "graph"), text: name === "graph" ? "Graph" : "Result" })]),
+  );
+  const open = (name) => {
+    for (const [each, panel] of Object.entries(panels)) {
+      panel.hidden = each !== name;
+      tabs[each].setAttribute("aria-selected", String(each === name));
+    }
+  };
+  for (const [name, tab] of Object.entries(tabs)) tab.addEventListener("click", () => open(name));
+  const element = h("section", { class: "results-pane", "aria-label": "Graph and result" }, h("div", { class: "results-tabs", role: "tablist" }, Object.values(tabs)), Object.values(panels));
+  const put = (name) => (node, { focus = true } = {}) => {
+    panels[name].replaceChildren(node);
+    panels[name].scrollTop = 0;
+    element.classList.add("filled");
+    if (focus) open(name);
+  };
+  return { element, show: put("result"), trace: put("graph") };
 }

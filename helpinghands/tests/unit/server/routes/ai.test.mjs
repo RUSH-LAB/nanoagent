@@ -347,6 +347,9 @@ describe('POST /api/ai/stream', () => {
       request.onEvent({type: 'tool.started', runId: 'r1', call: {id: 'c3', name: 'download_source'}});
       request.onEvent({type: 'reasoning.delta', runId: 'r1', text: 'Again.'});
       request.onEvent({type: 'tool.failed', runId: 'r1', call: {...call, id: 'c2', output: 'arXiv is down'}});
+      // The run's provenance graph: its patches stream to the page, and the whole graph is kept.
+      request.onEvent({type: 'graph.patch', runId: 'r1', patch: {op: 'node', node: {id: 'message', kind: 'value'}}});
+      request.onEvent({type: 'graph.completed', runId: 'r1', graph: {nodes: [{id: 'message', kind: 'value'}], edges: []}});
       return stream(request);
     };
     const r = await ask({body: {prompt: 'save 1706.03762', appId: 'arxiv-source', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
@@ -370,6 +373,7 @@ describe('POST /api/ai/stream', () => {
         {kind: 'task', name: 'download_source', steps: [{name: 'fetch', isError: false}], thinking: 'It is on arXiv.', text: 'Saved.'},
         {kind: 'thought', text: 'Again.'},
       ],
+      graph: {nodes: [{id: 'message', kind: 'value'}], edges: []},
       error: null,
     }]);
     assert.equal(ctx.calls.aiUsage[0].pluginId, 'arxiv-source');

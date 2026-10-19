@@ -84,6 +84,8 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
     // What the agent did on the way, in order, as its page showed it: each thought, and each task
     // it ran with the tools that task's agent called, its thinking and what it wrote.
     const activity = [];
+    // The run's provenance graph (nanoagent.plugin.provenance), whole once it ends.
+    let graph = null;
     let thinking = false;
     let folder = row.folder ? {workspace: row.folder, sent: row.sent} : null;
     let result;
@@ -121,6 +123,7 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
             if (event.event === 'task.tool') task.steps.push({name: event.data.name, isError: Boolean(event.data.isError)});
             if (event.event === 'task.delta') task[event.data.kind === 'reasoning' ? 'thinking' : 'text'] += event.data.text;
           }
+          if (event.type === 'graph.completed') graph = event.graph;
           if (event.type === 'tool.completed' || event.type === 'tool.failed') {
             tools.push({name: event.call.name, arguments: event.call.arguments, output: event.call.output, isError: event.type === 'tool.failed'});
             if (task) task.done = true;
@@ -146,7 +149,7 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
       await marked;
       // A task that never ended (the agent called it again, or the run stopped) is not kept, as its page dropped it.
       const kept = activity.filter(entry => entry.kind === 'thought' || entry.done).map(({id: _id, done: _done, ...entry}) => entry);
-      ended = await sessions.endRun(context, row.id, {prompt: row.prompt, answer: result.error ? '' : result.text, tools, activity: kept, error: error ?? null});
+      ended = await sessions.endRun(context, row.id, {prompt: row.prompt, answer: result.error ? '' : result.text, tools, activity: kept, graph, error: error ?? null});
     } catch (problem) {
       // The computer keeps the run until it is let go, so the next Mochi to hear of it ends it.
       console.error('[apps] Could not keep a run\'s turn:', problem.message);
@@ -171,7 +174,7 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
         error = `${reason} What it did could not be written back to your agent folder: ${problem.message}`;
       }
     }
-    if (await sessions.endRun(context, row.id, {prompt: row.prompt, answer: '', tools: [], activity: [], error})) {
+    if (await sessions.endRun(context, row.id, {prompt: row.prompt, answer: '', tools: [], activity: [], graph: null, error})) {
       await charge(context, row, null, row.ran);
     }
     for (const waiter of waiting.get(row.sessionId) ?? []) {

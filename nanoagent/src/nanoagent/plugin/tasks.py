@@ -9,7 +9,8 @@ reference the same way, then calls its tools and builds its output itself, every
 and each batch of choices is a ``task.decision`` event; an agent task's agent streams what it writes
 as ``task.delta`` events. Every way, the plugin's
 ``verify_task`` judges the output. Progress goes to ``on_event(type, data)``, with the ``task.*`` types of the
-web protocol (docs/plans/plugin-ui.md).
+web protocol (docs/plans/plugin-ui.md), the run's provenance graph among them, each change a
+``task.graph`` patch (:mod:`nanoagent.plugin.provenance`).
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from nanoagent.core.messages import assistant_message
 from nanoagent.core.tool import Tool
 from nanoagent.plugin.dataflow import Answers, Decider, Question, answer_schema, check, fill, values
 from nanoagent.plugin.manifest import SUBMIT, PluginManifest, TaskDefinition
+from nanoagent.plugin.provenance import LoopRecorder, Provenance
 from nanoagent.plugin.runtime import PluginSession, call_tool_async, plugin_tools
 from nanoagent.plugin.verifier import Verification, verify_task
 from nanoagent.profiler import Profiler
@@ -133,7 +135,7 @@ class ModelDecider:
         self._durations.append({"model": record.duration_s, "tools": 0.0})
         call = ToolCall(id=f"{ANSWER}-{len(self._durations)}", name=ANSWER, arguments=json.dumps(answer.value))
         self._messages += [user, assistant_message(Reply(content=None, tool_calls=[call]))]
-        return Answers(answer.value)
+        return Answers(answer.value, model_calls=(record.to_dict(),))
 
     def record(self) -> AgentResult:
         """Every request as a transcript of ``answer`` calls, with its usage, cost and profile."""
@@ -175,23 +177,47 @@ async def run_task(
     except ValueError as error:
         raise ValueError(f"invalid input for task {task.id}: {error}") from error
     on_event("task.started", {"task": task.id})
+    # Its provenance graph, each change a task.graph event as it is made.
+    graph = Provenance(lambda patch: on_event("task.graph", patch))
+    graph.value("input", "Input", arguments, origin="input")
+    return await _run(manifest, task, arguments, workspace, make_agent, make_decider, timeout, on_event, stage, graph)
+
+
+async def _run(
+    manifest: PluginManifest,
+    task: TaskDefinition,
+    arguments: dict[str, Any],
+    workspace: Path,
+    make_agent: Callable[[str], Agent] | None,
+    make_decider: Callable[[str], Decider] | None,
+    timeout: float,
+    on_event: TaskEvents,
+    stage: Callable[[Path], None],
+    graph: Provenance,
+) -> TaskOutcome:
     stage(workspace)
     match task.runner:
         case "tool":
             [tool] = task.tools
             output = await call_tool_async(manifest, tool, arguments, workspace=workspace, timeout=timeout)
+            graph.ran("calls[0]", "tool", tool, "input", ("output", "Output", output))
             on_event("task.result", {"response": output})
-            verdict = await _verdict(manifest, task, arguments, output, None, workspace, on_event)
+            verdict = await _verdict(manifest, task, arguments, output, None, workspace, on_event, graph, "output")
             return TaskOutcome(reference=None, output=output, agent=None, verdict=verdict)
         case "agent":
             if make_agent is None:
                 raise ValueError(f"task {task.id!r} is an agent task: it needs an agent")
-            reference = await _pin_reference(manifest, task, arguments, timeout, on_event, stage)
+            reference = await _pin_reference(manifest, task, arguments, timeout, on_event, stage, graph)
             system, user = task_prompt(manifest, task, arguments)
             agent = make_agent(system)
             submit = SubmitTool(task)
             agent.add_tool(submit)
             reported = 0
+            loop = LoopRecorder(graph, ["input"])
+
+            def on_tool(event: dict[str, Any]) -> None:
+                if event["type"] == "tool_start":
+                    loop.tool_started(event["id"], event["name"])
 
             def on_step(partial: AgentResult) -> None:
                 nonlocal reported
@@ -200,27 +226,39 @@ async def run_task(
                         "task.tool",
                         {"name": call["name"], "arguments": call["arguments"], "output": call["output"], "isError": call["is_error"]},
                     )
+                    loop.tool_done(call["id"], call["name"], call["arguments"], call["output"], call["is_error"])
                 reported = len(partial.tool_calls)
+                step = partial.profile.steps[-1].to_dict() if partial.profile is not None and partial.profile.steps else None
+                if partial.stop_reason is StopReason.RUNNING:
+                    loop.step_done(step)
+                else:
+                    loop.finish(partial.answer if partial.stop_reason is StopReason.ANSWER else None, step)
+
+            def on_delta(kind: str, text: str) -> None:
+                on_event("task.delta", {"kind": kind, "text": text})
+                loop.delta(kind, text)
 
             # One plugin process for the whole task, so its tools can keep state between calls.
             async with PluginSession(manifest, workspace, timeout=timeout) as session:
                 for tool in plugin_tools(manifest, workspace, task.tools, session=session):
                     agent.add_tool(tool)
-                result = await agent.run(
-                    user, on_step=on_step, on_delta=lambda kind, text: on_event("task.delta", {"kind": kind, "text": text})
-                )
+                result = await agent.run(user, on_step=on_step, on_delta=on_delta, on_tool=on_tool)
             on_event("task.answer", {"text": result.answer})
             if submit.output is None:
                 raise RuntimeError(f"the agent ended task {task.id!r} without calling {SUBMIT}")
+            # The last submission is the output.
+            output = loop.arguments[SUBMIT]
+            graph.update(output, label="Output (submitted)")
             on_event("task.result", {"response": submit.output})
-            verdict = await _verdict(manifest, task, arguments, submit.output, reference, workspace, on_event)
+            verdict = await _verdict(manifest, task, arguments, submit.output, reference, workspace, on_event, graph, output)
             return TaskOutcome(reference=reference, output=submit.output, agent=result, verdict=verdict)
         case "decide":
             if make_decider is None:
                 raise ValueError(f"task {task.id!r} is a decide task: it needs a decider")
-            reference = await _pin_reference(manifest, task, arguments, timeout, on_event, stage)
+            reference = await _pin_reference(manifest, task, arguments, timeout, on_event, stage, graph)
             decider = make_decider(decide_prompt(manifest, task))
             state: dict[str, Any] = {"task": task.id, "input": arguments, "calls": []}
+            asked: list[Answers] = []  # each batch's answers, the last the "next" one once it is asked
 
             async def ask(questions: list[Question], forced: dict[str, str]) -> dict[str, str | list[str]]:
                 answers = await decider.decide(state, questions) if questions else Answers({})
@@ -234,6 +272,10 @@ async def run_task(
                         "forced": forced,
                     },
                 )
+                if questions != [step]:
+                    sources = {source for _, source, _ in pool}
+                    graph.decided([(question.path, answers.values[question.id]) for question in questions], forced, sources, list(answers.model_calls))
+                asked.append(answers)
                 return answers.values
 
             async with PluginSession(manifest, workspace, timeout=timeout) as session:
@@ -241,18 +283,30 @@ async def run_task(
                     pool = values(arguments, task.input_type, "input")
                     for index, call in enumerate(state["calls"]):
                         pool += values(call["output"], manifest.tool(call["tool"]).output_type, f"calls[{index}].output")
-                    step = Question("next", "one", "What comes next: a tool to call, or submit the task's output?", (*task.tools, SUBMIT))
+                    step = Question("next", "one", "What comes next: a tool to call, or submit the task's output?", (*task.tools, SUBMIT), "next")
                     [chosen] = (await ask([step], {})).values()
+                    decision = graph.decision(f"Next: {chosen}", list(asked[-1].model_calls))
                     if chosen == SUBMIT:
+                        graph.building("output", "Output")
+                        graph.edge(decision, "output", "chose", option=chosen)
                         output = await fill(task.output_type, "output", pool, ask)
+                        graph.built("output", output)
                         break
-                    tool_input = await fill(manifest.tool(chosen).input_type, f"calls[{len(state['calls'])}].arguments", pool, ask)
+                    at = f"calls[{len(state['calls'])}]"
+                    graph.call(at, "tool", chosen)
+                    graph.edge(decision, at, "chose", option=chosen)
+                    graph.building(f"{at}.arguments", f"{chosen} arguments")
+                    tool_input = await fill(manifest.tool(chosen).input_type, f"{at}.arguments", pool, ask)
+                    graph.built(f"{at}.arguments", tool_input)
+                    graph.edge(f"{at}.arguments", at, "used")
                     tool_output = await session.call(chosen, tool_input)
+                    graph.value(f"{at}.output", f"{chosen} output", tool_output)
+                    graph.edge(at, f"{at}.output", "generated")
                     state["calls"].append({"tool": chosen, "arguments": tool_input, "output": tool_output})
                     on_event("task.tool", {"name": chosen, "arguments": tool_input, "output": tool_output, "isError": False})
             build_output(output, task.output_type)
             on_event("task.result", {"response": output})
-            verdict = await _verdict(manifest, task, arguments, output, reference, workspace, on_event)
+            verdict = await _verdict(manifest, task, arguments, output, reference, workspace, on_event, graph, "output")
             return TaskOutcome(reference=reference, output=output, agent=decider.record(), verdict=verdict)
         case runner:
             raise ValueError(f"task {task.id!r}: unknown runner {runner!r}")
@@ -265,6 +319,7 @@ async def _pin_reference(
     timeout: float,
     on_event: TaskEvents,
     stage: Callable[[Path], None],
+    graph: Provenance,
 ) -> dict[str, Any] | None:
     """The reference tool's output, from a scratch workspace the task never sees; None without one."""
     if task.reference is None:
@@ -272,7 +327,9 @@ async def _pin_reference(
     on_event("task.reference", {"tool": task.reference})
     with tempfile.TemporaryDirectory(prefix=f"nanoagent-{manifest.id}-reference-") as scratch:
         stage(Path(scratch))
-        return await call_tool_async(manifest, task.reference, arguments, workspace=Path(scratch), timeout=timeout)
+        reference = await call_tool_async(manifest, task.reference, arguments, workspace=Path(scratch), timeout=timeout)
+    graph.ran("reference", "reference", task.reference, "input", ("reference.output", "Reference output", reference))
+    return reference
 
 
 async def _verdict(
@@ -283,7 +340,15 @@ async def _verdict(
     reference: dict[str, Any] | None,
     workspace: Path,
     on_event: TaskEvents,
+    graph: Provenance,
+    output_node: str,
 ) -> Verification:
+    """The verifier's verdict on ``output``, the value ``output_node`` of ``graph``."""
     verdict = await asyncio.to_thread(verify_task, manifest, task.id, arguments, output, reference, workspace)
+    graph.call("verify", "verify", "Verifier")
+    for used in ("input", output_node, *(("reference.output",) if reference is not None else ())):
+        graph.edge(used, "verify", "used")
+    graph.value("verdict", "Verdict", verdict.to_dict())
+    graph.edge("verify", "verdict", "generated")
     on_event("task.verdict", verdict.to_dict())
     return verdict

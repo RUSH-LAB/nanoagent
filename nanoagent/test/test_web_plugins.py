@@ -17,6 +17,7 @@ from nanoagent.inference.types import Answer
 from nanoagent.plugin import install
 from nanoagent.plugin.install import FOLDER_HEX
 from nanoagent.plugin.package import pack
+from nanoagent.plugin.provenance import apply
 from nanoagent.plugin.python import plugin_python
 from nanoagent.runtime.config import load_config_args
 from nanoagent.web.app import create_app
@@ -244,6 +245,8 @@ def test_runs_a_prompt_in_the_callers_workspace(client: TestClient, model: Scrip
     with client.stream("POST", f"{runs(client)}/runs", json={"input": "echo hi"}) as response:
         assert response.status_code == 200
         events = [json.loads(line[len("data: ") :]) for line in response.iter_lines() if line.startswith("data: ")]
+    graphs = [event for event in events if event["type"] == "graph"]
+    events = [event for event in events if event["type"] != "graph"]
     assert [event["type"] for event in events] == ["start", "tool_start", "tool_progress", "tool", "step", "delta", "done"]
     assert events[0]["profile"] == "plugin-echo"
     assert events[-1]["metrics"]["ttft_s"] is not None
@@ -252,6 +255,31 @@ def test_runs_a_prompt_in_the_callers_workspace(client: TestClient, model: Scrip
     assert {key: events[1][key] for key in ("id", "name")} == {"id": call, "name": "echo"}
     assert {key: events[2][key] for key in ("id", "event", "data")} == {"id": call, "event": "task.result", "data": {}}
     assert events[3]["name"] == "echo" and not events[3]["is_error"]
+    # The turn's provenance graph streams as patches, which add up to the whole graph sent last:
+    # the message, the request that called the task, the task's run inside it, the request after
+    # it, which used the task's output, and the answer it generated.
+    *patches, whole = graphs
+    built: dict = {"nodes": [], "edges": []}
+    for event in patches:
+        apply(built, event["patch"])
+    assert built == whole["graph"]
+    nodes = {node["id"]: node for node in built["nodes"]}
+    edges = {(edge["from"], edge["relation"], edge["to"]) for edge in built["edges"]}
+    assert {
+        ("message", "used", "steps[0]"),
+        ("steps[0]", "generated", "calls[0].arguments"),
+        ("calls[0].arguments", "used", "calls[0]"),
+        ("calls[0]", "generated", "calls[0].output"),
+        ("steps[0]", "continued", "steps[1]"),
+        ("calls[0].output", "used", "steps[1]"),
+        ("steps[1]", "generated", "answer"),
+        ("calls[0]/input", "used", "calls[0]/calls[0]"),
+        ("calls[0]/calls[0]", "generated", "calls[0]/output"),
+    } <= edges
+    assert nodes["calls[0]"]["role"] == "task" and nodes["calls[0]/calls[0]"]["parent"] == "calls[0]"
+    assert nodes["calls[0]"]["duration_s"] > 0
+    assert [len(nodes[step]["modelCalls"]) for step in ("steps[0]", "steps[1]")] == [1, 1]
+    assert not any(node.get("running") for node in nodes.values())
     # The chat's tool is the echo task: its result is the task's typed output and its verdict.
     result = json.loads(events[3]["output"])
     assert result["output"] == {"value": "hi"} and result["verdict"]["valid"] is True
@@ -537,6 +565,22 @@ def test_a_chat_runs_an_agent_task_and_counts_its_cost(tmp_path: Path, monkeypat
         ("task.delta", {"kind": "content", "text": "x"}),
         ("task.result", {}),
     ]
+    # The task's agent loop is drawn inside its call: each request with what it wrote, the
+    # arguments it generated, and the verifier judging what it submitted.
+    graph = [event for event in events if event["type"] == "graph"][-1]["graph"]
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    edges = {(edge["from"], edge["relation"], edge["to"]) for edge in graph["edges"]}
+    task = "calls[0]/"
+    assert [nodes[f"{task}steps[{index}]"]["text"] for index in range(3)] == ["x", "x", "x"]
+    assert {
+        (f"{task}input", "used", f"{task}steps[0]"),
+        (f"{task}steps[0]", "generated", f"{task}calls[0].arguments"),
+        (f"{task}calls[0].output", "used", f"{task}steps[1]"),
+        (f"{task}steps[1]", "generated", f"{task}calls[1].arguments"),
+        (f"{task}calls[1].arguments", "used", f"{task}verify"),
+        (f"{task}verify", "generated", f"{task}verdict"),
+    } <= edges
+    assert nodes[f"{task}calls[1]"]["label"] == "submit" and nodes[f"{task}calls[1].arguments"]["label"] == "Output (submitted)"
     # Two chat replies and the task agent's three.
     assert events[-1]["metrics"]["cost"] == pytest.approx(0.05)
     # The task's agent works with its instructions and only its own tools.
