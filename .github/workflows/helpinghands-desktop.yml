@@ -18,9 +18,10 @@ name: Helping Hands desktop app
 # The release pull request into production builds the engine, and checks it on each target: in
 # every app it builds, when it changes the shell (desktop/), and otherwise in the app rush-lab.org
 # serves, each installed and run as a member does, so it is merged only once they pass. The push merging makes
-# builds nothing: it uploads what that pull request built (scripts/release/promote-lab.mjs), the
-# engine, and each app only when the release changed the shell (desktop/), so a release that changes
-# only the engine reaches members in minutes, with no new app. Either runs only when something the
+# uploads what that pull request built (scripts/release/promote-lab.mjs), the engine, and each app
+# only when the release changed the shell (desktop/), so a release that changes only the engine
+# reaches members in minutes, with no new app; beside that, and waited for by nothing, it builds
+# each app again only to keep its caches on production, where the next pull request finds them. Either runs only when something the
 # app or its engine is built or installed from changed: desktop/ (the app, its scripts and
 # config.yaml), the runner, the install scripts, and NanoAgent. devmode pushes build nothing.
 on:
@@ -51,9 +52,8 @@ defaults:
 
 jobs:
   # Whether this changes the shell, the app's own files (desktop/): a pull request against the
-  # production it merges into; a run by hand always builds the apps.
+  # production it merges into; a run by hand, and the push merging makes, always build the apps.
   changes:
-    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     outputs:
       shell: ${{ steps.shell.outputs.changed }}
@@ -97,6 +97,8 @@ jobs:
           path: helpinghands/desktop/dist/engine/
           if-no-files-found: error
 
+  # On the push merging makes, only to keep the builds' caches on production, the one branch a
+  # pull request into it can restore caches from: nothing waits for it, and it uploads nothing.
   app:
     needs: changes
     if: needs.changes.outputs.shell == 'true'
@@ -138,6 +140,7 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       - uses: actions/upload-artifact@v4
+        if: github.event_name != 'push'
         with:
           name: rush-lab-${{ matrix.target }}
           path: |
@@ -152,7 +155,9 @@ jobs:
       # As a member installs it, run twice against this build served as the site serves it, then
       # quit: it must reach its NanoAgent through the relay each time, and leave nothing running.
       - run: npm ci --ignore-scripts --no-audit --no-fund
+        if: github.event_name != 'push'
       - name: Install, run and quit
+        if: github.event_name != 'push'
         working-directory: helpinghands/desktop
         timeout-minutes: 30
         run: node scripts/check-install.mjs ${{ matrix.target }}
