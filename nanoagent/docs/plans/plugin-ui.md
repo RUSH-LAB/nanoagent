@@ -81,9 +81,10 @@ Methods:
 | `plugin.version` | `{version}` | `{version, latest, repository, latestRepository}`: the person runs `version` from now on, or with `version` null follows the newest; the host opens the page again when the version changed. The Dashboard's header shows the version, a link to its source, and when a newer one is out What's new (GitHub's comparison of the two commits) and Update | — |
 
 `prompt` is today's chat: a free-form message to the plugin's agent; the session keeps the
-conversation (its last 12 turns, each `{prompt, answer, tools, activity, error}`, `activity`
-being what the agent did on the way, in order: each `{kind: "thought", text}` and each finished
-task's `{kind: "task", name, steps, thinking, text}`). `prompt` runs in the
+conversation (its last 12 turns, each `{prompt, answer, tools, activity, graph, metrics, error}`,
+`activity` being what the agent did on the way, in order: each `{kind: "thought", text}` and each
+finished task's `{kind: "task", name, steps, thinking, text}`, whose calls `tools` are, in the
+same order; and `metrics` what the answer cost and took, as `chat.answer` gives them). `prompt` runs in the
 current session, and the host refuses it until a session is started or resumed. A run is the
 host's, not the page's: a page closed, reloaded or left mid-answer leaves it going, and a page
 that resumes the session meanwhile shows the message being answered and `follow`s it to its end.

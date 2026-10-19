@@ -271,6 +271,7 @@ def test_runs_a_prompt_in_the_callers_workspace(client: TestClient, model: Scrip
     nodes = {node["id"]: node for node in built["nodes"]}
     edges = {(edge["from"], edge["relation"], edge["to"]) for edge in built["edges"]}
     assert {
+        ("system", "used", "steps[0]"),
         ("message", "used", "steps[0]"),
         ("steps[0]", "generated", "calls[0].arguments"),
         ("calls[0].arguments", "used", "calls[0]"),
@@ -281,7 +282,12 @@ def test_runs_a_prompt_in_the_callers_workspace(client: TestClient, model: Scrip
         ("calls[0]/input", "used", "calls[0]/calls[0]"),
         ("calls[0]/calls[0]", "generated", "calls[0]/output"),
     } <= edges
-    assert nodes["calls[0]"]["role"] == "task" and nodes["calls[0]/calls[0]"]["parent"] == "calls[0]"
+    assert nodes["calls[0]"]["type"] == "task" and nodes["calls[0]/calls[0]"]["parent"] == "calls[0]"
+    # Each node is typed by the message of the loop it is, the chat's system prompt first.
+    assert [nodes[key]["type"] for key in ("system", "message", "steps[0]", "calls[0].arguments", "calls[0].output", "answer")] == [
+        "system_prompt", "user_message", "agent_reply", "tool_call", "tool_result", "agent_message",
+    ]
+    assert "You operate the Echo plugin" in nodes["system"]["value"]
     assert nodes["calls[0]"]["duration_s"] > 0
     assert [len(nodes[step]["modelCalls"]) for step in ("steps[0]", "steps[1]")] == [1, 1]
     assert not any(node.get("running") for node in nodes.values())
@@ -578,6 +584,7 @@ def test_a_chat_runs_an_agent_task_and_counts_its_cost(tmp_path: Path, monkeypat
     task = "calls[0]/"
     assert [nodes[f"{task}steps[{index}]"]["text"] for index in range(3)] == ["x", "x", "x"]
     assert {
+        (f"{task}system", "used", f"{task}steps[0]"),
         (f"{task}input", "used", f"{task}steps[0]"),
         (f"{task}steps[0]", "generated", f"{task}calls[0].arguments"),
         (f"{task}calls[0].output", "used", f"{task}steps[1]"),
@@ -585,7 +592,7 @@ def test_a_chat_runs_an_agent_task_and_counts_its_cost(tmp_path: Path, monkeypat
         (f"{task}calls[1].arguments", "used", f"{task}verify"),
         (f"{task}verify", "generated", f"{task}verdict"),
     } <= edges
-    assert nodes[f"{task}calls[1]"]["label"] == "submit" and nodes[f"{task}calls[1].arguments"]["label"] == "Output (submitted)"
+    assert nodes[f"{task}calls[1]"]["label"] == "submit" and nodes[f"{task}calls[1].arguments"]["label"] == "Task output (submitted)"
     # Two chat replies and the task agent's three.
     assert events[-1]["metrics"]["cost"] == pytest.approx(0.05)
     # The task's agent works with its instructions and only its own tools.

@@ -20,12 +20,12 @@ from nanoagent.core.agent import Agent, ChatModel, DecisionModel
 from nanoagent.core.tool import Tool, ToolText
 from nanoagent.extensions import get_hooks
 from nanoagent.harness.base import ProgressSink, RunnerRequest, RunnerResult
-from nanoagent.harness.nanoagent import NanoAgentRunner
+from nanoagent.harness.nanoagent import AgentFactory, NanoAgentRunner
 from nanoagent.harness.registry import RunnerProfile
 from nanoagent.plugin import PluginManifest
 from nanoagent.plugin.dataflow import Decider
 from nanoagent.plugin.manifest import TaskDefinition
-from nanoagent.plugin.provenance import LoopRecorder, Provenance
+from nanoagent.plugin.provenance import LoopRecorder, NodeType, Provenance
 from nanoagent.plugin.tasks import ModelDecider, run_task
 from nanoagent.runtime.build import build_prompt_and_tools
 from nanoagent.runtime.config import AgentConfig
@@ -149,9 +149,10 @@ class TaskTool(Tool):
 
 
 class GraphRunner:
-    """A run of NanoAgent's loop recorded as its provenance graph (:mod:`nanoagent.plugin.provenance`)
-    while it runs. The graph starts with the message, and the turns before it when there are
-    any; the chat's model requests and the tasks they call follow, each task's own run drawn
+    """A run of NanoAgent's loop, built by ``factory``, recorded as its provenance graph
+    (:mod:`nanoagent.plugin.provenance`) while it runs. The graph starts with the system prompt
+    the agent is built with, the turns before when there are any, and the message; the chat's
+    replies and the tasks they call follow, each task's own run drawn
     inside its call from its ``task.graph`` events, which go no further. Each change is a
     ``{"type": "graph", "patch": ...}`` event, and once the run ends, done or not, the whole graph
     is ``{"type": "graph", "graph": ...}``."""
@@ -159,20 +160,33 @@ class GraphRunner:
     name = NanoAgentRunner.name
     capabilities = NanoAgentRunner.capabilities
 
-    def __init__(self, runner: NanoAgentRunner) -> None:
-        self._runner = runner
+    def __init__(self, cfg: WebConfig, factory: AgentFactory) -> None:
+        self._runner = NanoAgentRunner(cfg, agent_factory=self._built(factory))
+        self._graph: Provenance | None = None
+
+    def _built(self, factory: AgentFactory) -> AgentFactory:
+        """``factory``, with the system prompt each agent it builds is given put in the run's graph."""
+
+        def build(instructions: str | None) -> tuple[Agent, str]:
+            agent, prompt = factory(instructions)
+            if self._graph is None:
+                raise RuntimeError("an agent is built only while a run records its graph")
+            self._graph.value("system", NodeType.SYSTEM_PROMPT, "System prompt", prompt)
+            return agent, prompt
+
+        return build
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._runner, name)
 
     async def run(self, request: RunnerRequest, emit: ProgressSink) -> RunnerResult:
-        graph = Provenance(lambda patch: emit({"type": "graph", "patch": patch}))
-        inputs = ["message"]
+        graph = self._graph = Provenance(lambda patch: emit({"type": "graph", "patch": patch}))
+        inputs = ["system", "message"]
         if request.messages:
-            graph.value("history", "Earlier turns", {"messages": len(request.messages)}, origin="session")
-            inputs.insert(0, "history")
-        graph.value("message", "Message", request.input, origin="user")
-        loop = LoopRecorder(graph, inputs, role=lambda _name: "task")
+            graph.value("history", NodeType.EARLIER_TURNS, "Earlier turns", {"messages": len(request.messages)})
+            inputs.insert(1, "history")
+        graph.value("message", NodeType.USER_MESSAGE, "User message", request.input)
+        loop = LoopRecorder(graph, inputs, runs=lambda _name: NodeType.TASK)
 
         def relay(event: dict[str, Any]) -> None:
             match event["type"]:
@@ -264,5 +278,5 @@ def plugin_profile(
         label=f"{manifest.name} · NanoAgent",
         harness=NanoAgentRunner.name,
         model=model_name or cfg.model.model,
-        runner=GraphRunner(NanoAgentRunner(cfg, agent_factory=factory)),
+        runner=GraphRunner(cfg, factory),
     )

@@ -42,8 +42,21 @@ marketplace to offer it: a version published before 0.7.0 is listed under mainte
   in full when picked: a tool call with the arguments and output only it has, a task as a box
   folded to its totals (model requests, tool calls, tokens, cost, time) once it is done, and the
   turn's totals over the graph. Tool and task calls record how long they took, and a decision
-  the model requests that made it (`Answers.model_calls`). A decide `Question` names the field it
-  fills, `path`.
+  the model requests that made it (`Answers.model_calls`). Each node's `type`
+  (`nanoagent.plugin.provenance.NodeType`) is the message of the loop it is (system prompt, user
+  message, agent reply with its thinking and text, tool call, tool result, agent message) or a
+  task's own (task input, reference, decision, task output, verifier, verdict), and the page tags
+  each node with it; the chat's and each agent task's system prompt are the first nodes their
+  first reply used. A decide `Question` names the field it fills, `path`.
+- Above each answer, the chat shows what the agent did as a trail, a row each, in place of the
+  folded timeline and the result chips under the answer: a thought shows its first line and opens
+  to all of it, and a task its name, the tools its agent called (`search_papers ×2,
+  fetch_source`) and, once done, a mark for its check; a done task's row is its result's chip,
+  and a failed one says why. A trail longer than six rows shows its first two and last three.
+  The Graph button sits under the answer, and a kept turn's line says what it cost and took, as a
+  live one does (the host keeps each turn's `metrics`). In the graph, a task is shown by its name,
+  a finished reply by the start of what it thought, the last reply without its text (the agent's
+  message under it), and tokens as `13.9k tokens in, 1.3k out`.
 
 ## 0.6.0
 

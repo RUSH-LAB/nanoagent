@@ -31,7 +31,7 @@
   --down: var(--bad);
   --mark: #ffe58f;
   --focus: #3b5998;
-  /* The dots on a chat's activity rail (kit/chat.js): a thought, and a task the agent ran. */
+  /* The dots on a chat's trail (kit/chat.js): a thought, and a task the agent ran. */
   --stage-think: #dfa88f;
   --stage-task: #9fbbe0;
   --shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 1px 3px rgba(16, 24, 40, .04);
@@ -343,59 +343,46 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 /* The agent's answer is prose on the page, not a bubble. */
 .message.agent { justify-self: stretch; padding: 0 2px; }
 .turn { display: grid; gap: 10px; min-width: 0; }
-.tool-results { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
-.tool-results:empty { display: none; }
-/* What the agent did while it answered, as a timeline: one row per thought and per task it ran,
-   each a dot on a rail, folded to one line. */
-.activity { display: grid; min-width: 0; }
-.activity:empty { display: none; }
-.activity-item { --stage: var(--stage-think); position: relative; min-width: 0; padding-left: 20px; color: var(--muted); font-size: 13px; }
-.activity-item.stage-task { --stage: var(--stage-task); }
-.activity-item::before { content: ""; position: absolute; left: 4px; top: 0; bottom: 0; width: 1px; background: var(--border); }
-.activity-item:first-child::before { top: 13px; }
-.activity-item:last-child::before { bottom: calc(100% - 13px); }
-.activity-item::after { content: ""; position: absolute; left: 1px; top: 10px; width: 7px; height: 7px; border-radius: 50%; background: var(--stage); }
-.activity-item.live::after { animation: pulse 1.2s ease-in-out infinite; }
-.activity-item > summary { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 3px 0; list-style: none; cursor: pointer; font-weight: 560; }
-.activity-item > summary::-webkit-details-marker { display: none; }
-.activity-item > summary:hover { color: var(--text); }
-.activity-item > summary .icon { opacity: .7; transition: transform .15s; }
-.activity-item[open] > summary .icon { transform: rotate(90deg); }
-.activity-meta { font-weight: 400; font-variant-numeric: tabular-nums; }
-.activity-meta::before { content: "· "; }
-.activity-meta:empty { display: none; }
-.activity-item > :not(summary, .task-run-head) { margin: 2px 0 8px; }
-.thinking-text, .task-run-thinking, .task-run-text { max-height: 12em; overflow: auto; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--surface-2); font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.task-run-text { color: var(--text); }
-.thinking-text:empty, .task-run-thinking:empty, .task-run-text:empty, .task-run-steps:empty { display: none; }
-.task-run-head { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 3px 0; }
-.task-run-head > strong { font-weight: 560; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.task-run-status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.task-run-steps { display: grid; gap: 2px; list-style: none; padding: 0; }
-.task-run-steps > li { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.task-run-steps > li > .icon { color: var(--ok); }
-.task-run-steps > li.error-text > .icon { color: var(--bad); }
-.task-run-steps code { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* What the agent did for a turn, folded to one line over its timeline (kit/chat.js). */
-.work { min-width: 0; color: var(--muted); font-size: 13px; }
-.work > summary { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 3px 0; list-style: none; cursor: pointer; font-weight: 560; }
-.work > summary::-webkit-details-marker { display: none; }
-.work > summary:hover { color: var(--text); }
-.work > summary .icon { opacity: .7; transition: transform .15s; }
-.work[open] > summary .icon { transform: rotate(90deg); }
-.work[open] > .activity { padding-top: 4px; }
-.work-graph-button { margin-left: auto; }
-/* Under a turn's answer: its tasks' chips, then what it ran on and cost. */
-.turn-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+/* What the agent did for a turn (kit/chat.js), a row per thought and per task it ran, each a
+   dot on a rail; a task's mark says how it ended, and a done task's row is its result's chip. */
+.trail { display: grid; min-width: 0; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: 13px; }
+.trail:empty { display: none; }
+.trail-step { --stage: var(--stage-think); position: relative; display: grid; min-width: 0; padding-left: 20px; }
+.trail-step.task { --stage: var(--stage-task); }
+.trail-step::before { content: ""; position: absolute; left: 4px; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.trail-step:first-child::before { top: 13px; }
+.trail-step:last-child::before { bottom: calc(100% - 13px); }
+.trail-step::after { content: ""; position: absolute; left: 1px; top: 10px; width: 7px; height: 7px; border-radius: 50%; background: var(--stage); }
+.trail-step.live::after { animation: pulse 1.2s ease-in-out infinite; }
+.trail-step:has(.trail-mark > *)::after { display: none; }
+.trail-step.more::after { background: var(--border-strong); }
+.trail-mark { position: absolute; left: -2px; top: 6px; display: flex; color: var(--ok); background: var(--surface); }
+.trail-step.bad .trail-mark, .trail-result.bad .trail-mark { color: var(--bad); }
+.trail-mark:empty { display: none; }
+.trail-head, .trail-step.think summary { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 3px 0; }
+.trail-name { flex: none; color: var(--text); font-weight: 560; }
+.trail-tools, .trail-preview { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trail-tools { font-family: var(--mono); font-size: 12px; }
+.trail-status { font-size: 12.5px; padding-bottom: 3px; }
+.trail-status:empty { display: none; }
+.trail-step.think summary { list-style: none; cursor: pointer; }
+.trail-step.think summary::-webkit-details-marker { display: none; }
+.trail-step.think summary:hover .trail-name, .trail-step.think summary:hover .trail-preview { color: var(--text); }
+.trail-step.think details[open] .trail-preview { visibility: hidden; }
+.trail-step.think details > .thinking-text { margin: 2px 0 8px; }
+/* A done task's row, a button that draws its result beside the chat. */
+.trail-result { appearance: none; min-width: 0; margin: 0 0 0 -6px; padding: 0 6px; border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.trail-result:hover { background: var(--surface-2); }
+.trail-result[aria-pressed="true"] { background: var(--accent-soft); }
+.trail-result[aria-pressed="true"] .trail-name { color: var(--accent); }
+.trail-result:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.trail-more { appearance: none; justify-self: start; padding: 3px 0; border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; }
+.trail-more:hover { color: var(--text); text-decoration: underline; }
+.thinking-text { max-height: 12em; overflow: auto; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--surface-2); font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Under a turn's answer: what it ran on, took and cost, and the button that draws its graph. */
+.turn-foot { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .turn-foot:not(:has(> :not(:empty, [hidden]))) { display: none; }
-/* A task the agent ran: a chip that draws its result beside the chat. */
-.result-chip { appearance: none; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 11px 4px 8px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 520; cursor: pointer; }
-.result-chip > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.result-chip > .icon { flex: none; color: var(--ok); }
-.result-chip.bad > .icon { color: var(--bad); }
-.result-chip:hover { background: var(--surface-2); }
-.result-chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
-.result-chip:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.turn-foot > .button { margin-left: auto; }
 /* A task's result beside the chat (kit/result.js): its name and verdict over its output. */
 .result-card { display: grid; gap: 10px; padding: 14px 16px; }
 .result-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -472,32 +459,34 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .tn:hover { border-color: var(--muted); }
 .tn[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .tn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+/* A node's type, over its name: one of the agent loop's messages, or a plugin task's own. */
+.tn-type { color: var(--muted); font-size: 11px; font-weight: 500; }
 .tn-label { max-width: 100%; font-weight: 560; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tn-count { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
 .tn-preview { max-width: 100%; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* A call is a pill with its role's dot; one drawn with its output is a card, the dot by its name. */
 .tn.call { --dot: var(--stage-task); }
-.tn.role-decision { --dot: var(--stage-think); }
-.tn.role-reference { --dot: var(--neutral); }
-.tn.role-verify { --dot: var(--ok); }
-.tn.call:not(.role-model, .with-output) { display: inline-flex; align-items: center; gap: 6px; border-radius: var(--radius-pill); }
-.tn.call:not(.role-model, .with-output)::before, .tn.with-output > .tn-row > .tn-label::before { content: ""; display: inline-block; flex: none; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--dot); vertical-align: 1px; }
-.tn.call:not(.role-model, .with-output)::before { margin-right: 0; }
+.tn.type-decision { --dot: var(--stage-think); }
+.tn.type-reference { --dot: var(--neutral); }
+.tn.type-verifier { --dot: var(--ok); }
+.tn.call:not(.type-agent_reply, .with-output) { display: inline-flex; align-items: center; gap: 6px; border-radius: var(--radius-pill); }
+.tn.call:not(.type-agent_reply, .with-output)::before, .tn.with-output > .tn-row > .tn-label::before { content: ""; display: inline-block; flex: none; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--dot); vertical-align: 1px; }
+.tn.call:not(.type-agent_reply, .with-output)::before { margin-right: 0; }
 .tn-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; width: 100%; }
-.tn.role-tool .tn-label, .tn.role-reference .tn-label { font-family: var(--mono); font-size: 12px; font-weight: 500; }
+.tn.type-tool .tn-label, .tn.type-reference .tn-label { font-family: var(--mono); font-size: 12px; font-weight: 500; }
 /* A model request: what it is thinking or writing, as it streams, over its tokens and time. */
-.tn.role-model { width: min(340px, 100%); max-width: none; gap: 4px; padding: 8px 12px; border-left: 3px solid var(--stage-think); }
-.tn.role-model .tn-preview { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; color: var(--text); line-height: 1.4; }
-.tn.role-model .tn-preview.thinking { color: var(--muted); font-style: italic; }
-.tn.role-model .tn-preview:empty { display: none; }
+.tn.type-agent_reply { width: min(340px, 100%); max-width: none; gap: 4px; padding: 8px 12px; border-left: 3px solid var(--stage-think); }
+.tn.type-agent_reply .tn-preview { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; color: var(--text); line-height: 1.4; }
+.tn.type-agent_reply .tn-preview.thinking { color: var(--muted); font-style: italic; }
+.tn.type-agent_reply .tn-preview:empty { display: none; }
 .tn-meta { display: flex; gap: 10px; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.tn.origin-user { border-color: var(--accent); background: var(--accent-soft); }
-.tn.origin-session { border-style: dashed; color: var(--muted); }
+.tn.type-user_message { border-color: var(--accent); background: var(--accent-soft); }
+.tn.type-earlier_turns, .tn.type-system_prompt { border-style: dashed; color: var(--muted); }
 .tn.incomplete { border-style: dashed; opacity: .6; }
 .tn.failed { border-color: var(--bad); color: var(--bad); }
 .tn.live { border-color: var(--stage-think); }
-.tn.role-model.live { animation: trace-live 1.6s ease-in-out infinite; }
-.tn.call.live:not(.role-model)::before, .tn.call.live > .tn-row > .tn-label::before { animation: pulse 1.2s ease-in-out infinite; }
+.tn.type-agent_reply.live { animation: trace-live 1.6s ease-in-out infinite; }
+.tn.call.live:not(.type-agent_reply)::before, .tn.call.live > .tn-row > .tn-label::before { animation: pulse 1.2s ease-in-out infinite; }
 @keyframes trace-live { 50% { border-left-color: var(--border-strong); } }
 /* A task: its call heads a box with the task's own run inside. */
 .tn-task { display: grid; gap: 6px; max-width: 100%; padding: 8px 12px 10px 6px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }

@@ -8,18 +8,17 @@ import { currentSession, metricsLine } from "./session.js";
 
 /**
  * A conversation with the plugin's agent. Answers are shown as Markdown. Each of the agent's
- * tools is one of the plugin's tasks; each task it ran shows as a chip above the answer, with
- * whether it passed its check, and picking the chip draws its result with `show`, beside the
- * chat, without taking the place of the graph while a turn runs. Each turn's provenance graph
- * (kit/graph.js) streams in with `trace` as the turn runs, and its fold's Graph button draws it
- * again. A task that failed says why. While a message is
- * answered, everything the agent does shows as it happens: what it thinks, as it thinks it, and
- * each task it runs, with what the task is doing, until the task's chip comes. Each finished thought,
- * and how each task ran, stays folded above the answer. The host keeps the conversation with the
- * session, task results and all the agent did included, so a resumed session shows it again,
- * its latest result drawn, and continues it; a message it is still answering shows being
- * answered, to its end, the page having been closed or not, and Mochi having restarted meanwhile or not.
- * Each answer says what it cost and how long it took.
+ * tools is one of the plugin's tasks. Above each answer, a trail shows what the agent did, a row
+ * each, as it does it: each thought, its first line opening to all of it, and each task it ran,
+ * with the tools the task's agent called and what it is doing until it ends. A task's row is
+ * then its result's chip, marked with whether it passed its check, and picking it draws the
+ * result with `show`, beside the chat, without taking the place of the graph while a turn runs;
+ * a task that failed says why. Each turn's provenance graph (kit/graph.js) streams in with
+ * `trace` as the turn runs, and the Graph button under the answer draws it again. The host keeps
+ * the conversation with the session, task results and all the agent did included, so a resumed
+ * session shows it again, its latest result drawn, and continues it; a message it is still
+ * answering shows being answered, to its end, the page having been closed or not, and Mochi
+ * having restarted meanwhile or not. Each answer says what it cost and how long it took.
  * @param {object} options
  * @param {Node} options.intro What the empty log shows.
  * @param {string} options.placeholder The message box's placeholder.
@@ -47,111 +46,146 @@ export function chatPanel({ intro, placeholder, tasks, show, trace, closed = fal
     chip.setAttribute("aria-pressed", "true");
     chip.draw(focus);
   };
-  /** A task call as a chip that draws its result, or why the task failed. */
-  const toolResult = ({ name, output, isError }) => {
-    const task = tasks[name];
-    if (!task) return h("p", { class: "error-text", text: `The agent called ${name}, which is not one of the plugin's tasks.` });
-    if (isError) return h("p", { class: "error-text", text: `${task.label} failed: ${output}` });
-    const result = JSON.parse(output);
-    const valid = result.verdict.valid;
-    const chip = h(
-      "button",
-      { type: "button", class: valid ? "result-chip" : "result-chip bad", "aria-pressed": "false", title: task.title },
-      icon(valid ? "check" : "error", { size: 14, label: valid ? "Checked" : "Check failed" }),
-      h("span", { text: task.label }),
-    );
-    chip.draw = (focus) => show(task.draw(result, { send: (text) => submit(text) }), { focus });
-    chip.addEventListener("click", () => pick(chip));
-    return chip;
+  const labelOf = (name) => tasks[name]?.label ?? name;
+  /** The tools a task's agent called, each name once in the order first called, with how often and how often it failed. */
+  const toolsText = (steps) => {
+    const counts = new Map();
+    for (const { name, isError } of steps) {
+      const count = counts.get(name) ?? { calls: 0, failed: 0 };
+      count.calls += 1;
+      if (isError) count.failed += 1;
+      counts.set(name, count);
+    }
+    const failed = (count) => (!count.failed ? "" : count.failed === count.calls ? " failed" : ` (${count.failed} failed)`);
+    return [...counts].map(([name, count]) => `${name}${count.calls > 1 ? ` ×${count.calls}` : ""}${failed(count)}`).join(", ");
   };
-  /** A tool a task's agent called: its name, and whether it failed. */
-  const step = ({ name, isError }) =>
-    h("li", { class: isError ? "error-text" : "" }, icon(isError ? "error" : "check", { size: 12, label: isError ? "Failed" : "Called" }), h("code", { text: name }));
-  /** The line an entry of the agent's activity shows folded: what it was, a note on it, and a chevron. */
-  const summary = (label, meta) =>
-    h("summary", {}, h("span", { text: label }), meta ? h("span", { class: "activity-meta", text: meta }) : null, icon("chevron", { size: 14 }));
-  const callCount = (steps) => (steps.length ? `${steps.length} tool call${steps.length === 1 ? "" : "s"}` : "");
-  /** A thought the agent finished, folded. */
-  const thoughtBlock = (text) => h("details", { class: "activity-item stage-think" }, summary("Thought"), h("p", { class: "thinking-text", text }));
-  /** How a task the agent ran went, folded: the tools its agent called, what it thought and what it wrote; null when it did none of them. */
-  const taskBlock = ({ name, steps, thinking, text }) => {
-    if (!steps.length && !thinking && !text) return null;
-    return h(
-      "details",
-      { class: "activity-item stage-task" },
-      summary(tasks[name]?.label ?? name, callCount(steps)),
-      h("ul", { class: "task-run-steps" }, steps.map(step)),
-      h("p", { class: "task-run-thinking", text: thinking }),
-      h("p", { class: "task-run-text", text }),
-    );
+  /** The first line of what the agent thought, for its row. */
+  const firstLine = (text) => text.trim().split("\n")[0];
+  /** The end of what the agent is thinking now, for its row while it thinks. */
+  const lastWords = (text) => {
+    const line = text.trim().replace(/\s+/g, " ");
+    return line.length > 120 ? `…${line.slice(-119)}` : line;
+  };
+
+  /**
+   * A thought, one row of a turn's trail: its first line, opening to all of it. `add(text)`
+   * streams more of it in, its row showing the end of it until `end()`.
+   */
+  const thoughtRow = (text = "") => {
+    const preview = h("span", { class: "trail-preview" });
+    const body = h("p", { class: "thinking-text" });
+    const element = h("li", { class: "trail-step think" }, h("details", {}, h("summary", {}, h("span", { class: "trail-name", text: "Thought" }), preview), body));
+    let all = "";
+    const row = {
+      element,
+      add: (more) => {
+        all += more;
+        body.textContent = all;
+        preview.textContent = element.classList.contains("live") ? lastWords(all) : firstLine(all);
+      },
+      end: () => {
+        element.classList.remove("live");
+        preview.textContent = firstLine(all);
+      },
+    };
+    row.add(text);
+    return row;
   };
   /**
-   * What the agent did for a turn, folded into one line over the timeline of its thoughts and
-   * tasks, with a Graph button once `graph(open)` is given what draws the turn's provenance graph
-   * beside the chat. `finish(ran, thoughts)` sums it up once the turn ends, from the tasks it
-   * ran and how many thoughts it had, and is false when there is nothing to show.
+   * A task the agent ran, one row of a turn's trail: its name and the tools its agent called.
+   * While it runs it says what it is doing; `done(call)` ends it with its call, `{name, output,
+   * isError}`, after which the row is the task's result chip, or says why it failed.
    */
-  const workFold = (open) => {
-    const label = h("span", { text: "Working…" });
-    const meta = h("span", { class: "activity-meta" });
-    const timeline = h("div", { class: "activity" });
-    const graphButton = h("button", { type: "button", class: "button ghost small work-graph-button", text: "Graph", hidden: true });
-    const element = h("details", { class: "work", open }, h("summary", {}, label, meta, icon("chevron", { size: 14 }), graphButton), timeline);
+  const taskRow = ({ name, steps = [] }) => {
+    const mark = h("span", { class: "trail-mark" });
+    const tools = h("span", { class: "trail-tools", text: toolsText(steps) });
+    const status = h("span", { class: "trail-status" });
+    const head = h("span", { class: "trail-head" }, mark, h("span", { class: "trail-name", text: labelOf(name) }), tools);
+    const element = h("li", { class: "trail-step task" }, head, status);
     return {
       element,
-      timeline,
+      called: () => {
+        tools.textContent = toolsText(steps);
+      },
       status: (text) => {
-        label.textContent = text;
+        status.textContent = text;
       },
-      graph: (draw) => {
-        graphButton.hidden = false;
-        graphButton.onclick = (event) => {
-          // The button sits in the fold's summary: it draws the graph and leaves the fold as it is.
-          event.preventDefault();
-          draw();
-        };
-      },
-      finish: (ran, thoughts) => {
-        if (!ran.length && !thoughts && graphButton.hidden) return false;
-        label.textContent = ran.length ? `Ran ${[...new Set(ran.map(({ name }) => tasks[name]?.label ?? name))].join(", ")}` : thoughts ? "Thought" : "Answered";
-        meta.textContent = callCount(ran.flatMap(({ steps }) => steps));
-        element.open = false;
-        return true;
+      done: ({ name: called, output, isError }) => {
+        element.classList.remove("live");
+        status.textContent = "";
+        const task = tasks[called];
+        if (!task || isError) {
+          element.classList.add("bad");
+          mark.replaceChildren(icon("error", { size: 14, label: "Failed" }));
+          status.textContent = task ? `Failed: ${output}` : `The agent called ${called}, which is not one of the plugin's tasks.`;
+          status.classList.add("error-text");
+          return null;
+        }
+        const result = JSON.parse(output);
+        const valid = result.verdict.valid;
+        mark.replaceChildren(icon(valid ? "check" : "error", { size: 14, label: valid ? "Checked" : "Check failed" }));
+        const chip = h("button", { type: "button", class: `trail-result${valid ? "" : " bad"}`, "aria-pressed": "false", title: task.title }, head);
+        chip.draw = (focus) => show(task.draw(result, { send: (text) => submit(text) }), { focus });
+        chip.addEventListener("click", () => pick(chip));
+        element.prepend(chip);
+        return chip;
       },
     };
   };
+  /** A turn's trail: one row per thought and per task the agent ran, in order, on a rail. A long one shows its first and last rows, the rest behind a button. */
+  const trail = () => h("ol", { class: "trail" });
+  const shorten = (list) => {
+    const rows = [...list.children];
+    if (rows.length <= 6) return;
+    const hidden = rows.slice(2, -3);
+    hidden.forEach((row) => {
+      row.hidden = true;
+    });
+    const more = h("button", { type: "button", class: "trail-more", text: `${hidden.length} more steps` });
+    more.addEventListener("click", () => {
+      hidden.forEach((row) => {
+        row.hidden = false;
+      });
+      more.parentElement.remove();
+    });
+    rows[2].before(h("li", { class: "trail-step more" }, more));
+  };
   /** A turn's provenance graph, in the Graph tab beside the chat. */
   const turnGraph = (graph) => {
-    const view = graphView();
+    const view = graphView({ names: labelOf });
     if (graph) view.replace(graph);
     view.settle();
     return view;
   };
-  /** Under a turn's answer: its tasks' chips and the line saying what it ran on and cost. */
-  const turnFoot = (results, metrics) => h("div", { class: "turn-foot" }, results, metrics);
+  /** The plugin version an answer ran on, and what it cost and took, which a turn kept before turns kept it lacks. */
+  const answerLine = (version, metrics) => [version && `v${version}`, metrics && metricsLine(metrics)].filter(Boolean).join(" · ");
+  /** Under a turn's answer: what it ran on, took and cost, and the button that draws its graph. */
+  const turnFoot = (metrics, drawGraph) =>
+    h("div", { class: "turn-foot" }, metrics, drawGraph ? h("button", { type: "button", class: "button ghost small", text: "Graph", onclick: drawGraph }) : null);
   /**
-   * A turn the session kept, as its parts: what the agent did, its answer, its tasks' chips with
-   * the plugin version it ran on, and why it was not answered.
+   * A turn the session kept, as its parts: what the agent did, each task its result's chip, its
+   * answer, the plugin version it ran on with what it cost and took, and why it was not answered.
    */
-  const keptTurn = ({ answer, tools = [], activity = [], graph, error, version }) => {
-    const work = workFold(false);
+  const keptTurn = ({ answer, tools = [], activity = [], graph, metrics, error, version }) => {
+    const list = trail();
+    // The turn's tools are its tasks' calls, in the same order.
+    const calls = [...tools];
     for (const entry of activity) {
-      const block = entry.kind === "thought" ? thoughtBlock(entry.text) : taskBlock(entry);
-      if (block) work.timeline.append(block);
+      if (entry.kind === "thought") list.append(thoughtRow(entry.text).element);
+      else {
+        const row = taskRow(entry);
+        row.done(calls.shift());
+        list.append(row.element);
+      }
     }
+    shorten(list);
     // A turn kept before graphs were recorded has none.
-    if (graph) {
-      let view = null;
-      work.graph(() => trace((view ??= turnGraph(graph)).element));
-    }
-    const kept = work.finish(
-      activity.filter((entry) => entry.kind === "task"),
-      activity.filter((entry) => entry.kind === "thought").length,
-    );
+    let view = null;
+    const drawGraph = graph ? () => trace((view ??= turnGraph(graph)).element) : null;
     return [
-      kept ? work.element : null,
+      list.children.length ? list : null,
       answer ? h("div", { class: "message agent" }, markdown(answer)) : null,
-      turnFoot(h("div", { class: "tool-results" }, tools.map(toolResult)), version ? h("p", { class: "message-metrics", text: `v${version}` }) : null),
+      turnFoot(h("p", { class: "message-metrics", text: answerLine(version, metrics) }), drawGraph),
       // A message the session did not answer (it failed, was stopped or interrupted) says why.
       error ? h("p", { class: "error-text", text: error }) : null,
     ];
@@ -167,7 +201,7 @@ export function chatPanel({ intro, placeholder, tasks, show, trace, closed = fal
   // The latest turn's graph, and its latest task's result in the Result tab.
   const latest = currentSession()?.chat.at(-1);
   if (latest?.graph) trace(turnGraph(latest.graph).element);
-  const chips = log.querySelectorAll(".result-chip");
+  const chips = log.querySelectorAll(".trail-result");
   if (chips.length) pick(chips[chips.length - 1], !latest?.graph);
 
   const scroll = () => {
@@ -186,19 +220,15 @@ export function chatPanel({ intro, placeholder, tasks, show, trace, closed = fal
     log.append(h("div", { class: "message user" }, h("p", { text })));
     const typing = () => h("p", { class: "typing", "aria-label": "The agent is replying" }, h("span"), h("span"), h("span"));
     const reply = h("div", { class: "message agent" }, typing());
-    let work = workFold(true);
+    // What the agent does, a row each, as it does it.
+    let list = trail();
     // The turn's provenance graph, drawn beside the chat as it streams in.
-    const view = graphView();
+    const view = graphView({ names: labelOf });
     const drawGraph = () => trace(view.element);
-    work.graph(drawGraph);
     drawGraph();
-    const results = h("div", { class: "tool-results" });
     const metrics = h("p", { class: "message-metrics", hidden: true });
-    const turn = h("div", { class: "turn" }, work.element, reply, turnFoot(results, metrics));
-    // The tasks it ran and how many thoughts it had, for the fold's line once it ends; and whether
-    // the turn the session kept took this one's place.
-    let ran = [];
-    let thoughts = 0;
+    const turn = h("div", { class: "turn" }, list, reply, turnFoot(metrics, drawGraph));
+    // Whether the turn the session kept took this one's place.
     let replaced = false;
     log.append(turn);
     scroll();
@@ -208,60 +238,38 @@ export function chatPanel({ intro, placeholder, tasks, show, trace, closed = fal
     // What the agent is thinking now, until it does something else; a thought after that is a new one.
     let thinking = null;
     const thought = () => {
-      if (!thinking) return;
-      thinking.element.open = false;
-      thinking.element.classList.remove("live");
-      thinking.label.replaceWith(summary("Thought"));
+      thinking?.end();
       thinking = null;
     };
     const think = (text) => {
       if (!thinking) {
-        const label = summary("Thinking…");
-        const body = h("p", { class: "thinking-text" });
-        thinking = { label, body, element: h("details", { class: "activity-item stage-think live", open: true }, label, body) };
-        work.timeline.append(thinking.element);
-        work.status("Thinking…");
-        thoughts += 1;
+        thinking = thoughtRow();
+        thinking.element.classList.add("live");
+        list.append(thinking.element);
       }
-      thinking.body.append(text);
-      thinking.body.scrollTop = thinking.body.scrollHeight;
+      thinking.add(text);
     };
-    // Each task running, by its call's id, until its chip comes: what it showed, and what it did.
+    // Each task running, by its call's id, until its call ends: its row, and the tools its agent called.
     const running = new Map();
     const startTask = ({ id, name }) => {
-      const status = h("span", { class: "task-run-status", text: "Starting…" });
-      const steps = h("ul", { class: "task-run-steps" });
-      const thoughts = h("p", { class: "task-run-thinking" });
-      const text = h("p", { class: "task-run-text" });
-      const element = h(
-        "div",
-        { class: "activity-item stage-task live", role: "status" },
-        h("div", { class: "task-run-head" }, h("strong", { text: tasks[name]?.label ?? name }), status),
-        steps,
-        thoughts,
-        text,
-      );
-      running.set(id, { element, status, steps, thoughts, text, did: { name, steps: [], thinking: "", text: "" } });
-      work.timeline.append(element);
-      work.status(`Running ${tasks[name]?.label ?? name}…`);
+      const steps = [];
+      const row = taskRow({ name, steps });
+      row.element.classList.add("live");
+      row.status("Starting…");
+      running.set(id, { row, steps });
+      list.append(row.element);
     };
     /** Show what a running task reports: the `task.*` events of TaskTool.report (nanoagent.web.plugin_agent). */
     const taskProgress = ({ id, event, data }) => {
       const task = running.get(id);
       if (!task) return;
-      if (event === "task.reference") task.status.textContent = `Running its reference, ${data.tool}…`;
+      if (event === "task.reference") task.row.status(`Running its reference, ${data.tool}…`);
       else if (event === "task.tool") {
-        const called = { name: data.name, isError: Boolean(data.isError) };
-        task.did.steps.push(called);
-        task.steps.append(step(called));
-        task.status.textContent = "Working…";
-      } else if (event === "task.delta") {
-        const into = data.kind === "reasoning" ? task.thoughts : task.text;
-        task.did[data.kind === "reasoning" ? "thinking" : "text"] += data.text;
-        into.append(data.text);
-        into.scrollTop = into.scrollHeight;
-        task.status.textContent = data.kind === "reasoning" ? "Thinking…" : "Working…";
-      } else if (event === "task.result") task.status.textContent = "Checking the result…";
+        task.steps.push({ name: data.name, isError: Boolean(data.isError) });
+        task.row.called();
+        task.row.status("Working…");
+      } else if (event === "task.delta") task.row.status(data.kind === "reasoning" ? "Thinking…" : "Working…");
+      else if (event === "task.result") task.row.status("Checking the result…");
     };
     const write = (value) => {
       started = true;
@@ -274,10 +282,10 @@ export function chatPanel({ intro, placeholder, tasks, show, trace, closed = fal
       stop.disabled = false;
       thought();
       // A call that never ended: the agent retried it, or the run stopped while it ran.
-      for (const task of running.values()) task.element.remove();
+      for (const { row } of running.values()) row.element.remove();
       running.clear();
       view.settle();
-      if (!replaced && !work.finish(ran, thoughts)) work.element.remove();
+      if (!replaced) shorten(list);
       if (!started) reply.remove();
     };
     try {
@@ -304,17 +312,13 @@ export function chatPanel({ intro, placeholder, tasks, show, trace, closed = fal
             else view.replace(data.graph);
             break;
           case "chat.tool": {
-            // How the task ran stays, folded.
-            const task = running.get(data.id);
-            const block = task && taskBlock(task.did);
-            if (block) task.element.replaceWith(block);
-            else task?.element.remove();
-            if (task) ran.push(task.did);
+            thought();
+            const task = running.get(data.id) ?? { row: taskRow({ name: data.name }) };
             running.delete(data.id);
-            const shown = toolResult(data);
-            results.append(shown);
+            if (!task.row.element.isConnected) list.append(task.row.element);
             // Its result goes in the Result tab, leaving the graph in sight while the turn runs.
-            if (shown.matches(".result-chip")) pick(shown, false);
+            const chip = task.row.done(data);
+            if (chip) pick(chip, false);
             break;
           }
           // The host follows the run again after its stream dropped, from its first event.
@@ -323,16 +327,12 @@ export function chatPanel({ intro, placeholder, tasks, show, trace, closed = fal
             running.clear();
             streamed = "";
             started = false;
-            ran = [];
-            thoughts = 0;
             {
-              const fresh = workFold(true);
-              work.element.replaceWith(fresh.element);
-              work = fresh;
-              work.graph(drawGraph);
+              const fresh = trail();
+              list.replaceWith(fresh);
+              list = fresh;
             }
             view.replace({ nodes: [], edges: [] });
-            results.replaceChildren();
             metrics.hidden = true;
             reply.replaceChildren(typing());
             break;
@@ -344,7 +344,7 @@ export function chatPanel({ intro, placeholder, tasks, show, trace, closed = fal
             replaced = true;
             turn.replaceChildren(...keptTurn(data.turn).filter(Boolean));
             if (data.turn.graph) view.replace(data.turn.graph);
-            const shown = turn.querySelectorAll(".result-chip");
+            const shown = turn.querySelectorAll(".trail-result");
             if (shown.length) pick(shown[shown.length - 1], false);
             break;
           }
@@ -352,7 +352,7 @@ export function chatPanel({ intro, placeholder, tasks, show, trace, closed = fal
             thought();
             write(data.text ?? "");
             {
-              metrics.textContent = [data.version && `v${data.version}`, data.metrics && metricsLine(data.metrics)].filter(Boolean).join(" · ");
+              metrics.textContent = answerLine(data.version, data.metrics);
               metrics.hidden = !metrics.textContent;
             }
             break;

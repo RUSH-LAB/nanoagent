@@ -180,7 +180,8 @@ function createPostgresSessions({pool, fs}) {
 
     /**
      * End the run `runId`: its `turn` (`{prompt, answer, tools, activity, graph,
-     * trajectory, error}`, `error` null when it was answered) joins its
+     * trajectory, metrics, error}`, `error` null when it was answered and
+     * `metrics` what it cost and took, as its page shows them) joins its
      * session's chat file, with the upload version it ran on (null for
      * NanoAgent's own), and an archived session is restored: the turn kept, as
      * the page shows it, or false when it had ended already.
@@ -205,6 +206,7 @@ function createPostgresSessions({pool, fs}) {
           activity: turn.activity.map(entry => (entry.kind === 'thought'
             ? {kind: 'thought', text: entry.text.slice(0, ACTIVITY_MAX)}
             : {...entry, thinking: entry.thinking.slice(0, ACTIVITY_MAX), text: entry.text.slice(0, ACTIVITY_MAX)})),
+          metrics: turn.metrics,
           error: turn.error === null ? null : turn.error.slice(0, TURN_MAX),
           version,
         };

@@ -350,7 +350,7 @@ describe('POST /api/ai/stream', () => {
       // The run's provenance graph: its patches stream to the page, and the whole graph is kept.
       request.onEvent({type: 'graph.patch', runId: 'r1', patch: {op: 'node', node: {id: 'message', kind: 'value'}}});
       request.onEvent({type: 'graph.completed', runId: 'r1', graph: {nodes: [{id: 'message', kind: 'value'}], edges: []}});
-      return stream(request);
+      return {...await stream(request), model: 'm', cost: 0.01, usage: {prompt_tokens: 3, completion_tokens: 2}, metrics: {ttft_s: 0.5, generation_s: 1, duration_s: 2}};
     };
     const r = await ask({body: {prompt: 'save 1706.03762', appId: 'arxiv-source', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
     assert.equal(r.res.written.status, 200);
@@ -361,7 +361,7 @@ describe('POST /api/ai/stream', () => {
     assert.equal(ctx.calls.ai[0].run.resume, false);
     assert.equal('profile' in ctx.calls.ai[0], false);
     assert.equal('instructions' in ctx.calls.ai[0], false);
-    // The session keeps the turn with its tool calls and what the agent did on the way, and the call is charged to it.
+    // The session keeps the turn with what the agent did on the way and its tool calls, in the order they started, and the call is charged to it.
     assert.deepEqual(ctx.sessions.turns, [{
       pluginId: 'arxiv-source', id: SESSION, prompt: 'save 1706.03762', answer: 'a completion',
       tools: [
@@ -372,9 +372,12 @@ describe('POST /api/ai/stream', () => {
         {kind: 'thought', text: 'Find the paper.'},
         {kind: 'task', name: 'download_source', steps: [{name: 'fetch', isError: false}], thinking: 'It is on arXiv.', text: 'Saved.'},
         {kind: 'thought', text: 'Again.'},
+        {kind: 'task', name: 'download_source', steps: [], thinking: '', text: ''},
       ],
       graph: {nodes: [{id: 'message', kind: 'value'}], edges: []},
       trajectory: null,
+      // What it cost and took, as its page shows it.
+      metrics: {model: 'm', cost: 0.01, usage: {prompt_tokens: 3, completion_tokens: 2}, ttft_s: 0.5, generation_s: 1, duration_s: 2},
       error: null,
     }]);
     assert.equal(ctx.calls.aiUsage[0].pluginId, 'arxiv-source');

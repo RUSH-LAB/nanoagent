@@ -227,7 +227,7 @@ describe('the bridge host', () => {
     const answer = sse('delta', {text: 'Saved'})
       + sse('agent', {type: 'run.started'})
       + sse('agent', {type: 'tool.completed', call: {id: 'call-1', name: 'download_source', arguments: {arxiv_id: '1706.03762'}, output: {path: 'attention'}}})
-      + sse('done', {text: 'Saved it.', version: '1.2.0', cost: 0.01, model: 'm', usage: {prompt_tokens: 3}, metrics: {ttft_s: 0.5, generation_s: 1, duration_s: 2}});
+      + sse('done', {text: 'Saved it.', version: '1.2.0', cost: 0.01, model: 'm', usage: {prompt_tokens: 3}, metrics: {model: 'm', cost: 0.01, usage: {prompt_tokens: 3}, ttft_s: 0.5, generation_s: 1, duration_s: 2}});
     const {posted, calls, send} = await hostWith(() => eventStream(answer));
     send('p1', 'prompt', {text: 'Save 1706.03762'});
     await until(() => messages(posted).some(message => message.event === 'chat.done'));

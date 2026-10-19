@@ -10,7 +10,27 @@ import { metricsLine } from "./session.js";
 
 const SVG = "http://www.w3.org/2000/svg";
 const RELATIONS = ["used", "generated", "continued", "copied", "chose"];
-// The calls drawn with the arguments they alone used and the output they alone generated.
+// What each type of node (nanoagent.plugin.provenance.NodeType) is called: first the messages of
+// the agent loop's transcript, then a plugin task's own.
+const TYPES = {
+  system_prompt: "System prompt",
+  user_message: "User message",
+  earlier_turns: "Earlier turns",
+  agent_reply: "Agent reply",
+  tool_call: "Tool call",
+  tool: "Tool",
+  tool_result: "Tool result",
+  agent_message: "Agent message",
+  task: "Task",
+  task_input: "Task input",
+  reference: "Reference tool",
+  reference_output: "Reference output",
+  decision: "Decision",
+  task_output: "Task output",
+  verifier: "Verifier",
+  verdict: "Verdict",
+};
+// The runs drawn with the tool call they alone ran and the result they alone returned.
 const FOLDING = new Set(["tool", "task", "reference"]);
 let views = 0;
 
@@ -34,23 +54,25 @@ export function applyPatch(graph, patch) {
   } else throw new Error(`Unknown graph patch ${JSON.stringify(patch.op)}.`);
 }
 
-/** What a node is, in a word or two. */
+/** What a node is, by its type. */
 function kindText(node) {
-  if (node.kind === "call") return { model: "Model request", task: "Task", tool: "Tool call", reference: "Reference tool", decision: "Decision", verify: "Verifier" }[node.role];
-  if (node.incomplete) return "Not finished";
-  return { user: "Your message", session: "Earlier turns", input: "Task input" }[node.origin] ?? "Value";
+  const text = TYPES[node.type];
+  if (!text) throw new Error(`Unknown graph node type ${JSON.stringify(node.type)}.`);
+  return text;
 }
 
 const short = (text, length) => (text.length > length ? `${text.slice(0, length - 1)}…` : text);
 const shown = (value) => (typeof value === "string" ? value : JSON.stringify(value));
 const json = (value) => (typeof value === "string" ? value : JSON.stringify(value, null, 2));
-/** The end of what a model request has thought or written so far, for its node. */
-const tail = (node) => {
-  const text = (node.text || node.reasoning || "").trim().replace(/\s+/g, " ");
-  return text.length > 140 ? `…${text.slice(-139)}` : text;
+/** What a reply thought or wrote, for its card: the end of it while it streams, else its start (the card cuts it short). */
+const preview = (text, running) => {
+  const line = (text ?? "").trim().replace(/\s+/g, " ");
+  return running && line.length > 110 ? `…${line.slice(-109)}` : line;
 };
 const secondsText = (seconds) => `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} s`;
 const plural = (count, one) => `${count.toLocaleString()} ${one}${count === 1 ? "" : "s"}`;
+const thousands = (count) => (count < 1000 ? String(count) : `${(count / 1000).toFixed(1)}k`);
+const tokensText = (total) => `${thousands(total.tokensIn)} tokens in, ${thousands(total.tokensOut)} out`;
 
 /** What `nodes` cost: their model requests, with the tokens, dollars and seconds those took, and their tool calls. */
 function totals(nodes) {
@@ -58,21 +80,20 @@ function totals(nodes) {
   const sum = (pick) => calls.reduce((total, call) => total + (pick(call) ?? 0), 0);
   return {
     requests: nodes.filter((node) => node.modelCalls?.length).length,
-    tools: nodes.filter((node) => node.role === "tool").length,
+    tools: nodes.filter((node) => node.type === "tool").length,
     tokensIn: sum((call) => call.usage?.prompt_tokens),
     tokensOut: sum((call) => call.usage?.completion_tokens),
     cost: sum((call) => call.cost),
     seconds: sum((call) => call.duration_s),
   };
 }
-/** `totals` as the short facts a summary line shows, each its own item. */
+/** `totals` as the facts a summary line shows, each its own item: what ran and how long it took, its tokens, and its cost. */
 function totalsText(total, seconds) {
+  const ran = [total.requests ? plural(total.requests, "model request") : null, total.tools ? plural(total.tools, "tool call") : null].filter(Boolean).join(" and ");
   return [
-    total.requests ? plural(total.requests, "model request") : null,
-    total.tools ? plural(total.tools, "tool call") : null,
-    total.requests ? `${total.tokensIn.toLocaleString()} → ${total.tokensOut.toLocaleString()} tokens` : null,
+    ran && seconds ? `${ran} in ${secondsText(seconds)}` : ran,
+    total.requests ? tokensText(total) : null,
     total.cost ? `$${total.cost < 0.01 ? total.cost.toFixed(4) : total.cost.toFixed(2)}` : null,
-    seconds ? secondsText(seconds) : null,
   ].filter(Boolean);
 }
 
@@ -96,10 +117,10 @@ function edgeText(edge, byId, side) {
 }
 
 /**
- * All of `node` (a drawn node: a call with the `parts` folded into it), for the panel under the
- * graph: what it is, what it holds, its arguments and output, and the edges of each.
+ * All of `node` (a drawn node: a call with the `parts` folded into it), named `name`, for the
+ * panel under the graph: what it is, what it holds, its arguments and output, and the edges of each.
  */
-function nodeDetail(node, running, graph, byId, close) {
+function nodeDetail(node, name, running, graph, byId, close) {
   const section = (title, ...body) => h("section", { class: "trace-detail-part" }, h("h4", { text: title }), ...body);
   const edgesOf = (id) => [
     ...graph.edges.filter((edge) => edge.to === id).map((edge) => edgeText(edge, byId, "in")),
@@ -108,7 +129,7 @@ function nodeDetail(node, running, graph, byId, close) {
   const parts = [];
   if (node.modelCalls?.length) for (const call of node.modelCalls) parts.push(h("p", { class: "message-metrics", text: metricsLine(call) }));
   if (node.duration_s != null) parts.push(h("p", { class: "message-metrics", text: `Took ${secondsText(node.duration_s)}` }));
-  if (node.role === "model") {
+  if (node.type === "agent_reply") {
     if (node.reasoning) parts.push(section("Thought", h("pre", { class: "trace-stream", text: node.reasoning })));
     if (node.text) parts.push(section("Wrote", h("pre", { class: "trace-stream", text: node.text })));
     if (running && !node.reasoning && !node.text) parts.push(h("p", { class: "muted", text: "Waiting for the first token." }));
@@ -116,14 +137,14 @@ function nodeDetail(node, running, graph, byId, close) {
   if (node.kind === "value" && !node.incomplete) parts.push(section("Value", h("pre", { text: json(node.value) })));
   const lists = [node, ...Object.values(node.parts ?? {})].flatMap((each) => edgesOf(each.id));
   for (const [name, value] of Object.entries(node.parts ?? {})) {
-    parts.push(section(name === "arguments" ? "Arguments" : "Output", value.incomplete ? h("p", { class: "muted", text: "Not finished." }) : h("pre", { text: json(value.value) })));
+    parts.push(section(kindText(value), value.incomplete ? h("p", { class: "muted", text: "Not finished." }) : h("pre", { text: json(value.value) })));
   }
   parts.push(lists.length ? section("Provenance", h("ul", { class: "trace-edges-list" }, lists.map((text) => h("li", { text })))) : h("p", { class: "muted", text: "No recorded edge." }));
-  const status = node.isError ? statusPill("Failed", "bad") : running ? statusPill("Running", "info") : statusPill(kindText(node), "neutral");
+  const status = node.isError ? statusPill("Failed", "bad") : running ? statusPill("Running", "info") : node.incomplete ? statusPill("Not finished", "warn") : statusPill(kindText(node), "neutral");
   return h(
     "div",
     { class: "trace-detail-body" },
-    h("header", { class: "trace-detail-head" }, h("h3", { text: node.label }), status, close ? h("button", { type: "button", class: "button ghost small", "aria-label": "Close", onclick: close }, icon("close", { size: 16 })) : null),
+    h("header", { class: "trace-detail-head" }, h("h3", { text: name }), status, close ? h("button", { type: "button", class: "button ghost small", "aria-label": "Close", onclick: close }, icon("close", { size: 16 })) : null),
     parts,
   );
 }
@@ -140,7 +161,7 @@ function folded(nodes, edges) {
   const owner = new Map();
   const drawn = new Map();
   for (const node of nodes) {
-    if (node.kind !== "call" || !FOLDING.has(node.role)) continue;
+    if (!FOLDING.has(node.type)) continue;
     const parts = {};
     const used = into(node.id).filter((edge) => edge.relation === "used" && byId.get(edge.from).kind === "value" && out(edge.from).length === 1);
     const made = out(node.id).filter((edge) => edge.relation === "generated" && into(edge.to).length === 1);
@@ -172,7 +193,7 @@ function merged({ nodes, edges }) {
   const drawn = [];
   const into = new Map();
   for (const node of nodes) {
-    if (node.role !== "decision" || pointed.has(node.id)) {
+    if (node.type !== "decision" || pointed.has(node.id)) {
       drawn.push(node);
       continue;
     }
@@ -223,9 +244,10 @@ function rows({ nodes, edges }) {
  * A live provenance graph view, under a line with the run's totals. `apply(patch)` draws a patch
  * as it streams in, `replace(graph)` draws a whole graph, and `settle()` says the run ended, so
  * nothing is drawn running any more. While the newest rows are in sight it keeps them there.
+ * @param {{names?: (task: string) => string}} [options] `names` gives a task's name by its id.
  * @returns {{element: HTMLElement, apply: (patch: object) => void, replace: (graph: object) => void, settle: () => void}}
  */
-export function graphView() {
+export function graphView({ names = (task) => task } = {}) {
   const id = (views += 1);
   let graph = { nodes: [], edges: [] };
   let byId = new Map();
@@ -235,7 +257,7 @@ export function graphView() {
   let follow = true;
   // Whether each task's box is open, where the person chose; otherwise open while it runs or when it failed.
   const opened = new Map();
-  // Each drawn node as drawn (with its parts or members), its element, and its preview, which streamed text changes in place.
+  // Each drawn node as drawn (with its parts or members), its element, and a reply's lines, which streamed text changes in place.
   let drawnNodes = new Map();
   let draws = [];
   const summary = h("div", { class: "trace-summary", hidden: true });
@@ -258,7 +280,7 @@ export function graphView() {
     const drawn = picked !== null && drawnNodes.get(picked);
     if (!drawn) return;
     const members = drawn.node.members ?? [drawn.node];
-    detail.replaceChildren(...members.map((member, index) => nodeDetail(member, Boolean(member.running) && !settled, graph, byId, index === 0 ? close : null)));
+    detail.replaceChildren(...members.map((member, index) => nodeDetail(member, member.type === "task" ? names(member.label) : member.label, Boolean(member.running) && !settled, graph, byId, index === 0 ? close : null)));
     detail.hidden = false;
   };
   const pick = (node) => {
@@ -269,39 +291,49 @@ export function graphView() {
     showDetail();
   };
 
-  /** A node's element: a box for a task, a card for a model request, else a chip. */
+  /**
+   * A node's element: a box for a task, a card for an agent reply (its thinking and its message
+   * on lines of their own), else a tile, each under its type unless its name says it already.
+   */
   const nodeElement = (node) => {
     const running = Boolean(node.running) && !settled;
     const output = node.parts?.output;
-    const failed = node.isError || (node.label === "Verdict" && node.value?.valid === false);
-    const withOutput = node.role !== "task" && output && !output.incomplete;
-    const classes = ["tn", node.kind, node.role && `role-${node.role}`, node.origin && `origin-${node.origin}`, withOutput && "with-output", node.incomplete && !running && "incomplete", failed && "failed", running && "live"];
-    const label = h("span", { class: "tn-label", text: node.label }, node.members ? h("span", { class: "tn-count", text: ` ×${node.members.length}` }) : null);
-    let preview = null;
-    let body = [label];
-    if (node.role === "model" || node.role === "decision") {
+    const failed = node.isError || (node.type === "verdict" && node.value?.valid === false);
+    const withOutput = node.type !== "task" && output && !output.incomplete;
+    const classes = ["tn", node.kind, `type-${node.type}`, withOutput && "with-output", node.incomplete && !running && "incomplete", failed && "failed", running && "live"];
+    const type = node.label.startsWith(kindText(node)) ? null : h("span", { class: "tn-type", text: kindText(node) });
+    const name = node.type === "task" ? names(node.label) : node.label;
+    const label = h("span", { class: "tn-label", text: name }, node.members ? h("span", { class: "tn-count", text: ` ×${node.members.length}` }) : null);
+    const lines = {};
+    let body = [type, label];
+    if (node.type === "agent_reply" || node.type === "decision") {
       const total = totals([node]);
-      preview = node.role === "model" ? h("span", { class: `tn-preview${node.text ? "" : " thinking"}`, text: tail(node) }) : null;
-      const meta = total.requests ? h("span", { class: "tn-meta" }, h("span", { text: `${total.tokensIn.toLocaleString()} → ${total.tokensOut.toLocaleString()} tokens` }), h("span", { text: secondsText(total.seconds) })) : null;
-      body = [h("span", { class: "tn-row" }, label, meta), preview];
+      const meta = total.requests ? h("span", { class: "tn-meta" }, h("span", { text: tokensText(total) }), h("span", { text: secondsText(total.seconds) })) : null;
+      if (node.type === "agent_reply") {
+        lines.reasoning = h("span", { class: "tn-preview thinking", text: preview(node.reasoning, running) });
+        // What the last reply wrote is the agent's message, drawn under it.
+        const answered = graph.edges.some((edge) => edge.from === node.id && byId.get(edge.to)?.type === "agent_message");
+        lines.text = answered ? null : h("span", { class: "tn-preview", text: preview(node.text, running) });
+      }
+      body = [type, h("span", { class: "tn-row" }, label, meta), lines.reasoning, lines.text];
     } else if (node.kind === "value" && !node.incomplete && node.value !== null) {
-      body = [label, h("span", { class: "tn-preview", text: short(shown(node.value), 48) })];
+      body = [type, label, h("span", { class: "tn-preview", text: short(shown(node.value), 48) })];
     } else if (withOutput) {
-      body = [h("span", { class: "tn-row" }, label, node.duration_s != null ? h("span", { class: "tn-meta", text: secondsText(node.duration_s) }) : null), h("span", { class: "tn-preview", text: short(shown(output.value), 48) })];
+      body = [type, h("span", { class: "tn-row" }, label, node.duration_s != null ? h("span", { class: "tn-meta", text: secondsText(node.duration_s) }) : null), h("span", { class: "tn-preview", text: short(shown(output.value), 48) })];
     }
     const button = h("button", { type: "button", class: classes.filter(Boolean).join(" "), "aria-pressed": String(node.id === picked), title: kindText(node) }, body);
     button.addEventListener("click", () => pick(node));
-    drawnNodes.set(node.id, { node, element: button, preview });
-    if (node.role !== "task") return button;
+    drawnNodes.set(node.id, { node, element: button, lines });
+    if (node.type !== "task") return button;
     // The task's own run, inside its box, folded to its totals once it is done.
-    const verdict = (children.get(node.id) ?? []).find((each) => each.label === "Verdict");
+    const verdict = (children.get(node.id) ?? []).find((each) => each.type === "verdict");
     const bad = node.isError || verdict?.value.valid === false;
     const open = opened.get(node.id) ?? (running || bad);
     const status = running ? "Running" : node.isError ? "Failed" : verdict ? (verdict.value.valid ? "Checked" : "Check failed") : null;
     const facts = [...totalsText(totals(within(node.id)), node.duration_s), status].filter(Boolean);
     const toggle = h(
       "button",
-      { type: "button", class: "button ghost small tn-task-toggle", "aria-expanded": String(open), "aria-label": open ? `Fold ${node.label}` : `Open ${node.label}` },
+      { type: "button", class: "button ghost small tn-task-toggle", "aria-expanded": String(open), "aria-label": open ? `Fold ${name}` : `Open ${name}` },
       icon("chevron", { size: 14 }),
     );
     toggle.addEventListener("click", () => {
@@ -373,7 +405,7 @@ export function graphView() {
   /** The run's totals: every model request and tool call in it, and the time its own loop took. */
   const drawSummary = () => {
     const top = children.get(null) ?? [];
-    const seconds = top.reduce((total, node) => total + (node.role === "model" ? totals([node]).seconds : (node.duration_s ?? 0)), 0);
+    const seconds = top.reduce((total, node) => total + (node.type === "agent_reply" ? totals([node]).seconds : (node.duration_s ?? 0)), 0);
     summary.replaceChildren(...totalsText(totals(graph.nodes), seconds).map((fact) => h("span", { text: fact })));
     summary.hidden = !graph.nodes.length;
   };
@@ -408,12 +440,10 @@ export function graphView() {
     element,
     apply(patch) {
       applyPatch(graph, patch);
-      // Streamed text changes one node's preview in place, not the layout.
-      const drawn = patch.op === "append" ? drawnNodes.get(patch.id) : null;
-      if (!drawn?.preview) return redraw();
-      const node = byId.get(patch.id);
-      drawn.preview.textContent = tail(node);
-      drawn.preview.classList.toggle("thinking", !node.text);
+      // Streamed text changes one line of a reply's card in place, not the layout.
+      const line = patch.op === "append" ? drawnNodes.get(patch.id)?.lines[patch.field] : null;
+      if (!line) return redraw();
+      line.textContent = preview(byId.get(patch.id)[patch.field], !settled);
       if (picked === patch.id) showDetail();
     },
     replace(whole) {

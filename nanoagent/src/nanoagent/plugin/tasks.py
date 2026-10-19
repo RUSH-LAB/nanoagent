@@ -30,7 +30,7 @@ from nanoagent.core.messages import assistant_message
 from nanoagent.core.tool import Tool
 from nanoagent.plugin.dataflow import Answers, Decider, Question, answer_schema, check, fill, values
 from nanoagent.plugin.manifest import SUBMIT, PluginManifest, TaskDefinition
-from nanoagent.plugin.provenance import LoopRecorder, Provenance
+from nanoagent.plugin.provenance import LoopRecorder, NodeType, Provenance
 from nanoagent.plugin.runtime import PluginSession, call_tool_async, plugin_tools
 from nanoagent.plugin.verifier import Verification, verify_task
 from nanoagent.profiler import Profiler
@@ -179,7 +179,7 @@ async def run_task(
     on_event("task.started", {"task": task.id})
     # Its provenance graph, each change a task.graph event as it is made.
     graph = Provenance(lambda patch: on_event("task.graph", patch))
-    graph.value("input", "Input", arguments, origin="input")
+    graph.value("input", NodeType.TASK_INPUT, "Task input", arguments)
     return await _run(manifest, task, arguments, workspace, make_agent, make_decider, timeout, on_event, stage, graph)
 
 
@@ -200,7 +200,7 @@ async def _run(
         case "tool":
             [tool] = task.tools
             output = await call_tool_async(manifest, tool, arguments, workspace=workspace, timeout=timeout)
-            graph.ran("calls[0]", "tool", tool, "input", ("output", "Output", output))
+            graph.ran("calls[0]", NodeType.TOOL, tool, "input", ("output", NodeType.TASK_OUTPUT, "Task output", output))
             on_event("task.result", {"response": output})
             verdict = await _verdict(manifest, task, arguments, output, None, workspace, on_event, graph, "output")
             return TaskOutcome(reference=None, output=output, agent=None, verdict=verdict)
@@ -209,11 +209,12 @@ async def _run(
                 raise ValueError(f"task {task.id!r} is an agent task: it needs an agent")
             reference = await _pin_reference(manifest, task, arguments, timeout, on_event, stage, graph)
             system, user = task_prompt(manifest, task, arguments)
+            graph.value("system", NodeType.SYSTEM_PROMPT, "System prompt", system)
             agent = make_agent(system)
             submit = SubmitTool(task)
             agent.add_tool(submit)
             reported = 0
-            loop = LoopRecorder(graph, ["input"])
+            loop = LoopRecorder(graph, ["system", "input"])
 
             def on_tool(event: dict[str, Any]) -> None:
                 if event["type"] == "tool_start":
@@ -248,7 +249,7 @@ async def _run(
                 raise RuntimeError(f"the agent ended task {task.id!r} without calling {SUBMIT}")
             # The last submission is the output.
             output = loop.arguments[SUBMIT]
-            graph.update(output, label="Output (submitted)")
+            graph.update(output, type=NodeType.TASK_OUTPUT.value, label="Task output (submitted)")
             on_event("task.result", {"response": submit.output})
             verdict = await _verdict(manifest, task, arguments, submit.output, reference, workspace, on_event, graph, output)
             return TaskOutcome(reference=reference, output=submit.output, agent=result, verdict=verdict)
@@ -287,20 +288,20 @@ async def _run(
                     [chosen] = (await ask([step], {})).values()
                     decision = graph.decision(f"Next: {chosen}", list(asked[-1].model_calls))
                     if chosen == SUBMIT:
-                        graph.building("output", "Output")
+                        graph.building("output", NodeType.TASK_OUTPUT, "Task output")
                         graph.edge(decision, "output", "chose", option=chosen)
                         output = await fill(task.output_type, "output", pool, ask)
                         graph.built("output", output)
                         break
                     at = f"calls[{len(state['calls'])}]"
-                    graph.call(at, "tool", chosen)
+                    graph.call(at, NodeType.TOOL, chosen)
                     graph.edge(decision, at, "chose", option=chosen)
-                    graph.building(f"{at}.arguments", f"{chosen} arguments")
+                    graph.building(f"{at}.arguments", NodeType.TOOL_CALL, f"{chosen} call")
                     tool_input = await fill(manifest.tool(chosen).input_type, f"{at}.arguments", pool, ask)
                     graph.built(f"{at}.arguments", tool_input)
                     graph.edge(f"{at}.arguments", at, "used")
                     tool_output = await session.call(chosen, tool_input)
-                    graph.value(f"{at}.output", f"{chosen} output", tool_output)
+                    graph.value(f"{at}.output", NodeType.TOOL_RESULT, f"{chosen} result", tool_output)
                     graph.edge(at, f"{at}.output", "generated")
                     state["calls"].append({"tool": chosen, "arguments": tool_input, "output": tool_output})
                     on_event("task.tool", {"name": chosen, "arguments": tool_input, "output": tool_output, "isError": False})
@@ -328,7 +329,7 @@ async def _pin_reference(
     with tempfile.TemporaryDirectory(prefix=f"nanoagent-{manifest.id}-reference-") as scratch:
         stage(Path(scratch))
         reference = await call_tool_async(manifest, task.reference, arguments, workspace=Path(scratch), timeout=timeout)
-    graph.ran("reference", "reference", task.reference, "input", ("reference.output", "Reference output", reference))
+    graph.ran("reference", NodeType.REFERENCE, task.reference, "input", ("reference.output", NodeType.REFERENCE_OUTPUT, "Reference output", reference))
     return reference
 
 
@@ -345,10 +346,10 @@ async def _verdict(
 ) -> Verification:
     """The verifier's verdict on ``output``, the value ``output_node`` of ``graph``."""
     verdict = await asyncio.to_thread(verify_task, manifest, task.id, arguments, output, reference, workspace)
-    graph.call("verify", "verify", "Verifier")
+    graph.call("verify", NodeType.VERIFIER, "Verifier")
     for used in ("input", output_node, *(("reference.output",) if reference is not None else ())):
         graph.edge(used, "verify", "used")
-    graph.value("verdict", "Verdict", verdict.to_dict())
+    graph.value("verdict", NodeType.VERDICT, "Verdict", verdict.to_dict())
     graph.edge("verify", "verdict", "generated")
     on_event("task.verdict", verdict.to_dict())
     return verdict

@@ -91,26 +91,10 @@ export function chatEvent({event, data}) {
     };
   }
   if (event === 'done') {
-    return {event: 'chat.answer', data: {text: data.text, metrics: answerMetrics(data), version: data.version ?? null}, final: true};
+    return {event: 'chat.answer', data: {text: data.text, metrics: data.metrics ?? null, version: data.version ?? null}, final: true};
   }
   if (event === 'error') return {event: 'chat.error', data: {message: data.error}, final: true};
   return null;
-}
-
-/**
- * What an answer cost and how long it took, in the shape a task's `task.done`
- * reports it, or null when the server sent no metrics.
- */
-function answerMetrics({model, cost, usage, metrics}) {
-  if (!metrics) return null;
-  return {
-    model: model ?? null,
-    cost: cost ?? metrics.cost ?? null,
-    usage: usage ?? metrics.usage ?? {},
-    ttft_s: metrics.ttft_s ?? null,
-    generation_s: metrics.generation_s ?? null,
-    duration_s: metrics.duration_s ?? null,
-  };
 }
 
 /** The conversation a prompt continues: the most recent turns, each within the server's limit. */

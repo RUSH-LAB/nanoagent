@@ -1,31 +1,36 @@
 """An agent run as a provenance graph: what each call used and generated, and where each value came from.
 
-The graph has two kinds of node, as in W3C PROV. *Values* (entities) are data: the message a turn
-answers, each call's arguments and output, a task's input, output and verdict, the answer.
-*Calls* (activities) are each model request of an agent loop (``model``: what it thought and
-wrote, as it streamed, and its tokens, cost and timing in ``modelCalls``), each tool call
-(``tool``, or ``task`` when the tool is a plugin task, whose own run is drawn inside it: its
-nodes name it as their ``parent``), a decide task's decisions (``decision``), its reference tool
-(``reference``) and its verifier (``verify``). Its edges are only what the run recorded, never
-inferred:
+The graph has two kinds of node, as in W3C PROV: *values* (entities), data, and *calls*
+(activities), what made them. Each node's ``type`` (:class:`NodeType`) says which it is, starting
+from the messages of NanoAgent's loop, whose transcript is chat messages of four roles: the
+``system`` prompt, the ``user``'s message, each ``assistant`` reply (what the model thought, its
+``reasoning_content``, what it wrote, its ``content``, and the tools it called, its
+``tool_calls``) and each ``tool`` result. A reply is a call, an agent reply, that used what was
+new in its conversation and generated its tool calls and, the last, the agent's message; running
+a tool call is a call that used it and generated its result. A plugin task is a tool call whose
+run is drawn inside it, its nodes naming it as their ``parent``: its input, its own loop, a decide
+task's decisions, its reference tool, its output, and the verifier's verdict on it. An agent
+reply and a decision hold the model requests they made in ``modelCalls`` (tokens, cost and
+timing), and a reply what it thought and wrote, streamed, in ``reasoning`` and ``text``.
 
-- ``used``: a call took a value: a tool its arguments, the verifier what it judges, a model
-  request the values new in its conversation (the message, and each tool output since the
-  request before it);
-- ``generated``: a call returned a value: a tool its output, a model request the arguments of
-  each tool call it made and, the last, the answer;
-- ``continued``: a model request carried on the conversation of the one before it, so it read
-  all that one read too;
+Its edges are only what the run recorded, never inferred:
+
+- ``used``: a call took a value: a tool its call, the verifier what it judges, a reply what is
+  new in its conversation (the system prompt and the message, then each tool result since the
+  reply before it);
+- ``generated``: a call returned a value: a tool its result, a reply each tool call it made and,
+  the last, the agent's message;
+- ``continued``: a reply carried on the conversation of the one before it, so it read all that
+  one read too;
 - ``copied``: a field of a value is a copy of a field of an earlier value (a decide task's copied
   field, asked or forced), from ``fromPath`` to ``toPath``;
 - ``chose``: a decision chose ``option`` for the field ``toPath`` of a value, or chose the next
   call; a copied field a decision picked the source of has both edges, its option the source's path.
 
-A field a decide task's types fixed (its one option is not a copy) has no edge. A value no call
-generated says where it came from in ``origin``: ``user`` (the message), ``session`` (the turns
-before it) or ``input`` (a task's input). A decide task's node ids are the values' paths in its
-state (``input``, ``calls[0].arguments``, ``calls[0].output``, ``output``), so a decide path such
-as ``calls[0].output.entries[2].key`` names a node and a field in it.
+A field a decide task's types fixed (its one option is not a copy) has no edge. A decide task's
+node ids are the values' paths in its state (``input``, ``calls[0].arguments``,
+``calls[0].output``, ``output``), so a decide path such as ``calls[0].output.entries[2].key``
+names a node and a field in it.
 
 A graph is built as the run goes, each change a *patch* passed to ``on_patch``: ``node`` (a new
 node), ``edge``, ``update`` (fields of a node set) and ``append`` (text streamed onto a node's
@@ -37,12 +42,37 @@ from __future__ import annotations
 import copy
 import re
 from collections.abc import Callable
+from enum import StrEnum
 from typing import Any, Literal
 
 Patch = dict[str, Any]
 Graph = dict[str, list[dict[str, Any]]]
-Origin = Literal["user", "session", "input"]
-Role = Literal["model", "tool", "task", "reference", "decision", "verify"]
+
+
+class NodeType(StrEnum):
+    """What a node of a run's graph is, a value or a call (:data:`CALLS`)."""
+
+    # The messages of the loop's transcript.
+    SYSTEM_PROMPT = "system_prompt"  # the system message
+    USER_MESSAGE = "user_message"  # the user message the turn answers
+    EARLIER_TURNS = "earlier_turns"  # the user and assistant messages of the turns before it
+    AGENT_REPLY = "agent_reply"  # one assistant message: one model request, a call
+    TOOL_CALL = "tool_call"  # one of a reply's tool calls: a tool's name and arguments
+    TOOL = "tool"  # running a tool call, a call
+    TOOL_RESULT = "tool_result"  # a tool message: what running a tool call returned
+    AGENT_MESSAGE = "agent_message"  # the last reply's content: the agent's answer
+    # A plugin task's run, inside its call.
+    TASK = "task"  # running a tool call that is a plugin task, a call
+    TASK_INPUT = "task_input"
+    REFERENCE = "reference"  # its reference tool, a call
+    REFERENCE_OUTPUT = "reference_output"
+    DECISION = "decision"  # a decide task's choice, made by a model request, a call
+    TASK_OUTPUT = "task_output"
+    VERIFIER = "verifier"  # the plugin's verify_task, a call
+    VERDICT = "verdict"
+
+
+CALLS = frozenset({NodeType.AGENT_REPLY, NodeType.TOOL, NodeType.TASK, NodeType.REFERENCE, NodeType.DECISION, NodeType.VERIFIER})
 Relation = Literal["used", "generated", "continued", "copied", "chose"]
 _PLACE = re.compile(r"(input|output|calls\[\d+\]\.(?:arguments|output))(?:\.(.+))?")
 
@@ -85,22 +115,23 @@ class Provenance:
         apply(self._graph, patch)
         self._on_patch(patch)
 
-    def value(self, id: str, label: str, value: Any, *, origin: Origin | None = None) -> None:
-        node: dict[str, Any] = {"id": id, "kind": "value", "label": label, "value": value}
-        if origin is not None:
-            node["origin"] = origin
-        self._send({"op": "node", "node": node})
+    def _node(self, id: str, type: NodeType, label: str, fields: dict[str, Any]) -> None:
+        kind = "call" if type in CALLS else "value"
+        self._send({"op": "node", "node": {"id": id, "type": type.value, "kind": kind, "label": label, **fields}})
 
-    def building(self, id: str, label: str) -> None:
+    def value(self, id: str, type: NodeType, label: str, value: Any) -> None:
+        self._node(id, type, label, {"value": value})
+
+    def building(self, id: str, type: NodeType, label: str) -> None:
         """A value not known yet: ``incomplete`` until :meth:`built` gives it its value, and so
         for good when the run fails meanwhile."""
-        self._send({"op": "node", "node": {"id": id, "kind": "value", "label": label, "value": None, "incomplete": True}})
+        self._node(id, type, label, {"value": None, "incomplete": True})
 
     def built(self, id: str, value: Any) -> None:
         self.update(id, value=value, incomplete=False)
 
-    def call(self, id: str, role: Role, label: str, **fields: Any) -> None:
-        self._send({"op": "node", "node": {"id": id, "kind": "call", "role": role, "label": label, "isError": False, **fields}})
+    def call(self, id: str, type: NodeType, label: str, **fields: Any) -> None:
+        self._node(id, type, label, {"isError": False, **fields})
 
     def update(self, id: str, **fields: Any) -> None:
         self._send({"op": "update", "id": id, "set": fields})
@@ -111,9 +142,9 @@ class Provenance:
     def edge(self, source: str, target: str, relation: Relation, **detail: Any) -> None:
         self._send({"op": "edge", "edge": {"from": source, "to": target, "relation": relation, **detail}})
 
-    def ran(self, call: str, role: Literal["tool", "reference"], label: str, used: str, generated: tuple[str, str, Any]) -> None:
-        """A tool call: it used the value ``used`` and generated ``generated``, an ``(id, label, value)``."""
-        self.call(call, role, label)
+    def ran(self, call: str, type: NodeType, label: str, used: str, generated: tuple[str, NodeType, str, Any]) -> None:
+        """A tool run: it used the value ``used`` and generated ``generated``, an ``(id, type, label, value)``."""
+        self.call(call, type, label)
         self.edge(used, call, "used")
         self.value(*generated)
         self.edge(call, generated[0], "generated")
@@ -123,7 +154,7 @@ class Provenance:
         profile JSON of the model requests that chose it."""
         decision = f"decisions[{self._decisions}]"
         self._decisions += 1
-        self.call(decision, "decision", label, modelCalls=model_calls)
+        self.call(decision, NodeType.DECISION, label, modelCalls=model_calls)
         return decision
 
     def decided(self, fields: list[tuple[str, str | list[str]]], forced: dict[str, str], sources: set[str], model_calls: list[dict[str, Any]]) -> None:
@@ -162,20 +193,21 @@ class Provenance:
 
 
 class LoopRecorder:
-    """An agent loop drawn into ``graph`` as it runs: each model request a ``model`` call that
+    """An agent loop drawn into ``graph`` as it runs: each model request an agent reply that
     ``continued`` the one before it and ``used`` what is new in its conversation, starting with
-    ``inputs``; each tool call it made its arguments (which it ``generated``), the call (of the
-    role ``role(name)``) and its output, which the next request uses. Node ids start with ``prefix``.
+    ``inputs``; each tool call it made (which it ``generated``), its run (of the type
+    ``runs(name)``) and its result, which the next reply uses; and the last reply's message. Node
+    ids start with ``prefix``.
 
     Feed it the loop's events: :meth:`delta`, :meth:`tool_started`, :meth:`tool_done`,
     :meth:`step_done` after each request with tool calls, and :meth:`finish` once it ends.
     """
 
-    def __init__(self, graph: Provenance, inputs: list[str], *, prefix: str = "", role: Callable[[str], Role] = lambda _name: "tool") -> None:
+    def __init__(self, graph: Provenance, inputs: list[str], *, prefix: str = "", runs: Callable[[str], NodeType] = lambda _name: NodeType.TOOL) -> None:
         self._graph = graph
         self._fresh = list(inputs)
         self._prefix = prefix
-        self._role = role
+        self._runs = runs
         self._step: str | None = None
         self._last: str | None = None
         self._steps = 0
@@ -186,7 +218,7 @@ class LoopRecorder:
         if self._step is None:
             self._step = f"{self._prefix}steps[{self._steps}]"
             self._steps += 1
-            self._graph.call(self._step, "model", f"Model request {self._steps}", reasoning="", text="", running=True, modelCalls=[])
+            self._graph.call(self._step, NodeType.AGENT_REPLY, f"Agent reply {self._steps}", reasoning="", text="", running=True, modelCalls=[])
             if self._last is not None:
                 self._graph.edge(self._last, self._step, "continued")
             for value in self._fresh:
@@ -201,9 +233,9 @@ class LoopRecorder:
         step = self._open()
         at = f"{self._prefix}calls[{len(self._calls)}]"
         self._calls[call_id] = at
-        self._graph.building(f"{at}.arguments", f"{name} arguments")
+        self._graph.building(f"{at}.arguments", NodeType.TOOL_CALL, f"{name} call")
         self._graph.edge(step, f"{at}.arguments", "generated")
-        self._graph.call(at, self._role(name), name, running=True)
+        self._graph.call(at, self._runs(name), name, running=True)
         self._graph.edge(f"{at}.arguments", at, "used")
 
     def node(self, call_id: str) -> str:
@@ -216,7 +248,7 @@ class LoopRecorder:
         at = self._calls[call_id]
         self._graph.built(f"{at}.arguments", arguments)
         self._graph.update(at, running=False, isError=is_error)
-        self._graph.value(f"{at}.output", f"{name} output", output)
+        self._graph.value(f"{at}.output", NodeType.TOOL_RESULT, f"{name} result", output)
         self._graph.edge(at, f"{at}.output", "generated")
         self._fresh.append(f"{at}.output")
         self.arguments[name] = f"{at}.arguments"
@@ -238,5 +270,5 @@ class LoopRecorder:
         last = self._step
         self.step_done(step)
         if answer and last is not None:
-            self._graph.value(f"{self._prefix}answer", "Answer", answer)
+            self._graph.value(f"{self._prefix}answer", NodeType.AGENT_MESSAGE, "Agent message", answer)
             self._graph.edge(last, f"{self._prefix}answer", "generated")

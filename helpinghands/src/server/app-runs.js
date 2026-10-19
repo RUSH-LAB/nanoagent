@@ -4,6 +4,22 @@ const crypto = require('crypto');
 const {HOLD_MS} = require('../runner/protocol');
 const {completionPayload} = require('./ai');
 
+/**
+ * What an answer cost and how long it took, as its page shows it (the page kit's
+ * metricsLine), or null when the run reported none.
+ */
+function answerMetrics({model, cost, usage, metrics}) {
+  if (!metrics) return null;
+  return {
+    model: model ?? null,
+    cost: cost ?? metrics.cost ?? null,
+    usage: usage ?? metrics.usage ?? {},
+    ttft_s: metrics.ttft_s ?? null,
+    generation_s: metrics.generation_s ?? null,
+    duration_s: metrics.duration_s ?? null,
+  };
+}
+
 // Why a run ended without its answer, when nothing else said so.
 const LOST = 'RUSH Lab stopped while answering, so this message was not answered. Send it again.';
 const NOT_BACK = `RUSH Lab was not back within ${HOLD_MS / 60_000} minutes, so this message was not answered. Send it again.`;
@@ -80,9 +96,9 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
       ran = true;
       marked = sessions.markRunRan(context, row.id);
     };
-    const tools = [];
     // What the agent did on the way, in order, as its page showed it: each thought, and each task
-    // it ran with the tools that task's agent called, its thinking and what it wrote.
+    // it ran with the tools that task's agent called, its thinking and what it wrote, and its call
+    // once it ends. The turn's tools are those calls, in the same order.
     const activity = [];
     // The run's provenance graph (nanoagent.plugin.provenance), whole once it ends, and what its model
     // saw and did, as an ATIF trajectory, both kept in the session's chat folder (fs/chats.js).
@@ -120,7 +136,7 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
             thinking = false;
             activity.push({kind: 'task', id: event.call.id, name: event.call.name, steps: [], thinking: '', text: '', done: false});
           }
-          const task = event.call && activity.find(entry => entry.kind === 'task' && entry.id === event.call.id);
+          let task = event.call && activity.find(entry => entry.kind === 'task' && entry.id === event.call.id);
           if (event.type === 'tool.progress' && task) {
             if (event.event === 'task.tool') task.steps.push({name: event.data.name, isError: Boolean(event.data.isError)});
             if (event.event === 'task.delta') task[event.data.kind === 'reasoning' ? 'thinking' : 'text'] += event.data.text;
@@ -128,8 +144,12 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
           if (event.type === 'graph.completed') graph = event.graph;
           if (event.type === 'trajectory.completed') trajectory = event.trajectory;
           if (event.type === 'tool.completed' || event.type === 'tool.failed') {
-            tools.push({name: event.call.name, arguments: event.call.arguments, output: event.call.output, isError: event.type === 'tool.failed'});
-            if (task) task.done = true;
+            if (!task) {
+              thinking = false;
+              task = {kind: 'task', id: event.call.id, name: event.call.name, steps: [], thinking: '', text: ''};
+              activity.push(task);
+            }
+            task.done = {name: event.call.name, arguments: event.call.arguments, output: event.call.output, isError: event.type === 'tool.failed'};
           }
           // The trajectory goes to the chat folder, not the page.
           if (event.type !== 'output_text.delta' && event.type !== 'trajectory.completed') run.send('agent', event);
@@ -148,13 +168,15 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
       }
     }
     const error = result.error ?? unsaved;
+    const metrics = result.error ? null : answerMetrics(result);
     let ended;
     try {
       await marked;
       // A task that never ended (the agent called it again, or the run stopped) is not kept, as its page dropped it.
-      const kept = activity.filter(entry => entry.kind === 'thought' || entry.done).map(({id: _id, done: _done, ...entry}) => entry);
+      const kept = activity.filter(entry => entry.kind === 'thought' || entry.done);
+      const tools = kept.filter(entry => entry.kind === 'task').map(entry => entry.done);
       ended = await sessions.endRun(context, row.id, {
-        prompt: row.prompt, answer: result.error ? '' : result.text, tools, activity: kept, graph, trajectory, error: error ?? null,
+        prompt: row.prompt, answer: result.error ? '' : result.text, tools, activity: kept.map(({id: _id, done: _done, ...entry}) => entry), graph, trajectory, metrics, error: error ?? null,
       });
     } catch (problem) {
       // The computer keeps the run until it is let go, so the next Mochi to hear of it ends it.
@@ -166,7 +188,7 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
     runners.release(row.userId, row.id);
     if (error) run.send('error', {error, status: result.status || 502});
     // The version it ran on, as its turn keeps it, unless another process ended it.
-    else run.send('done', {...completionPayload(result), version: ended ? ended.version : null});
+    else run.send('done', {...completionPayload(result), metrics, version: ended ? ended.version : null});
   }
 
   /** End the run `row`, which no process is doing any more, as not answered, for `reason`. */
@@ -180,7 +202,7 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
         error = `${reason} What it did could not be written back to your folder for this plugin: ${problem.message}`;
       }
     }
-    if (await sessions.endRun(context, row.id, {prompt: row.prompt, answer: '', tools: [], activity: [], graph: null, trajectory: null, error})) {
+    if (await sessions.endRun(context, row.id, {prompt: row.prompt, answer: '', tools: [], activity: [], graph: null, trajectory: null, metrics: null, error})) {
       await charge(context, row, null, row.ran);
     }
     for (const waiter of waiting.get(row.sessionId) ?? []) {
