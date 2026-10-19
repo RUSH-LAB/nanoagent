@@ -326,21 +326,6 @@ describe('NanoAgent plugin API', () => {
     assert.deepEqual(others.map(event => event.type), ['tool.started', 'tool.completed', 'run.completed']);
   });
 
-  it('reads a workspace file as bytes and relays a missing one as 404', async () => {
-    const seen = [];
-    const gateway = ai.createNanoAgentGateway({
-      env: {},
-      fetchImpl: async url => {
-        seen.push(url);
-        if (url.endsWith('missing.tex')) return {ok: false, status: 404, json: async () => ({error: 'file not found'})};
-        return {ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode('hi').buffer};
-      },
-    });
-    assert.equal((await gateway.workspaceFile('w1', 'papers/a b.tex')).value.toString(), 'hi');
-    assert.deepEqual(await gateway.workspaceFile('w1', 'missing.tex'), {error: 'file not found', status: 404});
-    assert.equal(seen[0], 'http://127.0.0.1:8787/v1/workspaces/w1/files/papers/a%20b.tex');
-  });
-
   it('fetches a plugin page file with its headers', async () => {
     const seen = [];
     const gateway = ai.createNanoAgentGateway({

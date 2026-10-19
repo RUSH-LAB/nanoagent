@@ -26,8 +26,6 @@ function answerMetrics({model, cost, usage, metrics}) {
 const LOST = 'RUSH Lab stopped while answering, so this message was not answered. Send it again.';
 const NOT_BACK = `RUSH Lab was not back within ${HOLD_MS / 60_000} minutes, so this message was not answered. Send it again.`;
 const FAILED = 'AI request failed. Please try again later.';
-// How long writing a run's files back waits for the member's computer to connect again.
-const RECONNECT_MS = 30_000;
 
 /**
  * The plugin runs going on, at most one per session. A run is not the
@@ -39,9 +37,12 @@ const RECONNECT_MS = 30_000;
  * which takes each up again from its first frame, and records as interrupted
  * one the computer does not have any more, or one whose computer was not back
  * within HOLD_MS. A run ends with its turn in the session, answered or not,
- * and then the computer lets it go. Only cancelling stops one.
+ * and then the computer lets it go. Only cancelling stops one. A run works on
+ * the member's folder for its plugin as their computer keeps it, which it
+ * writes back to before the run ends (runner/run-files.mjs); file sync takes
+ * that to RUSH.
  */
-function createAppRuns({sessions, agentSync, runners, aiMeter}) {
+function createAppRuns({sessions, runners, aiMeter}) {
   const live = new Map(); // session id -> this process's run
   const waiting = new Map(); // session id -> followers of a run not taken up yet
   const bootedAt = Date.now();
@@ -88,8 +89,8 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
 
   /**
    * Do the run `row` on its member's computer, `resume` taking it up from its
-   * first frame, and end it: write what it did back, keep its turn, charge it,
-   * and let the computer forget it. `request` is what NanoAgent is asked.
+   * first frame, and end it: keep its turn, charge it, and let the computer
+   * forget it. `request` is what NanoAgent is asked.
    */
   async function execute(run, row, {request, resume}) {
     const context = contextOf(row);
@@ -109,19 +110,16 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
     let graph = null;
     let trajectory = null;
     let thinking = false;
-    let folder = row.folder ? {workspace: row.folder, sent: row.sent} : null;
     let result;
     try {
       const ai = await runners.aiFor(row.userId);
-      if (!folder) {
-        folder = await agentSync.prepare(context, ai, row.pluginId);
-        await sessions.setRunFolder(context, row.id, folder);
-      }
       result = await ai.stream({
         ...request,
         app: row.pluginId,
         install: row.install,
-        workspace: folder.workspace,
+        // NanoAgent's folder for the run, filled from the member's files for the plugin in this workspace.
+        workspace: row.id,
+        files: {workspace: row.workspaceId, plugin: row.pluginId},
         run: {id: row.id, resume},
         signal: run.signal,
         onDelta: text => {
@@ -162,16 +160,6 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
     } catch (error) {
       result = {error: error.message || FAILED, status: error.status || 502};
     }
-    // What the run did in its folder is the member's, answered or not.
-    let unsaved = null;
-    if (folder) {
-      try {
-        await writeBack(context, row, folder);
-      } catch (error) {
-        unsaved = `What the run did could not be written back to your folder for this plugin: ${error.message}`;
-      }
-    }
-    const error = result.error ?? unsaved;
     const metrics = result.error ? null : answerMetrics(result);
     let ended;
     try {
@@ -180,7 +168,7 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
       const kept = activity.filter(entry => entry.kind === 'thought' || entry.done);
       const tools = kept.filter(entry => entry.kind === 'task').map(entry => entry.done);
       ended = await sessions.endRun(context, row.id, {
-        prompt: row.prompt, answer: result.error ? '' : result.text, tools, activity: kept.map(({id: _id, done: _done, ...entry}) => entry), graph, trajectory, metrics, error: error ?? null,
+        prompt: row.prompt, answer: result.error ? '' : result.text, tools, activity: kept.map(({id: _id, done: _done, ...entry}) => entry), graph, trajectory, metrics, error: result.error ?? null,
       });
     } catch (problem) {
       // The computer keeps the run until it is let go, so the next RUSH to hear of it ends it.
@@ -190,43 +178,19 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
     // Charged once, by whichever ended it.
     if (ended) await charge(context, row, result, ran);
     runners.release(row.userId, row.id);
-    if (error) run.send('error', {error, status: result.status || 502});
+    if (result.error) run.send('error', {error: result.error, status: result.status || 502});
     // The version it ran on, as its turn keeps it, unless another process ended it.
     else run.send('done', {...completionPayload(result), metrics, version: ended ? ended.version : null});
-  }
-
-  /**
-   * Write what the run `row` did in `folder` back to the member's folder for the plugin, on their
-   * computer's NanoAgent once it is connected: a connection that dropped is back within seconds.
-   * When it drops while this is going, the write starts again on the one it comes back as.
-   */
-  async function writeBack(context, row, folder) {
-    for (let again = false; ; again = true) {
-      const ai = await runners.connectedAi(row.userId, RECONNECT_MS);
-      try {
-        return await agentSync.finish(context, ai, row.pluginId, folder);
-      } catch (error) {
-        if (again || ai === await runners.aiFor(row.userId)) throw error;
-      }
-    }
   }
 
   /** End the run `row`, which no process is doing any more, as not answered, for `reason`. */
   async function interrupt(row, reason) {
     const context = contextOf(row);
-    let error = reason;
-    if (row.folder) {
-      try {
-        await writeBack(context, row, {workspace: row.folder, sent: row.sent});
-      } catch (problem) {
-        error = `${reason} What it did could not be written back to your folder for this plugin: ${problem.message}`;
-      }
-    }
-    if (await sessions.endRun(context, row.id, {prompt: row.prompt, answer: '', tools: [], activity: [], graph: null, trajectory: null, metrics: null, error})) {
+    if (await sessions.endRun(context, row.id, {prompt: row.prompt, answer: '', tools: [], activity: [], graph: null, trajectory: null, metrics: null, error: reason})) {
       await charge(context, row, null, row.ran);
     }
     for (const waiter of waiting.get(row.sessionId) ?? []) {
-      waiter.onEvent('error', {error, status: 503});
+      waiter.onEvent('error', {error: reason, status: 503});
       waiter.onEnd();
     }
     waiting.delete(row.sessionId);
@@ -243,7 +207,7 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
       await sessions.startRun(context, pluginId, sessionId, {id, prompt, install: request.install});
       const row = {
         id, workspaceId: context.workspaceId, userId: context.userId, sessionId, pluginId, prompt,
-        install: request.install, folder: null, sent: null, ran: false,
+        install: request.install, ran: false,
       };
       return begin(row, run => execute(run, row, {request, resume: false}));
     },

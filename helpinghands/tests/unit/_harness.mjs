@@ -929,10 +929,7 @@ export function fakeSessions(plugins = ['echo', 'arxiv-source']) {
     async startRun(context, pluginId, sessionId, {id, prompt, install}) {
       await sessions.assertOwned(context, pluginId, sessionId);
       if ([...sessions.rows.values()].some(row => row.sessionId === sessionId)) throw new SessionError(409, 'This session is still answering a message');
-      sessions.rows.set(id, {id, workspaceId: context.workspaceId, userId: context.userId, sessionId, pluginId, prompt, install, folder: null, sent: null, ran: false});
-    },
-    async setRunFolder(_context, id, {folder, sent}) {
-      Object.assign(sessions.rows.get(id), {folder, sent});
+      sessions.rows.set(id, {id, workspaceId: context.workspaceId, userId: context.userId, sessionId, pluginId, prompt, install, ran: false});
     },
     async markRunRan(_context, id) {
       sessions.rows.get(id).ran = true;
@@ -959,16 +956,13 @@ export function fakeSessions(plugins = ['echo', 'arxiv-source']) {
 
 /**
  * Plugin runs (app-runs.js) over `ctx.sessions`, on `ctx.ai` as the member's
- * computer, writing back through `agentSync` (by default a folder `run-folder`
- * nothing is copied into); which runs the computer was told to let go is in
- * `released`.
+ * computer; which runs the computer was told to let go is in `released`.
  */
-export function appRunsFor(ctx, {agentSync = {prepare: async () => ({workspace: 'run-folder', sent: {}}), finish: async () => {}}} = {}) {
+export function appRunsFor(ctx) {
   const released = [];
   const runs = createAppRuns({
     sessions: ctx.sessions,
-    agentSync,
-    runners: {aiFor: async () => ctx.ai, connectedAi: async () => ctx.ai, release: (userId, id) => released.push([userId, id])},
+    runners: {aiFor: async () => ctx.ai, release: (userId, id) => released.push([userId, id])},
     aiMeter: ctx.aiMeter,
   });
   return Object.assign(Object.create(runs), {released});

@@ -410,8 +410,10 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
         },
         body: JSON.stringify(nanoRequest(request)),
         signal: controller.signal,
-        // A plugin run held by the member's computer across its connections (server/runner.js).
+        // A plugin run held by the member's computer across its connections, on the member's
+        // files there (server/runner.js).
         ...(request.run ? {run: request.run} : {}),
+        ...(request.files ? {files: request.files} : {}),
       });
       if (!response.ok) {
         return {error: await responseError(response), status: response.status === 429 ? 503 : 502};
@@ -492,7 +494,7 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
   }
 
   /**
-   * One call to NanoAgent's plugin or workspace API: `{value, headers}` (its
+   * One call to NanoAgent's plugin API: `{value, headers}` (its
    * JSON, or its bytes when asked for), otherwise `{error, status}` to relay.
    */
   async function nanoFetch(path, {method = 'GET', body, contentType, bytes = false, waitMs = profileTimeoutMs} = {}) {
@@ -529,9 +531,6 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
   }
 
   const encodedPath = path => String(path).split('/').map(encodeURIComponent).join('/');
-  const inWorkspace = (workspace, rest) => `/v1/workspaces/${encodeURIComponent(workspace)}${rest}`;
-
-  const filePath = (workspace, path) => inWorkspace(workspace, `/files/${encodedPath(path)}`);
 
   return Object.freeze({
     complete: request => stream({...request, onDelta: undefined}),
@@ -565,13 +564,6 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
     packageSource: (archive, path) => nanoFetch(`/v1/packages/source?path=${encodeURIComponent(path)}`, {
       method: 'POST', body: archive, contentType: 'application/gzip', waitMs: timeoutMs,
     }),
-    workspaceFiles: workspace => nanoFetch(`/v1/workspaces/${encodeURIComponent(workspace)}/files`),
-    workspaceFile: (workspace, path) => nanoFetch(filePath(workspace, path), {bytes: true, waitMs: timeoutMs}),
-    saveWorkspaceFile: (workspace, path, body, {create = false} = {}) => nanoFetch(
-      `${filePath(workspace, path)}${create ? '?create=1' : ''}`,
-      {method: 'PUT', body, contentType: 'application/octet-stream', waitMs: timeoutMs},
-    ),
-    deleteWorkspace: workspace => nanoFetch(inWorkspace(workspace, ''), {method: 'DELETE'}),
     describe() {
       const endpoint = endpointOf();
       if (endpoint.error) return {available: false, reason: endpoint.error};
@@ -616,10 +608,6 @@ module.exports = {
   packageSource: gateway.packageSource,
   inspection: gateway.inspection,
   inspect: gateway.inspect,
-  workspaceFiles: gateway.workspaceFiles,
-  workspaceFile: gateway.workspaceFile,
-  saveWorkspaceFile: gateway.saveWorkspaceFile,
-  deleteWorkspace: gateway.deleteWorkspace,
   describe: gateway.describe,
   local: gateway.local,
 };
