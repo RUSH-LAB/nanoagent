@@ -151,9 +151,11 @@ function operations(client, scope, logged = () => {}) {
       return existing;
     }
     const parent = await ensureFolder(parentOf(folderPath));
-    // A member's home is private to them from the moment it is made, however it is made.
-    const access = folderPath === `home/${scope.userId}` ? 'private' : undefined;
-    return insertNode({nodePath: folderPath, kind: 'folder', parent, access});
+    // A member's home is private to them from the moment it is made, and only they make it
+    // (migration 0044 refuses any other).
+    const home = /^home\/([^/]+)$/.exec(folderPath)?.[1];
+    if (home && home !== scope.userId) throw new FsError(403, 'not-your-home', `${folderPath} is another member's home`);
+    return insertNode({nodePath: folderPath, kind: 'folder', parent, access: home ? 'private' : undefined});
   }
 
   async function insertNode({nodePath, kind, parent, content = null, contentType = null, meta = {}, access, id}) {
