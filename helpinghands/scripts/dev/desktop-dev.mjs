@@ -14,7 +14,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import process from 'node:process';
-import {execFileSync, spawn} from 'node:child_process';
+import {execFileSync, spawn, spawnSync} from 'node:child_process';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {readConfig} from '../../desktop/scripts/config.mjs';
@@ -114,6 +114,19 @@ async function sendEngine(site) {
   if (!response.ok) throw new Error(`${site} did not take the engine: ${response.status} ${await response.text()}`);
 }
 
+/**
+ * Have LaunchServices forget the app at `app`, so it takes none of its scheme's links. One it never
+ * registered fails with -10814 (kLSApplicationNotFoundErr): it is forgotten already.
+ */
+function unregister(app) {
+  const lsregister = '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister';
+  console.log(`$ ${lsregister} -u ${app}`);
+  const result = spawnSync(lsregister, ['-u', app], {encoding: 'utf8'});
+  const said = `${result.stdout}${result.stderr}`;
+  if (result.status === 0 || said.includes('-10814')) return;
+  throw new Error(`lsregister -u ${app} failed: ${said.trim() || `status ${result.status}`}`);
+}
+
 /** Quit the RUSH Lab Dev running, waiting until it and everything it started has stopped. */
 async function quitDev() {
   // A second copy opened only shows the first, so the one running quits for the new build.
@@ -159,7 +172,7 @@ async function main() {
   run('rm', ['-rf', installed]);
   run('ditto', [output, installed]);
   // Only the installed copy may take its scheme's links (connect links from outside the window).
-  run('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister', ['-u', output]);
+  unregister(output);
   run('open', [installed]);
 }
 
