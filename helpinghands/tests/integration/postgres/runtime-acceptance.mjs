@@ -267,7 +267,7 @@ try {
             (select count(*)::int from workspace_member m where m.workspace_id = w.id) as members,
             (select count(*)::int from fs_node n where n.workspace_id = w.id and n.kind = 'file' and n.path like 'smoke/%.mdx') as documents,
             (select count(*)::int from workspace_settings s where s.workspace_id = w.id) as settings,
-            (select count(*)::int from fs_node n where n.workspace_id = w.id and n.path = 'chat/.names/general.json') as channels
+            (select count(*)::int from fs_node n where n.workspace_id = w.id and n.path = '.chat/.names/general.json') as channels
        from workspace w where w.id = $1`,
     [workspaceId],
   );
