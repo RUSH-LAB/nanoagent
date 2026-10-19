@@ -96,6 +96,8 @@ jobs:
       - name: Upload to RUSH
         if: github.event_name == 'push'
         working-directory: helpinghands/desktop
+        # bash on Windows too, where a step's shell is otherwise PowerShell.
+        shell: bash
         env:
           LAB_UPLOAD_TOKEN: ${{ secrets.LAB_UPLOAD_TOKEN }}
         run: |
@@ -118,4 +120,17 @@ jobs:
               sleep 30
             done
           }
+          # The app members download, and the update the app takes, which on Windows is its installer.
+          case "${{ matrix.target }}" in
+            *-windows-*) app=$(ls "$bundle"/nsis/*-setup.exe); update=$app ;;
+            *) app=$(ls "$bundle"/dmg/*.dmg); update=$(ls "$bundle"/macos/*.app.tar.gz) ;;
+          esac
+          put "$app" "/api/lab/bundles/${{ matrix.target }}"
+          put "$update" "/api/lab/updates/${{ matrix.target }}" "X-Lab-Signature: $(cat "$update.sig")"
+          # Done only once the site serves this build.
+          served=$(curl -fsS -o /dev/null -D - "https://rush-lab.org/api/lab/bundles/${{ matrix.target }}" | tr -d '\r' | awk 'tolower($1) == "x-lab-stamp:" { print $2 }')
+          if [ "$served" != "$stamp" ]; then
+            echo "rush-lab.org serves $served, not the uploaded $stamp" >&2
+            exit 1
+          fi
 
