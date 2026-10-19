@@ -216,31 +216,23 @@
   font-size: 0.85rem;
 }
 
-/* The steps that install RUSH Lab (LabScreen.js): each its button, and what to do. */
-.steps {
+/* How to install RUSH Lab (LabInstall.js): the download, or the command. */
+.install {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  margin: 0 0 0.9rem;
-  padding-left: 1.25rem;
-  color: #64748b;
-  font-size: 0.85rem;
+  margin-bottom: 0.9rem;
 }
 
-.steps li {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
+.install .divider { margin: 1rem 0; }
 
-.steps .submit,
-.steps .submit:hover {
+.install .submit,
+.install .submit:hover {
   color: #ffffff;
   text-align: center;
   text-decoration: none;
 }
 
-.steps .submit[aria-disabled='true'] {
+.install .submit[aria-disabled='true'] {
   opacity: 0.6;
   pointer-events: none;
 }
@@ -251,10 +243,6 @@
 }
 
 .chips .submit { flex: 1; }
-
-.stepNote {
-  line-height: 1.45;
-}
 
 /* What the app's window shows while it sets this computer up (LabScreen.js): a header with the
    brand and Sign out, a title, and one panel of steps in three groups, each step a row with its
@@ -505,35 +493,6 @@
 /* The landing page (pages/index). */
 .landingCard { max-width: 480px; }
 
-/* A tab for each system, and how to install RUSH Lab on it (LabInstall.js). */
-.systems {
-  display: flex;
-  gap: 0.25rem;
-  margin-bottom: 1.25rem;
-  padding: 0.25rem;
-  border-radius: 10px;
-  background: #f1f5f9;
-}
-
-.system {
-  flex: 1;
-  padding: 0.45rem;
-  border: none;
-  border-radius: 7px;
-  background: none;
-  color: #64748b;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.systemActive {
-  background: #ffffff;
-  color: #0f172a;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
-}
-
-
 /* The site's dark theme. */
 :global([data-theme='dark']) .page {
   background:
@@ -563,15 +522,11 @@
 :global([data-theme='dark']) .field { color: #cbd5e1; }
 :global([data-theme='dark']) .field input { border-color: #334155; background: #0f172a; color: #f1f5f9; }
 :global([data-theme='dark']) .userCode { border-color: #334155; background: #0f172a; color: #f1f5f9; }
-:global([data-theme='dark']) .steps { color: #94a3b8; }
 :global([data-theme='dark']) .command { border-color: #334155; background: #0f172a; }
 :global([data-theme='dark']) .command code { color: #f1f5f9; }
 :global([data-theme='dark']) .copy { border-color: #334155; background: #1e293b; color: #f1f5f9; }
 :global([data-theme='dark']) .error { background: rgba(239, 68, 68, 0.12); color: #fca5a5; }
 :global([data-theme='dark']) .switch { color: #93b4f5; }
-:global([data-theme='dark']) .systems { background: #0f172a; }
-:global([data-theme='dark']) .system { color: #94a3b8; }
-:global([data-theme='dark']) .systemActive { background: #1e293b; color: #f1f5f9; }
 
 /* Phones: let the card use the full width and sit near the top, so the
    on-screen keyboard does not push the submit button out of view. */
