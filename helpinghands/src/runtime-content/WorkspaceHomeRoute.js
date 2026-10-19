@@ -1,7 +1,6 @@
 import React, {useEffect} from 'react';
 import clsx from 'clsx';
 import BrowserOnly from '@docusaurus/BrowserOnly';
-import Layout from '@theme/Layout';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 import {navigateClient} from '@site/src/utils/workspaces';
 import Link from '@docusaurus/Link';
@@ -9,7 +8,7 @@ import {workspaceDocumentHref} from '@site/src/utils/documentUrls';
 import styles from './workspaceHome.module.css';
 
 /**
- * A workspace's home, /w/:slug, where the workspace name in the navbar goes.
+ * A workspace's home, /w/:slug, the Home section of the shell (components/Shell/Sections.js).
  * For now it is the workspace's name and nothing else, laid out as a Markdown
  * page whose first heading is the page's banner, so that the workspace's own
  * home document can take its place without a new design.
@@ -45,12 +44,13 @@ function WorkspaceHome() {
   );
 }
 
-export default function WorkspaceHomeRoute() {
+/** The page's title, for its Layout in the shell. */
+export const page = {title: 'Home'};
+
+export function HomeSection() {
   return (
-    <Layout title="Home">
-      <main className={styles.home}>
-        <BrowserOnly fallback={null}>{() => <WorkspaceHome />}</BrowserOnly>
-      </main>
-    </Layout>
+    <main className={styles.home}>
+      <BrowserOnly fallback={null}>{() => <WorkspaceHome />}</BrowserOnly>
+    </main>
   );
 }

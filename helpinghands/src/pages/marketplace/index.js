@@ -579,7 +579,7 @@ function Marketplace() {
   );
 }
 
-/** The page's title and description, for its Layout here and in the shell (components/Shell/Sections.js). */
+/** The page's title and description, for its Layout here and in the shell (components/Shell/registry.js). */
 export const page = {title: 'Marketplace', description: 'NanoAgent plugins to add to your workspace and share'};
 
 export function MarketplaceSection() {

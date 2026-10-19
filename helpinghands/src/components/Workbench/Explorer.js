@@ -308,6 +308,18 @@ export default function Explorer({
   // A new listing is new data for the same tree.
   useEffect(() => ht.rebuildTree(), [ht, items]);
 
+  // A press anywhere but on a row or in the context menu drops the selection.
+  const hasSelection = selectedItems.length > 0;
+  useEffect(() => {
+    if (!hasSelection) return undefined;
+    const clear = event => {
+      if (event.target.closest?.('[role="treeitem"], [role="menu"]')) return;
+      onSelection([]);
+    };
+    document.addEventListener('mousedown', clear);
+    return () => document.removeEventListener('mousedown', clear);
+  }, [hasSelection, onSelection]);
+
   // The row the workbench asks to show (the active file, or a breadcrumb's folder) is scrolled to.
   useEffect(() => {
     if (!reveal || !items.has(reveal.path)) return;

@@ -20,7 +20,7 @@ function WorkspaceContent() {
   return <Workbench key={workspace.id} workspace={workspace} />;
 }
 
-/** The page's Layout props, here and in the shell (components/Shell/Sections.js). */
+/** The page's Layout props, here and in the shell (components/Shell/registry.js). */
 export const page = {title: 'Filesystem', description: 'Your files', noFooter: true};
 
 export function WorkspaceSection() {

@@ -606,6 +606,11 @@ li > input[type="checkbox"]:checked {
   animation: fadeIn 250ms ease-out;
 }
 
+/* Inside a workspace a page or section shows at once, as a view in VS Code does. */
+html.site-shell .main-wrapper {
+  animation: none;
+}
+
 /* Slide-up animation for card grids */
 @keyframes slideUp {
   from {

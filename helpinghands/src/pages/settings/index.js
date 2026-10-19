@@ -140,7 +140,7 @@ function SettingsApp() {
   );
 }
 
-/** The page's title and description, for its Layout here and in the shell (components/Shell/Sections.js). */
+/** The page's title and description, for its Layout here and in the shell (components/Shell/registry.js). */
 export const page = {title: 'Settings', description: 'Your account and workspace access'};
 
 export function SettingsSection() {

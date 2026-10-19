@@ -223,8 +223,9 @@ Then walk this list by hand:
    If the app has no OpenRouter key, RUSH Lab gives it one with $10 of
    credit. They can save their own key and choose the model under
    **Settings → AI**.
-4. In the workspace's **Marketplace**, they select **Submit your artifact**.
-   On a workspace without submissions, the button is **+ Publish a plugin**.
+4. They open **Marketplace** in the navigation bar and select **Submit Your
+   Artifact** at the foot of its sidebar. On a workspace without submissions,
+   the link is **Publish a Plugin**.
    They paste the repository URL, read the terms, tick the statement, and
    submit. For a plugin in a subfolder, the URL is
    `https://github.com/<owner>/<repo>/tree/<branch>/<folder>`.
@@ -235,7 +236,7 @@ Then walk this list by hand:
    the latest one published. The marketplace tells you when GitHub has changes
    to your plugin that its latest version does not have. A member's install updates itself to each new
    version unless they turn off **Auto-update** under **Settings → Plugins**;
-   **Update**, there or on the plugin's Dashboard, then takes the newest.
+   **Update**, there, in the Marketplace's **Updates** view or on the plugin's Dashboard, then takes the newest.
 6. Once a workspace owner adds the plugin, the person opens it, asks the chat
    for a task, and checks the verdict on the result card. Passing the
    publication checks only shows the format is right. The verifier's tests
