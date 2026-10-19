@@ -25,7 +25,7 @@ from nanoagent.harness.registry import RunnerProfile
 from nanoagent.plugin import PluginManifest
 from nanoagent.plugin.dataflow import Decider
 from nanoagent.plugin.manifest import TaskDefinition
-from nanoagent.plugin.provenance import LoopRecorder, NodeType, Provenance
+from nanoagent.plugin.provenance import PARTS, LoopRecorder, NodeType, Provenance
 from nanoagent.plugin.tasks import ModelDecider, run_task
 from nanoagent.runtime.build import build_prompt_and_tools
 from nanoagent.runtime.config import AgentConfig
@@ -171,7 +171,7 @@ class GraphRunner:
             agent, prompt = factory(instructions)
             if self._graph is None:
                 raise RuntimeError("an agent is built only while a run records its graph")
-            self._graph.value("system", NodeType.SYSTEM_PROMPT, "System prompt", prompt)
+            self._graph.value("system", NodeType.SYSTEM_PROMPT, PARTS[NodeType.SYSTEM_PROMPT].label, prompt)
             return agent, prompt
 
         return build
@@ -183,9 +183,9 @@ class GraphRunner:
         graph = self._graph = Provenance(lambda patch: emit({"type": "graph", "patch": patch}))
         inputs = ["system", "message"]
         if request.messages:
-            graph.value("history", NodeType.EARLIER_TURNS, "Earlier turns", {"messages": len(request.messages)})
+            graph.value("history", NodeType.EARLIER_TURNS, PARTS[NodeType.EARLIER_TURNS].label, {"messages": len(request.messages)})
             inputs.insert(1, "history")
-        graph.value("message", NodeType.USER_MESSAGE, "User message", request.input)
+        graph.value("message", NodeType.USER_MESSAGE, PARTS[NodeType.USER_MESSAGE].label, request.input)
         loop = LoopRecorder(graph, inputs, runs=lambda _name: NodeType.TASK)
 
         def relay(event: dict[str, Any]) -> None:

@@ -75,12 +75,14 @@ marketplace to offer it: a version published before 0.7.0 is listed under mainte
   every message in a table, their Total over their Average per message (a Total that messages
   sent before RUSH counted its figure lack says so in its title), and a model request's stats, under its
   reply and in the graph's panel, are Total Time, Time to First Token, Generation Time, Input
-  Tokens, Output Tokens and Cost, the panel naming a node once (not `Model request` or `System prompt` twice, a value's content right under its name); the dashboard lists each session as its title over when it
+  Tokens, Output Tokens and Cost, the panel naming a node once (not `Model request` or `System prompt` twice, a value's content right under its name), and a pill's panel shows what it used and made; the plugin's verifier is the `Output check` (`NodeType.OUTPUT_CHECK`, its saved value `verifier` unchanged), and a task that passed its check no longer says `Checked` (only `Check failed` shows); the dashboard lists each session as its title over when it
   was last used, with its cost and End-to-End Latency at the row's end (`$0.0003 / 12 s`), and a graph's cards and task boxes read
   `3.7 s · 1 model request · 2 tool calls · 1.1k input, 173 output tokens · $0.0001`; the chat no longer has a line of its own for that, nor Open result and Graph buttons under each turn. How every node is named and shown, in the chat and the graph, is said in one place,
   `nanoagent.plugin.provenance.PARTS`: each `Part` has its name, how the chat shows it (`chat`:
   whole, a line, a run, or hidden), how the graph draws it (`shape`: card, pill, box, tile, or a
-  line folded into the call that made or used it, `fold`), its `hue` and `font`, and whether it
+  line folded into the call that made or used it, `fold`), its `hue` and `font`, what it is in a sentence (`about`, at the top of a
+  picked node's panel), whether its nodes have names of their own (`named`: a tool's, a task's,
+  a decision's; the others are called by their part's name, saved graphs too), and whether it
   shows once a session (`once`), merges with the same in a row (`repeats`) or is a verdict; the
   page kit reads it from `kit/parts.js`, which `python -m nanoagent.plugin.provenance` writes and
   a test keeps the same, and no node carries `typeLabel` any more (`NodeType.RESPONSE` is the old

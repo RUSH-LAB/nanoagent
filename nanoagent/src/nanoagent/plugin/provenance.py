@@ -76,7 +76,7 @@ class NodeType(StrEnum):
     REFERENCE_OUTPUT = "reference_output"
     DECISION = "decision"  # a decide task's choice, made by a model request, a call
     TASK_OUTPUT = "task_output"
-    VERIFIER = "verifier"  # the plugin's verify_task, a call
+    OUTPUT_CHECK = "verifier"  # the plugin's verify_task, a call; saved graphs hold this value
     VERDICT = "verdict"
 
 
@@ -102,12 +102,15 @@ Font = Literal["prose", "typed", "code", "thought", "plain"]
 class Part:
     """One type of node: its name, whether it is a call (an action) or a value, for a value the
     types of call that make it (``made_by``), none for one the run is given, and how a page shows
-    it: in the chat (``chat``), in the graph (``shape``, and for a line the call it is folded into,
-    ``fold``), its colour (``hue``) and its text's (``font``). ``once``: shown once a session
+    it: what it is, in a sentence (``about``), in the chat (``chat``), in the graph (``shape``,
+    and for a line the call it is folded into, ``fold``), its colour (``hue``) and its text's
+    (``font``). ``named``: its nodes have names of their own (a tool's, a task's), shown in place
+    of its part's; ``once``: shown once a session
     while it is the same; ``repeats``: one in a row with the same label shows for all, with how
     many; ``verdict``: its value is a verdict, ``{valid, message}``."""
 
     label: str
+    about: str
     chat: Chat
     shape: Shape
     call: bool = False
@@ -115,30 +118,31 @@ class Part:
     fold: Fold | None = None
     hue: Hue = "plain"
     font: Font = "plain"
+    named: bool = False
     once: bool = False
     repeats: bool = False
     verdict: bool = False
 
 
 PARTS: dict[NodeType, Part] = {
-    NodeType.SYSTEM_PROMPT: Part("System prompt", "line", "tile", hue="quiet", once=True),
-    NodeType.USER_MESSAGE: Part("User message", "whole", "tile", hue="user", font="typed"),
-    NodeType.EARLIER_TURNS: Part("Earlier turns", "hidden", "tile", hue="quiet"),
-    NodeType.MODEL_REQUEST: Part("Model request", "hidden", "card", call=True, hue="think"),
-    NodeType.THINKING: Part("Thinking", "line", "line", made_by=(NodeType.MODEL_REQUEST,), fold="maker", font="thought"),
-    NodeType.ASSISTANT: Part("Assistant", "whole", "line", made_by=(NodeType.MODEL_REQUEST,), fold="maker", font="prose"),
-    NodeType.TOOL_CALL: Part("Tool call", "line", "line", made_by=(NodeType.MODEL_REQUEST, NodeType.DECISION), fold="user", font="code"),
-    NodeType.TOOL: Part("Tool", "hidden", "pill", call=True, hue="task", font="code"),
-    NodeType.TOOL_RESULT: Part("Tool result", "line", "line", made_by=(NodeType.TOOL, NodeType.TASK), fold="maker"),
-    NodeType.RESPONSE: Part("Response", "whole", "line", made_by=(NodeType.MODEL_REQUEST,), fold="maker", hue="answer", font="prose"),
-    NodeType.TASK: Part("Task", "run", "box", call=True, hue="task"),
-    NodeType.TASK_INPUT: Part("Task input", "line", "tile"),
-    NodeType.REFERENCE: Part("Reference", "hidden", "pill", call=True, hue="neutral", font="code"),
-    NodeType.REFERENCE_OUTPUT: Part("Reference output", "line", "line", made_by=(NodeType.REFERENCE,), fold="maker"),
-    NodeType.DECISION: Part("Decision", "line", "pill", call=True, hue="think", repeats=True),
-    NodeType.TASK_OUTPUT: Part("Task output", "line", "tile", made_by=(NodeType.MODEL_REQUEST, NodeType.DECISION, NodeType.TOOL)),
-    NodeType.VERIFIER: Part("Verifier", "hidden", "pill", call=True, hue="check"),
-    NodeType.VERDICT: Part("Verdict", "line", "tile", made_by=(NodeType.VERIFIER,), verdict=True),
+    NodeType.SYSTEM_PROMPT: Part("System prompt", "The instructions the model is given before the conversation.", "line", "tile", hue="quiet", once=True),
+    NodeType.USER_MESSAGE: Part("User message", "What the person asked.", "whole", "tile", hue="user", font="typed"),
+    NodeType.EARLIER_TURNS: Part("Earlier turns", "The messages of the conversation before this one, which the model read again.", "hidden", "tile", hue="quiet"),
+    NodeType.MODEL_REQUEST: Part("Model request", "One request to the model: it reads the conversation so far and thinks, writes, or calls tools.", "hidden", "card", call=True, hue="think"),
+    NodeType.THINKING: Part("Thinking", "What the model thought before it answered.", "line", "line", made_by=(NodeType.MODEL_REQUEST,), fold="maker", font="thought"),
+    NodeType.ASSISTANT: Part("Assistant", "What the model wrote on its way to calling tools.", "whole", "line", made_by=(NodeType.MODEL_REQUEST,), fold="maker", font="prose"),
+    NodeType.TOOL_CALL: Part("Tool call", "A tool the model chose to run, and the input it gave it.", "line", "line", made_by=(NodeType.MODEL_REQUEST, NodeType.DECISION), fold="user", font="code"),
+    NodeType.TOOL: Part("Tool", "One of the plugin's tools, run as code on the input it was given.", "hidden", "pill", call=True, hue="task", font="code", named=True),
+    NodeType.TOOL_RESULT: Part("Tool result", "What running the tool returned.", "line", "line", made_by=(NodeType.TOOL, NodeType.TASK), fold="maker"),
+    NodeType.RESPONSE: Part("Response", "The agent's answer to the person.", "whole", "line", made_by=(NodeType.MODEL_REQUEST,), fold="maker", hue="answer", font="prose"),
+    NodeType.TASK: Part("Task", "One of the plugin's tasks: its own run, whose output its check judges.", "run", "box", call=True, hue="task", named=True),
+    NodeType.TASK_INPUT: Part("Task input", "The input the task was given.", "line", "tile"),
+    NodeType.REFERENCE: Part("Reference", "The plugin's reference tool, run on the same input to give the output the task's is compared with.", "hidden", "pill", call=True, hue="neutral", font="code", named=True),
+    NodeType.REFERENCE_OUTPUT: Part("Reference output", "What the reference tool returned.", "line", "line", made_by=(NodeType.REFERENCE,), fold="maker"),
+    NodeType.DECISION: Part("Decision", "Fields of the task's output the model chose.", "line", "pill", call=True, hue="think", repeats=True, named=True),
+    NodeType.TASK_OUTPUT: Part("Task output", "What the task returned.", "line", "tile", made_by=(NodeType.MODEL_REQUEST, NodeType.DECISION, NodeType.TOOL)),
+    NodeType.OUTPUT_CHECK: Part("Output check", "The plugin's own code checking the task's output against its input; no model takes part.", "hidden", "pill", call=True, hue="check"),
+    NodeType.VERDICT: Part("Verdict", "Whether the task's output passed its check, and why.", "line", "tile", made_by=(NodeType.OUTPUT_CHECK,), verdict=True),
 }
 KIT_PARTS = Path(__file__).parent / "v0001" / "page" / "kit" / "parts.js"
 

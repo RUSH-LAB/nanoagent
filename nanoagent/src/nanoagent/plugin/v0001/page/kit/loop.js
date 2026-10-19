@@ -4,7 +4,7 @@
 // its `chat`, `hue` and `font`). A task's own run is indented under its call.
 
 import { h, icon } from "./dom.js";
-import { applyPatch, partOf } from "./graph.js";
+import { applyPatch, nameOf, partOf } from "./graph.js";
 import { markdown } from "./markdown.js";
 import { TYPES } from "./parts.js";
 import { formatSeconds, runStats } from "./session.js";
@@ -102,12 +102,10 @@ export function loopView({ first, names, result, onResult = () => {} }) {
     const running = (node) => Boolean(node?.running) && !settled;
     /** The verdict on the run inside `call`, if it has one. */
     const verdictOf = (call) => (children.get(call.id) ?? []).find((each) => partOf(each).verdict)?.value;
-    /** A call's name: a task's (one whose run is drawn inside it), else its label. */
-    const callName = (call) => (partOf(call).chat === "run" ? names(call.label) : call.label);
-    /** How the task `call` ended: its name and whether its result passed its check. */
+    /** The task `call` by its name, and that its result failed its check when it did. */
     const taskMark = (call) => {
       const verdict = verdictOf(call);
-      return verdict ? `${names(call.label)}: ${verdict.valid ? "Checked" : "Check failed"}` : names(call.label);
+      return verdict?.valid === false ? `${names(call.label)}: Check failed` : names(call.label);
     };
 
     /** The row of the value `node`. */
@@ -146,7 +144,7 @@ export function loopView({ first, names, result, onResult = () => {} }) {
       }
       // A value one call used goes on that call's name; one model requests made opens to what they took too.
       const [user] = part.fold === "user" ? out(node.id, "used") : [];
-      const name = user ? h("span", { class: "part-name", text: callName(user) }) : null;
+      const name = user ? h("span", { class: "part-name", text: nameOf(user, names) }) : null;
       const text = [name, node.incomplete ? null : `${name ? " " : ""}${inline(node.value ?? "")}`];
       const full = node.incomplete ? null : h("div", {}, fullValue(node.value ?? ""), ...(maker?.modelCalls ?? []).map(runStats));
       return keep(partRow(part, { text, full, meta, classes: bad }));
@@ -170,8 +168,8 @@ export function loopView({ first, names, result, onResult = () => {} }) {
           continue;
         }
         if (part.call) {
-          // A call shown on a line of its own, by its label.
-          const row = partRow(part, { text: node.label, meta: part.repeats ? "×1" : null });
+          // A call shown on a line of its own, by its name.
+          const row = partRow(part, { text: nameOf(node, names), meta: part.repeats ? "×1" : null });
           if (part.repeats) repeated = { type: node.type, label: node.label, count: 1, row };
           made.push(row);
           continue;

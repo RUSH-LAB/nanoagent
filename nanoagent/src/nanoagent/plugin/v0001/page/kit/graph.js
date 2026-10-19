@@ -122,6 +122,18 @@ export function partOf(node) {
   return part;
 }
 
+/**
+ * What `node` is called: its own name for a part whose nodes have one (`named`), a task's by its
+ * id through `names`, else its part's name.
+ * @param {object} node
+ * @param {(task: string) => string} names
+ */
+export function nameOf(node, names) {
+  const part = partOf(node);
+  if (!part.named) return part.label;
+  return part.shape === "box" ? names(node.label) : node.label;
+}
+
 const short = (text, length) => (text.length > length ? `${text.slice(0, length - 1)}…` : text);
 const shown = (value) => (typeof value === "string" ? value : JSON.stringify(value));
 /** A value folded into a call, on a line of its own named by its part, as the chat names it (kit/loop.js): "Thinking › …". */
@@ -182,20 +194,27 @@ function totalsStats(total, modelS, toolsS) {
 
 /**
  * All of `node` (a drawn node: a call with the `parts` folded into it), named `name`, for the
- * panel under the graph: what it took, its model requests' figures as every page writes them,
- * and what it holds, each part folded into it under its part's name, each name said once.
+ * panel under the graph: what it is (its part's `about`), what it took, its model requests'
+ * figures as every page writes them, and what it holds, each part folded into it under its
+ * part's name, each name said once; for a pill, also what it used and made, of `graph`.
  */
-function nodeDetail(node, name, running, close) {
+function nodeDetail(node, name, running, close, graph) {
   const section = (title, ...body) => h("section", { class: "trace-detail-part" }, h("h4", { text: title }), ...body);
   const content = (value) => (value.incomplete ? h("p", { class: "muted", text: "Not finished." }) : h("pre", { class: typeof value.value === "string" ? "trace-stream" : null, text: json(value.value) }));
-  const parts = [];
+  const part = partOf(node);
+  const parts = [h("p", { class: "muted", text: part.about })];
   if (node.modelCalls?.length) for (const call of node.modelCalls) parts.push(runStats(call));
   if (node.duration_s != null) parts.push(h("dl", { class: "stats run-stats" }, statItems([["Total Time", formatSeconds(node.duration_s)]])));
-  const part = partOf(node);
   if (part.shape === "card" && running && !node.parts?.length) parts.push(h("p", { class: "muted", text: "Waiting for the first token." }));
   // A value's own content goes under the panel's heading, which names it; each part folded into a call under its part's name.
   if (!part.call) parts.push(content(node));
   for (const value of node.parts ?? []) parts.push(section(partOf(value).label, content(value)));
+  if (part.shape === "pill") {
+    const held = new Set((node.parts ?? []).map((value) => value.id));
+    const linked = (relation, side) => graph.edges.filter((edge) => edge.relation === relation && edge[side] === node.id).map((edge) => graph.nodes.find((each) => each.id === edge[side === "to" ? "from" : "to"]));
+    for (const value of linked("used", "to")) if (!held.has(value.id)) parts.push(section(`Used: ${partOf(value).label}`, content(value)));
+    for (const value of linked("generated", "from")) if (!held.has(value.id)) parts.push(section(`Made: ${partOf(value).label}`, content(value)));
+  }
   const status = node.isError ? statusPill("Failed", "bad") : running ? statusPill("Running", "info") : node.incomplete ? statusPill("Not finished", "warn") : name.startsWith(part.label) ? null : statusPill(part.label, "neutral");
   return h(
     "div",
@@ -343,7 +362,7 @@ export function graphView({ names = (task) => task } = {}) {
     const drawn = picked !== null && drawnNodes.get(picked);
     if (!drawn) return;
     const members = drawn.node.members ?? [drawn.node];
-    detail.replaceChildren(...members.map((member, index) => nodeDetail(member, partOf(member).shape === "box" ? names(member.label) : member.label, Boolean(member.running) && !settled, index === 0 ? close : null)));
+    detail.replaceChildren(...members.map((member, index) => nodeDetail(member, nameOf(member, names), Boolean(member.running) && !settled, index === 0 ? close : null, graph)));
     detail.hidden = false;
   };
   const pick = (node) => {
@@ -366,8 +385,8 @@ export function graphView({ names = (task) => task } = {}) {
     const held = part.shape === "box" ? [] : (node.parts ?? []).filter((value) => !value.incomplete);
     const failed = node.isError || (part.verdict && node.value?.valid === false);
     const classes = ["tn", part.call ? "call" : "value", `shape-${part.shape}`, held.length && "holds", node.incomplete && !running && "incomplete", failed && "failed", running && "live"];
-    const type = node.label.startsWith(part.label) ? null : h("span", { class: "tn-type", text: part.label });
-    const name = part.shape === "box" ? names(node.label) : node.label;
+    const name = nameOf(node, names);
+    const type = name.startsWith(part.label) ? null : h("span", { class: "tn-type", text: part.label });
     const label = h("span", { class: "tn-label", text: name }, node.members ? h("span", { class: "tn-count", text: ` ×${node.members.length}` }) : null);
     // A card's lines change in place as their tokens stream in.
     const lines = {};
@@ -394,7 +413,7 @@ export function graphView({ names = (task) => task } = {}) {
     const verdict = (children.get(node.id) ?? []).find((each) => partOf(each).verdict);
     const bad = node.isError || verdict?.value.valid === false;
     const open = opened.get(node.id) ?? (running || bad);
-    const status = running ? "Running" : node.isError ? "Failed" : verdict ? (verdict.value.valid ? "Checked" : "Check failed") : null;
+    const status = running ? "Running" : node.isError ? "Failed" : verdict?.value.valid === false ? "Check failed" : null;
     const facts = [...totalsText(totals(within(node.id)), node.duration_s), status].filter(Boolean);
     const toggle = h(
       "button",

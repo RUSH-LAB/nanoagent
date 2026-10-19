@@ -609,3 +609,6 @@ def test_the_page_kit_draws_each_part_as_parts_registers_it():
     for type, part in PARTS.items():
         assert (part.shape == "line") == (part.fold is not None), type
         assert not (part.call and part.shape in ("tile", "line")), type
+        # Only a call has a name of its own; every node says what it is.
+        assert part.call or not part.named, type
+        assert part.about, type

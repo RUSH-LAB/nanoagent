@@ -18,13 +18,14 @@ export const TYPES = {
   "REFERENCE_OUTPUT": "reference_output",
   "DECISION": "decision",
   "TASK_OUTPUT": "task_output",
-  "VERIFIER": "verifier",
+  "OUTPUT_CHECK": "verifier",
   "VERDICT": "verdict"
 };
 
 export const PARTS = {
   "system_prompt": {
     "label": "System prompt",
+    "about": "The instructions the model is given before the conversation.",
     "chat": "line",
     "shape": "tile",
     "call": false,
@@ -32,12 +33,14 @@ export const PARTS = {
     "fold": null,
     "hue": "quiet",
     "font": "plain",
+    "named": false,
     "once": true,
     "repeats": false,
     "verdict": false
   },
   "user_message": {
     "label": "User message",
+    "about": "What the person asked.",
     "chat": "whole",
     "shape": "tile",
     "call": false,
@@ -45,12 +48,14 @@ export const PARTS = {
     "fold": null,
     "hue": "user",
     "font": "typed",
+    "named": false,
     "once": false,
     "repeats": false,
     "verdict": false
   },
   "earlier_turns": {
     "label": "Earlier turns",
+    "about": "The messages of the conversation before this one, which the model read again.",
     "chat": "hidden",
     "shape": "tile",
     "call": false,
@@ -58,12 +63,14 @@ export const PARTS = {
     "fold": null,
     "hue": "quiet",
     "font": "plain",
+    "named": false,
     "once": false,
     "repeats": false,
     "verdict": false
   },
   "agent_reply": {
     "label": "Model request",
+    "about": "One request to the model: it reads the conversation so far and thinks, writes, or calls tools.",
     "chat": "hidden",
     "shape": "card",
     "call": true,
@@ -71,12 +78,14 @@ export const PARTS = {
     "fold": null,
     "hue": "think",
     "font": "plain",
+    "named": false,
     "once": false,
     "repeats": false,
     "verdict": false
   },
   "thinking": {
     "label": "Thinking",
+    "about": "What the model thought before it answered.",
     "chat": "line",
     "shape": "line",
     "call": false,
@@ -86,12 +95,14 @@ export const PARTS = {
     "fold": "maker",
     "hue": "plain",
     "font": "thought",
+    "named": false,
     "once": false,
     "repeats": false,
     "verdict": false
   },
   "assistant": {
     "label": "Assistant",
+    "about": "What the model wrote on its way to calling tools.",
     "chat": "whole",
     "shape": "line",
     "call": false,
@@ -101,12 +112,14 @@ export const PARTS = {
     "fold": "maker",
     "hue": "plain",
     "font": "prose",
+    "named": false,
     "once": false,
     "repeats": false,
     "verdict": false
   },
   "tool_call": {
     "label": "Tool call",
+    "about": "A tool the model chose to run, and the input it gave it.",
     "chat": "line",
     "shape": "line",
     "call": false,
@@ -117,12 +130,14 @@ export const PARTS = {
     "fold": "user",
     "hue": "plain",
     "font": "code",
+    "named": false,
     "once": false,
     "repeats": false,
     "verdict": false
   },
   "tool": {
     "label": "Tool",
+    "about": "One of the plugin's tools, run as code on the input it was given.",
     "chat": "hidden",
     "shape": "pill",
     "call": true,
@@ -130,12 +145,14 @@ export const PARTS = {
     "fold": null,
     "hue": "task",
     "font": "code",
+    "named": true,
     "once": false,
     "repeats": false,
     "verdict": false
   },
   "tool_result": {
     "label": "Tool result",
+    "about": "What running the tool returned.",
     "chat": "line",
     "shape": "line",
     "call": false,
@@ -146,12 +163,14 @@ export const PARTS = {
     "fold": "maker",
     "hue": "plain",
     "font": "plain",
+    "named": false,
     "once": false,
     "repeats": false,
     "verdict": false
   },
   "agent_message": {
     "label": "Response",
+    "about": "The agent's answer to the person.",
     "chat": "whole",
     "shape": "line",
     "call": false,
@@ -161,12 +180,14 @@ export const PARTS = {
     "fold": "maker",
     "hue": "answer",
     "font": "prose",
+    "named": false,
     "once": false,
     "repeats": false,
     "verdict": false
   },
   "task": {
     "label": "Task",
+    "about": "One of the plugin's tasks: its own run, whose output its check judges.",
     "chat": "run",
     "shape": "box",
     "call": true,
@@ -174,12 +195,14 @@ export const PARTS = {
     "fold": null,
     "hue": "task",
     "font": "plain",
+    "named": true,
     "once": false,
     "repeats": false,
     "verdict": false
   },
   "task_input": {
     "label": "Task input",
+    "about": "The input the task was given.",
     "chat": "line",
     "shape": "tile",
     "call": false,
@@ -187,12 +210,14 @@ export const PARTS = {
     "fold": null,
     "hue": "plain",
     "font": "plain",
+    "named": false,
     "once": false,
     "repeats": false,
     "verdict": false
   },
   "reference": {
     "label": "Reference",
+    "about": "The plugin's reference tool, run on the same input to give the output the task's is compared with.",
     "chat": "hidden",
     "shape": "pill",
     "call": true,
@@ -200,12 +225,14 @@ export const PARTS = {
     "fold": null,
     "hue": "neutral",
     "font": "code",
+    "named": true,
     "once": false,
     "repeats": false,
     "verdict": false
   },
   "reference_output": {
     "label": "Reference output",
+    "about": "What the reference tool returned.",
     "chat": "line",
     "shape": "line",
     "call": false,
@@ -215,12 +242,14 @@ export const PARTS = {
     "fold": "maker",
     "hue": "plain",
     "font": "plain",
+    "named": false,
     "once": false,
     "repeats": false,
     "verdict": false
   },
   "decision": {
     "label": "Decision",
+    "about": "Fields of the task's output the model chose.",
     "chat": "line",
     "shape": "pill",
     "call": true,
@@ -228,12 +257,14 @@ export const PARTS = {
     "fold": null,
     "hue": "think",
     "font": "plain",
+    "named": true,
     "once": false,
     "repeats": true,
     "verdict": false
   },
   "task_output": {
     "label": "Task output",
+    "about": "What the task returned.",
     "chat": "line",
     "shape": "tile",
     "call": false,
@@ -245,12 +276,14 @@ export const PARTS = {
     "fold": null,
     "hue": "plain",
     "font": "plain",
+    "named": false,
     "once": false,
     "repeats": false,
     "verdict": false
   },
   "verifier": {
-    "label": "Verifier",
+    "label": "Output check",
+    "about": "The plugin's own code checking the task's output against its input; no model takes part.",
     "chat": "hidden",
     "shape": "pill",
     "call": true,
@@ -258,12 +291,14 @@ export const PARTS = {
     "fold": null,
     "hue": "check",
     "font": "plain",
+    "named": false,
     "once": false,
     "repeats": false,
     "verdict": false
   },
   "verdict": {
     "label": "Verdict",
+    "about": "Whether the task's output passed its check, and why.",
     "chat": "line",
     "shape": "tile",
     "call": false,
@@ -273,6 +308,7 @@ export const PARTS = {
     "fold": null,
     "hue": "plain",
     "font": "plain",
+    "named": false,
     "once": false,
     "repeats": false,
     "verdict": true
