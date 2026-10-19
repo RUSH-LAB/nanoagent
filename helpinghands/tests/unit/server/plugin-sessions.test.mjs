@@ -49,7 +49,7 @@ describe('plugin sessions over PostgreSQL', () => {
     assert.equal(read.title, 'paper 0');
     // Its chat file keeps every turn.
     const day = new Date(started.createdAt).toISOString().slice(0, 10);
-    const file = await fs.read(as('alice'), `home/alice/Chats/arxiv-source/${day} paper 0/chat.json`);
+    const file = await fs.read(as('alice'), `home/alice/Plugins/arxiv-source/chats/${day} paper 0/chat.json`);
     assert.equal(JSON.parse(file.body.toString()).turns.length, CHAT_TURNS + 2);
   });
 
@@ -59,17 +59,17 @@ describe('plugin sessions over PostgreSQL', () => {
     const trajectory = {schema_version: 'ATIF-v1.8', session_id: 's', agent: {}, steps: [], final_metrics: {}};
     await answered(as('alice'), 'echo', started.id, {prompt: 'one/two', answer: 'a', tools: [], graph, trajectory});
     const day = new Date(started.createdAt).toISOString().slice(0, 10);
-    const folder = `home/alice/Chats/echo/${day} one-two`;
+    const folder = `home/alice/Plugins/echo/chats/${day} one-two`;
     assert.deepEqual(JSON.parse((await fs.read(as('alice'), `${folder}/turns/001/graph.json`)).body.toString()), graph);
     assert.deepEqual(JSON.parse((await fs.read(as('alice'), `${folder}/turns/001/messages.json`)).body.toString()), trajectory);
     assert.equal(await fs.stat(as('bob'), `${folder}/chat.json`), null);
     // The member renames the folder; the session follows it.
-    await fs.move(as('alice'), folder, 'home/alice/Chats/echo/kept');
+    await fs.move(as('alice'), folder, 'home/alice/Plugins/echo/chats/kept');
     await answered(as('alice'), 'echo', started.id, {prompt: 'three', answer: 'b', tools: []});
     const read = await sessions.get(as('alice'), 'echo', started.id);
     assert.deepEqual(read.chat.map(turn => [turn.answer, turn.graph]), [['a', graph], ['b', null]]);
     // Deleting the chat file deletes the chat; the next turn starts another folder.
-    await fs.remove(as('alice'), 'home/alice/Chats/echo/kept/chat.json');
+    await fs.remove(as('alice'), 'home/alice/Plugins/echo/chats/kept/chat.json');
     assert.deepEqual((await sessions.get(as('alice'), 'echo', started.id)).chat, []);
     await answered(as('alice'), 'echo', started.id, {prompt: 'four', answer: 'c', tools: []});
     assert.ok(await fs.stat(as('alice'), `${folder}/chat.json`));

@@ -112,7 +112,7 @@ const isHomeFolder = path => /^home(\/[^/]+)?$/.test(path);
  * creating there act on the innermost folder.
  *
  * With `home` (`{userId, names}`, member names by id), the member's own home,
- * `home/<userId>`, comes first as My files, shown even before it holds
+ * `home/<userId>`, comes first as home, shown even before it holds
  * anything, then the workspace's files, then what other members shared from
  * their homes, as Shared with me, each home under its member's name
  * (docs/plans/filesystem-layout.md).
@@ -136,7 +136,7 @@ export function treeIndex(tree, {compact = true, home = null} = {}) {
   if (!home) return items;
   const mine = `home/${home.userId}`;
   if (!items.has(mine)) items.set(mine, {type: 'folder', path: mine, name: home.userId, children: []});
-  items.get(mine).label = 'My files';
+  items.get(mine).label = 'home';
   const root = items.get(ROOT);
   const homes = items.get('home');
   const shared = (homes?.children ?? []).filter(id => id !== mine);

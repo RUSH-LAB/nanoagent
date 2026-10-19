@@ -4,9 +4,11 @@
  * A plugin session's chat, kept as files in its member's home
  * (docs/plans/filesystem-layout.md):
  *
- *   home/<user>/Chats/<plugin>/<YYYY-MM-DD> <title>/chat.json                 the turns, as the plugin's page shows them
- *   home/<user>/Chats/<plugin>/<YYYY-MM-DD> <title>/turns/<n>/graph.json      a turn's provenance graph
- *   home/<user>/Chats/<plugin>/<YYYY-MM-DD> <title>/turns/<n>/messages.json   what its model saw and did, as an ATIF trajectory
+ *   home/<user>/Plugins/<plugin>/chats/<YYYY-MM-DD> <title>/chat.json                 the turns, as the plugin's page shows them
+ *   home/<user>/Plugins/<plugin>/chats/<YYYY-MM-DD> <title>/turns/<n>/graph.json      a turn's provenance graph
+ *   home/<user>/Plugins/<plugin>/chats/<YYYY-MM-DD> <title>/turns/<n>/messages.json   what its model saw and did, as an ATIF trajectory
+ *
+ * beside the plugin's files/, which its runs are given (fs/agent-sync.js), so a run never sees its chats.
  *
  * The folder is made with the session's first turn, and plugin_session.chat_file
  * names its chat.json by node id, so the member may rename or move the folder
@@ -33,7 +35,7 @@ async function open(tree, chatFile) {
 
 /** A free folder for a new chat of `pluginId` in `userId`'s home. */
 async function newFolder(tree, {userId, pluginId, at, title}) {
-  const base = `home/${userId}/Chats/${pluginId}/${chatName(at, title)}`;
+  const base = `home/${userId}/Plugins/${pluginId}/chats/${chatName(at, title)}`;
   for (let count = 1; ; count += 1) {
     const folder = count === 1 ? base : `${base} ${count}`;
     if (!await tree.nodeAt(folder)) return folder;

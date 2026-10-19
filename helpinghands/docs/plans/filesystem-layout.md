@@ -32,13 +32,14 @@ owner.
   .plugins/.imported/<asset id>.<ext>   imported legacy blobs, which name no plugin
   .chat/<channel id>/…                  workspace chat (fs/chat.js)
   .chat/.names/, .chat/.dms/            its registries
-  home/<userId>/                        Explorer: My files; others' shared nodes under Shared with me
+  home/<userId>/                        Explorer: home; others' shared nodes under Shared with me
     <anything the member keeps>
-    Plugins/<plugin>/                   what each run of <plugin> is given and writes (fs/agent-sync.js)
-    Chats/<plugin>/<YYYY-MM-DD> <title>/
-      chat.json                         every turn, as the plugin's page shows it
-      turns/<n>/graph.json              each turn's provenance graph
-      turns/<n>/messages.json           what its model saw and did, as an ATIF trajectory
+    Plugins/<plugin>/
+      files/                            what each run of <plugin> is given and writes (fs/agent-sync.js)
+      chats/<YYYY-MM-DD> <title>/
+        chat.json                       every turn, as the plugin's page shows it
+        turns/<n>/graph.json            each turn's provenance graph
+        turns/<n>/messages.json         what its model saw and did, as an ATIF trajectory
     From earlier runs/                  what runs left before plugins had folders
     .apps/<app>/<key>.json              bookmarks, tasks, notes, quicknotes, flashcards, reading lists
 ```
@@ -71,7 +72,7 @@ starts a new folder.
    | `home/<u>/agent/…` | `home/<u>/Plugins/…` |
    | `home/<u>/files/…` | `home/<u>/From earlier runs/…` |
 
-3. **Explorer roots** (components/Workbench/tree.js `treeIndex`): My files
+3. **Explorer roots** (components/Workbench/tree.js `treeIndex`): home
    first, even before it holds anything, then the workspace's files, then
    Shared with me, each home under its member's name.
 4. **Chats as files** (fs/chats.js, migration 0046). NanoAgent's web runtime
@@ -87,6 +88,10 @@ starts a new folder.
    they had before is renamed for the new one rather than downloaded again
    (`memberFiles`, src/runner/lab.mjs). A run's conflicted copy is named as
    the sync's is: `name (conflicted copy <plugin> run <YYYY-MM-DD>[ n]).ext`.
+   Migration 0047 put each plugin's chats and files in its one folder,
+   `Plugins/<plugin>/chats/` and `Plugins/<plugin>/files/`. `Plugins` keeps
+   its capital: renaming a folder only by case breaks RUSH Lab's sync on macOS
+   and Windows, whose disks treat the two names as one.
 6. **Drop `plugin_session.chat`**, which nothing reads or writes since 0046,
    when the owner decides, after step 4 is verified on production.
 
