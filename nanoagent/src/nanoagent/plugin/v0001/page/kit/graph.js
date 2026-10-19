@@ -10,28 +10,10 @@ import { metricsLine } from "./session.js";
 
 const SVG = "http://www.w3.org/2000/svg";
 const RELATIONS = ["used", "generated", "continued", "copied", "chose"];
-// What each type of node (nanoagent.plugin.provenance.NodeType) is called: first the messages of
-// the agent loop's transcript, then a plugin task's own.
-const TYPES = {
-  system_prompt: "System prompt",
-  user_message: "User message",
-  earlier_turns: "Earlier turns",
-  agent_reply: "Agent reply",
-  tool_call: "Tool call",
-  tool: "Tool",
-  tool_result: "Tool result",
-  agent_message: "Agent message",
-  task: "Task",
-  task_input: "Task input",
-  reference: "Reference tool",
-  reference_output: "Reference output",
-  decision: "Decision",
-  task_output: "Task output",
-  verifier: "Verifier",
-  verdict: "Verdict",
-};
-// The runs drawn with the tool call they alone ran and the result they alone returned.
+// The runs drawn with the tool call they alone ran and the result they alone returned, and the
+// parts of a reply drawn on its card.
 const FOLDING = new Set(["tool", "task", "reference"]);
+const REPLY_PARTS = new Set(["thinking", "text"]);
 let views = 0;
 
 /**
@@ -54,11 +36,10 @@ export function applyPatch(graph, patch) {
   } else throw new Error(`Unknown graph patch ${JSON.stringify(patch.op)}.`);
 }
 
-/** What a node is, by its type. */
-function kindText(node) {
-  const text = TYPES[node.type];
-  if (!text) throw new Error(`Unknown graph node type ${JSON.stringify(node.type)}.`);
-  return text;
+/** What a node is: the name of its part (nanoagent.plugin.provenance.PARTS). */
+export function kindText(node) {
+  if (!node.typeLabel) throw new Error(`The graph node ${JSON.stringify(node.id)} names no part.`);
+  return node.typeLabel;
 }
 
 const short = (text, length) => (text.length > length ? `${text.slice(0, length - 1)}…` : text);
@@ -129,15 +110,12 @@ function nodeDetail(node, name, running, graph, byId, close) {
   const parts = [];
   if (node.modelCalls?.length) for (const call of node.modelCalls) parts.push(h("p", { class: "message-metrics", text: metricsLine(call) }));
   if (node.duration_s != null) parts.push(h("p", { class: "message-metrics", text: `Took ${secondsText(node.duration_s)}` }));
-  if (node.type === "agent_reply") {
-    if (node.reasoning) parts.push(section("Thought", h("pre", { class: "trace-stream", text: node.reasoning })));
-    if (node.text) parts.push(section("Wrote", h("pre", { class: "trace-stream", text: node.text })));
-    if (running && !node.reasoning && !node.text) parts.push(h("p", { class: "muted", text: "Waiting for the first token." }));
-  }
+  if (node.type === "agent_reply" && running && !Object.keys(node.parts ?? {}).length) parts.push(h("p", { class: "muted", text: "Waiting for the first token." }));
   if (node.kind === "value" && !node.incomplete) parts.push(section("Value", h("pre", { text: json(node.value) })));
   const lists = [node, ...Object.values(node.parts ?? {})].flatMap((each) => edgesOf(each.id));
   for (const [name, value] of Object.entries(node.parts ?? {})) {
-    parts.push(section(kindText(value), value.incomplete ? h("p", { class: "muted", text: "Not finished." }) : h("pre", { text: json(value.value) })));
+    const text = typeof value.value === "string";
+    parts.push(section(kindText(value), value.incomplete ? h("p", { class: "muted", text: "Not finished." }) : h("pre", { class: text ? "trace-stream" : null, text: json(value.value) })));
   }
   parts.push(lists.length ? section("Provenance", h("ul", { class: "trace-edges-list" }, lists.map((text) => h("li", { text })))) : h("p", { class: "muted", text: "No recorded edge." }));
   const status = node.isError ? statusPill("Failed", "bad") : running ? statusPill("Running", "info") : node.incomplete ? statusPill("Not finished", "warn") : statusPill(kindText(node), "neutral");
@@ -161,6 +139,16 @@ function folded(nodes, edges) {
   const owner = new Map();
   const drawn = new Map();
   for (const node of nodes) {
+    if (node.type === "agent_reply") {
+      const parts = {};
+      for (const edge of out(node.id)) {
+        const part = byId.get(edge.to);
+        if (edge.relation === "generated" && REPLY_PARTS.has(part.type) && !out(part.id).length) parts[part.type] = part;
+      }
+      for (const part of Object.values(parts)) owner.set(part.id, node.id);
+      drawn.set(node.id, { ...node, parts });
+      continue;
+    }
     if (!FOLDING.has(node.type)) continue;
     const parts = {};
     const used = into(node.id).filter((edge) => edge.relation === "used" && byId.get(edge.from).kind === "value" && out(edge.from).length === 1);
@@ -259,6 +247,8 @@ export function graphView({ names = (task) => task } = {}) {
   const opened = new Map();
   // Each drawn node as drawn (with its parts or members), its element, and a reply's lines, which streamed text changes in place.
   let drawnNodes = new Map();
+  // Each reply part's line on its card, and the drawn node it is on.
+  let streamLines = new Map();
   let draws = [];
   const summary = h("div", { class: "trace-summary", hidden: true });
   const canvas = h("div", { class: "trace-canvas" });
@@ -309,13 +299,13 @@ export function graphView({ names = (task) => task } = {}) {
     if (node.type === "agent_reply" || node.type === "decision") {
       const total = totals([node]);
       const meta = total.requests ? h("span", { class: "tn-meta" }, h("span", { text: tokensText(total) }), h("span", { text: secondsText(total.seconds) })) : null;
-      if (node.type === "agent_reply") {
-        lines.reasoning = h("span", { class: "tn-preview thinking", text: preview(node.reasoning, running) });
-        // What the last reply wrote is the agent's message, drawn under it.
-        const answered = graph.edges.some((edge) => edge.from === node.id && byId.get(edge.to)?.type === "agent_message");
-        lines.text = answered ? null : h("span", { class: "tn-preview", text: preview(node.text, running) });
-      }
-      body = [type, h("span", { class: "tn-row" }, label, meta), lines.reasoning, lines.text];
+      // A reply's thinking and text, each a line its streamed tokens change in place.
+      const line = (part, extra) => {
+        if (!part) return null;
+        lines[part.id] = h("span", { class: `tn-preview${extra}`, text: preview(part.value, running) });
+        return lines[part.id];
+      };
+      body = [type, h("span", { class: "tn-row" }, label, meta), line(node.parts?.thinking, " thinking"), line(node.parts?.text, "")];
     } else if (node.kind === "value" && !node.incomplete && node.value !== null) {
       body = [type, label, h("span", { class: "tn-preview", text: short(shown(node.value), 48) })];
     } else if (withOutput) {
@@ -323,7 +313,8 @@ export function graphView({ names = (task) => task } = {}) {
     }
     const button = h("button", { type: "button", class: classes.filter(Boolean).join(" "), "aria-pressed": String(node.id === picked), title: kindText(node) }, body);
     button.addEventListener("click", () => pick(node));
-    drawnNodes.set(node.id, { node, element: button, lines });
+    drawnNodes.set(node.id, { node, element: button });
+    for (const [part, element] of Object.entries(lines)) streamLines.set(part, { line: element, owner: node.id });
     if (node.type !== "task") return button;
     // The task's own run, inside its box, folded to its totals once it is done.
     const verdict = (children.get(node.id) ?? []).find((each) => each.type === "verdict");
@@ -426,6 +417,7 @@ export function graphView({ names = (task) => task } = {}) {
         children.get(parent).push(node);
       }
       drawnNodes = new Map();
+      streamLines = new Map();
       draws = [];
       canvas.replaceChildren(graph.nodes.length ? level(null) : empty);
       drawEdges();
@@ -441,10 +433,10 @@ export function graphView({ names = (task) => task } = {}) {
     apply(patch) {
       applyPatch(graph, patch);
       // Streamed text changes one line of a reply's card in place, not the layout.
-      const line = patch.op === "append" ? drawnNodes.get(patch.id)?.lines[patch.field] : null;
-      if (!line) return redraw();
-      line.textContent = preview(byId.get(patch.id)[patch.field], !settled);
-      if (picked === patch.id) showDetail();
+      const streamed = patch.op === "append" ? streamLines.get(patch.id) : null;
+      if (!streamed) return redraw();
+      streamed.line.textContent = preview(byId.get(patch.id)[patch.field], !settled);
+      if (picked === streamed.owner) showDetail();
     },
     replace(whole) {
       graph = structuredClone(whole);

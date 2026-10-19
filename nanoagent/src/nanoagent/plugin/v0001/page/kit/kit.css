@@ -31,7 +31,7 @@
   --down: var(--bad);
   --mark: #ffe58f;
   --focus: #3b5998;
-  /* The dots on a chat's trail (kit/chat.js): a thought, and a task the agent ran. */
+  /* A thought, and a task the agent ran: the chat's live dot and a task's rail (kit/loop.js), and the graph's (kit/graph.js). */
   --stage-think: #dfa88f;
   --stage-task: #9fbbe0;
   --shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 1px 3px rgba(16, 24, 40, .04);
@@ -338,48 +338,52 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 
 .chat { display: grid; grid-template-rows: minmax(0, 1fr) auto auto; gap: 10px; min-height: 0; }
 .chat-log { display: grid; gap: 14px; align-content: start; min-height: 120px; overflow: auto; padding: 4px 2px 8px; }
-.message { display: grid; gap: 6px; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.message.user { justify-self: end; max-width: 85%; padding: 8px 13px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
-/* The agent's answer is prose on the page, not a bubble. */
-.message.agent { justify-self: stretch; padding: 0 2px; }
 .turn { display: grid; gap: 10px; min-width: 0; }
-/* What the agent did for a turn (kit/chat.js), a row per thought and per task it ran, each a
-   dot on a rail; a task's mark says how it ended, and a done task's row is its result's chip. */
-.trail { display: grid; min-width: 0; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: 13px; }
-.trail:empty { display: none; }
-.trail-step { --stage: var(--stage-think); position: relative; display: grid; min-width: 0; padding-left: 20px; }
-.trail-step.task { --stage: var(--stage-task); }
-.trail-step::before { content: ""; position: absolute; left: 4px; top: 0; bottom: 0; width: 1px; background: var(--border); }
-.trail-step:first-child::before { top: 13px; }
-.trail-step:last-child::before { bottom: calc(100% - 13px); }
-.trail-step::after { content: ""; position: absolute; left: 1px; top: 10px; width: 7px; height: 7px; border-radius: 50%; background: var(--stage); }
-.trail-step.live::after { animation: pulse 1.2s ease-in-out infinite; }
-.trail-step:has(.trail-mark > *)::after { display: none; }
-.trail-step.more::after { background: var(--border-strong); }
-.trail-mark { position: absolute; left: -2px; top: 6px; display: flex; color: var(--ok); background: var(--surface); }
-.trail-step.bad .trail-mark, .trail-result.bad .trail-mark { color: var(--bad); }
-.trail-mark:empty { display: none; }
-.trail-head, .trail-step.think summary { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 3px 0; }
-.trail-name { flex: none; color: var(--text); font-weight: 560; }
-.trail-tools, .trail-preview { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.trail-tools { font-family: var(--mono); font-size: 12px; }
-.trail-status { font-size: 12.5px; padding-bottom: 3px; }
-.trail-status:empty { display: none; }
-.trail-step.think summary { list-style: none; cursor: pointer; }
-.trail-step.think summary::-webkit-details-marker { display: none; }
-.trail-step.think summary:hover .trail-name, .trail-step.think summary:hover .trail-preview { color: var(--text); }
-.trail-step.think details[open] .trail-preview { visibility: hidden; }
-.trail-step.think details > .thinking-text { margin: 2px 0 8px; }
-/* A done task's row, a button that draws its result beside the chat. */
-.trail-result { appearance: none; min-width: 0; margin: 0 0 0 -6px; padding: 0 6px; border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.trail-result:hover { background: var(--surface-2); }
-.trail-result[aria-pressed="true"] { background: var(--accent-soft); }
-.trail-result[aria-pressed="true"] .trail-name { color: var(--accent); }
-.trail-result:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
-.trail-more { appearance: none; justify-self: start; padding: 3px 0; border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; }
-.trail-more:hover { color: var(--text); text-decoration: underline; }
-.thinking-text { max-height: 12em; overflow: auto; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--surface-2); font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
-/* Under a turn's answer: what it ran on, took and cost, and the button that draws its graph. */
+/* A turn's agent loop (kit/loop.js): a row per part, its part's name in a column of its own, then
+   what it holds on one line, opening to all of it; a task's own run indented under its call. */
+.loop { --label: 7.5rem; display: grid; gap: 1px; min-width: 0; margin: 0; padding: 0 0 0 10px; list-style: none; font-size: 13px; line-height: 1.45; }
+.loop:empty { display: none; }
+.part { position: relative; display: grid; grid-template-columns: var(--label) minmax(0, 1fr) auto auto; column-gap: 8px; align-items: baseline; min-width: 0; padding: 3px 4px; border-radius: var(--radius-sm); }
+.part-open { grid-column: 1 / 3; display: grid; grid-template-columns: subgrid; align-items: baseline; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.part:has(> .part-open:hover) { background: var(--surface-2); }
+.part-open:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+.part-label { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; color: var(--muted); font-size: 12.5px; font-weight: 560; white-space: nowrap; }
+.part-label::after { content: "›"; color: var(--border-strong); font-weight: 400; }
+.part-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.part-meta { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.part-full { grid-column: 2 / -1; min-width: 0; margin: 4px 0 6px; display: grid; gap: 6px; }
+.part-full pre { max-height: 16em; overflow: auto; margin: 0; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--surface-2); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.part-full pre.part-stream { font-family: var(--sans); font-size: 12.5px; line-height: 1.5; }
+/* Shown whole: the user's message, what a reply wrote, and the agent's response. */
+.part.whole > .part-whole { grid-column: 2 / -1; min-width: 0; overflow-wrap: anywhere; }
+.part.whole .markdown { gap: 6px; }
+.part.type-user_message > .part-whole { white-space: pre-wrap; }
+.part.type-agent_message > .part-label, .part.type-user_message > .part-label { color: var(--text); }
+.part.type-agent_message { padding-top: 6px; font-size: 14px; }
+.part.type-agent_message > .part-label { font-size: 12.5px; }
+.part.type-thinking .part-text { color: var(--muted); font-style: italic; }
+.part.type-tool_call .part-text { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+.part-name { color: var(--text); font-family: var(--sans); font-size: 13px; font-weight: 560; }
+.part.type-system_prompt .part-text { color: var(--muted); }
+.part.bad .part-text, .part.bad > .part-label { color: var(--bad); }
+.part.type-verdict:not(.bad) .icon { color: var(--ok); }
+.part .part-text .icon { vertical-align: -2px; }
+/* A part still being made: a pulsing dot before its name. */
+.part.live::before { content: ""; position: absolute; left: -8px; top: 10px; width: 6px; height: 6px; border-radius: 50%; background: var(--stage-think); animation: pulse 1.2s ease-in-out infinite; }
+/* A task's own run, under its call. */
+.loop-task { display: grid; gap: 1px; min-width: 0; margin-left: 4px; padding-left: 8px; border-left: 2px solid var(--stage-task); }
+.loop-task > .loop { --label: 6.5rem; }
+.loop-task-toggle { appearance: none; display: inline-flex; align-items: center; gap: 4px; justify-self: start; padding: 2px 4px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.loop-task-toggle:hover { background: var(--surface-2); color: var(--text); }
+.loop-task-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.loop-task-toggle .icon { transition: transform .15s; }
+.loop-task-toggle[aria-expanded="true"] .icon { transform: rotate(90deg); }
+/* A task result's button, which draws it beside the chat. */
+.result-open { appearance: none; padding: 1px 9px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface); color: var(--accent); font: inherit; font-size: 12px; font-weight: 560; white-space: nowrap; cursor: pointer; }
+.result-open:hover { background: var(--surface-2); }
+.result-open[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.result-open:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+/* Under a turn: what it ran on, took and cost, and the button that draws its graph. */
 .turn-foot { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .turn-foot:not(:has(> :not(:empty, [hidden]))) { display: none; }
 .turn-foot > .button { margin-left: auto; }
@@ -398,7 +402,6 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .result-list { margin: 0; padding-left: 18px; display: grid; gap: 2px; }
 .result-list.blocks { gap: 10px; }
 .result-list.blocks > li > .result-fields { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
-.message.agent:has(> .markdown) { white-space: normal; }
 .markdown { display: grid; gap: 8px; line-height: 1.5; min-width: 0; }
 .markdown > * { margin: 0; }
 .markdown h3, .markdown h4, .markdown h5, .markdown h6 { font-size: 15px; }

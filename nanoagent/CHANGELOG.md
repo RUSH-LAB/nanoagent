@@ -48,15 +48,24 @@ marketplace to offer it: a version published before 0.7.0 is listed under mainte
   task's own (task input, reference, decision, task output, verifier, verdict), and the page tags
   each node with it; the chat's and each agent task's system prompt are the first nodes their
   first reply used. A decide `Question` names the field it fills, `path`.
-- Above each answer, the chat shows what the agent did as a trail, a row each, in place of the
-  folded timeline and the result chips under the answer: a thought shows its first line and opens
-  to all of it, and a task its name, the tools its agent called (`search_papers ×2,
-  fetch_source`) and, once done, a mark for its check; a done task's row is its result's chip,
-  and a failed one says why. A trail longer than six rows shows its first two and last three.
-  The Graph button sits under the answer, and a kept turn's line says what it cost and took, as a
-  live one does (the host keeps each turn's `metrics`). In the graph, a task is shown by its name,
-  a finished reply by the start of what it thought, the last reply without its text (the agent's
-  message under it), and tokens as `13.9k tokens in, 1.3k out`.
+- Every type of node is a part of the run registered in `nanoagent.plugin.provenance.PARTS`, a
+  `Part` each: its name, whether it is a call (an action) or a value, and for a value the types of
+  call that make it, which the graph enforces on each `generated` edge. Every node carries its
+  part's name, `typeLabel`. What a reply thought and wrote are parts of their own, `thinking` and
+  `text` values it generated, streamed as `append` patches to their `value`; the last reply's text
+  is the agent's response (`agent_message`, named Response), and an agent reply no longer holds
+  `reasoning` and `text`.
+- The chat shows each turn as its agent loop, a row per part named by its part: `User message ›`,
+  `Thinking ›`, `Text ›`, `Tool call ›`, `Tool result ›`, `Response ›`, and inside a task's run,
+  indented under its call, `Task input ›`, `Reference output ›`, `Decision ›`, `Task output ›` and
+  `Verdict ›` (kit/loop.js). A row holds its part on one line and opens to all of it; the user's
+  message, a reply's text and the response show whole, as Markdown. The rows come from the turn's
+  graph as it streams in; a task's run is open while it runs or when it failed, folded once it
+  passed, and its result row has Open result, which draws the result beside the chat. The session's
+  system prompt shows in its first turn. Under the turn, its line says what it ran on, cost and
+  took, as a kept turn's does too (the host keeps each turn's `metrics`), and Graph draws its
+  graph. In the graph, a task is shown by its name, a reply's card holds its thinking and text, a
+  finished one from the start, and tokens read `13.9k tokens in, 1.3k out`.
 
 ## 0.6.0
 

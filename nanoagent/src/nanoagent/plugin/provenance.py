@@ -1,25 +1,27 @@
 """An agent run as a provenance graph: what each call used and generated, and where each value came from.
 
 The graph has two kinds of node, as in W3C PROV: *values* (entities), data, and *calls*
-(activities), what made them. Each node's ``type`` (:class:`NodeType`) says which it is, starting
-from the messages of NanoAgent's loop, whose transcript is chat messages of four roles: the
-``system`` prompt, the ``user``'s message, each ``assistant`` reply (what the model thought, its
-``reasoning_content``, what it wrote, its ``content``, and the tools it called, its
-``tool_calls``) and each ``tool`` result. A reply is a call, an agent reply, that used what was
-new in its conversation and generated its tool calls and, the last, the agent's message; running
-a tool call is a call that used it and generated its result. A plugin task is a tool call whose
-run is drawn inside it, its nodes naming it as their ``parent``: its input, its own loop, a decide
-task's decisions, its reference tool, its output, and the verifier's verdict on it. An agent
-reply and a decision hold the model requests they made in ``modelCalls`` (tokens, cost and
-timing), and a reply what it thought and wrote, streamed, in ``reasoning`` and ``text``.
+(activities, the actions), what made them. Each node's ``type`` (:class:`NodeType`) is one *part*
+of the run, which :data:`PARTS` registers: its name, ``typeLabel`` on every node, whether it is a
+call, and for a value the types of call that make it. The parts start from the messages of
+NanoAgent's loop, whose transcript is chat messages of four roles: the ``system`` prompt, the
+``user``'s message, each ``assistant`` reply (what the model thought, its ``reasoning_content``,
+what it wrote, its ``content``, and the tools it called, its ``tool_calls``) and each ``tool``
+result. A reply is a call, an agent reply, that used what was new in its conversation and
+generated what it thought (thinking), what it wrote (text, or the agent's response for the last)
+and its tool calls; running a tool call is a call that used it and generated its result. A plugin
+task is a tool call whose run is drawn inside it, its nodes naming it as their ``parent``: its
+input, its own loop, a decide task's decisions, its reference tool, its output, and the
+verifier's verdict on it. An agent reply and a decision hold the model requests they made in
+``modelCalls`` (tokens, cost and timing).
 
 Its edges are only what the run recorded, never inferred:
 
 - ``used``: a call took a value: a tool its call, the verifier what it judges, a reply what is
   new in its conversation (the system prompt and the message, then each tool result since the
   reply before it);
-- ``generated``: a call returned a value: a tool its result, a reply each tool call it made and,
-  the last, the agent's message;
+- ``generated``: a call returned a value, one of the parts it makes: a tool its result, a reply
+  its thinking, its text and each tool call it made;
 - ``continued``: a reply carried on the conversation of the one before it, so it read all that
   one read too;
 - ``copied``: a field of a value is a copy of a field of an earlier value (a decide task's copied
@@ -42,6 +44,7 @@ from __future__ import annotations
 import copy
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -50,17 +53,19 @@ Graph = dict[str, list[dict[str, Any]]]
 
 
 class NodeType(StrEnum):
-    """What a node of a run's graph is, a value or a call (:data:`CALLS`)."""
+    """What a node of a run's graph is: one of the run's parts (:data:`PARTS`)."""
 
     # The messages of the loop's transcript.
     SYSTEM_PROMPT = "system_prompt"  # the system message
     USER_MESSAGE = "user_message"  # the user message the turn answers
     EARLIER_TURNS = "earlier_turns"  # the user and assistant messages of the turns before it
     AGENT_REPLY = "agent_reply"  # one assistant message: one model request, a call
+    THINKING = "thinking"  # a reply's reasoning_content
+    TEXT = "text"  # a reply's content, when it called tools
     TOOL_CALL = "tool_call"  # one of a reply's tool calls: a tool's name and arguments
     TOOL = "tool"  # running a tool call, a call
     TOOL_RESULT = "tool_result"  # a tool message: what running a tool call returned
-    AGENT_MESSAGE = "agent_message"  # the last reply's content: the agent's answer
+    AGENT_MESSAGE = "agent_message"  # the last reply's content: the agent's response
     # A plugin task's run, inside its call.
     TASK = "task"  # running a tool call that is a plugin task, a call
     TASK_INPUT = "task_input"
@@ -72,7 +77,37 @@ class NodeType(StrEnum):
     VERDICT = "verdict"
 
 
-CALLS = frozenset({NodeType.AGENT_REPLY, NodeType.TOOL, NodeType.TASK, NodeType.REFERENCE, NodeType.DECISION, NodeType.VERIFIER})
+@dataclass(frozen=True)
+class Part:
+    """One type of node: its name, whether it is a call (an action) or a value, and for a value
+    the types of call that make it (``made_by``), none for one the run is given."""
+
+    label: str
+    call: bool = False
+    made_by: tuple[NodeType, ...] = ()
+
+
+PARTS: dict[NodeType, Part] = {
+    NodeType.SYSTEM_PROMPT: Part("System prompt"),
+    NodeType.USER_MESSAGE: Part("User message"),
+    NodeType.EARLIER_TURNS: Part("Earlier turns"),
+    NodeType.AGENT_REPLY: Part("Agent reply", call=True),
+    NodeType.THINKING: Part("Thinking", made_by=(NodeType.AGENT_REPLY,)),
+    NodeType.TEXT: Part("Text", made_by=(NodeType.AGENT_REPLY,)),
+    NodeType.TOOL_CALL: Part("Tool call", made_by=(NodeType.AGENT_REPLY, NodeType.DECISION)),
+    NodeType.TOOL: Part("Tool", call=True),
+    NodeType.TOOL_RESULT: Part("Tool result", made_by=(NodeType.TOOL, NodeType.TASK)),
+    NodeType.AGENT_MESSAGE: Part("Response", made_by=(NodeType.AGENT_REPLY,)),
+    NodeType.TASK: Part("Task", call=True),
+    NodeType.TASK_INPUT: Part("Task input"),
+    NodeType.REFERENCE: Part("Reference", call=True),
+    NodeType.REFERENCE_OUTPUT: Part("Reference output", made_by=(NodeType.REFERENCE,)),
+    NodeType.DECISION: Part("Decision", call=True),
+    NodeType.TASK_OUTPUT: Part("Task output", made_by=(NodeType.AGENT_REPLY, NodeType.DECISION, NodeType.TOOL)),
+    NodeType.VERIFIER: Part("Verifier", call=True),
+    NodeType.VERDICT: Part("Verdict", made_by=(NodeType.VERIFIER,)),
+}
+CALLS = frozenset(type for type, part in PARTS.items() if part.call)
 Relation = Literal["used", "generated", "continued", "copied", "chose"]
 _PLACE = re.compile(r"(input|output|calls\[\d+\]\.(?:arguments|output))(?:\.(.+))?")
 
@@ -112,12 +147,21 @@ class Provenance:
         self._decisions = 0
 
     def _send(self, patch: Patch) -> None:
+        if patch["op"] == "edge" and patch["edge"]["relation"] == "generated":
+            # A call generates only the parts its type makes.
+            types = {node["id"]: node["type"] for node in self._graph["nodes"]}
+            call, value = NodeType(types[patch["edge"]["from"]]), NodeType(types[patch["edge"]["to"]])
+            if call not in PARTS[value].made_by:
+                raise ValueError(f"a {call} call does not make a {value}")
         apply(self._graph, patch)
         self._on_patch(patch)
 
+    @staticmethod
+    def _typed(type: NodeType) -> dict[str, str]:
+        return {"type": type.value, "kind": "call" if PARTS[type].call else "value", "typeLabel": PARTS[type].label}
+
     def _node(self, id: str, type: NodeType, label: str, fields: dict[str, Any]) -> None:
-        kind = "call" if type in CALLS else "value"
-        self._send({"op": "node", "node": {"id": id, "type": type.value, "kind": kind, "label": label, **fields}})
+        self._send({"op": "node", "node": {"id": id, **self._typed(type), "label": label, **fields}})
 
     def value(self, id: str, type: NodeType, label: str, value: Any) -> None:
         self._node(id, type, label, {"value": value})
@@ -135,6 +179,13 @@ class Provenance:
 
     def update(self, id: str, **fields: Any) -> None:
         self._send({"op": "update", "id": id, "set": fields})
+
+    def retype(self, id: str, type: NodeType, label: str) -> None:
+        """The value ``id`` turned out to be a ``type``, named ``label``: a reply's text its response,
+        a tool call the task's output it submitted."""
+        if PARTS[type].call:
+            raise ValueError(f"a value cannot become a {type}, a call")
+        self.update(id, **self._typed(type), label=label)
 
     def append(self, id: str, field: str, text: str) -> None:
         self._send({"op": "append", "id": id, "field": field, "text": text})
@@ -195,9 +246,9 @@ class Provenance:
 class LoopRecorder:
     """An agent loop drawn into ``graph`` as it runs: each model request an agent reply that
     ``continued`` the one before it and ``used`` what is new in its conversation, starting with
-    ``inputs``; each tool call it made (which it ``generated``), its run (of the type
-    ``runs(name)``) and its result, which the next reply uses; and the last reply's message. Node
-    ids start with ``prefix``.
+    ``inputs``, and that ``generated`` what it thought and wrote, as they stream, and each tool call
+    it made; each tool call's run (of the type ``runs(name)``) and its result, which the next reply
+    uses; and what the last reply wrote, the agent's response. Node ids start with ``prefix``.
 
     Feed it the loop's events: :meth:`delta`, :meth:`tool_started`, :meth:`tool_done`,
     :meth:`step_done` after each request with tool calls, and :meth:`finish` once it ends.
@@ -212,13 +263,14 @@ class LoopRecorder:
         self._last: str | None = None
         self._steps = 0
         self._calls: dict[str, str] = {}  # a tool call's id -> its node's id
+        self._streamed: set[str] = set()  # the thinking and text nodes made so far
         self.arguments: dict[str, str] = {}  # a tool's name -> its last call's arguments node
 
     def _open(self) -> str:
         if self._step is None:
             self._step = f"{self._prefix}steps[{self._steps}]"
             self._steps += 1
-            self._graph.call(self._step, NodeType.AGENT_REPLY, f"Agent reply {self._steps}", reasoning="", text="", running=True, modelCalls=[])
+            self._graph.call(self._step, NodeType.AGENT_REPLY, f"Agent reply {self._steps}", running=True, modelCalls=[])
             if self._last is not None:
                 self._graph.edge(self._last, self._step, "continued")
             for value in self._fresh:
@@ -227,7 +279,15 @@ class LoopRecorder:
         return self._step
 
     def delta(self, kind: str, text: str) -> None:
-        self._graph.append(self._open(), "reasoning" if kind == "reasoning" else "text", text)
+        """More of what the open request thought (``kind`` "reasoning") or wrote."""
+        step = self._open()
+        type = NodeType.THINKING if kind == "reasoning" else NodeType.TEXT
+        at = f"{step}.{type}"
+        if at not in self._streamed:
+            self._streamed.add(at)
+            self._graph.value(at, type, PARTS[type].label, "")
+            self._graph.edge(step, at, "generated")
+        self._graph.append(at, "value", text)
 
     def tool_started(self, call_id: str, name: str) -> None:
         step = self._open()
@@ -266,9 +326,14 @@ class LoopRecorder:
             self._last, self._step = self._step, None
 
     def finish(self, answer: str | None, step: dict[str, Any] | None) -> None:
-        """The loop ended: ``answer`` is what its last request wrote, None when it failed."""
+        """The loop ended: ``answer`` is what its last request wrote, None when it failed, which is
+        the agent's response."""
         last = self._step
         self.step_done(step)
         if answer and last is not None:
-            self._graph.value(f"{self._prefix}answer", NodeType.AGENT_MESSAGE, "Agent message", answer)
-            self._graph.edge(last, f"{self._prefix}answer", "generated")
+            at = f"{last}.{NodeType.TEXT}"
+            if at not in self._streamed:
+                self._graph.value(at, NodeType.TEXT, PARTS[NodeType.TEXT].label, answer)
+                self._graph.edge(last, at, "generated")
+            self._graph.retype(at, NodeType.AGENT_MESSAGE, PARTS[NodeType.AGENT_MESSAGE].label)
+            self._graph.update(at, value=answer)

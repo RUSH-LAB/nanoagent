@@ -249,7 +249,7 @@ async def _run(
                 raise RuntimeError(f"the agent ended task {task.id!r} without calling {SUBMIT}")
             # The last submission is the output.
             output = loop.arguments[SUBMIT]
-            graph.update(output, type=NodeType.TASK_OUTPUT.value, label="Task output (submitted)")
+            graph.retype(output, NodeType.TASK_OUTPUT, "Task output (submitted)")
             on_event("task.result", {"response": submit.output})
             verdict = await _verdict(manifest, task, arguments, submit.output, reference, workspace, on_event, graph, output)
             return TaskOutcome(reference=reference, output=submit.output, agent=result, verdict=verdict)

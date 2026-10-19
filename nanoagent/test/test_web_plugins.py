@@ -262,7 +262,7 @@ def test_runs_a_prompt_in_the_callers_workspace(client: TestClient, model: Scrip
     assert events[3]["name"] == "echo" and not events[3]["is_error"]
     # The turn's provenance graph streams as patches, which add up to the whole graph sent last:
     # the message, the request that called the task, the task's run inside it, the request after
-    # it, which used the task's output, and the answer it generated.
+    # it, which used the task's output, and what it wrote, the agent's response.
     *patches, whole = graphs
     built: dict = {"nodes": [], "edges": []}
     for event in patches:
@@ -278,15 +278,15 @@ def test_runs_a_prompt_in_the_callers_workspace(client: TestClient, model: Scrip
         ("calls[0]", "generated", "calls[0].output"),
         ("steps[0]", "continued", "steps[1]"),
         ("calls[0].output", "used", "steps[1]"),
-        ("steps[1]", "generated", "answer"),
+        ("steps[1]", "generated", "steps[1].text"),
         ("calls[0]/input", "used", "calls[0]/calls[0]"),
         ("calls[0]/calls[0]", "generated", "calls[0]/output"),
     } <= edges
     assert nodes["calls[0]"]["type"] == "task" and nodes["calls[0]/calls[0]"]["parent"] == "calls[0]"
-    # Each node is typed by the message of the loop it is, the chat's system prompt first.
-    assert [nodes[key]["type"] for key in ("system", "message", "steps[0]", "calls[0].arguments", "calls[0].output", "answer")] == [
-        "system_prompt", "user_message", "agent_reply", "tool_call", "tool_result", "agent_message",
-    ]
+    # Each node is typed by the part of the loop it is, the chat's system prompt first, and named by it.
+    typed = ("system", "message", "steps[0]", "calls[0].arguments", "calls[0].output", "steps[1].text")
+    assert [nodes[key]["type"] for key in typed] == ["system_prompt", "user_message", "agent_reply", "tool_call", "tool_result", "agent_message"]
+    assert [nodes[key]["typeLabel"] for key in typed] == ["System prompt", "User message", "Agent reply", "Tool call", "Tool result", "Response"]
     assert "You operate the Echo plugin" in nodes["system"]["value"]
     assert nodes["calls[0]"]["duration_s"] > 0
     assert [len(nodes[step]["modelCalls"]) for step in ("steps[0]", "steps[1]")] == [1, 1]
@@ -576,16 +576,18 @@ def test_a_chat_runs_an_agent_task_and_counts_its_cost(tmp_path: Path, monkeypat
         ("task.delta", {"kind": "content", "text": "x"}),
         ("task.result", {}),
     ]
-    # The task's agent loop is drawn inside its call: each request with what it wrote, the
-    # arguments it generated, and the verifier judging what it submitted.
+    # The task's agent loop is drawn inside its call: each request with what it wrote (the last its
+    # response), the arguments it generated, and the verifier judging what it submitted.
     graph = [event for event in events if event["type"] == "graph"][-1]["graph"]
     nodes = {node["id"]: node for node in graph["nodes"]}
     edges = {(edge["from"], edge["relation"], edge["to"]) for edge in graph["edges"]}
     task = "calls[0]/"
-    assert [nodes[f"{task}steps[{index}]"]["text"] for index in range(3)] == ["x", "x", "x"]
+    written = [nodes[f"{task}steps[{index}].text"] for index in range(3)]
+    assert [(node["type"], node["value"]) for node in written] == [("text", "x"), ("text", "x"), ("agent_message", "echoed")]
     assert {
         (f"{task}system", "used", f"{task}steps[0]"),
         (f"{task}input", "used", f"{task}steps[0]"),
+        (f"{task}steps[0]", "generated", f"{task}steps[0].text"),
         (f"{task}steps[0]", "generated", f"{task}calls[0].arguments"),
         (f"{task}calls[0].output", "used", f"{task}steps[1]"),
         (f"{task}steps[1]", "generated", f"{task}calls[1].arguments"),
