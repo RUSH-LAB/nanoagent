@@ -252,6 +252,12 @@ async function main() {
           assert.deepEqual(served, fs.readFileSync(path.join(ui, file)), `ui/${file} is not served as it is`);
         }
       },
+      async viewPackage() {
+        // A package opened for its page alone shows the page its install does; production's, which
+        // has no such route, 404.
+        const viewed = await gateway.viewPackage(offered.sha256, ok(await gateway.packageFile(PLUGIN)));
+        if (viewed.status !== 404) assert.deepEqual(ok(viewed).view, {sha256: offered.sha256, uiVersion: installed.uiVersion});
+      },
       async saveWorkspaceFile() {
         ok(await gateway.saveWorkspaceFile(workspace, 'notes/a.md', Buffer.from('# A'), {create: true}));
         assert.equal((await gateway.saveWorkspaceFile(workspace, 'notes/a.md', Buffer.from('x'), {create: true})).status, 409);
