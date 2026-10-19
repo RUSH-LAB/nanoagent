@@ -12,7 +12,8 @@
  *
  * Writing back is measured against the revisions the run started from, so an
  * edit the member made while the run went on is never overwritten: a file both
- * changed is kept twice, the run's version as a conflicted copy beside it.
+ * changed is kept twice, the run's version as a conflicted copy beside it,
+ * named as RUSH Lab's sync names one (runner/sync.mjs).
  */
 const crypto = require('crypto');
 const {FsError} = require('./store');
@@ -26,12 +27,12 @@ function unwrap(result, doing) {
   return result.value;
 }
 
-/** Where the run's version of `path` goes when the member changed it too. */
-function conflictPath(path, workspace) {
+/** Where the `n`th copy of `path` made by `source` goes when the member changed it too. */
+function conflictPath(path, source, n = 1) {
   const slash = path.lastIndexOf('/');
   const dot = path.lastIndexOf('.');
   const split = dot > slash + 1 ? dot : path.length;
-  return `${path.slice(0, split)} (agent run ${workspace.slice(0, 8)})${path.slice(split)}`;
+  return `${path.slice(0, split)} (conflicted copy ${source}${n > 1 ? ` ${n}` : ''})${path.slice(split)}`;
 }
 
 function createAgentSync({fs}) {
@@ -48,12 +49,19 @@ function createAgentSync({fs}) {
   }
 
   /** Keep the run's `body` at `target`, unless the member changed it since `baseRev`. */
-  async function keep(scope, target, body, baseRev, workspace) {
+  async function keep(scope, target, body, baseRev, pluginId) {
     try {
       await fs.write(scope, target, body, {baseRev});
     } catch (error) {
       if (!collided(error)) throw error;
-      await fs.write(scope, conflictPath(target, workspace), body, {baseRev: 0});
+      const source = `${pluginId} run ${new Date().toISOString().slice(0, 10)}`;
+      for (let n = 1; ; n += 1) {
+        try {
+          return await fs.write(scope, conflictPath(target, source, n), body, {baseRev: 0});
+        } catch (again) {
+          if (!collided(again)) throw again;
+        }
+      }
     }
   }
 
@@ -70,7 +78,7 @@ function createAgentSync({fs}) {
       const body = unwrap(await ai.workspaceFile(workspace, file.path), `send ${file.path}`);
       const base = sent.get(file.path);
       if (base?.contentHash === sha256(body)) continue;
-      await keep(scope, `${folder}/${file.path}`, body, base?.rev ?? 0, workspace);
+      await keep(scope, `${folder}/${file.path}`, body, base?.rev ?? 0, pluginId);
     }
     for (const [relative, base] of sent) {
       if (left.has(relative)) continue;

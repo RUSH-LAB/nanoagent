@@ -91,9 +91,12 @@ describe('plugin runs as file system clients', () => {
     const sync = createAgentSync({fs});
     await fs.write(alice, 'home/alice/Plugins/echo/both.md', 'start');
     await fs.write(alice, 'home/alice/Plugins/echo/kept.md', 'start');
-    let used;
+    const day = new Date().toISOString().slice(0, 10);
+    const edit = async () => {
+      await fs.write(alice, 'home/alice/Plugins/echo/both.md', 'member');
+      await fs.write(alice, 'home/alice/Plugins/echo/kept.md', 'member');
+    };
     await runIn(sync, alice, nano, async workspace => {
-      used = workspace;
       // The member writes while the run goes on.
       await fs.write(alice, 'home/alice/Plugins/echo/both.md', 'member');
       await fs.write(alice, 'home/alice/Plugins/echo/kept.md', 'member');
@@ -102,9 +105,16 @@ describe('plugin runs as file system clients', () => {
       nano.of(workspace).delete('kept.md');
     });
     assert.equal((await fs.read(alice, 'home/alice/Plugins/echo/both.md')).body.toString(), 'member');
-    assert.equal((await fs.read(alice, `home/alice/Plugins/echo/both (agent run ${used.slice(0, 8)}).md`)).body.toString(), 'agent');
+    assert.equal((await fs.read(alice, `home/alice/Plugins/echo/both (conflicted copy echo run ${day}).md`)).body.toString(), 'agent');
     assert.equal((await fs.read(alice, 'home/alice/Plugins/echo/kept.md')).body.toString(), 'member');
     assert.equal((await fs.read(alice, 'home/alice/Plugins/echo/added.md')).body.toString(), 'member');
+    // Another run that day the member edits under is kept as the next copy.
+    await runIn(sync, alice, nano, async workspace => {
+      await edit();
+      await fs.write(alice, 'home/alice/Plugins/echo/both.md', 'member again');
+      nano.of(workspace).set('both.md', Buffer.from('agent again'));
+    });
+    assert.equal((await fs.read(alice, `home/alice/Plugins/echo/both (conflicted copy echo run ${day} 2).md`)).body.toString(), 'agent again');
   });
 
   it('writes nothing back from a listing NanoAgent cut short', async () => {
@@ -189,9 +199,9 @@ describe('plugin folders', () => {
 });
 
 describe('conflictPath', () => {
-  it('names the run before the extension', () => {
-    assert.equal(conflictPath('a/b.tar.gz', 'abcdef1234'), 'a/b.tar (agent run abcdef12).gz');
-    assert.equal(conflictPath('a/.env', 'abcdef1234'), 'a/.env (agent run abcdef12)');
-    assert.equal(conflictPath('notes', 'abcdef1234'), 'notes (agent run abcdef12)');
+  it('names the copy before the extension, as RUSH Lab\'s sync does', () => {
+    assert.equal(conflictPath('a/b.tar.gz', 'echo run 2026-10-18'), 'a/b.tar (conflicted copy echo run 2026-10-18).gz');
+    assert.equal(conflictPath('a/.env', 'echo run 2026-10-18', 2), 'a/.env (conflicted copy echo run 2026-10-18 2)');
+    assert.equal(conflictPath('notes', 'echo run 2026-10-18'), 'notes (conflicted copy echo run 2026-10-18)');
   });
 });

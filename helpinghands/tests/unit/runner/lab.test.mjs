@@ -8,7 +8,7 @@ import YAML from 'yaml';
 import {spawnSync} from 'node:child_process';
 import {
   addConnection, adoptLegacy, bundledCommand, commandLauncher, connectableSite, connectionId, installCommand, installsFolder, linkMember,
-  linkSession, keyHint, keyStatus, nanoagentCommand, newPlugin, onPath, parseEnv, pathAdvice, providerKeys, relayEnv,
+  linkSession, keyHint, keyStatus, memberFiles, nanoagentCommand, newPlugin, onPath, parseEnv, pathAdvice, providerKeys, relayEnv,
   removeOtherSites, rushlab, rushlabCommand, systemEnv, writeKeys,
 } from '../../../src/runner/lab.mjs';
 
@@ -223,6 +223,27 @@ test('installs a connection\'s plugins in its folder, or on Windows in a short f
   assert.equal(path.dirname(windows), path.join(data, 'installs'));
   assert.match(path.basename(windows), /^[0-9a-f]{12}$/);
   assert.notEqual(windows, installsFolder(data, path.join(data, 'connections', 'rush-lab.org-bob'), true));
+});
+
+test('keeps a member\'s files in a folder named for their login, which follows them to a new one', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rushlab-files-'));
+  try {
+    const folder = memberFiles(root, {id: 'u1', login: 'ada'});
+    fs.mkdirSync(path.join(folder, 'comp-480'));
+    fs.writeFileSync(path.join(folder, 'comp-480', 'notes.md'), 'mine');
+    assert.equal(memberFiles(root, {id: 'u1', login: 'ada'}), folder);
+    // Renamed on GitHub: the folder is renamed, not downloaded again.
+    const renamed = memberFiles(root, {id: 'u1', login: 'ada-l'});
+    assert.equal(fs.readFileSync(path.join(renamed, 'comp-480', 'notes.md'), 'utf8'), 'mine');
+    assert.deepEqual(fs.readdirSync(root), ['ada-l']);
+    // A folder another member's files are in is never taken.
+    assert.throws(() => memberFiles(root, {id: 'u2', login: 'ada-l'}), /holds another member's files/);
+    // One made before folders said whose they are becomes its login's member's.
+    fs.mkdirSync(path.join(root, 'bob'));
+    assert.equal(memberFiles(root, {id: 'u3', login: 'bob'}), path.join(root, 'bob'));
+  } finally {
+    fs.rmSync(root, {recursive: true, force: true});
+  }
 });
 
 test('tells a connection\'s relay where Mochi, NanoAgent and its files are', () => {

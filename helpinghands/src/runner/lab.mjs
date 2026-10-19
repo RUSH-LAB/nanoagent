@@ -15,7 +15,7 @@
  * holds what they share (app/, python/, the uv cache, logs/lab.log) and connections/<id>/, one
  * folder per connection (addConnection): its site, its member, their sign-in
  * (runner-credentials.json), their keys (settings.env), and NanoAgent's folders and logs for them.
- * The member's files are ~/<files folder>/<login>/. A connection to any other site, which an
+ * The member's files are ~/<files folder>/<login>/ (memberFiles). A connection to any other site, which an
  * earlier build kept, is removed at startup (removeOtherSites).
  *
  * It runs `uv sync` for NanoAgent's dependencies once, then, for each connection, starts a
@@ -346,6 +346,34 @@ export function nanoagentCommand({nanoagent, data, connection, port, sandbox, sy
     // The keys are all NanoAgent is given of the settings.
     env: {...system, ...keys, NANOAGENT_API_TOKEN: token},
   };
+}
+
+/**
+ * The folder of `member`'s files ({id, login}) in `root`, ~/<files folder>/: named for their login,
+ * and known by their id (.mochi/member.json), so a folder made under a login they had before is
+ * renamed for the one they have now rather than downloaded again. Throws when the name is another's.
+ */
+export function memberFiles(root, member) {
+  const folder = path.join(root, member.login);
+  const ownerOf = name => {
+    try {
+      return JSON.parse(fs.readFileSync(path.join(root, name, '.mochi', 'member.json'), 'utf8')).id;
+    } catch (error) {
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null;
+      throw error;
+    }
+  };
+  fs.mkdirSync(root, {recursive: true});
+  const taken = fs.existsSync(folder);
+  if (taken && ![null, member.id].includes(ownerOf(member.login))) throw new Error(`${folder} holds another member's files`);
+  const before = fs.readdirSync(root).find(name => name !== member.login && ownerOf(name) === member.id);
+  if (before) {
+    if (taken) throw new Error(`@${member.login}'s files are in ${path.join(root, before)}, and ${folder} is taken`);
+    fs.renameSync(path.join(root, before), folder);
+  }
+  fs.mkdirSync(path.join(folder, '.mochi'), {recursive: true});
+  fs.writeFileSync(path.join(folder, '.mochi', 'member.json'), `${JSON.stringify({id: member.id})}\n`);
+  return folder;
 }
 
 /** A connection's relay's environment (relay.mjs). */
@@ -708,7 +736,7 @@ async function main() {
       log(`Connecting to ${site}…`, id);
       connection.stage = 'connect';
       setupStage(connection.stage);
-      const files = path.join(os.homedir(), config.files_folder, member.login);
+      const files = memberFiles(path.join(os.homedir(), config.files_folder), member);
       const relay = startService(services, 'The relay', path.join(bin, exe('node')), ['relay.mjs'], {
         cwd: path.join(root, 'runner'),
         env: relayEnv({system, site, port: connection.port, token, connection: folder, keys: keyStatus(readSettings(settingsFile)), files}),
