@@ -59,6 +59,17 @@ npm run mail:verify
 `MAIL_TEST_TO` is used only by this command. The application sends invitation
 messages to their actual recipients.
 
+## RUSH Lab on a member's computer
+
+A member installs nothing but RUSH Lab: from the dmg on `/download`, or
+`curl -fsSL <site>/install.sh | sh` on macOS (`src/server/lab-install.js`).
+The app bundles Node.js, uv and git (`desktop/scripts/stage.mjs`). Python is
+not bundled: on first launch, the setup screen's Prepare Python step has the
+bundled uv download Python 3.12 and NanoAgent's packages from PyPI and GitHub
+(`src/runner/lab.mjs`), about a minute online. So the first launch needs the
+internet; this is deliberate, and bundling Python and the packages as well is
+not planned. A member also needs a GitHub account, the only sign-in.
+
 ## Release sequence
 
 1. Back up the legacy database, content tree, and uploaded objects.
