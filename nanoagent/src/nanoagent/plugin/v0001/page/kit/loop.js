@@ -1,15 +1,15 @@
 // A turn's agent loop as the chat shows it (kit/chat.js): each part of its provenance graph
 // (nanoagent.plugin.provenance), in the order the run made it, one row named by its part,
-// "Thinking › …", "Tool call › …", "Response › …". A task's own run is indented under its call.
+// "Thinking › …", "Tool call › …", "Response › …", each shown as its part says (kit/parts.js,
+// its `chat`, `hue` and `font`). A task's own run is indented under its call.
 
 import { h, icon } from "./dom.js";
-import { applyPatch, kindText } from "./graph.js";
+import { applyPatch, partOf } from "./graph.js";
 import { markdown } from "./markdown.js";
+import { TYPES } from "./parts.js";
 import { formatSeconds, runStats } from "./session.js";
 
-// The parts shown whole, as Markdown, not cut to a line: what a reply wrote.
 const STEPS = "steps"; // the key of whether the turn's Steps row is open, beside each task's id
-const WHOLE = new Set(["assistant", "agent_message"]);
 /** A tool's output, which is JSON text, as the value it holds; other text as it is. */
 const parsed = (value) => {
   if (typeof value !== "string" || !/^\s*[[{]/.test(value)) return value;
@@ -32,24 +32,25 @@ const inline = (value) => {
 };
 
 /**
- * One row: its part's name, `›`, and what it holds on one line, opening to all of it; or, for a
- * part shown whole, all of it as Markdown.
- * @param {string} label
+ * One row of the part `part` (kit/parts.js): its name, `›`, and what it holds on one line,
+ * opening to all of it; or, for a part shown whole, all of it as Markdown; in its hue and font.
+ * @param {{label: string, hue: string, font: string}} part
  * @param {{text?: string|Node[], whole?: string, full?: Node, meta?: Node|string|null, classes?: string}} content
  */
-export function partRow(label, { text = "", whole = null, full = null, meta = null, classes = "" }) {
-  const head = [h("span", { class: "part-label", text: label })];
-  if (whole !== null) return h("li", { class: `part whole ${classes}` }, ...head, h("div", { class: "part-whole" }, markdown(whole)));
+export function partRow(part, { text = "", whole = null, full = null, meta = null, classes = "" }) {
+  const head = [h("span", { class: "part-label", text: part.label })];
+  const li = (kind, ...children) => h("li", { class: `part ${kind} ${classes}`, "data-hue": part.hue, "data-font": part.font }, ...children);
+  if (whole !== null) return li("whole", ...head, h("div", { class: "part-whole" }, markdown(whole)));
   const body = full ? h("div", { class: "part-full", hidden: true }, full) : null;
   const line = h("span", { class: "part-text" }, text);
   const after = meta ? h("span", { class: "part-meta", text: typeof meta === "string" ? meta : null }, typeof meta === "string" ? null : meta) : null;
-  if (!body) return h("li", { class: `part ${classes}` }, ...head, line, after);
+  if (!body) return li("", ...head, line, after);
   const toggle = h("button", { type: "button", class: "part-open", "aria-expanded": "false" }, ...head, line);
   toggle.addEventListener("click", () => {
     body.hidden = !body.hidden;
     toggle.setAttribute("aria-expanded", String(!body.hidden));
   });
-  return h("li", { class: `part ${classes}` }, toggle, after, body);
+  return li("", toggle, after, body);
 }
 
 /** All of a value, for its row's opened part. */
@@ -99,9 +100,13 @@ export function loopView({ first, names, result, onResult = () => {} }) {
       children.get(parent).push(node);
     }
     const running = (node) => Boolean(node?.running) && !settled;
+    /** The verdict on the run inside `call`, if it has one. */
+    const verdictOf = (call) => (children.get(call.id) ?? []).find((each) => partOf(each).verdict)?.value;
+    /** A call's name: a task's (one whose run is drawn inside it), else its label. */
+    const callName = (call) => (partOf(call).chat === "run" ? names(call.label) : call.label);
     /** How the task `call` ended: its name and whether its result passed its check. */
     const taskMark = (call) => {
-      const verdict = (children.get(call.id) ?? []).find((each) => each.type === "verdict")?.value;
+      const verdict = verdictOf(call);
       return verdict ? `${names(call.label)}: ${verdict.valid ? "Checked" : "Check failed"}` : names(call.label);
     };
 
@@ -119,68 +124,60 @@ export function loopView({ first, names, result, onResult = () => {} }) {
         toggle?.addEventListener("click", () => (open.has(node.id) ? open.delete(node.id) : open.add(node.id)));
         return row;
       };
-      const label = kindText(node);
-      if (WHOLE.has(node.type)) return keep(partRow(label, { whole: node.value ?? "", classes: `type-${node.type}` }));
-      if (node.type === "thinking") {
-        const reply = into(node.id, "generated")[0];
-        const calls = (reply.modelCalls ?? []).map(runStats);
-        return keep(partRow(label, { text: inline(node.value ?? ""), full: h("div", {}, fullValue(node.value ?? ""), ...calls), classes: "type-thinking" }));
-      }
-      if (node.type === "tool_call") {
-        const [call] = out(node.id, "used");
-        const name = call?.type === "task" ? names(call.label) : (call?.label ?? "");
-        const text = [h("span", { class: "part-name", text: name }), node.incomplete ? null : ` ${inline(node.value)}`];
-        return keep(partRow(label, { text, full: node.incomplete ? null : fullValue(node.value), classes: "type-tool_call" }));
-      }
-      if (node.type === "tool_result") {
-        const [call] = into(node.id, "generated");
-        const meta = call?.duration_s != null ? formatSeconds(call.duration_s) : null;
-        if (call?.isError) return keep(partRow(label, { text: inline(node.value), full: fullValue(node.value), meta, classes: "type-tool_result bad" }));
-        if (call?.type === "task") {
-          const verdict = (children.get(call.id) ?? []).find((each) => each.type === "verdict")?.value;
-          if (!results.has(node.id)) {
-            const draw = result(call.label, node.value);
-            results.set(node.id, draw);
-            if (draw) onResult(draw);
-          }
-          return keep(partRow(label, { text: taskMark(call), meta, classes: `type-tool_result${verdict?.valid === false ? " bad" : ""}` }));
-        }
-        return keep(partRow(label, { text: inline(node.value), full: fullValue(node.value), meta, classes: "type-tool_result" }));
-      }
-      if (node.type === "verdict") {
+      const part = partOf(node);
+      const [maker] = into(node.id, "generated");
+      if (part.chat === "whole") return keep(partRow(part, { whole: node.value ?? "" }));
+      if (part.verdict) {
         const valid = node.value.valid;
         const text = h("span", {}, icon(valid ? "check" : "error", { size: 13, label: valid ? "Valid" : "Not valid" }), ` ${node.value.message}`);
-        const row = partRow(label, { full: fullValue(node.value), classes: `type-verdict${valid ? "" : " bad"}` });
-        row.querySelector(".part-text").replaceChildren(text);
-        return keep(row);
+        return keep(partRow(part, { text, full: fullValue(node.value), classes: `verdict${valid ? "" : " bad"}` }));
       }
-      return keep(partRow(label, { text: inline(node.value ?? ""), full: node.incomplete ? null : fullValue(node.value), classes: `type-${node.type}` }));
+      // What the call that made it took, and whether it failed.
+      const meta = maker?.duration_s != null ? formatSeconds(maker.duration_s) : null;
+      const bad = maker?.isError ? "bad" : "";
+      if (maker && !maker.isError && partOf(maker).chat === "run") {
+        // A task's result: how its run ended, and its result drawn beside the chat.
+        if (!results.has(node.id)) {
+          const draw = result(maker.label, node.value);
+          results.set(node.id, draw);
+          if (draw) onResult(draw);
+        }
+        return keep(partRow(part, { text: taskMark(maker), meta, classes: verdictOf(maker)?.valid === false ? "bad" : "" }));
+      }
+      // A value one call used goes on that call's name; one model requests made opens to what they took too.
+      const [user] = part.fold === "user" ? out(node.id, "used") : [];
+      const name = user ? h("span", { class: "part-name", text: callName(user) }) : null;
+      const text = [name, node.incomplete ? null : `${name ? " " : ""}${inline(node.value ?? "")}`];
+      const full = node.incomplete ? null : h("div", {}, fullValue(node.value ?? ""), ...(maker?.modelCalls ?? []).map(runStats));
+      return keep(partRow(part, { text, full, meta, classes: bad }));
     };
 
     /** The rows of the nodes inside `parent` (null for the turn itself). */
     const rows = (parent) => {
       const made = [];
-      let decisions = null; // the last row of decisions in a row of the same name, and how many
+      let repeated = null; // the last row of a part that repeats, its label, and how many there are in a row
       for (const node of children.get(parent) ?? []) {
-        if (node.type === "decision") {
-          if (decisions?.label === node.label) {
-            decisions.count += 1;
-            decisions.row.querySelector(".part-meta").textContent = `×${decisions.count}`;
-            continue;
-          }
-          const row = partRow(kindText(node), { text: node.label, meta: "×1", classes: "type-decision" });
-          decisions = { label: node.label, count: 1, row };
-          made.push(row);
+        const part = partOf(node);
+        if (part.repeats && repeated?.type === node.type && repeated.label === node.label) {
+          repeated.count += 1;
+          repeated.row.querySelector(".part-meta").textContent = `×${repeated.count}`;
           continue;
         }
-        decisions = null;
-        if (node.type === "task") {
+        repeated = null;
+        if (part.chat === "hidden") continue;
+        if (part.chat === "run") {
           made.push(taskRun(node));
           continue;
         }
-        if (node.kind === "call") continue;
-        // The turn's own message and the turns before it are the chat's; its system prompt shows once a session.
-        if (parent === null && (node.type === "user_message" || node.type === "earlier_turns" || (node.type === "system_prompt" && !first))) continue;
+        if (part.call) {
+          // A call shown on a line of its own, by its label.
+          const row = partRow(part, { text: node.label, meta: part.repeats ? "×1" : null });
+          if (part.repeats) repeated = { type: node.type, label: node.label, count: 1, row };
+          made.push(row);
+          continue;
+        }
+        // The turn's own message is the chat's; a part shown once a session shows in its first turn.
+        if (parent === null && (node.type === TYPES.USER_MESSAGE || (part.once && !first))) continue;
         made.push(valueRow(node));
       }
       return made;
@@ -189,8 +186,7 @@ export function loopView({ first, names, result, onResult = () => {} }) {
     /** A task's own run, indented, folded to how many parts it has once it passed. */
     const taskRun = (task) => {
       const inside = rows(task.id);
-      const verdict = (children.get(task.id) ?? []).find((each) => each.type === "verdict");
-      const isOpen = opened.get(task.id) ?? (running(task) || task.isError || verdict?.value.valid === false);
+      const isOpen = opened.get(task.id) ?? (running(task) || task.isError || verdictOf(task)?.valid === false);
       const toggle = h(
         "button",
         { type: "button", class: "loop-task-toggle", "aria-expanded": String(isOpen) },
@@ -211,10 +207,10 @@ export function loopView({ first, names, result, onResult = () => {} }) {
     const turn = () => {
       const top = children.get(null) ?? [];
       const made = rows(null);
-      const responses = new Set(top.filter((node) => node.type === "agent_message").map((node) => node.id));
+      const responses = new Set(top.filter((node) => node.type === TYPES.RESPONSE).map((node) => node.id));
       const inside = made.filter((row) => !responses.has(row.dataset.id));
       if (!inside.length) return made;
-      const tasks = top.filter((node) => node.type === "task");
+      const tasks = top.filter((node) => partOf(node).chat === "run");
       const isOpen = opened.get(STEPS) ?? (!settled || !responses.size);
       const toggle = h(
         "button",

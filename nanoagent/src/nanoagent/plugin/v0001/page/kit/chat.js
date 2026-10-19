@@ -4,6 +4,7 @@ import { request, startRun } from "./bridge.js";
 import { h } from "./dom.js";
 import { graphView, sessionGraph } from "./graph.js";
 import { loopView, partRow } from "./loop.js";
+import { PARTS, TYPES } from "./parts.js";
 import { currentSession } from "./session.js";
 
 /**
@@ -53,9 +54,9 @@ export function chatPanel({ intro, placeholder, tasks, show, trace, closed = fal
   // The session's provenance graph, every turn's joined, in the Graph tab beside the chat.
   const session = sessionGraph();
   const view = graphView({ names: labelOf });
-  const userRow = (text) => h("ol", { class: "loop" }, partRow("User message", { whole: text, classes: "type-user_message" }));
-  /** A kept turn's graph, null for one kept before graphs named each node's part. */
-  const partsGraph = (graph) => (graph?.nodes.every((node) => node.typeLabel) ? graph : null);
+  const userRow = (text) => h("ol", { class: "loop" }, partRow(PARTS[TYPES.USER_MESSAGE], { whole: text }));
+  /** A kept turn's graph, null for one kept before its nodes' types were the parts of kit/parts.js. */
+  const partsGraph = (graph) => (graph?.nodes.every((node) => node.type in PARTS) ? graph : null);
   /**
    * A turn the session kept, as its parts: its loop and why it was not answered; `onResult` is
    * given what draws each of its tasks' results. A turn kept before graphs named their parts
@@ -75,7 +76,7 @@ export function chatPanel({ intro, placeholder, tasks, show, trace, closed = fal
         const draw = resultDraw(call.name, call.output);
         if (draw) onResult(draw);
       }
-      rows = h("ol", { class: "loop" }, calls.map((call) => partRow("Tool result", { text: labelOf(call.name) })), answer ? partRow("Response", { whole: answer, classes: "type-agent_message" }) : null);
+      rows = h("ol", { class: "loop" }, calls.map((call) => partRow(PARTS[TYPES.TOOL_RESULT], { text: labelOf(call.name) })), answer ? partRow(PARTS[TYPES.RESPONSE], { whole: answer }) : null);
     }
     return [
       rows,

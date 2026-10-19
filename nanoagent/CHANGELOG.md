@@ -75,9 +75,16 @@ marketplace to offer it: a version published before 0.7.0 is listed under mainte
   every message in a table, their Total over their Average per message (a Total that messages
   sent before RUSH counted its figure lack says so in its title), and a model request's stats, under its
   reply and in the graph's panel, are Total Time, Time to First Token, Generation Time, Input
-  Tokens, Output Tokens and Cost, the panel naming a node once (not `Model request` twice); the dashboard lists each session as its title over when it
+  Tokens, Output Tokens and Cost, the panel naming a node once (not `Model request` or `System prompt` twice, a value's content right under its name); the dashboard lists each session as its title over when it
   was last used, with its cost and End-to-End Latency at the row's end (`$0.0003 / 12 s`), and a graph's cards and task boxes read
-  `3.7 s · 1 model request · 2 tool calls · 1.1k input, 173 output tokens · $0.0001`; the chat no longer has a line of its own for that, nor Open result and Graph buttons under each turn. In the graph, a task is shown by its name, a model request by its part's name,
+  `3.7 s · 1 model request · 2 tool calls · 1.1k input, 173 output tokens · $0.0001`; the chat no longer has a line of its own for that, nor Open result and Graph buttons under each turn. How every node is named and shown, in the chat and the graph, is said in one place,
+  `nanoagent.plugin.provenance.PARTS`: each `Part` has its name, how the chat shows it (`chat`:
+  whole, a line, a run, or hidden), how the graph draws it (`shape`: card, pill, box, tile, or a
+  line folded into the call that made or used it, `fold`), its `hue` and `font`, and whether it
+  shows once a session (`once`), merges with the same in a row (`repeats`) or is a verdict; the
+  page kit reads it from `kit/parts.js`, which `python -m nanoagent.plugin.provenance` writes and
+  a test keeps the same, and no node carries `typeLabel` any more (`NodeType.RESPONSE` is the old
+  `AGENT_MESSAGE`, its saved value unchanged). In the graph, a task is shown by its name, a model request by its part's name,
   `Model request` (`NodeType.MODEL_REQUEST`), not numbered `Agent reply 1`; a reply's card holds its thinking and what it
   wrote, the last its response, a finished one from the start, and a tool's card its call and its result, each line
   named by its part as the chat's rows are (`Thinking ›`, `Assistant ›`, `Tool call ›`, `Tool result ›`), and a picked node's panel shows what it took, its model requests' figures as every page

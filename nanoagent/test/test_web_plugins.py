@@ -17,7 +17,7 @@ from nanoagent.inference.types import Answer
 from nanoagent.plugin import install
 from nanoagent.plugin.install import FOLDER_HEX
 from nanoagent.plugin.package import pack
-from nanoagent.plugin.provenance import apply
+from nanoagent.plugin.provenance import KIT_PARTS, PARTS, NodeType, apply, kit_parts
 from nanoagent.plugin.python import plugin_python
 from nanoagent.runtime.config import load_config_args
 from nanoagent.web.app import create_app
@@ -286,7 +286,7 @@ def test_runs_a_prompt_in_the_callers_workspace(client: TestClient, model: Scrip
     # Each node is typed by the part of the loop it is, the chat's system prompt first, and named by it.
     typed = ("system", "message", "steps[0]", "calls[0].arguments", "calls[0].output", "steps[1].content")
     assert [nodes[key]["type"] for key in typed] == ["system_prompt", "user_message", "agent_reply", "tool_call", "tool_result", "agent_message"]
-    assert [nodes[key]["typeLabel"] for key in typed] == ["System prompt", "User message", "Model request", "Tool call", "Tool result", "Response"]
+    assert [PARTS[NodeType(nodes[key]["type"])].label for key in typed] == ["System prompt", "User message", "Model request", "Tool call", "Tool result", "Response"]
     assert "You operate the Echo plugin" in nodes["system"]["value"]
     assert nodes["calls[0]"]["duration_s"] > 0
     assert [len(nodes[step]["modelCalls"]) for step in ("steps[0]", "steps[1]")] == [1, 1]
@@ -600,3 +600,12 @@ def test_a_chat_runs_an_agent_task_and_counts_its_cost(tmp_path: Path, monkeypat
     # The task's agent works with its instructions and only its own tools.
     prompt, names = model.task_agent[0]
     assert "Echo the value with the echo tool." in prompt and names == {"echo", "submit"}
+
+
+def test_the_page_kit_draws_each_part_as_parts_registers_it():
+    # kit/parts.js is PARTS as written by `python -m nanoagent.plugin.provenance`.
+    assert KIT_PARTS.read_text(encoding="utf-8") == kit_parts()
+    # Every line is folded into a call, and only a value is.
+    for type, part in PARTS.items():
+        assert (part.shape == "line") == (part.fold is not None), type
+        assert not (part.call and part.shape in ("tile", "line")), type

@@ -368,16 +368,18 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 /* Shown whole: the user's message, what a reply wrote, and the agent's response. */
 .part.whole > .part-whole { grid-column: 2 / -1; min-width: 0; overflow-wrap: anywhere; }
 .part.whole .markdown { gap: 6px; }
-.part.type-user_message > .part-whole { white-space: pre-wrap; }
-.part.type-agent_message > .part-label, .part.type-user_message > .part-label { color: var(--text); }
-.part.type-agent_message { padding-top: 6px; font-size: 14px; }
-.part.type-agent_message > .part-label { font-size: 12.5px; }
-.part.type-thinking .part-text { color: var(--muted); font-style: italic; }
-.part.type-tool_call .part-text { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+/* Each part in its hue and font (kit/parts.js): the person's message as typed, the response
+   larger, a thought in italics, a tool's call as code, and what the run was given quieter. */
+.part[data-font="typed"] > .part-whole { white-space: pre-wrap; }
+.part[data-hue="answer"] > .part-label, .part[data-hue="user"] > .part-label { color: var(--text); }
+.part.whole[data-hue="answer"] { padding-top: 6px; font-size: 14px; }
+.part.whole[data-hue="answer"] > .part-label { font-size: 12.5px; }
+.part[data-font="thought"] .part-text { color: var(--muted); font-style: italic; }
+.part[data-font="code"] .part-text { color: var(--muted); font-family: var(--mono); font-size: 12px; }
 .part-name { color: var(--text); font-family: var(--sans); font-size: 13px; font-weight: 560; }
-.part.type-system_prompt .part-text { color: var(--muted); }
+.part[data-hue="quiet"] .part-text { color: var(--muted); }
 .part.bad .part-text, .part.bad > .part-label { color: var(--bad); }
-.part.type-verdict:not(.bad) .icon { color: var(--ok); }
+.part.verdict:not(.bad) .icon { color: var(--ok); }
 .part .part-text .icon { vertical-align: -2px; }
 /* A part still being made: a pulsing dot before its name. */
 .part.live::before { content: ""; position: absolute; left: -8px; top: 10px; width: 6px; height: 6px; border-radius: 50%; background: var(--stage-think); animation: pulse 1.2s ease-in-out infinite; }
@@ -478,33 +480,35 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .tn-label { max-width: 100%; font-weight: 560; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tn-count { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
 .tn-preview { max-width: 100%; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* A call is a pill with its role's dot; one drawn with its output is a card, the dot by its name. */
-.tn.call { --dot: var(--stage-task); }
-.tn.type-decision { --dot: var(--stage-think); }
-.tn.type-reference { --dot: var(--neutral); }
-.tn.type-verifier { --dot: var(--ok); }
-.tn.call:not(.type-agent_reply, .with-output) { display: inline-flex; align-items: center; gap: 6px; border-radius: var(--radius-pill); }
-.tn.call:not(.type-agent_reply, .with-output)::before, .tn.with-output > .tn-row > .tn-label::before { content: ""; display: inline-block; flex: none; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--dot); vertical-align: 1px; }
-.tn.call:not(.type-agent_reply, .with-output)::before { margin-right: 0; }
+/* Each node in its part's hue (kit/parts.js): the colour of a call's dot and a card's rail. */
+.tn[data-hue="think"] { --hue: var(--stage-think); }
+.tn[data-hue="task"] { --hue: var(--stage-task); }
+.tn[data-hue="check"] { --hue: var(--ok); }
+.tn[data-hue="neutral"] { --hue: var(--neutral); }
+/* A call is a pill with its hue's dot; one holding parts is drawn with them, the dot by its name. */
+.tn.call:not(.shape-card, .holds) { display: inline-flex; align-items: center; gap: 6px; border-radius: var(--radius-pill); }
+.tn.call:not(.shape-card, .holds)::before, .tn.holds:not(.shape-card) > .tn-row > .tn-label::before { content: ""; display: inline-block; flex: none; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--hue); vertical-align: 1px; }
+.tn.call:not(.shape-card, .holds)::before { margin-right: 0; }
 .tn-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; width: 100%; }
-.tn.type-tool .tn-label, .tn.type-reference .tn-label { font-family: var(--mono); font-size: 12px; font-weight: 500; }
-/* A model request: what it is thinking or writing, as it streams, over its tokens and time. */
-.tn.type-agent_reply { width: min(340px, 100%); max-width: none; gap: 4px; padding: 8px 12px; border-left: 3px solid var(--stage-think); }
-.tn.type-agent_reply .tn-preview { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; color: var(--text); line-height: 1.4; }
-.tn.type-agent_reply .tn-preview.type-thinking > .tn-part-text { color: var(--muted); font-style: italic; }
-.tn-preview.type-agent_message > .tn-part { color: var(--text); }
+.tn.call[data-font="code"] .tn-label { font-family: var(--mono); font-size: 12px; font-weight: 500; }
+/* A card, a model request: what it is thinking or writing, as it streams, over its tokens and time. */
+.tn.shape-card { width: min(340px, 100%); max-width: none; gap: 4px; padding: 8px 12px; border-left: 3px solid var(--hue); }
+.tn.shape-card .tn-preview { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; color: var(--text); line-height: 1.4; }
+.tn-preview[data-font="thought"] > .tn-part-text { color: var(--muted); font-style: italic; }
+.tn-preview[data-font="code"] > .tn-part-text { font-family: var(--mono); font-size: 11.5px; }
+.tn-preview[data-hue="answer"] > .tn-part { color: var(--text); }
 .tn-preview:has(> .tn-part-text:empty) { display: none; }
 /* A folded part's name, as the chat's rows name it: "Thinking ›". */
 .tn-part { margin-right: 4px; color: var(--muted); font-style: normal; font-weight: 560; }
 .tn-part::after { content: " ›"; color: var(--border-strong); font-weight: 400; }
 .tn-meta { display: flex; gap: 10px; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.tn.type-user_message { border-color: var(--accent); background: var(--accent-soft); }
-.tn.type-earlier_turns, .tn.type-system_prompt { border-style: dashed; color: var(--muted); }
+.tn[data-hue="user"] { border-color: var(--accent); background: var(--accent-soft); }
+.tn[data-hue="quiet"] { border-style: dashed; color: var(--muted); }
 .tn.incomplete { border-style: dashed; opacity: .6; }
 .tn.failed { border-color: var(--bad); color: var(--bad); }
 .tn.live { border-color: var(--stage-think); }
-.tn.type-agent_reply.live { animation: trace-live 1.6s ease-in-out infinite; }
-.tn.call.live:not(.type-agent_reply)::before, .tn.call.live > .tn-row > .tn-label::before { animation: pulse 1.2s ease-in-out infinite; }
+.tn.shape-card.live { animation: trace-live 1.6s ease-in-out infinite; }
+.tn.call.live:not(.shape-card)::before, .tn.call.live > .tn-row > .tn-label::before { animation: pulse 1.2s ease-in-out infinite; }
 @keyframes trace-live { 50% { border-left-color: var(--border-strong); } }
 /* A task: its call heads a box with the task's own run inside. */
 .tn-task { display: grid; gap: 6px; max-width: 100%; padding: 8px 12px 10px 6px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }

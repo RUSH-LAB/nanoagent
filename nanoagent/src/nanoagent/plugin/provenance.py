@@ -2,8 +2,9 @@
 
 The graph has two kinds of node, as in W3C PROV: *values* (entities), data, and *calls*
 (activities, the actions), what made them. Each node's ``type`` (:class:`NodeType`) is one *part*
-of the run, which :data:`PARTS` registers: its name, ``typeLabel`` on every node, whether it is a
-call, and for a value the types of call that make it. The parts start from the messages of
+of the run, which :data:`PARTS` registers: its name, whether it is a call, for a value the types
+of call that make it, and how a page shows it, the one place that says so: the page kit draws
+every node by its part (``kit/parts.js``, written from :data:`PARTS` by :func:`kit_parts`). The parts start from the messages of
 NanoAgent's loop, whose transcript is chat messages of four roles: the ``system`` prompt, the
 ``user``'s message, each ``assistant`` reply (what the model thought, its ``reasoning_content``,
 what it wrote, its ``content``, and the tools it called, its ``tool_calls``) and each ``tool``
@@ -42,10 +43,12 @@ field). :func:`apply` applies one to a graph's JSON, as a page drawing it live d
 from __future__ import annotations
 
 import copy
+import json
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, Literal
 
 Patch = dict[str, Any]
@@ -65,7 +68,7 @@ class NodeType(StrEnum):
     TOOL_CALL = "tool_call"  # one of a reply's tool calls: a tool's name and arguments
     TOOL = "tool"  # running a tool call, a call
     TOOL_RESULT = "tool_result"  # a tool message: what running a tool call returned
-    AGENT_MESSAGE = "agent_message"  # the last reply's content: the agent's response
+    RESPONSE = "agent_message"  # the last reply's content: the agent's response; saved graphs hold this value
     # A plugin task's run, inside its call.
     TASK = "task"  # running a tool call that is a plugin task, a call
     TASK_INPUT = "task_input"
@@ -77,36 +80,83 @@ class NodeType(StrEnum):
     VERDICT = "verdict"
 
 
+# How the chat shows a part in a turn's agent loop (kit/loop.js): "whole", all of it as Markdown;
+# "line", on one line opening to all of it; "run", a call whose own run is indented under it; or
+# "hidden", not at all.
+Chat = Literal["whole", "line", "run", "hidden"]
+# How the graph draws a part (kit/graph.js): "card", a call with the parts it made on lines of
+# its own and its model requests' tokens and time; "pill", a call by its name, with the parts
+# folded into it; "box", a call whose own run is drawn inside it; "tile", a value with a glimpse
+# of it; "line", a value on a line of the call it is folded into, by ``fold``.
+Shape = Literal["card", "pill", "box", "tile", "line"]
+# Which call a line is folded into: the one that generated it, or the one call that used it.
+Fold = Literal["maker", "user"]
+# Its colour: a model's thinking, a tool's or task's run, a check, a step of no other kind, the
+# person, the agent's response, what the run was given, or none.
+Hue = Literal["think", "task", "check", "neutral", "user", "answer", "quiet", "plain"]
+# How its text is set: Markdown, as typed, as code, as a thought, or plain.
+Font = Literal["prose", "typed", "code", "thought", "plain"]
+
+
 @dataclass(frozen=True)
 class Part:
-    """One type of node: its name, whether it is a call (an action) or a value, and for a value
-    the types of call that make it (``made_by``), none for one the run is given."""
+    """One type of node: its name, whether it is a call (an action) or a value, for a value the
+    types of call that make it (``made_by``), none for one the run is given, and how a page shows
+    it: in the chat (``chat``), in the graph (``shape``, and for a line the call it is folded into,
+    ``fold``), its colour (``hue``) and its text's (``font``). ``once``: shown once a session
+    while it is the same; ``repeats``: one in a row with the same label shows for all, with how
+    many; ``verdict``: its value is a verdict, ``{valid, message}``."""
 
     label: str
+    chat: Chat
+    shape: Shape
     call: bool = False
     made_by: tuple[NodeType, ...] = ()
+    fold: Fold | None = None
+    hue: Hue = "plain"
+    font: Font = "plain"
+    once: bool = False
+    repeats: bool = False
+    verdict: bool = False
 
 
 PARTS: dict[NodeType, Part] = {
-    NodeType.SYSTEM_PROMPT: Part("System prompt"),
-    NodeType.USER_MESSAGE: Part("User message"),
-    NodeType.EARLIER_TURNS: Part("Earlier turns"),
-    NodeType.MODEL_REQUEST: Part("Model request", call=True),
-    NodeType.THINKING: Part("Thinking", made_by=(NodeType.MODEL_REQUEST,)),
-    NodeType.ASSISTANT: Part("Assistant", made_by=(NodeType.MODEL_REQUEST,)),
-    NodeType.TOOL_CALL: Part("Tool call", made_by=(NodeType.MODEL_REQUEST, NodeType.DECISION)),
-    NodeType.TOOL: Part("Tool", call=True),
-    NodeType.TOOL_RESULT: Part("Tool result", made_by=(NodeType.TOOL, NodeType.TASK)),
-    NodeType.AGENT_MESSAGE: Part("Response", made_by=(NodeType.MODEL_REQUEST,)),
-    NodeType.TASK: Part("Task", call=True),
-    NodeType.TASK_INPUT: Part("Task input"),
-    NodeType.REFERENCE: Part("Reference", call=True),
-    NodeType.REFERENCE_OUTPUT: Part("Reference output", made_by=(NodeType.REFERENCE,)),
-    NodeType.DECISION: Part("Decision", call=True),
-    NodeType.TASK_OUTPUT: Part("Task output", made_by=(NodeType.MODEL_REQUEST, NodeType.DECISION, NodeType.TOOL)),
-    NodeType.VERIFIER: Part("Verifier", call=True),
-    NodeType.VERDICT: Part("Verdict", made_by=(NodeType.VERIFIER,)),
+    NodeType.SYSTEM_PROMPT: Part("System prompt", "line", "tile", hue="quiet", once=True),
+    NodeType.USER_MESSAGE: Part("User message", "whole", "tile", hue="user", font="typed"),
+    NodeType.EARLIER_TURNS: Part("Earlier turns", "hidden", "tile", hue="quiet"),
+    NodeType.MODEL_REQUEST: Part("Model request", "hidden", "card", call=True, hue="think"),
+    NodeType.THINKING: Part("Thinking", "line", "line", made_by=(NodeType.MODEL_REQUEST,), fold="maker", font="thought"),
+    NodeType.ASSISTANT: Part("Assistant", "whole", "line", made_by=(NodeType.MODEL_REQUEST,), fold="maker", font="prose"),
+    NodeType.TOOL_CALL: Part("Tool call", "line", "line", made_by=(NodeType.MODEL_REQUEST, NodeType.DECISION), fold="user", font="code"),
+    NodeType.TOOL: Part("Tool", "hidden", "pill", call=True, hue="task", font="code"),
+    NodeType.TOOL_RESULT: Part("Tool result", "line", "line", made_by=(NodeType.TOOL, NodeType.TASK), fold="maker"),
+    NodeType.RESPONSE: Part("Response", "whole", "line", made_by=(NodeType.MODEL_REQUEST,), fold="maker", hue="answer", font="prose"),
+    NodeType.TASK: Part("Task", "run", "box", call=True, hue="task"),
+    NodeType.TASK_INPUT: Part("Task input", "line", "tile"),
+    NodeType.REFERENCE: Part("Reference", "hidden", "pill", call=True, hue="neutral", font="code"),
+    NodeType.REFERENCE_OUTPUT: Part("Reference output", "line", "line", made_by=(NodeType.REFERENCE,), fold="maker"),
+    NodeType.DECISION: Part("Decision", "line", "pill", call=True, hue="think", repeats=True),
+    NodeType.TASK_OUTPUT: Part("Task output", "line", "tile", made_by=(NodeType.MODEL_REQUEST, NodeType.DECISION, NodeType.TOOL)),
+    NodeType.VERIFIER: Part("Verifier", "hidden", "pill", call=True, hue="check"),
+    NodeType.VERDICT: Part("Verdict", "line", "tile", made_by=(NodeType.VERIFIER,), verdict=True),
 }
+KIT_PARTS = Path(__file__).parent / "v0001" / "page" / "kit" / "parts.js"
+
+
+def kit_parts() -> str:
+    """:data:`PARTS` as the page kit's ``kit/parts.js``: ``TYPES``, each type's value by its name,
+    and ``PARTS``, each part by its type's value, in this order. Write it with
+    ``python -m nanoagent.plugin.provenance``."""
+    types = {type.name: type.value for type in NodeType}
+    parts = {type.value: {**asdict(part), "made_by": [made.value for made in part.made_by]} for type, part in PARTS.items()}
+    return (
+        "// Each type of a run's graph node and how a page shows it: nanoagent.plugin.provenance.PARTS,\n"
+        "// written by `python -m nanoagent.plugin.provenance`. Do not edit it here.\n\n"
+        f"export const TYPES = {json.dumps(types, indent=2)};\n\n"
+        f"export const PARTS = {json.dumps(parts, indent=2)};\n"
+    )
+
+
 CALLS = frozenset(type for type, part in PARTS.items() if part.call)
 Relation = Literal["used", "generated", "continued", "copied", "chose"]
 _PLACE = re.compile(r"(input|output|calls\[\d+\]\.(?:arguments|output))(?:\.(.+))?")
@@ -158,7 +208,7 @@ class Provenance:
 
     @staticmethod
     def _typed(type: NodeType) -> dict[str, str]:
-        return {"type": type.value, "kind": "call" if PARTS[type].call else "value", "typeLabel": PARTS[type].label}
+        return {"type": type.value, "kind": "call" if PARTS[type].call else "value"}
 
     def _node(self, id: str, type: NodeType, label: str, fields: dict[str, Any]) -> None:
         self._send({"op": "node", "node": {"id": id, **self._typed(type), "label": label, **fields}})
@@ -335,5 +385,9 @@ class LoopRecorder:
             if at not in self._streamed:
                 self._graph.value(at, NodeType.ASSISTANT, PARTS[NodeType.ASSISTANT].label, answer)
                 self._graph.edge(last, at, "generated")
-            self._graph.retype(at, NodeType.AGENT_MESSAGE, PARTS[NodeType.AGENT_MESSAGE].label)
+            self._graph.retype(at, NodeType.RESPONSE, PARTS[NodeType.RESPONSE].label)
             self._graph.update(at, value=answer)
+
+
+if __name__ == "__main__":
+    KIT_PARTS.write_text(kit_parts(), encoding="utf-8")
