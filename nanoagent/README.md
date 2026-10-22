@@ -450,6 +450,19 @@ Start the server so that it can do what NanoAgent asks of it:
   Silicon runtime (MLX) cannot hold its sampler to a schema and ends such an answer, so a `decide`
   task needs vLLM there.
 
+For Qwen3, as checked on NVIDIA GPUs with vLLM 0.32 and SGLang 0.5.22:
+
+```bash
+vllm serve Qwen/Qwen3-8B --api-key "$VLLM_API_KEY" \
+  --enable-auto-tool-choice --tool-call-parser hermes --reasoning-parser qwen3
+sglang serve --model-path Qwen/Qwen3-8B --api-key "$SGLANG_API_KEY" \
+  --tool-call-parser qwen --reasoning-parser qwen3
+```
+
+Each engine names its parsers for itself: Llama 3.1's tool-call parser is `llama3_json` on vLLM and
+`llama3` on SGLang, and it has no reasoning parser. SGLang listens on `127.0.0.1` unless it is
+started with `--host 0.0.0.0`, which a server on another computer needs.
+
 PI reaches the same servers: its catalog (`GET /v1/models`) lists the models each server serves
 now, as its own `/v1/models` says, with its context (`max_model_len`). A chat's thinking level is
 the chat template's `enable_thinking`, which Qwen3's and GLM's templates read and any other
