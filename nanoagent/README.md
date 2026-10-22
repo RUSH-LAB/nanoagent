@@ -161,8 +161,9 @@ Their config names the plugin, the task, and the task's `key=value` arguments.
 
 - **`nanoagent plugin run`** (`PluginRunConfig`) runs `tool` tasks.
 - **`nanoagent plugin agent`** (`PluginAgentConfig`) runs `agent` and `decide`
-  tasks. It adds `llm` (Bedrock, or OpenRouter in a
-  `PluginOpenRouterAgentConfig`) and `harness` (the loop's limits) to the
+  tasks. It adds `llm` (Bedrock, OpenRouter in a
+  `PluginOpenRouterAgentConfig`, or a vLLM or SGLang server of your own in a
+  `PluginServerAgentConfig`, below) and `harness` (the loop's limits) to the
   config, and `reference.json` and `messages.json` (ATIF) to the run folder.
 
 Every run folder holds `workspace/`, `result.json` (the task's output) and
@@ -420,6 +421,46 @@ mgen --config my-chat.yaml -p "inspect this repository"
 Native profiles retain NanoAgent's confirm/yolo/human tool modes. External harnesses own their
 tool approval and execution behavior; interactive mode keeps their conversation history and sends
 each follow-up through the selected harness.
+
+### vLLM and SGLang
+
+A model on a server of your own runs on `provider: vllm` or `provider: sglang`
+(`nanoagent.inference.providers.SERVERS`), over the server's OpenAI-compatible `/v1` endpoint.
+A `base_url` left null is the one in `VLLM_BASE_URL` or `SGLANG_BASE_URL`, and an `api_key` left
+null is the one in `VLLM_API_KEY` or `SGLANG_API_KEY`, the key the server was started with
+(`--api-key`), if any. Such a model costs nothing.
+
+```yaml
+model > nanoagent.runtime.config.ModelConfig:
+  model: Qwen/Qwen3-8B
+  provider: vllm
+  base_url: http://127.0.0.1:8000/v1
+  api_key: null
+  # ...the rest as above
+```
+
+Start the server so that it can do what NanoAgent asks of it:
+
+- **Tool calls**, which apps and agent tasks make: vLLM with
+  `--enable-auto-tool-choice --tool-call-parser <parser>` (without them it refuses a request that
+  offers tools), SGLang with `--tool-call-parser <parser>` (without it, it answers a call as text,
+  and NanoAgent refuses to run an app on it).
+- **Reasoning**, kept apart from the answer: `--reasoning-parser <parser>` on either.
+- **Schema-held answers** (`response_format`), which `decide` tasks take: both, but SGLang's Apple
+  Silicon runtime (MLX) cannot hold its sampler to a schema and ends such an answer, so a `decide`
+  task needs vLLM there.
+
+PI reaches the same servers: its catalog (`GET /v1/models`) lists the models each server serves
+now, as its own `/v1/models` says, with its context (`max_model_len`). A chat's thinking level is
+the chat template's `enable_thinking`, which Qwen3's and GLM's templates read and any other
+ignores; an app's run, which has no thinking level, runs without thinking, as it does on every
+other model. A `PluginServerAgentConfig` runs a plugin's `agent` and `decide` tasks on such a
+server (`llm > nanoagent.llm.server.ServerConfig`: `engine`, `model`, `base_url`, ...).
+
+RUSH Lab members add their servers under **Settings → Usage → Your servers**: RUSH Lab keeps each
+server's address and key on their computer as it keeps their API keys, hands them to its NanoAgent
+(`PUT /v1/keys`, which takes `VLLM_BASE_URL` and `SGLANG_BASE_URL` beside the keys), and every
+run, of every use, goes to the model they choose there.
 
 ## Source layout
 

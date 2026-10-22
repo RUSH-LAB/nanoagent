@@ -7,7 +7,7 @@
     mgen --dump-config                     # what the flags above resolved to, as YAML
 
 The point is the *protocol*, not the transport: which server answers is
-:mod:`nanoagent.inference.providers`' business (``sglang`` or ``openrouter``),
+:mod:`nanoagent.inference.providers`' business (``sglang``, ``vllm``, ``openrouter`` or ``bedrock``),
 so a script written against ``claude`` runs against whatever this repo can reach by changing
 the config, not the script.
 

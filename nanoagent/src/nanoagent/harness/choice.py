@@ -10,8 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass, fields
 from typing import Any
 
-# PI provider ids the NanoAgent loop (nanoagent.inference.providers) reaches too, by its own name.
-NATIVE_PROVIDERS = {"openrouter": "openrouter", "amazon-bedrock": "bedrock"}
+# PI provider ids the NanoAgent loop (nanoagent.inference.providers) reaches too, by its own name:
+# the server engines (vllm, sglang) are PI providers the PI runner adds under the same names.
+NATIVE_PROVIDERS = {"openrouter": "openrouter", "amazon-bedrock": "bedrock", "vllm": "vllm", "sglang": "sglang"}
 PI_PROVIDERS = {native: pi for pi, native in NATIVE_PROVIDERS.items()}
 
 
