@@ -7,9 +7,9 @@ import path from 'node:path';
 import YAML from 'yaml';
 import {spawnSync} from 'node:child_process';
 import {
-  addConnection, adoptLegacy, bundledCommand, commandLauncher, connectableSite, connectionId, installCommand, installsFolder, linkMember,
+  addConnection, adoptLegacy, bundledCommand, commandLauncher, connectableSite, connectionId, installCommand, installsFolder, isServerUrl, linkMember,
   linkSession, keyHint, keyStatus, memberFiles, nanoagentCommand, newPlugin, onPath, parseEnv, pathAdvice, providerKeys, relayEnv,
-  removeOtherSites, rushlab, rushlabCommand, systemEnv, writeKeys,
+  removeOtherSites, rushlab, rushlabCommand, SERVER_URLS, systemEnv, writeKeys,
 } from '../../../src/runner/lab.mjs';
 
 const CONFIG = {product_name: 'RUSH Lab', site_url: 'https://rush-lab.org', command: 'rushlab'};
@@ -169,7 +169,7 @@ test('refuses lines that are not assignments', () => {
 
 test('lists every provider key, set or not, with only a hint of its value', () => {
   const keys = keyStatus({OPENROUTER_API_KEY: 'sk-or-v1-0123456789abcdef', OPENAI_API_KEY: '', OTHER: 'x'});
-  assert.equal(keys.length, 14);
+  assert.equal(keys.length, 18);
   assert.deepEqual(keys[0], {env: 'OPENROUTER_API_KEY', label: 'OpenRouter', set: true, hint: 'sk-or-…cdef'});
   assert.deepEqual(keys.find(key => key.env === 'OPENAI_API_KEY'), {env: 'OPENAI_API_KEY', label: 'OpenAI', set: false, hint: null});
   assert.deepEqual(providerKeys({OPENROUTER_API_KEY: 'a', OPENAI_API_KEY: '', OTHER: 'x'}), {OPENROUTER_API_KEY: 'a'});
@@ -188,6 +188,35 @@ test('writes keys readable only by this user, keeping only provider keys', () =>
   assert.throws(() => writeKeys(file, {OPENAI_API_KEY: ' '}), /must be one key, without spaces/);
   assert.throws(() => writeKeys(file, {OPENAI_API_KEY: 'two keys'}), /must be one key, without spaces/);
   assert.equal(fs.readFileSync(file, 'utf8'), 'OPENROUTER_API_KEY=sk-or-1\n');
+  fs.rmSync(folder, {recursive: true});
+});
+
+test('keeps the member\'s own servers beside their keys, each address shown whole as it holds no secret', () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'lab-servers-'));
+  const file = path.join(folder, 'settings.env');
+  assert.deepEqual(SERVER_URLS, ['VLLM_BASE_URL', 'SGLANG_BASE_URL']);
+  writeKeys(file, {VLLM_BASE_URL: 'http://gpu.lab:8000/v1', VLLM_API_KEY: 'vllm-key-0123456789', SGLANG_BASE_URL: 'https://[::1]:30000/v1'});
+  const keys = keyStatus(parseEnv(fs.readFileSync(file, 'utf8')));
+  assert.deepEqual(keys.filter(key => key.set).map(({env, hint}) => [env, hint]), [
+    ['VLLM_BASE_URL', 'http://gpu.lab:8000/v1'],
+    ['VLLM_API_KEY', 'vllm-k…6789'],
+    ['SGLANG_BASE_URL', 'https://[::1]:30000/v1'],
+  ]);
+  assert.deepEqual(keys.find(key => key.env === 'SGLANG_API_KEY'), {env: 'SGLANG_API_KEY', label: 'SGLang', set: false, hint: null});
+  // NanoAgent gets them as it gets the keys.
+  assert.deepEqual(Object.keys(providerKeys(parseEnv(fs.readFileSync(file, 'utf8')))).sort(), ['SGLANG_BASE_URL', 'VLLM_API_KEY', 'VLLM_BASE_URL']);
+  for (const address of ['gpu.lab:8000/v1', 'ftp://gpu.lab/v1', 'http://user:secret@gpu.lab/v1', 'http://gpu.lab/v1?key=secret', 'http://gpu.lab/v1?', 'http://gpu.lab/v1#x', 'http://gpu.lab:99999/v1']) {
+    assert.equal(isServerUrl(address), false, address);
+    assert.throws(() => writeKeys(file, {VLLM_BASE_URL: address}), /VLLM_BASE_URL must be an http:\/\/ or https:\/\/ address/, address);
+  }
+  assert.match(fs.readFileSync(file, 'utf8'), /VLLM_BASE_URL=http:\/\/gpu.lab:8000\/v1\n/);
+  // A server's key goes only to the address it was saved with: an address changed without its key
+  // drops the key, in the file and in what NanoAgent is handed, so nothing can send it elsewhere.
+  assert.deepEqual(writeKeys(file, {VLLM_BASE_URL: 'http://elsewhere.example/v1'}), {VLLM_BASE_URL: 'http://elsewhere.example/v1', VLLM_API_KEY: null});
+  assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /VLLM_API_KEY/);
+  assert.deepEqual(writeKeys(file, {VLLM_API_KEY: 'k2'}), {VLLM_API_KEY: 'k2'});
+  assert.deepEqual(writeKeys(file, {VLLM_BASE_URL: null}), {VLLM_BASE_URL: null, VLLM_API_KEY: null});
+  assert.equal(fs.readFileSync(file, 'utf8'), 'SGLANG_BASE_URL=https://[::1]:30000/v1\n');
   fs.rmSync(folder, {recursive: true});
 });
 

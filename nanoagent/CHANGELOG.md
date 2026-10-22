@@ -3,6 +3,15 @@
 What each NanoAgent release changes for plugins. Since 0.7.0 a plugin declares the plugin format it
 follows, its `spec`, and runs on every release that runs that spec (`nanoagent.plugin.manifest.SPECS`).
 
+## Unreleased
+
+- A plugin's tasks run on a vLLM or SGLang server of one's own: an app's run on a model such a
+  server serves (`provider: vllm` or `sglang`, the server's address in `VLLM_BASE_URL` or
+  `SGLANG_BASE_URL`), and `nanoagent plugin agent` with a `PluginServerAgentConfig`, whose `llm` is
+  a `nanoagent.llm.server.ServerConfig`. The model runs without thinking, as on every other model,
+  and an app's run refuses an SGLang server started without `--tool-call-parser`, which would answer
+  its tool calls as text.
+
 ## 0.7.0
 
 A plugin declares the spec it follows, not the NanoAgent it was made for: `spec:

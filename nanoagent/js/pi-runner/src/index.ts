@@ -1,8 +1,19 @@
 #!/usr/bin/env node
 
 import {Agent, type AgentEvent, type ThinkingLevel} from "@earendil-works/pi-agent-core";
-import type {Api, AssistantMessage, Model, Usage} from "@earendil-works/pi-ai";
+import {
+  createProvider,
+  type Api,
+  type AssistantMessage,
+  type Model,
+  type MutableModels,
+  type OpenAICompletionsOptions,
+  type Provider,
+  type SimpleStreamOptions,
+  type Usage,
+} from "@earendil-works/pi-ai";
 import {setBedrockProviderModule} from "@earendil-works/pi-ai/api/bedrock-converse-stream.lazy";
+import {openAICompletionsApi} from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import {bedrockProviderModule} from "@earendil-works/pi-ai/bedrock-provider";
 import {builtinModels} from "@earendil-works/pi-ai/providers/all";
 import {realpathSync} from "node:fs";
@@ -37,6 +48,221 @@ export interface PiOptions {
 // The runner ships as one bundle (build.mjs), so Bedrock's implementation is bundled rather than
 // imported at run time from a file of pi-ai's that is not there.
 setBedrockProviderModule(bedrockProviderModule);
+
+export interface Server {
+  id: string;
+  name: string;
+  urlEnv: string;
+  keyEnv: string;
+  // Where, beside its /v1, the server says whether it parses tool calls (`tool_call_parser`).
+  infoPath?: string;
+}
+
+/**
+ * The engines that serve a model from a server of one's own, as NanoAgent names them
+ * (nanoagent.inference.providers.SERVERS): each a PI provider of the models its server lists, at the
+ * OpenAI-compatible /v1 address in `urlEnv`, with the key in `keyEnv` if the server was started
+ * with one (--api-key).
+ */
+export const SERVERS: readonly Server[] = [
+  {id: "vllm", name: "vLLM", urlEnv: "VLLM_BASE_URL", keyEnv: "VLLM_API_KEY"},
+  {id: "sglang", name: "SGLang", urlEnv: "SGLANG_BASE_URL", keyEnv: "SGLANG_API_KEY", infoPath: "/server_info"},
+];
+
+/** What listing a server found beside its models. */
+export interface ServerListing {
+  // Why the server could not list its models.
+  error: string | null;
+  // false when the server says it parses no tool calls: SGLang started without --tool-call-parser,
+  // which answers a call as text. null when it does not say: vLLM, which refuses tools it cannot call.
+  tools: boolean | null;
+}
+
+// How long a server has to list its models.
+const LIST_TIMEOUT_MS = 3_000;
+
+const serverOf = (provider: string) => SERVERS.find((server) => server.id === provider);
+
+/** The address of `server`'s server in `env`, without a trailing slash, or undefined. */
+export function serverUrl(server: Server, env: NodeJS.ProcessEnv): string | undefined {
+  return env[server.urlEnv]?.replace(/\/+$/, "") || undefined;
+}
+
+/**
+ * A model `server` serves, as its GET /models lists it: its context is the server's max_model_len,
+ * which vLLM and SGLang both list, and it costs nothing. Whether it thinks is its chat template's, so
+ * a run's thinking level is the template's enable_thinking, which Qwen3's and GLM's templates read and
+ * any other ignores; the system prompt goes as `system`, which every template knows.
+ */
+export function servedModel(server: Server, baseUrl: string, entry: {id: string; max_model_len?: unknown}): Model<"openai-completions"> {
+  const contextWindow = Number.isInteger(entry.max_model_len) && (entry.max_model_len as number) > 0 ? entry.max_model_len as number : 0;
+  return {
+    id: entry.id,
+    name: entry.id,
+    api: "openai-completions",
+    provider: server.id,
+    baseUrl,
+    reasoning: true,
+    input: ["text"],
+    cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0},
+    contextWindow,
+    maxTokens: contextWindow,
+    compat: {
+      supportsStore: false,
+      supportsDeveloperRole: false,
+      supportsReasoningEffort: false,
+      maxTokensField: "max_tokens",
+      thinkingFormat: "chat-template",
+      chatTemplateKwargs: {enable_thinking: {$var: "thinking.enabled"}},
+    },
+  };
+}
+
+const reason = (error: unknown): string => {
+  const cause = (error as {cause?: {code?: string; message?: string}})?.cause;
+  return cause?.code ?? cause?.message ?? (error instanceof Error ? error.message : String(error));
+};
+
+/** The models `server`'s server at `baseUrl` lists, or why it could not say. */
+export async function listServer(server: Server, baseUrl: string, key: string | undefined, signal: AbortSignal): Promise<Model<"openai-completions">[]> {
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/models`, {headers: key ? {Authorization: `Bearer ${key}`} : {}, signal});
+  } catch (error) {
+    const timedOut = signal.aborted;
+    throw new Error(`Could not reach the ${server.name} server at ${baseUrl}: ${timedOut ? `no answer within ${LIST_TIMEOUT_MS / 1000}s` : reason(error)}`);
+  }
+  if (!response.ok) {
+    const refused = key ? `${server.keyEnv} is not the key it was started with` : `it was started with a key (--api-key), which goes in ${server.keyEnv}`;
+    const hint = response.status === 401 ? `: ${refused}` : response.status === 404 ? ": is this its /v1 address?" : "";
+    throw new Error(`The ${server.name} server at ${baseUrl} answered ${response.status} to GET /models${hint}`);
+  }
+  const listing = await response.json().catch(() => null) as {data?: unknown} | null;
+  if (!Array.isArray(listing?.data)) throw new Error(`The ${server.name} server at ${baseUrl} lists no models at GET /models`);
+  return listing.data
+    .filter((entry): entry is {id: string; max_model_len?: unknown} => typeof entry?.id === "string" && entry.id !== "")
+    .map((entry) => servedModel(server, baseUrl, entry));
+}
+
+/**
+ * Whether `server`'s server at `baseUrl` parses tool calls, as it says at its `infoPath` beside its
+ * /v1; null for a server that does not say.
+ */
+export async function toolCalling(server: Server, baseUrl: string, key: string | undefined, signal: AbortSignal): Promise<boolean | null> {
+  if (!server.infoPath || !baseUrl.endsWith("/v1")) return null;
+  try {
+    const response = await fetch(`${baseUrl.slice(0, -"/v1".length)}${server.infoPath}`, {headers: key ? {Authorization: `Bearer ${key}`} : {}, signal});
+    const info = response.ok ? await response.json() as Record<string, unknown> | null : null;
+    return info && typeof info === "object" && "tool_call_parser" in info ? Boolean(info.tool_call_parser) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `server`'s provider, configured while `env` names its server, whose models are what that server
+ * lists; `listed` hears whether it parses tool calls each time it lists them.
+ */
+export function serverProvider(server: Server, env: NodeJS.ProcessEnv, listed: (tools: boolean | null) => void = () => {}): Provider<"openai-completions"> {
+  const baseUrl = serverUrl(server, env);
+  const key = env[server.keyEnv] || undefined;
+  return createProvider<"openai-completions">({
+    id: server.id,
+    name: server.name,
+    baseUrl,
+    // A server started without --api-key takes any key, and the client needs one.
+    auth: {apiKey: {name: `${server.name} server`, resolve: async () => (baseUrl ? {auth: {apiKey: key ?? "EMPTY"}, source: server.urlEnv} : undefined)}},
+    models: [],
+    fetchModels: async ({signal}) => {
+      const served = await listServer(server, baseUrl!, key, signal);
+      listed(await toolCalling(server, baseUrl!, key, signal));
+      return served;
+    },
+    api: openAICompletionsApi(),
+  });
+}
+
+/**
+ * Add `servers`' providers to `models` and list the models of each one `env` names a server for:
+ * what each such listing found (ServerListing), by provider id.
+ */
+export async function addServers(models: MutableModels, env: NodeJS.ProcessEnv, servers: readonly Server[] = SERVERS): Promise<Map<string, ServerListing>> {
+  const tools = new Map<string, boolean | null>();
+  for (const server of servers) models.setProvider(serverProvider(server, env, (value) => tools.set(server.id, value)));
+  const {aborted, errors} = await models.refresh({providers: servers.map((server) => server.id), signal: AbortSignal.timeout(LIST_TIMEOUT_MS)});
+  const listings = new Map<string, ServerListing>();
+  for (const server of servers) {
+    const url = serverUrl(server, env);
+    if (!url) continue;
+    let error = errors.get(server.id)?.message ?? null;
+    // A refresh that ran out of time may return before a slow server's listing says so.
+    if (!error && aborted && !models.getModels(server.id).length) {
+      error = `Could not reach the ${server.name} server at ${url}: no answer within ${LIST_TIMEOUT_MS / 1000}s`;
+    }
+    listings.set(server.id, {error, tools: tools.get(server.id) ?? null});
+  }
+  return listings;
+}
+
+/**
+ * One line of a server's event stream, with its usage's reasoning tokens where pi-ai reads them:
+ * OpenAI's usage.completion_tokens_details.reasoning_tokens, where vLLM counts them. SGLang counts
+ * them at usage.reasoning_tokens, which pi-ai would read as none.
+ */
+export function nestReasoningTokens(line: string): string {
+  const data = /^data: ?(\{.*)$/.exec(line)?.[1];
+  if (!data) return line;
+  let chunk: {usage?: {reasoning_tokens?: unknown; completion_tokens_details?: Record<string, unknown> | null} | null};
+  try {
+    chunk = JSON.parse(data);
+  } catch {
+    return line;
+  }
+  const usage = chunk.usage;
+  if (typeof usage?.reasoning_tokens !== "number" || usage.completion_tokens_details?.reasoning_tokens != null) return line;
+  const details = {...usage.completion_tokens_details, reasoning_tokens: usage.reasoning_tokens};
+  return `data: ${JSON.stringify({...chunk, usage: {...usage, completion_tokens_details: details}})}`;
+}
+
+/** fetch, with each line of an event stream it answers passed through nestReasoningTokens. */
+export const serverFetch: typeof fetch = async (input, init) => {
+  const response = await fetch(input, init);
+  if (!response.body || !response.headers.get("content-type")?.includes("text/event-stream")) return response;
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let pending = "";
+  const body = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      const lines = (pending + decoder.decode(chunk, {stream: true})).split("\n");
+      pending = lines.pop()!;
+      if (lines.length) controller.enqueue(encoder.encode(`${lines.map(nestReasoningTokens).join("\n")}\n`));
+    },
+    flush(controller) {
+      const rest = pending + decoder.decode();
+      if (rest) controller.enqueue(encoder.encode(nestReasoningTokens(rest)));
+    },
+  }));
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  return new Response(body, {status: response.status, statusText: response.statusText, headers});
+};
+
+/**
+ * How a run calls a server's model: with the run's own output limit or none, so the server leaves the
+ * answer what its context does (pi-ai's own limit keeps 4096 tokens spare, which leaves a small
+ * context next to nothing), its thinking level, which pi-ai's simple options call `reasoning` (none
+ * when the run's is off), and serverFetch, so its usage counts SGLang's reasoning tokens.
+ */
+export function serverStreamOptions(streamOptions: SimpleStreamOptions | undefined, options: PiOptions): OpenAICompletionsOptions {
+  const {reasoning, ...rest} = streamOptions ?? {};
+  return {
+    ...rest,
+    maxTokens: options.maxTokens,
+    ...(options.temperature === undefined ? {} : {temperature: options.temperature}),
+    reasoningEffort: reasoning,
+    fetch: serverFetch,
+  };
+}
 
 const THINKING_LEVELS = new Set<ThinkingLevel>([
   "off", "minimal", "low", "medium", "high", "xhigh", "max",
@@ -155,6 +381,17 @@ async function main(): Promise<void> {
     if (options.awsRegion) process.env.AWS_REGION = options.awsRegion;
     if (options.awsProfile) process.env.AWS_PROFILE = options.awsProfile;
     const models = builtinModels();
+    const server = serverOf(options.provider);
+    if (server) {
+      const url = serverUrl(server, process.env);
+      if (!url) throw new Error(`No ${server.name} server is set (${server.urlEnv}): add one to run ${options.model}`);
+      const failed = (await addServers(models, process.env, [server])).get(server.id)?.error;
+      if (failed) throw new Error(failed);
+      if (!models.getModel(server.id, options.model)) {
+        const served = models.getModels(server.id).map((entry) => entry.id).join(", ") || "no model";
+        throw new Error(`The ${server.name} server at ${url} does not serve ${options.model}; it serves ${served}`);
+      }
+    }
     const model = models.getModel(options.provider, options.model);
     if (!model) throw new Error(`PI model not found: ${options.provider}/${options.model}`);
     // pi-ai's own error for a provider with no key says only that it is "not configured".
@@ -172,11 +409,13 @@ async function main(): Promise<void> {
     agent = new Agent({
       initialState: {systemPrompt, model, thinkingLevel: options.thinkingLevel, tools: []},
       // The run's sampling settings go with every model call.
-      streamFn: (callModel, context, streamOptions) => models.streamSimple(callModel, context, {
-        ...streamOptions,
-        ...(options.temperature === undefined ? {} : {temperature: options.temperature}),
-        ...(options.maxTokens === undefined ? {} : {maxTokens: options.maxTokens}),
-      }),
+      streamFn: server
+        ? (callModel, context, streamOptions) => models.stream(callModel, context, serverStreamOptions(streamOptions, options))
+        : (callModel, context, streamOptions) => models.streamSimple(callModel, context, {
+          ...streamOptions,
+          ...(options.temperature === undefined ? {} : {temperature: options.temperature}),
+          ...(options.maxTokens === undefined ? {} : {maxTokens: options.maxTokens}),
+        }),
       getApiKey: options.apiKeyEnv ? () => process.env[options.apiKeyEnv!] : undefined,
     });
     process.once("SIGTERM", () => agent?.abort());
@@ -223,10 +462,14 @@ async function main(): Promise<void> {
 /**
  * The models PI can run, as models.js prints them: every provider (with whether this environment
  * holds its credentials) and every model with its context, output limit, reasoning support and
- * price per million tokens. NanoAgent serves it as GET /v1/models.
+ * price per million tokens. NanoAgent serves it as GET /v1/models. A server engine (SERVERS) is set
+ * once `env` names its server, which it gives as `baseUrl`, with the models that server lists now
+ * and the rest of what listing them found (ServerListing: `error`, `tools`); whether such a model
+ * reasons is not known (null).
  */
-export async function catalog(): Promise<Record<string, unknown>> {
+export async function catalog(env: NodeJS.ProcessEnv = process.env): Promise<Record<string, unknown>> {
   const models = builtinModels();
+  const listings = await addServers(models, env);
   const available = new Set((await models.getAvailable()).map((model) => model.provider));
   const entry = (model: Model<Api>) => ({
     provider: model.provider,
@@ -234,15 +477,17 @@ export async function catalog(): Promise<Record<string, unknown>> {
     name: model.name,
     contextWindow: model.contextWindow,
     maxTokens: model.maxTokens,
-    reasoning: model.reasoning,
+    reasoning: serverOf(model.provider) ? null : model.reasoning,
     cost: {input: model.cost.input, output: model.cost.output},
   });
   return {
-    providers: models.getProviders().map((provider) => ({
-      id: provider.id,
-      name: provider.name,
-      keySet: available.has(provider.id),
-    })),
+    providers: models.getProviders().map((provider) => {
+      const server = serverOf(provider.id);
+      if (!server) return {id: provider.id, name: provider.name, keySet: available.has(provider.id)};
+      const baseUrl = serverUrl(server, env) ?? null;
+      const listing = listings.get(provider.id);
+      return {id: provider.id, name: provider.name, keySet: baseUrl !== null, baseUrl, error: listing?.error ?? null, tools: listing?.tools ?? null};
+    }),
     models: models.getModels().map(entry),
   };
 }

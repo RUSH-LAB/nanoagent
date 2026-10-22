@@ -781,11 +781,24 @@ _OPENROUTER_LLM = """llm > nanoagent.llm.openrouter.OpenRouterConfig:
   input_price: 0.0
   output_price: 0.0
 """
+_SERVER_LLM = """llm > nanoagent.llm.server.ServerConfig:
+  engine: vllm
+  model: a-model
+  base_url: null
+  max_tokens: null
+  temperature: null
+  max_attempts: 1
+  read_timeout: 60.0
+"""
 
 
 @pytest.mark.parametrize(
     ("config_class", "llm", "provider"),
-    [("PluginAgentConfig", _BEDROCK_LLM, "bedrock"), ("PluginOpenRouterAgentConfig", _OPENROUTER_LLM, "openrouter")],
+    [
+        ("PluginAgentConfig", _BEDROCK_LLM, "bedrock"),
+        ("PluginOpenRouterAgentConfig", _OPENROUTER_LLM, "openrouter"),
+        ("PluginServerAgentConfig", _SERVER_LLM, "vllm"),
+    ],
 )
 def test_plugin_agent_runs_a_decide_task_on_its_model(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_class: str, llm: str, provider: str

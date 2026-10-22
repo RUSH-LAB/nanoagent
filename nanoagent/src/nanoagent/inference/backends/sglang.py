@@ -1,8 +1,8 @@
 """Chat completions over an OpenAI-compatible ``/v1`` endpoint.
 
-:class:`ChatBackend` is the one chat client. :mod:`nanoagent.inference.providers` points both
-``sglang`` and ``openrouter`` at it; they differ only in the default ``base_url`` and where the
-API key comes from. We point :class:`openai.AsyncOpenAI` at ``base_url`` and call
+:class:`ChatBackend` is the one chat client. :mod:`nanoagent.inference.providers` points
+``openrouter`` and the server engines (``vllm``, ``sglang``) at it; they differ only in where
+``base_url`` and the API key come from. We point :class:`openai.AsyncOpenAI` at ``base_url`` and call
 ``chat.completions.create``. :meth:`ChatBackend.generate` supports
 both batch plain-text inference and tool-calling agent turns:
 
@@ -25,9 +25,10 @@ for a local model unless prices are set. Loaded only when a chat provider is sel
 (see :func:`nanoagent.inference.providers.build_provider`), so this module — and its ``openai``
 import — stays out of the import path until then.
 
-Serving note: tool calling requires the SGLang server to be started with tool-call support
-for the model (e.g. ``--tool-call-parser <parser>``). Without it ``tool_calls`` is always
-empty and the caller just gets the plain answer.
+Serving note: tool calling requires the server to be started with tool-call support for the
+model: vLLM with ``--enable-auto-tool-choice --tool-call-parser <parser>``, which refuses a
+request with tools (400) without them, and SGLang with ``--tool-call-parser <parser>``, without
+which ``tool_calls`` is always empty and the caller just gets the plain answer.
 """
 
 from __future__ import annotations
@@ -96,9 +97,9 @@ def _reasoning_text(obj: Any) -> str | None:
 class ChatBackend:
     """Async chat client over ``AsyncOpenAI.chat.completions``.
 
-    Shared by the ``sglang`` and ``openrouter`` providers. SGLang ignores the API key; OpenRouter
-    requires one, which :func:`~nanoagent.inference.providers.build_provider` fills in before
-    calling :meth:`from_config`.
+    Shared by the ``openrouter``, ``vllm`` and ``sglang`` providers. A server started without
+    ``--api-key`` ignores the key; OpenRouter requires one, which
+    :func:`~nanoagent.inference.providers.build_provider` fills in before calling :meth:`from_config`.
     """
 
     #: Text in, text out. The chat API reports token COUNTS and no ids — that is true of SGLang's
@@ -109,7 +110,7 @@ class ChatBackend:
 
     #: The request field carrying the output-token budget. OpenAI deprecated ``max_tokens`` in
     #: favour of ``max_completion_tokens``, and gateways disagree about which they accept — some
-    #: newer deployments reject the old name with a 400. SGLang and OpenRouter both take
+    #: newer deployments reject the old name with a 400. vLLM, SGLang and OpenRouter all take
     #: ``max_tokens``, so that is the field this client sends.
     token_budget_param: str = "max_tokens"
 
@@ -278,6 +279,10 @@ class ChatBackend:
         finish_reason = getattr(choice, "finish_reason", None)
         if finish_reason == "length":
             raise ValueError(f"the answer to {name!r} was cut off at the token limit")
+        # The server ended the reply itself, as SGLang does once its sampler cannot keep to the
+        # schema (its Apple Silicon runtime cannot hold it to one at all).
+        if finish_reason == "abort":
+            raise ValueError(f"the server stopped its answer to {name!r} before it was done")
         try:
             value = json.loads(choice.message.content or "")
         except json.JSONDecodeError as error:

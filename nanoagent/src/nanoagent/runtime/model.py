@@ -16,7 +16,7 @@ loop side reaches into it. :class:`Model` just:
 
 ``ModelConfig.provider`` names the client and is passed through verbatim.
 :mod:`nanoagent.inference.providers` is the one table that turns that name into a client
-(``sglang`` or ``openrouter``). The client module is imported only when that provider is built,
+(``sglang``, ``vllm``, ``openrouter`` or ``bedrock``). The client module is imported only when that provider is built,
 so constructing one never pulls in another's stack.
 """
 
