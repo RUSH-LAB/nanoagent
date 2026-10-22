@@ -163,6 +163,34 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     assert.equal((await runners.saveKeys('u2', {OPENROUTER_API_KEY: 'sk-1'})).status, 409);
   });
 
+  it('sets the address of the member\'s own server as it sets a key, showing it whole, and refuses one that is not an address', async () => {
+    const kept = [];
+    let announce;
+    const address = `http://gpu.lab.example.org:8000/${'v'.repeat(40)}/v1`;
+    await dialIn('member-token', {
+      keys: [{env: 'VLLM_BASE_URL', label: 'vLLM server', set: false}, {env: 'VLLM_API_KEY', label: 'vLLM', set: false}],
+      saveKeys: async changes => {
+        kept.push(changes);
+        announce([
+          {env: 'VLLM_BASE_URL', label: 'vLLM server', set: true, hint: changes.VLLM_BASE_URL},
+          {env: 'VLLM_API_KEY', label: 'vLLM', set: true, hint: 'k'.repeat(40)},
+        ]);
+      },
+      onKeys: listener => { announce = listener; },
+    });
+    assert.deepEqual(await runners.saveKeys('u1', {VLLM_BASE_URL: address, VLLM_API_KEY: 'the-key'}), {value: {saved: true}});
+    const [url, key] = runners.status('u1').keys;
+    // An address is no secret: the page is told it whole. A key's hint is cut short as ever.
+    assert.equal(url.hint, address);
+    assert.equal(key.hint, 'k'.repeat(16));
+    for (const bad of ['gpu.lab:8000/v1', 'http://user:pw@gpu.lab/v1', 'http://gpu.lab/v1?key=x', 'javascript:alert(1)']) {
+      assert.deepEqual(await runners.saveKeys('u1', {VLLM_BASE_URL: bad}), {
+        error: 'VLLM_BASE_URL must be an http:// or https:// address, without credentials, query or fragment', status: 400,
+      });
+    }
+    assert.equal(kept.length, 1);
+  });
+
   it('gives a computer without an OpenRouter key RUSH\'s, once a connection, and none to one with its own', async () => {
     const given = [];
     runners = createRunners({

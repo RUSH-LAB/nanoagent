@@ -1,4 +1,4 @@
-/* Settings → AI (_Ai.js, _ApiKeys.js) and Connection (_Connection.js), and the model picker _ModelPicker.js. */
+/* Settings → AI (_Ai.js, _ApiKeys.js, _Servers.js) and Connection (_Connection.js), and the model picker _ModelPicker.js. */
 
 /* ── The OpenRouter key on the member's computer (_ApiKeys.js) ──── */
 
@@ -109,6 +109,43 @@
   background: var(--ifm-color-primary-dark);
 }
 
+/* ── The member's own servers (_Servers.js) ─────────────────────── */
+
+/* An address, a key and the buttons wrap to the right before they squeeze. */
+.serverControl {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.serverInput {
+  width: 18rem;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.82rem;
+}
+
+/* A saved address, whole on one line, cut short where it is too long. */
+.serverAddress {
+  display: inline-block;
+  max-width: 18rem;
+  overflow: hidden;
+  line-height: var(--site-control-height);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The model every run is on: RUSH's, or one a server of the member's serves. */
+.modelSelect {
+  width: auto;
+  max-width: min(22rem, 60%);
+}
+
+/* Why the member's model cannot run now, under its name. */
+.modelNote {
+  margin: 0;
+  padding: 0 1.1rem 0.85rem;
+  font-size: 0.8125rem;
+}
+
 /* ── Whether RUSH Lab is connected (_Connection.js) ────────────── */
 
 /* A status pill, tinted by its state. */
@@ -203,21 +240,16 @@
   letter-spacing: -0.01em;
 }
 
-/* Hairlines between the tiles are the grid's gap showing through. */
+/* Hairlines between the tiles are the grid's gap showing through. The tiles fill the row however
+   many there are: a model of the member's own server has fewer than RUSH's. */
 .stats {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
   gap: 1px;
   overflow: hidden;
   margin: 0;
   border-top: 1px solid var(--site-hairline);
   background: var(--site-hairline);
-}
-
-@media (min-width: 700px) {
-  .stats {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
 }
 
 .stat {

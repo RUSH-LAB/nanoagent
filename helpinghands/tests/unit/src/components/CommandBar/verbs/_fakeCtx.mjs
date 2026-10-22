@@ -1,6 +1,6 @@
 export const AI = Object.freeze({
   defaults: {chat: 'openrouter/org/fast'},
-  settings: {behaviour: {}, instructions: ''},
+  settings: {behaviour: {}, instructions: '', model: null},
   models: [
     {key: 'openrouter/org/fast', choice: {provider: 'openrouter', model: 'org/fast'}, label: 'Fast', provider: 'openrouter', model: 'org/fast', uses: ['chat', 'inline'], available: true},
     {key: 'openrouter/org/smart', choice: {provider: 'openrouter', model: 'org/smart'}, label: 'Smart', provider: 'openrouter', model: 'org/smart', uses: ['chat', 'inline'], available: true},

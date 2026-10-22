@@ -1,9 +1,9 @@
 /**
  * The only slash command in an agent chat: show or switch the chat's model.
  *
- * A chat runs on the model it chose here, else the member's Chat model in
- * Settings → Usage, else NanoAgent's default, all on the member's computer
- * (`ctx.ai`: its models from /api/ai/models, and the settings).
+ * A chat runs on the model it chose here, else the member's model in
+ * Settings → Usage (one their own server serves), else NanoAgent's default, all
+ * on the member's computer (`ctx.ai`: its models from /api/ai/models, and the settings).
  */
 
 function chatModels(ctx) {
@@ -15,7 +15,7 @@ function currentKey(ctx) {
   const {settings, defaults} = ctx.ai ?? {};
   const own = ctx.chatItem?.modelChoice;
   if (own) return own.key;
-  const mine = settings?.chat;
+  const mine = settings?.model;
   if (mine) return `${mine.provider}/${mine.model}`;
   return defaults?.chat ?? null;
 }

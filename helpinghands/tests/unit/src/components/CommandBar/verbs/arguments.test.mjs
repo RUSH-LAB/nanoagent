@@ -23,8 +23,10 @@ describe('agent runtime commands', () => {
 
   it('shows the model a chat runs on: its own choice, else the member\'s, else the default', async () => {
     assert.match((await run('model', '')).log.notes[0], /model: Fast \(openrouter\)/);
-    const mine = {...AI, settings: {...AI.settings, chat: {provider: 'openrouter', model: 'org/smart'}}};
-    assert.match((await run('model', '', {ai: mine})).log.notes[0], /model: Smart/);
+    // The member's own model is one their server serves.
+    const served = {key: 'vllm/org/served', choice: {provider: 'vllm', model: 'org/served'}, label: 'Served', provider: 'vllm', providerName: 'vLLM', model: 'org/served', uses: ['chat', 'inline', 'apps'], available: true};
+    const mine = {...AI, models: [...AI.models, served], settings: {...AI.settings, model: {provider: 'vllm', model: 'org/served'}}};
+    assert.match((await run('model', '', {ai: mine})).log.notes[0], /model: Served \(vLLM\)/);
     const own = {id: 'chat-1', agentId: 'mochi', modelChoice: {key: 'openrouter/org/smart', choice: {provider: 'openrouter', model: 'org/smart'}}};
     assert.match((await run('model', '', {chatItem: own})).log.notes[0], /model: Smart/);
   });

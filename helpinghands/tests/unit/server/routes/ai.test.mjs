@@ -78,6 +78,13 @@ describe('POST /api/ai/inline-complete', () => {
     assert.doesNotMatch(ctx.calls.ai[0].instructions, /Be terse/);
   });
 
+  it('runs on the model the member\'s own server serves, once they choose one', async () => {
+    const ctx = makeCtx();
+    ctx.settings = settings({model: {provider: 'sglang', model: 'Qwen/Qwen3-8B'}});
+    await invoke(routes, {method: 'POST', path: '/api/ai/inline-complete', body: {prompt: 'x'}, ctx, auth: {userId: 'writer-1'}});
+    assert.deepEqual(ctx.calls.ai[0].model, {provider: 'sglang', model: 'Qwen/Qwen3-8B'});
+  });
+
   it('returns its dedicated rate-limit message before reading the body', async () => {
     let reads = 0;
     const ctx = makeCtx({rateLimitAllow: false, readBody: async () => { reads++; return {}; }});
@@ -136,6 +143,17 @@ describe('POST /api/ai/complete', () => {
     // Chat takes thinking and output length; steps are for app runs.
     assert.deepEqual(ctx.calls.ai[0].settings, {thinking_level: 'high', max_tokens: 500});
     assert.match(ctx.calls.ai[0].instructions, /The member's own instructions:\nAnswer in French\.$/);
+  });
+
+  it('runs on the member\'s own server\'s model and their behaviour, unless the chat chose another', async () => {
+    const ctx = makeCtx();
+    ctx.settings = settings({behaviour: {thinking: 'off'}, model: {provider: 'vllm', model: 'Qwen/Qwen3-8B'}});
+    await invoke(routes, {method: 'POST', path: '/api/ai/complete', body: {prompt: 'p'}, ctx});
+    assert.deepEqual(ctx.calls.ai[0].model, {provider: 'vllm', model: 'Qwen/Qwen3-8B'});
+    assert.deepEqual(ctx.calls.ai[0].settings, {thinking_level: 'off'});
+    // A chat's own /model choice wins over the member's.
+    await invoke(routes, {method: 'POST', path: '/api/ai/complete', body: {prompt: 'p', model: {provider: 'openrouter', model: 'a/b'}}, ctx});
+    assert.deepEqual(ctx.calls.ai[1].model, {provider: 'openrouter', model: 'a/b'});
   });
 
   it('returns the answer accounting fields when NanoAgent provides them', async () => {
@@ -386,6 +404,15 @@ describe('POST /api/ai/stream', () => {
     assert.equal(ctx.calls.aiUsage[0].sessionId, SESSION);
     // Then the computer lets it go.
     assert.deepEqual(ctx.appRuns.released, [['test-user', ctx.calls.ai[0].run.id]]);
+  });
+
+  it('runs an app on the model the member\'s own server serves, once they choose one', async () => {
+    const ctx = appCtx();
+    ctx.settings = settings({behaviour: {maxSteps: 3}, model: {provider: 'vllm', model: 'Qwen/Qwen3-8B'}});
+    const r = await ask({body: {prompt: 'save 1706.03762', appId: 'arxiv-source', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
+    assert.equal(r.res.written.status, 200);
+    assert.deepEqual(ctx.calls.ai[0].model, {provider: 'vllm', model: 'Qwen/Qwen3-8B'});
+    assert.deepEqual(ctx.calls.ai[0].settings, {max_steps: 3});
   });
 
   it('keeps an app run going after its caller leaves, answering one message at a time per session', async () => {
@@ -664,18 +691,53 @@ describe('/api/ai/settings and /api/ai/models', () => {
     const saved = await put(ctx, value);
     assert.equal(saved.status, 200);
     assert.deepEqual(ctx.preferences.merged, [['u1', {ai: saved.payload.settings}]]);
-    assert.deepEqual(saved.payload.settings, value);
+    assert.deepEqual(saved.payload.settings, {...value, model: null});
+    // A model the member's own server serves, kept whole with the rest.
+    const own = await put(ctx, {...value, model: {provider: 'vllm', model: 'Qwen/Qwen3-8B'}});
+    assert.deepEqual(own.payload.settings.model, {provider: 'vllm', model: 'Qwen/Qwen3-8B'});
     for (const [bad, error] of [
       [{chat: {provider: 'anthropic', model: 'claude-x'}}, /chat is not an AI setting/],
       [{runner: 'cloud'}, /runner is not an AI setting/],
       [{instructions: 'x'.repeat(4001)}, /4000 characters/],
       [{temperature: 1}, /temperature is not an AI setting/],
+      [{model: {provider: 'openrouter', model: 'a/b'}}, /model.provider must be a server's engine: choose from vllm, sglang/],
+      [{model: {provider: 'vllm'}}, /model.model must be a model id/],
     ]) {
       const refused = await put(ctx, bad);
       assert.equal(refused.status, 400);
       assert.match(refused.payload.error, error);
     }
-    assert.equal(ctx.preferences.merged.length, 1);
+    assert.equal(ctx.preferences.merged.length, 2);
+  });
+
+  it('lists the models the member\'s own servers serve, and why one cannot say', async () => {
+    const ctx = makeCtx();
+    ctx.runners = {
+      status: () => ({connected: true, device: 'laptop', keys: []}),
+      computer: () => ({
+        models: async () => ({value: {
+          providers: [
+            {id: 'openrouter', name: 'OpenRouter', keySet: true},
+            {id: 'vllm', name: 'vLLM', keySet: true, baseUrl: 'http://gpu:8000/v1', error: null, tools: null},
+            {id: 'sglang', name: 'SGLang', keySet: true, baseUrl: 'http://gpu:30000/v1', error: 'Could not reach the SGLang server at http://gpu:30000/v1: ECONNREFUSED', tools: null},
+          ],
+          models: [
+            {provider: 'openrouter', id: 'a/b', name: 'B', contextWindow: 10, maxTokens: 5, reasoning: false, cost: {input: 1, output: 2}, apps: true},
+            {provider: 'vllm', id: 'Qwen/Qwen3-8B', name: 'Qwen/Qwen3-8B', contextWindow: 32768, maxTokens: 32768, reasoning: null, cost: {input: 0, output: 0}, apps: true},
+          ],
+          limits: {capped: false},
+        }}),
+        profiles: async () => ({defaultProfile: 'pi', profiles: [{id: 'pi', provider: 'openrouter', model: 'a/b', uses: ['chat', 'inline']}]}),
+      }),
+    };
+    const r = (await invoke(routes, {path: '/api/ai/models', ctx, auth: {userId: 'u1'}})).payload;
+    assert.deepEqual(r.models[1], {
+      key: 'vllm/Qwen/Qwen3-8B', choice: {provider: 'vllm', model: 'Qwen/Qwen3-8B'}, label: 'Qwen/Qwen3-8B', provider: 'vllm', providerName: 'vLLM',
+      model: 'Qwen/Qwen3-8B', uses: ['chat', 'inline', 'apps'], available: true, unavailableReason: null,
+      price: {input: 0, output: 0}, contextWindow: 32768, reasoning: null,
+    });
+    // The page says why a server listed nothing.
+    assert.match(r.providers.find(provider => provider.id === 'sglang').error, /ECONNREFUSED/);
   });
 
   it('lists the member\'s computer\'s models, each available once RUSH Lab holds its key', async () => {

@@ -221,8 +221,8 @@ Then walk this list by hand:
    COMP 480/580 https://rush-lab.org/w/comp-480-580.
 3. They open the RUSH Lab app on their computer and approve its request to connect.
    If the app has no OpenRouter key, RUSH Lab gives it one with $10 of
-   credit. They can save their own key and choose the model under
-   **Settings → AI**.
+   credit. They can save their own key, or add a vLLM or SGLang server of
+   their own and choose a model it serves, under **Settings → AI**.
 4. They open **Marketplace** in the navigation bar and select **Submit Your
    Artifact** at the foot of its sidebar. On a workspace without submissions,
    the link is **Publish a Plugin**.

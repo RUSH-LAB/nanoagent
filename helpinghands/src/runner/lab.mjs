@@ -25,9 +25,10 @@
  * again restarts, while the others keep running. A connection whose service fails starts again
  * after a while; one another computer took the member's runs from stays stopped until it is
  * connected again. When a relay needs signing in, the device page opens in the browser; once it is
- * connected after that, the site does, at Settings → AI while there is no key. Keys come only from
- * RUSH, through the relay: kept in the connection's settings.env, handed to its NanoAgent
- * (PUT /v1/keys), and the relay is told which are set. The data folder's `busy` is there while any
+ * connected after that, the site does, at Settings → AI while there is no key. Keys, and the
+ * addresses of the member's own vLLM and SGLang servers, come only from RUSH, through the relay:
+ * kept in the connection's settings.env, handed to its NanoAgent (PUT /v1/keys), and the relay is
+ * told which are set. The data folder's `busy` is there while any
  * relay has a request of RUSH's going, a held run included: the app updates itself only while it
  * is not (desktop/src-tauri/src/update.rs). SIGTERM stops every connection, cleanly.
  *
@@ -58,7 +59,8 @@ const RESTART_MS = 30_000;
 const LOG_TAIL_LINES = 30;
 const PLUGIN_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 // The API keys RUSH Lab holds, by the name NanoAgent's PI runner (pi-ai) reads each from, and
-// whose models they reach. NanoAgent gets these and nothing else of the settings.
+// whose models they reach, then the member's own servers (SERVER_URLS) and the keys those were
+// started with, if any. NanoAgent gets these and nothing else of the settings.
 export const PROVIDER_KEYS = [
   ['OPENROUTER_API_KEY', 'OpenRouter'],
   ['ANTHROPIC_API_KEY', 'Anthropic'],
@@ -74,7 +76,16 @@ export const PROVIDER_KEYS = [
   ['MOONSHOT_API_KEY', 'Moonshot'],
   ['ZAI_API_KEY', 'Z.ai'],
   ['HF_TOKEN', 'Hugging Face'],
+  ['VLLM_BASE_URL', 'vLLM server'],
+  ['VLLM_API_KEY', 'vLLM'],
+  ['SGLANG_BASE_URL', 'SGLang server'],
+  ['SGLANG_API_KEY', 'SGLang'],
 ];
+// The settings that are the address of a server of the member's own, by the engine it runs
+// (nanoagent.inference.providers.SERVERS): its OpenAI-compatible /v1 endpoint, each with the key it
+// was started with, which goes only to the address it was saved with (writeKeys).
+const SERVER_KEYS = {VLLM_BASE_URL: 'VLLM_API_KEY', SGLANG_BASE_URL: 'SGLANG_API_KEY'};
+export const SERVER_URLS = Object.keys(SERVER_KEYS);
 const WINDOWS = process.platform === 'win32';
 // What the services see of this process's environment; everything else comes from settings.
 const SYSTEM_ENV = WINDOWS
@@ -260,11 +271,29 @@ function readSettings(file) {
   }
 }
 
-/** Each provider's key in `settings`, set or not, and how it begins and ends: never its value. */
+/**
+ * Whether `value` is a server's address: http or https, a host, and no credentials, query or
+ * fragment (as NanoAgent's PUT /v1/keys checks it again), so it holds nothing secret.
+ */
+export function isServerUrl(value) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  return ['http:', 'https:'].includes(url.protocol) && Boolean(url.hostname)
+    && !url.username && !url.password && !value.includes('?') && !value.includes('#');
+}
+
+/**
+ * Each provider's key in `settings`, set or not, and how it begins and ends: never its value. A
+ * server's address is no secret, so it is the whole address.
+ */
 export function keyStatus(settings) {
   return PROVIDER_KEYS.map(([env, label]) => {
     const value = settings[env] || null;
-    return {env, label, set: value !== null, hint: value && keyHint(value)};
+    return {env, label, set: value !== null, hint: value && (SERVER_URLS.includes(env) ? value : keyHint(value))};
   });
 }
 
@@ -274,10 +303,16 @@ export function providerKeys(settings) {
 }
 
 /**
- * Keep `changes` ({NAME: key, or null to remove it}) in the settings `file`, readable only by this
- * user, beside the keys it holds; an empty value, or one with spaces, is refused.
+ * Keep `requested` ({NAME: key, or null to remove it}) in the settings `file`, readable only by this
+ * user, beside the keys it holds; an empty value, or one with spaces, is refused, and so is a
+ * server's address that is not one (isServerUrl). A server's address changed without its key
+ * removes the key, so that no change of address alone sends it anywhere else. The changes kept.
  */
-export function writeKeys(file, changes) {
+export function writeKeys(file, requested) {
+  const changes = {...requested};
+  for (const [url, key] of Object.entries(SERVER_KEYS)) {
+    if (url in changes && !(key in changes)) changes[key] = null;
+  }
   const keys = Object.fromEntries(Object.entries(readSettings(file)).filter(([name]) => isProviderKey(name)));
   for (const [name, value] of Object.entries(changes)) {
     if (!isProviderKey(name)) throw new Error(`${name} is not a key RUSH Lab holds`);
@@ -287,11 +322,15 @@ export function writeKeys(file, changes) {
     }
     const key = String(value).trim();
     if (!key || /\s/.test(key)) throw new Error(`${name} must be one key, without spaces`);
+    if (SERVER_URLS.includes(name) && !isServerUrl(key)) {
+      throw new Error(`${name} must be an http:// or https:// address, without credentials, query or fragment`);
+    }
     keys[name] = key;
   }
   const contents = Object.keys(keys).sort().map(name => `${name}=${keys[name]}\n`).join('');
   fs.mkdirSync(path.dirname(file), {recursive: true});
   fs.writeFileSync(file, contents, {mode: 0o600});
+  return changes;
 }
 
 /**
@@ -765,15 +804,15 @@ async function main() {
     connection.relayStdin?.write(`${JSON.stringify(message)}\n`);
   }
 
-  /** Keep `changes` for the connection, hand them to its NanoAgent, and tell its relay which keys are set now. */
+  /** Keep `changes` for the connection, hand what it kept to its NanoAgent, and tell its relay which keys are set now. */
   async function applyKeys(connection, changes) {
     if (typeof changes !== 'object' || changes === null || Array.isArray(changes)
       || !Object.values(changes).every(value => value === null || typeof value === 'string')) {
       throw new Error('changes must be {NAME: key or null}');
     }
-    writeKeys(connection.settingsFile, changes);
+    const kept = writeKeys(connection.settingsFile, changes);
     if (!connection.token) throw new Error('NanoAgent is not running');
-    const answer = await nanoagentRequest(connection.port, 'PUT', '/v1/keys', connection.token, JSON.stringify({changes}));
+    const answer = await nanoagentRequest(connection.port, 'PUT', '/v1/keys', connection.token, JSON.stringify({changes: kept}));
     if (!answer) throw new Error('NanoAgent did not answer');
     if (answer.status !== 200) throw new Error(`NanoAgent refused the keys (${answer.status}): ${answer.body}`);
     tellRelay(connection, {keys: keyStatus(readSettings(connection.settingsFile))});

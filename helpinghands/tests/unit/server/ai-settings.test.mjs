@@ -24,9 +24,23 @@ describe('AI settings', () => {
   });
 
   it('reads an unset or partial preference as the defaults', () => {
-    assert.deepEqual(aiSettings.stored(undefined), {behaviour: {}, instructions: ''});
+    assert.deepEqual(aiSettings.stored(undefined), {behaviour: {}, instructions: '', model: null});
     // A model a member chose before there was one model is not theirs to keep.
-    assert.deepEqual(aiSettings.stored({chat: {provider: 'p', model: 'm'}}), {behaviour: {}, instructions: ''});
+    assert.deepEqual(aiSettings.stored({chat: {provider: 'p', model: 'm'}}), {behaviour: {}, instructions: '', model: null});
+    // Nor is one that is not a server's, however it was written.
+    assert.equal(aiSettings.stored({model: {provider: 'openrouter', model: 'x/y'}}).model, null);
+  });
+
+  it('sends every use the model the member\'s own server serves, once they choose one', () => {
+    const own = aiSettings.normalize({behaviour: {thinking: 'off'}, model: {provider: 'vllm', model: '  Qwen/Qwen3-8B '}}).value;
+    assert.deepEqual(own.model, {provider: 'vllm', model: 'Qwen/Qwen3-8B'});
+    for (const use of ['chat', 'inline', 'apps']) assert.deepEqual(aiSettings.forRun(own, use).model, own.model);
+    // forRun copies it: what a run is sent never reaches the member's settings.
+    assert.notEqual(aiSettings.forRun(own, 'chat').model, own.model);
+    assert.deepEqual(aiSettings.stored(own), own);
+    assert.deepEqual(aiSettings.normalize({model: {provider: 'sglang', model: 'm'}}).value.model, {provider: 'sglang', model: 'm'});
+    assert.equal(aiSettings.normalize({model: null}).value.model, null);
+    assert.deepEqual(aiSettings.SERVER_PROVIDERS, ['vllm', 'sglang']);
   });
 
   it('refuses settings out of range and unknown keys', () => {
@@ -37,6 +51,12 @@ describe('AI settings', () => {
       {behaviour: {temperature: 3}},
       {behaviour: {maxTokens: 1.5}},
       {draw: {provider: 'p', model: 'm'}},
+      // RUSH chooses the OpenRouter model; a member chooses only among their own servers'.
+      {model: {provider: 'openrouter', model: 'x/y'}},
+      {model: {provider: 'vllm', model: ' '}},
+      {model: {provider: 'vllm', model: 'm'.repeat(201)}},
+      {model: {provider: 'vllm', model: 'm', baseUrl: 'http://x'}},
+      {model: 'vllm/m'},
     ]) assert.ok(aiSettings.normalize(bad).error, JSON.stringify(bad));
   });
 });
