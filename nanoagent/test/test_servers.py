@@ -427,9 +427,11 @@ def _web(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """A member's own NanoAgent (run_models), its default profile on the fake PI runner, with the echo plugin installed."""
     monkeypatch.chdir(ROOT)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    for url, key in VARIABLES.values():
-        monkeypatch.delenv(url, raising=False)
-        monkeypatch.delenv(key, raising=False)
+    # PUT /v1/keys sets the servers' variables in this process's environment itself: set and removed
+    # here first, so that the test's end removes whatever it set too.
+    for name in [name for pair in VARIABLES.values() for name in pair]:
+        monkeypatch.setenv(name, "")
+        monkeypatch.delenv(name)
     monkeypatch.setenv("FAKE_CATALOG", str(tmp_path / "catalog.json"))
     _catalog(tmp_path / "catalog.json", {})
     runner = tmp_path / "pi"
