@@ -92,8 +92,9 @@ run, prepares its PI runner when needed, and stops every process together on
 Ctrl+C. RUSH uses the adjacent `../nanoagent` checkout by default and connects
 to it at `http://127.0.0.1:8787`. Set `NANOAGENT_PROJECT_DIR` for a checkout in
 another location, set `NANOAGENT_URL` and `NANOAGENT_API_TOKEN` to use an
-already-running service, or set `NANOAGENT_URL=off` to disable AI. The sole model currently exposed by RUSH is
-`deepseek/deepseek-v4-flash-0731`.
+already-running service, or set `NANOAGENT_URL=off` to disable AI. The sole model RUSH itself
+exposes is `deepseek/deepseek-v4-flash-0731`; a member may choose one their own vLLM or SGLang
+server serves instead (Settings → Usage → Your servers).
 
 ## `db/`
 

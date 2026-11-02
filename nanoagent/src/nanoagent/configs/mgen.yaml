@@ -7,7 +7,7 @@
 #
 # The model block below points at Bedrock in us-west-2. To reach something else, copy this
 # file, change the model block, and point $MGEN_CONFIG at yours. `provider:` is resolved by
-# nanoagent.inference.providers — sglang, openrouter, or bedrock.
+# nanoagent.inference.providers — sglang, vllm, openrouter, or bedrock.
 #
 # Dialect notes (slimconfig >= 0.14): the file names the class it fills on `_ >`, every block
 # filling a nested class names it on its own key, and free-form knob maps are `key=value` token
@@ -17,9 +17,9 @@ _ > nanoagent.runtime.config.InteractiveConfig:
 
 model > nanoagent.runtime.config.ModelConfig:
   model: us.anthropic.claude-opus-5-5  # --model overrides it
-  provider: bedrock         # sglang, openrouter, or bedrock
-  base_url: null            # sglang/openrouter only
-  api_key: null             # openrouter reads OPENROUTER_API_KEY when this is null
+  provider: bedrock         # sglang, vllm, openrouter, or bedrock
+  base_url: null            # sglang/vllm/openrouter only; sglang and vllm read SGLANG_BASE_URL / VLLM_BASE_URL when null
+  api_key: null             # openrouter reads OPENROUTER_API_KEY when this is null, sglang/vllm SGLANG_API_KEY / VLLM_API_KEY
   aws_region: us-west-2     # bedrock; null uses the AWS SDK resolution chain
   aws_profile: null         # null uses the AWS SDK credential chain
   temperature: null         # omitted from the request

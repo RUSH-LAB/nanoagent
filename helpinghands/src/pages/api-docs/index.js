@@ -379,16 +379,16 @@ const CATEGORIES = [
         response: '{ "defaultProfile": "pi-deepseek", "profiles": [{ "id": "pi-deepseek", "label": "DeepSeek V4 Flash · PI", "harness": "pi", "provider": "openrouter", "model": "deepseek/deepseek-v4-flash-0731", "uses": ["chat", "inline"], "price": { "input": 0.05, "output": 0.2 }, "available": true }], "limits": { "capped": false } }',
       },
       {
-        method: 'GET', path: '/api/ai/settings', description: 'Your AI settings, for your computer in RUSH Lab: NanoAgent behaviour and your own instructions, beside the one model chat, inline completion and apps all run on.',
-        response: '{ "settings": { "behaviour": { "thinking": "low" }, "instructions": "" }, "model": { "provider": "openrouter", "model": "deepseek/deepseek-v4-flash-0731" } }',
+        method: 'GET', path: '/api/ai/settings', description: 'Your AI settings, for your computer in RUSH Lab: NanoAgent behaviour, your own instructions, and your model (one your own vLLM or SGLang server serves, or null), beside RUSH\'s model, which chat, inline completion and apps all run on while yours is null.',
+        response: '{ "settings": { "behaviour": { "thinking": "low" }, "instructions": "", "model": { "provider": "vllm", "model": "Qwen/Qwen3-8B" } }, "model": { "provider": "openrouter", "model": "deepseek/deepseek-v4-flash-0731" } }',
       },
       {
-        method: 'PUT', path: '/api/ai/settings', description: 'Save your AI settings, whole.',
-        request: '{ "settings": { "behaviour": { "maxSteps": 20 }, "instructions": "Cite sources." } }',
+        method: 'PUT', path: '/api/ai/settings', description: 'Save your AI settings, whole: `model` is `{ "provider": "vllm" | "sglang", "model": "<id>" }`, or null for RUSH\'s.',
+        request: '{ "settings": { "behaviour": { "maxSteps": 20 }, "instructions": "Cite sources.", "model": null } }',
         response: '{ "settings": { ... } }',
       },
       {
-        method: 'GET', path: '/api/ai/models', description: 'The models you may choose: every model on your computer, available once RUSH Lab holds its provider\'s key; none while it is not connected.',
+        method: 'GET', path: '/api/ai/models', description: 'The models you may choose: every model on your computer, available once RUSH Lab holds its provider\'s key, and each model your own vLLM and SGLang servers serve now (a server\'s provider says its `baseUrl`, and `error` when it could not list them); none while it is not connected.',
         response: '{ "connected": true, "device": "laptop", "models": [{ "key": "anthropic/claude-sonnet-4-5", "choice": { "provider": "anthropic", "model": "claude-sonnet-4-5" }, "label": "Claude Sonnet 4.5", "uses": ["chat", "inline"], "available": false, "unavailableReason": "Needs your Anthropic key: add it under API keys" }], "defaults": { "chat": "openrouter/deepseek/deepseek-v4-flash-0731" }, "limits": { "capped": false } }',
       },
       {
@@ -400,8 +400,8 @@ const CATEGORIES = [
         response: '{ "credit": { "you": 1.25, "total": { "used": 6, "cap": 10 } } }',
       },
       {
-        method: 'PUT', path: '/api/runner/keys', description: 'Set (a key) or remove (null) API keys in RUSH Lab. RUSH passes them on and keeps nothing; your runs use them at once.',
-        request: '{ "changes": { "ANTHROPIC_API_KEY": "sk-ant-..." } }',
+        method: 'PUT', path: '/api/runner/keys', description: 'Set (a key) or remove (null) API keys in RUSH Lab, and the addresses of your own servers: `VLLM_BASE_URL` and `SGLANG_BASE_URL`, each an http:// or https:// /v1 address without credentials, beside `VLLM_API_KEY` and `SGLANG_API_KEY`, the key each was started with, if any. RUSH passes them on and keeps nothing; your runs use them at once.',
+        request: '{ "changes": { "VLLM_BASE_URL": "http://gpu.lab:8000/v1", "VLLM_API_KEY": null } }',
         response: '{ "saved": true }',
       },
       {

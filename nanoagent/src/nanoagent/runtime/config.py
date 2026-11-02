@@ -153,8 +153,8 @@ class ThemeName(StrEnum):
 class ModelConfig(Config):
     """How to reach one model.
 
-    ``provider`` selects the chat client (see :mod:`nanoagent.inference.providers`): ``"sglang"``
-    and ``"openrouter"`` share one OpenAI-compatible ``/v1`` client, while ``"bedrock"`` uses
+    ``provider`` selects the chat client (see :mod:`nanoagent.inference.providers`): ``"sglang"``,
+    ``"vllm"`` and ``"openrouter"`` share one OpenAI-compatible ``/v1`` client, while ``"bedrock"`` uses
     Amazon Bedrock Converse. ``base_url`` is the OpenAI-compatible endpoint. SGLang's ``/generate`` endpoint is
     :class:`~nanoagent.inference.config.GenerateConfig`, a different spec.
 
@@ -166,11 +166,13 @@ class ModelConfig(Config):
     """
 
     model: str = MISSING
-    # which chat client to build: "sglang", "openrouter", or "bedrock".
+    # which chat client to build: "sglang", "vllm", "openrouter", or "bedrock".
     provider: str = MISSING
-    # OpenAI-compatible /v1 endpoint. Required for sglang; openrouter defaults it.
+    # OpenAI-compatible /v1 endpoint. null: sglang and vllm reach SGLANG_BASE_URL / VLLM_BASE_URL,
+    # and openrouter its own endpoint.
     base_url: str | None = MISSING
-    # OpenAI-style key. SGLang ignores it. OpenRouter reads this, or OPENROUTER_API_KEY when null.
+    # OpenAI-style key. OpenRouter reads this, or OPENROUTER_API_KEY when null; sglang and vllm
+    # this, or SGLANG_API_KEY / VLLM_API_KEY, which a server started without --api-key ignores.
     # May be null, but must be present.
     api_key: str | None = MISSING
     # Bedrock region/profile. null follows boto3's standard region/credential resolution chains.

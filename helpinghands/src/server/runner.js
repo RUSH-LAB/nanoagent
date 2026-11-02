@@ -6,8 +6,9 @@
  * A computer dials in: it opens a WebSocket to /api/runner signed in as its
  * member, and from then on that member's runs go down that socket
  * (runner/protocol.js): every run is on the member's own computer. RUSH cannot reach a laptop, so the laptop reaches
- * RUSH. Settings → AI sets the computer's API keys the same way: RUSH passes
- * them on and keeps nothing, and the computer says only which are set. One
+ * RUSH. Settings → AI sets the computer's API keys, and the addresses of the
+ * member's own vLLM and SGLang servers, the same way: RUSH passes them on and
+ * keeps nothing, and the computer says only which are set. One
  * computer per member: a second replaces the first. The sockets are
  * this process's, like every other live connection here (fs/events.js).
  *
@@ -16,7 +17,7 @@
  */
 const crypto = require('crypto');
 const {WebSocketServer} = require('ws');
-const {PATH, HOLD_MS, pickHeaders} = require('../runner/protocol');
+const {PATH, HOLD_MS, SERVER_URLS, isServerUrl, pickHeaders} = require('../runner/protocol');
 const {createNanoAgentGateway, RUNNER_OFFLINE} = require('./ai');
 
 // A plugin package travels in one frame.
@@ -35,7 +36,8 @@ const HINT_LENGTH = 16;
 
 /**
  * The computer's `hello` list of keys, as {env, label, set, hint}; anything else
- * is dropped. A hint is how a set key begins and ends, never the key.
+ * is dropped. A hint is how a set key begins and ends, never the key; a server's
+ * address (SERVER_URLS) is no secret, and its hint is the whole address.
  */
 function keyList(value) {
   if (!Array.isArray(value)) return [];
@@ -45,7 +47,9 @@ function keyList(value) {
       env: key.env,
       label: key.label.slice(0, 100),
       set: key.set === true,
-      hint: key.set === true && typeof key.hint === 'string' ? key.hint.slice(0, HINT_LENGTH) : null,
+      hint: key.set === true && typeof key.hint === 'string'
+        ? key.hint.slice(0, SERVER_URLS.includes(key.env) ? KEY_LENGTH : HINT_LENGTH)
+        : null,
     }));
 }
 
@@ -308,6 +312,9 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
         if (!names.has(name)) return {error: `${name} is not a key RUSH Lab holds`, status: 400};
         if (value !== null && (typeof value !== 'string' || !value.trim() || value.length > KEY_LENGTH)) {
           return {error: `${name} must be a key, or null to remove it`, status: 400};
+        }
+        if (value !== null && SERVER_URLS.includes(name) && !isServerUrl(value.trim())) {
+          return {error: `${name} must be an http:// or https:// address, without credentials, query or fragment`, status: 400};
         }
       }
       const id = crypto.randomUUID();

@@ -21,6 +21,8 @@ from nanoagent.harness.choice import (
 )
 from nanoagent.harness.nanoagent import AgentFactory, NanoAgentRunner
 from nanoagent.harness.subprocess import SubprocessRunner
+from nanoagent.inference.providers import SERVERS
+from nanoagent.llm.server import NO_THINKING
 from nanoagent.runtime.config import (
     AgentDefinitionConfig,
     HarnessProfileConfig,
@@ -297,6 +299,9 @@ def loop_model(
         if prices is None:
             raise ValueError(f"no price for {model.provider}/{model.model}")
         changes["provider"] = NATIVE_PROVIDERS[model.provider]
+        # A server's model runs without thinking (NO_THINKING), unless the config says how its template thinks.
+        if model.provider in SERVERS and not any(item.startswith("chat_template_kwargs=") for item in cfg.model.extra_body):
+            changes["extra_body"] = [*cfg.model.extra_body, NO_THINKING]
     if prices is not None:
         changes["input_price"], changes["output_price"] = prices
     stated_settings = settings.stated() if settings else {}

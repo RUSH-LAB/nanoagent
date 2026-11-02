@@ -14,6 +14,7 @@ import secrets
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -23,7 +24,7 @@ from typing import Any
 from nanoagent.harness.catalog import catalog_command, find_model, load_catalog
 from nanoagent.harness.choice import NATIVE_PROVIDERS, RunModel
 from nanoagent.harness.registry import loop_model
-from nanoagent.inference.providers import MissingKeyError
+from nanoagent.inference.providers import SERVERS, MissingKeyError
 from nanoagent.plugin import PluginManifest, sandbox
 from nanoagent.plugin.install import InstallError, Installed, Installs, ui_version
 from nanoagent.plugin.manifest import is_page_path, load_manifest, page_files, spec_module, ui_files
@@ -62,8 +63,10 @@ def _sse(event: dict[str, Any]) -> bytes:
 # Manifests name none now (a workspace tags its plugins), so every catalog entry says one. Remove
 # once the RUSH that tags plugins per workspace is released.
 COMPAT_GROUP = {"group": "Plugins"}
-# The credentials PUT /v1/keys may set: a provider's API key, as PI and the loop read it.
+# The credentials PUT /v1/keys may set: a provider's API key, as PI and the loop read it, and the
+# address of each server engine's server (nanoagent.inference.providers.SERVERS).
 KEY_NAME = re.compile(r"[A-Z][A-Z0-9_]*_API_KEY|HF_TOKEN")
+SERVER_URLS = frozenset(server.url_env for server in SERVERS.values())
 # Where OpenRouter says what the key a request carries has spent, and what it may.
 OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
 
@@ -89,6 +92,46 @@ def openrouter_key_usage(key: str) -> dict[str, Any]:
         "workspace_id": data.get("workspace_id"),
         "workspace_budget": workspace and {"spend": workspace["spend_usd"], "limit": workspace["limit_usd"]},
     }
+
+
+def is_server_url(value: str) -> bool:
+    """Whether ``value`` is a server's address: http or https, a host, and no credentials, query or
+    fragment, so it is safe to show (the server's key goes in its engine's key variable)."""
+    try:
+        parts = urllib.parse.urlsplit(value)
+        parts.port
+    except ValueError:
+        return False
+    return (
+        parts.scheme in {"http", "https"}
+        and bool(parts.hostname)
+        and not (parts.username or parts.password or "?" in value or "#" in value)
+    )
+
+
+def provider_entry(catalog: dict[str, Any] | None, provider: str) -> dict[str, Any] | None:
+    """The catalog's entry for ``provider``, or None."""
+    return next((entry for entry in (catalog or {}).get("providers", []) if entry["id"] == provider), None)
+
+
+def runs_apps(catalog: dict[str, Any], provider: str) -> bool:
+    """Whether ``provider``'s models run apps: the NanoAgent loop reaches them, and a server engine's
+    server parses tool calls (one that says it does not answers a call as text)."""
+    return provider in NATIVE_PROVIDERS and (provider_entry(catalog, provider) or {}).get("tools") is not False
+
+
+def unknown_model(catalog: dict[str, Any] | None, model: RunModel) -> str:
+    """Why ``model`` is not one a run may name: for a server engine's, what its server says."""
+    server = SERVERS.get(model.provider)
+    entry = provider_entry(catalog, model.provider)
+    if server is None or entry is None:
+        return f"unknown model {model.provider}/{model.model}"
+    if not entry["keySet"]:
+        return f"No {server.name} server is set ({server.url_env}): add one to run {model.model}"
+    if entry.get("error"):
+        return entry["error"]
+    served = [item["id"] for item in catalog["models"] if item["provider"] == model.provider]
+    return f"The {server.name} server at {entry['baseUrl']} does not serve {model.model}; it serves {', '.join(served) or 'no model'}"
 
 
 # How a host serves a plugin's front end: its own files only, and no network of its own, so the
@@ -174,22 +217,27 @@ def create_app(
     # Models built with keys since replaced: runs in flight may still use them, so they close at shutdown.
     retired: list[Any] = []
 
-    async def pi_catalog() -> dict[str, Any] | None:
-        """The catalog, or None when no profile runs on PI."""
+    async def pi_catalog(*, fresh: bool = False) -> dict[str, Any] | None:
+        """The catalog, or None when no profile runs on PI. ``fresh`` asks PI again: the models a
+        server engine's server serves change without NanoAgent hearing of it."""
         pi = next((config for config in run_host.registry.configs.values() if config.harness.type == "pi"), None)
         if pi is None:
             return None
-        if "value" not in catalog_state:
+        if fresh or "value" not in catalog_state:
             command = catalog_command(pi.harness.command or ["nanoagent-pi-runner"])
             catalog_state["value"] = await load_catalog(command, pi.harness.cwd)
         return catalog_state["value"]
 
-    async def prices_of(model: RunModel) -> tuple[float, float]:
-        """What ``model`` costs per million input and output tokens, from the catalog."""
-        catalog = await pi_catalog()
+    async def prices_of(model: RunModel, *, fresh: bool = False) -> tuple[float, float]:
+        """What ``model`` costs per million input and output tokens, from the catalog (``fresh``: as
+        PI lists it now), which lists a server's models again before refusing one it did not list."""
+        catalog = await pi_catalog(fresh=fresh)
         entry = find_model(catalog, model.provider, model.model) if catalog else None
+        if entry is None and not fresh and catalog and model.provider in SERVERS:
+            catalog = await pi_catalog(fresh=True)
+            entry = find_model(catalog, model.provider, model.model)
         if entry is None:
-            raise ValidationError(f"unknown model {model.provider}/{model.model}")
+            raise ValidationError(unknown_model(catalog, model))
         return entry["cost"]["input"], entry["cost"]["output"]
 
     async def plugin_model_for(choice: RunChoice) -> tuple[PluginModel, str, AgentConfig, Callable[[], Any] | None]:
@@ -210,7 +258,13 @@ def create_app(
                 raise ValidationError(error.args[0]) from None
             if config.harness.type != "nanoagent":
                 raise ValidationError(f"profile {choice.profile!r} cannot run apps: it has no tools")
-        prices = await prices_of(choice.model) if choice.model is not None else None
+        server = SERVERS.get(choice.model.provider) if choice.model is not None else None
+        # An app runs on a server as it serves now: started again since it was listed, it may serve
+        # another model, which SGLang would answer the app's name with, or parse no tool calls.
+        prices = await prices_of(choice.model, fresh=server is not None) if choice.model is not None else None
+        if server is not None and not runs_apps(catalog := await pi_catalog(), choice.model.provider):
+            url = provider_entry(catalog, choice.model.provider)["baseUrl"]
+            raise ValidationError(f"The {server.name} server at {url} parses no tool calls, which apps need: start it with --tool-call-parser")
         try:
             model_cfg, agent_cfg = loop_model(cfg, config, model=choice.model, settings=choice.settings, prices=prices)
         except ValueError as error:
@@ -283,13 +337,14 @@ def create_app(
         return JSONResponse(listing)
 
     async def models(request: Request) -> JSONResponse:
-        """Every model a run may name here, with which providers hold credentials (run_models only)."""
+        """Every model a run may name here, with which providers hold credentials (run_models only):
+        each server engine's as its server lists them now."""
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         if not cfg.run_models:
             return JSONResponse({"error": "this NanoAgent runs only its configured profiles"}, status_code=404)
         try:
-            catalog = await pi_catalog()
+            catalog = await pi_catalog(fresh=True)
         except Exception as error:  # noqa: BLE001
             return JSONResponse({"error": f"the PI catalog failed: {error}"}, status_code=502)
         if catalog is None:
@@ -297,12 +352,13 @@ def create_app(
         return JSONResponse({
             "providers": catalog["providers"],
             # A model the NanoAgent loop reaches also runs apps, whose tools need the loop.
-            "models": [{**entry, "apps": entry["provider"] in NATIVE_PROVIDERS} for entry in catalog["models"]],
+            "models": [{**entry, "apps": runs_apps(catalog, entry["provider"])} for entry in catalog["models"]],
             "limits": run_host.profiles["limits"],
         })
 
     async def set_keys(request: Request) -> JSONResponse:
-        """Set (a key) or remove (null) provider API keys, for every run from now on.
+        """Set (a key) or remove (null) provider API keys and server engines' addresses, for every
+        run from now on.
 
         The caller keeps them (RUSH Lab's supervisor); this process only holds them in its
         environment, which PI's runs and the catalog inherit, and forgets every model built
@@ -318,10 +374,15 @@ def create_app(
         if not isinstance(changes, dict) or not changes:
             return JSONResponse({"error": "changes must name at least one key"}, status_code=400)
         for name, value in changes.items():
-            if not KEY_NAME.fullmatch(name):
+            if not (KEY_NAME.fullmatch(name) or name in SERVER_URLS):
                 return JSONResponse({"error": f"{name} is not a provider's API key"}, status_code=400)
             if value is not None and (not isinstance(value, str) or not value or value != value.strip() or " " in value):
                 return JSONResponse({"error": f"{name} must be one key, without spaces, or null"}, status_code=400)
+            if value is not None and name in SERVER_URLS and not is_server_url(value):
+                return JSONResponse(
+                    {"error": f"{name} must be an http:// or https:// address, without credentials, query or fragment"},
+                    status_code=400,
+                )
         for name, value in changes.items():
             if value is None:
                 os.environ.pop(name, None)

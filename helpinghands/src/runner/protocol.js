@@ -5,8 +5,9 @@
  * to `PATH` (RUSH Lab's relay, runner/relay.mjs). RUSH sends NanoAgent
  * requests down it; the relay makes each against the NanoAgent on that
  * computer and streams the response back. Settings → AI also sets the
- * computer's API keys down it: RUSH Lab keeps them, and says only which are
- * set, never their values. A request RUSH asks to `hold` (a plugin run) is
+ * computer's API keys down it, and the addresses of the member's own servers
+ * (SERVER_URLS): RUSH Lab keeps them, and says only which are set, never a
+ * key's value. A request RUSH asks to `hold` (a plugin run) is
  * not the connection's: the relay keeps it going when the connection drops,
  * with every frame it sent, for HOLD_MS, and lists it in its next `hello`, so
  * RUSH, the same process or one started since, `resume`s it from the frames
@@ -65,4 +66,23 @@ function pickHeaders(headers) {
   return Object.fromEntries(HEADERS.filter(name => all.has(name)).map(name => [name, all.get(name)]));
 }
 
-module.exports = {PATH, HOLD_MS, allowed, pickHeaders};
+// The keys that are the address of a member's own server, by the engine it runs, as RUSH Lab's
+// lab.mjs names them: no secret, so a `hello` gives the whole address as its hint.
+const SERVER_URLS = ['VLLM_BASE_URL', 'SGLANG_BASE_URL'];
+
+/**
+ * Whether `value` is a server's address: http or https, a host, and no credentials, query or
+ * fragment, as lab.mjs and NanoAgent check it again.
+ */
+function isServerUrl(value) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  return ['http:', 'https:'].includes(url.protocol) && Boolean(url.hostname)
+    && !url.username && !url.password && !value.includes('?') && !value.includes('#');
+}
+
+module.exports = {PATH, HOLD_MS, SERVER_URLS, allowed, isServerUrl, pickHeaders};

@@ -72,21 +72,23 @@ def _greater_than(name: str, value: float | None, floor: float) -> None:
 class LeanInferConfig:
     """How to run a batch of completions: which transport, which model, and the knobs."""
 
-    # which chat client to build: "sglang", "openrouter", or "bedrock".
+    # which chat client to build: "sglang", "vllm", "openrouter", or "bedrock".
     # See nanoagent.inference.providers. The /generate endpoint is GenerateConfig, not a provider.
     provider: str = "sglang"
-    # served model name (sglang --served-model-name, or an OpenRouter model id).
+    # served model name (the server's --served-model-name, or an OpenRouter model id).
     model: str = "default"
     # HuggingFace repo id or local dir of the tokenizer. Optional for a chat provider: naming one
     # wraps the client so replies carry ids reconstructed by re-encoding the text, labelled
     # Fidelity.RECONSTRUCTED. null = no tokens at all, which is the honest answer for a provider
     # whose vocabulary we do not have. The sampler's own ids come from GenerateConfig.
     tokenizer: str | None = None
-    # OpenAI-compatible /v1 endpoint. Required for provider="sglang".
-    # provider="openrouter" defaults this to https://openrouter.ai/api/v1 when null.
+    # OpenAI-compatible /v1 endpoint. provider="sglang" / "vllm" read SGLANG_BASE_URL /
+    # VLLM_BASE_URL when null, and fail without one; provider="openrouter" defaults this to
+    # https://openrouter.ai/api/v1 when null.
     base_url: str | None = None
-    # auth key passed to the OpenAI client; SGLang ignores it but the SDK requires a non-empty
-    # string, so null becomes "EMPTY".
+    # auth key passed to the OpenAI client. provider="sglang" / "vllm" read SGLANG_API_KEY /
+    # VLLM_API_KEY when null (a server started without --api-key ignores it); the SDK requires a
+    # non-empty string, so null becomes "EMPTY".
     api_key: str | None = None
     # AWS settings used only by provider="bedrock". null region follows the normal boto3 region
     # resolution chain; null profile follows the normal credential chain.

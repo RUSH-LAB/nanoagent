@@ -6,10 +6,11 @@ A collaborative workspace for knowledge, documents, communication, and AI agents
 
 Every member's AI runs on their own computer, in RUSH Lab (the Mac app,
 `desktop/`, which they download from the site and connect with one click). Its NanoAgent
-calls OpenRouter with the key kept there, and installs, serves the pages of, and
-runs every plugin. RUSH's servers keep no model key and run no model or plugin:
-they only list the marketplace and hold its plugin packages. While a member's
-RUSH Lab is not connected, their AI and plugins are refused, never run elsewhere.
+calls OpenRouter with the key kept there, or a vLLM or SGLang server of the member's
+own, and installs, serves the pages of, and runs every plugin. RUSH's servers keep
+no model key and run no model or plugin: they only list the marketplace and hold
+its plugin packages. While a member's RUSH Lab is not connected, their AI and
+plugins are refused, never run elsewhere.
 
 ## OpenRouter keys
 
@@ -23,6 +24,22 @@ RUSH Lab is not connected, their AI and plugins are refused, never run elsewhere
 - The only OpenRouter secret RUSH's server needs is `OPENROUTER_MANAGEMENT_KEY`
   on Railway's `mochi-lab` service, which creates those keys. RUSH keeps none
   of the keys it creates.
+
+## Your own servers
+
+- A member who serves models with vLLM or SGLang adds the server under
+  Settings → Usage → Your servers: its OpenAI-compatible `/v1` address, and the
+  key it was started with (`--api-key`), if any. RUSH Lab keeps both on their
+  computer beside their keys (`VLLM_BASE_URL` and `VLLM_API_KEY`,
+  `SGLANG_BASE_URL` and `SGLANG_API_KEY` in `settings.env`), and RUSH keeps
+  neither; the page shows the address, never the key.
+- The page lists the models each server serves now, or why it cannot reach
+  it, and the member chooses one under Model: chat, inline completion and apps
+  then all run on it (their `model`, `src/server/ai-settings.js`), at no cost,
+  until they choose RUSH's again. `/model` in a chat lists those models too.
+- Apps need the server to call tools: vLLM started with
+  `--enable-auto-tool-choice --tool-call-parser <parser>`, SGLang with
+  `--tool-call-parser <parser>` (nanoagent/README.md, vLLM and SGLang).
 
 ## Running locally
 

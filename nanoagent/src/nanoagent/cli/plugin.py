@@ -16,8 +16,9 @@ add ``result.json``, the task's output. An agent run adds ``reference.json`` (th
 tool output, pinned before the agent starts) and ``messages.json`` (the agent's conversation, as
 ATIF); the agent's tools share one plugin process for the whole run. A decide run writes the same
 files, its ``messages.json`` holding the decider's requests, each answered by one ``answer`` call.
-An agent run's model is on Bedrock (``PluginAgentConfig``) or OpenRouter
-(``PluginOpenRouterAgentConfig``), whichever class its config file names on its ``_ >`` line.
+An agent run's model is on Bedrock (``PluginAgentConfig``), OpenRouter
+(``PluginOpenRouterAgentConfig``) or a vLLM or SGLang server of one's own
+(``PluginServerAgentConfig``), whichever class its config file names on its ``_ >`` line.
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ from nanoagent import __version__
 from nanoagent.harness.nanoagent import NanoAgentConfig
 from nanoagent.llm.bedrock import BedrockConfig
 from nanoagent.llm.openrouter import OpenRouterConfig
+from nanoagent.llm.server import ServerConfig
 from nanoagent.core.agent import Agent
 from nanoagent.plugin import PluginError, PluginManifest, load_manifest
 from nanoagent.plugin.authoring import check_plugin, migrate
@@ -93,6 +95,12 @@ class PluginOpenRouterAgentConfig(PluginAgentConfig):
     # A PluginAgentConfig whose model is on OpenRouter. slimconfig fills a field with one config
     # class only, so the run's `_ >` line picks the model's provider (see `_agent_run`).
     llm: OpenRouterConfig = field(default_factory=OpenRouterConfig)  # type: ignore[assignment]
+
+
+@dataclass
+class PluginServerAgentConfig(PluginAgentConfig):
+    # A PluginAgentConfig whose model is on a vLLM or SGLang server of one's own.
+    llm: ServerConfig = field(default_factory=ServerConfig)  # type: ignore[assignment]
 
 
 @dataclass
@@ -276,10 +284,17 @@ class PluginOpenRouterAgent(PluginAgent):
     config: PluginOpenRouterAgentConfig
 
 
+class PluginServerAgent(PluginAgent):
+    """A :class:`PluginAgent` whose model is on a vLLM or SGLang server of one's own."""
+
+    config: PluginServerAgentConfig
+
+
 # The agent run for each config class an agent run's config file may name on its `_ >` line.
 _AGENT_RUNS: dict[type, type[PluginAgent]] = {
     PluginAgentConfig: PluginAgent,
     PluginOpenRouterAgentConfig: PluginOpenRouterAgent,
+    PluginServerAgentConfig: PluginServerAgent,
 }
 
 

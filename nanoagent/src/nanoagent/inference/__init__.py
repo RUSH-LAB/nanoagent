@@ -27,7 +27,7 @@ reports the ids the sampler emitted. :class:`~nanoagent.inference.config.Generat
 other spec, SGLang's ``/generate``, and those replies are :attr:`Fidelity.NATIVE`.
 
 The chat client is ``config.provider``, resolved by :mod:`nanoagent.inference.providers`:
-``"sglang"`` and ``"openrouter"``. The client module is imported only when selected, so importing
+``"sglang"``, ``"vllm"``, ``"openrouter"`` and ``"bedrock"``. The client module is imported only when selected, so importing
 this package does not pull in the ``openai`` SDK until a provider is built.
 
 Every yaml entry point resolves a relative path against the PROJECT ROOT (see
