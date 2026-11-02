@@ -32,6 +32,7 @@ import dataclasses
 import enum
 import importlib.util
 import sys
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -58,6 +59,8 @@ _EXPRESSIONS = (
     ast.BitOr,
     ast.expr_context,
 )
+# Every contract is the one module `contract` while it loads, so two plugins never load at once.
+_LOADING = threading.Lock()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -127,21 +130,22 @@ def _expression(node: ast.expr) -> list[str]:
 
 @contextmanager
 def contract_module(root: Path) -> Iterator[ModuleType]:
-    """Run ``root/contract.py`` as the module ``contract`` for the duration of the block."""
+    """Run ``root/contract.py`` as the module ``contract`` for the duration of the block, one plugin at a time."""
     spec = importlib.util.spec_from_file_location(MODULE, root / CONTRACT)
     if spec is None or spec.loader is None:
         raise ImportError(f"cannot load {root / CONTRACT}")
     module = importlib.util.module_from_spec(spec)
-    previous = sys.modules.get(MODULE)
-    sys.modules[MODULE] = module
-    try:
-        spec.loader.exec_module(module)
-        yield module
-    finally:
-        if previous is None:
-            sys.modules.pop(MODULE, None)
-        else:
-            sys.modules[MODULE] = previous
+    with _LOADING:
+        previous = sys.modules.get(MODULE)
+        sys.modules[MODULE] = module
+        try:
+            spec.loader.exec_module(module)
+            yield module
+        finally:
+            if previous is None:
+                sys.modules.pop(MODULE, None)
+            else:
+                sys.modules[MODULE] = previous
 
 
 def read_contract(module: ModuleType) -> tuple[Contract | None, list[str]]:
