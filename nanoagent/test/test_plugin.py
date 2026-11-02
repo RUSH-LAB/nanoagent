@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -688,6 +689,7 @@ async def test_exposes_plugin_as_agent_tools(tmp_path: Path) -> None:
 
 SERVER = """import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import anyio
@@ -1371,3 +1373,14 @@ def test_renderers_draw_only_task_outputs_from_inside_their_own(tmp_path: Path) 
     with pytest.raises(PluginError) as error:
         load_manifest(tmp_path)
     assert error.value.violations == ["ui/renderers.js's default export must be an object literal, its renderers keyed by output class name"]
+
+
+def test_plugins_load_at_the_same_time(tmp_path: Path) -> None:
+    # Every contract is the module `contract` while it loads, and the manifest names its keys by
+    # that name (contract.Tool), so two plugins loading at once must not see each other's.
+    folders = [tmp_path / str(index) for index in range(8)]
+    for folder in folders:
+        write_plugin(folder)
+    with ThreadPoolExecutor(len(folders)) as pool:
+        manifests = list(pool.map(load_manifest, folders * 4))
+    assert [manifest.root for manifest in manifests] == [folder.resolve() for folder in folders * 4]
