@@ -180,6 +180,7 @@ class StopReason(StrEnum):
     (JSON-compatible, comparable to the raw strings in saved trajectories)."""
 
     ANSWER = "answer"  # model returned no tool call — that reply is the final answer
+    SUBMITTED = "submitted"  # a designated final tool accepted the structured result
     MAX_STEPS = "max_steps_reached"  # ran out of model turns
     COST_LIMIT = "cost_limit"  # accumulated cost hit the configured cap
     TOKEN_LIMIT = "token_limit"  # accumulated total tokens hit the configured cap
@@ -291,6 +292,7 @@ class Agent:
         messages: list[dict[str, Any]] | None = None,
         on_delta: Callable[[str, str], None] | None = None,
         on_tool: Callable[[dict[str, Any]], None] | None = None,
+        final_tool: str | None = None,
     ) -> AgentResult:
         """Drive the agent until it answers or hits a limit.
 
@@ -310,7 +312,11 @@ class Agent:
         exception the partial result is recorded (``stop_reason="error"``), passed to ``on_step``,
         and re-raised. ``label`` (e.g. the task id) is prefixed to this run's log
         lines so they're attributable when many rollouts log to one console.
+        ``final_tool`` ends the loop immediately after that tool succeeds, without
+        another model request; a failed call is returned to the model for correction.
         """
+        if final_tool is not None and final_tool not in self._tools:
+            raise ValueError(f"final tool {final_tool!r} is not registered")
         profiler = Profiler()
         tag = f"[{label}] " if label is not None else ""
         for tool in self._tools.values():
@@ -397,7 +403,10 @@ class Agent:
                 # without them being withdrawn, and dropping them would change the prompt prefix
                 # and cost the server's cached KV for this turn.
                 if step == self._max_steps - 1:
-                    transcript.append({"role": "user", "content": _LAST_STEP_PROMPT})
+                    final_prompt = _LAST_STEP_PROMPT if final_tool is None else (
+                        f"This is your final turn. Call {final_tool} with your complete structured result."
+                    )
+                    transcript.append({"role": "user", "content": final_prompt})
                 pending = {"model": 0.0, "tools": 0.0}
                 profile_step = profiler.start_step(step + 1)
                 # Once per STEP, not per query: the retry loop below re-queries with the same
@@ -527,6 +536,9 @@ class Agent:
                 )
                 call_log.extend(log_rows)
                 transcript.extend(tool_msgs)
+                if final_tool is not None and any(row["name"] == final_tool and not row["is_error"] for row in log_rows):
+                    finish_step()
+                    return _emit(on_step, result(step + 1, StopReason.SUBMITTED, ""))
                 # Compaction (compact=True) runs at the END of the step, once the assistant turn
                 # and ALL its tool results are in: summarizing mid-step could split a tool call
                 # from its results, which the chat API rejects. Its summarization turn is real

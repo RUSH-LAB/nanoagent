@@ -1,27 +1,27 @@
-_ > nanoagent.plugin.v0001.ManifestConfig:
+_ > nanoagent.plugin.v0002.ManifestConfig:
 id: {{id}}
 name: {{name}}
 version: 0.1.0
 status: in-development
-spec: nanoagent.plugin/v0001
+spec: nanoagent.plugin/v0002
 
-runtime > nanoagent.plugin.v0001.RuntimeConfig:
+runtime > nanoagent.plugin.v0002.RuntimeConfig:
   type: mcp_stdio
   command: [uv, run, --frozen, python, -m, plugin]
 
-permissions > nanoagent.plugin.v0001.PermissionsConfig:
-  network > nanoagent.plugin.v0001.NetworkConfig:
+permissions > nanoagent.plugin.v0002.PermissionsConfig:
+  network > nanoagent.plugin.v0002.NetworkConfig:
     hosts: []
-  filesystem > nanoagent.plugin.v0001.FilesystemConfig:
+  filesystem > nanoagent.plugin.v0002.FilesystemConfig:
     write: [workspace]
 
 # One entry per contract.Tool; its input and output classes are contract.TOOLS's.
-tools > dict[contract.Tool, nanoagent.plugin.v0001.ToolConfig]:
+tools > dict[contract.Tool, nanoagent.plugin.v0002.ToolConfig]:
   write_note:
     description: Write a text note into a new file in the workspace
 
 # One entry per contract.Task; its input class is contract.TASKS's.
-tasks > dict[contract.Task, nanoagent.plugin.v0001.TaskConfig]:
+tasks > dict[contract.Task, nanoagent.plugin.v0002.TaskConfig]:
   write-note:
     description: Save a note as a file
     runner: tool

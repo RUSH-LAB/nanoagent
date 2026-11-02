@@ -32,14 +32,16 @@ import dataclasses
 import enum
 import importlib.util
 import sys
-import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from types import ModuleType
+
 from typing import Any
 
 from slimconfig import Output, output_schema
+
+from nanoagent.plugin.manifest import CONTRACT_LOCK
 
 from nanoagent.plugin.v0001.verifier import FORBIDDEN_NAMES
 
@@ -60,7 +62,7 @@ _EXPRESSIONS = (
     ast.expr_context,
 )
 # Every contract is the one module `contract` while it loads, so two plugins never load at once.
-_LOADING = threading.Lock()
+_LOADING = CONTRACT_LOCK
 
 
 @dataclasses.dataclass(frozen=True)

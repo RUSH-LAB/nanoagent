@@ -1,6 +1,6 @@
 # {{name}}
 
-A `nanoagent.plugin/v0001` plugin, created by `nanoagent plugin new` with the
+A `nanoagent.plugin/v0002` plugin, created by `nanoagent plugin new` with the
 structure of NanoAgent's reference plugin,
 [arxiv-source](https://github.com/zeyuyang8/arxiv-source).
 
@@ -65,6 +65,13 @@ its type in the task's input or an earlier tool output. Then add the check of
 its output, `verify_task(arguments, output, reference, workspace)`, to `TASKS`
 in `verifier/__init__.py`. People use the plugin by chatting with its agent,
 which runs its tasks and shows each output on the page (see `ui/`).
+
+An agent task can declare `evaluator: <tool name>` outside its `tools` list.
+The agent's `submit` schema is then that evaluator's input class. An accepted
+submission stops the agent immediately; NanoAgent calls the evaluator and then
+`verify_task` automatically. The evaluator's output class must be the task's
+declared output class. Compilation, execution and measurements belong in the
+evaluator; the deterministic verifier checks the resulting evidence.
 
 ## Develop and run
 

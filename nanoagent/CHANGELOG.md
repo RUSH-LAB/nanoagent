@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- `nanoagent.plugin/v0002` adds an optional `evaluator` tool for agent tasks.
+  The agent submits the evaluator's typed input and stops immediately. NanoAgent
+  runs that tool, then automatically verifies its typed output. Evaluator errors
+  fail the task; a missing or invalid submission never starts evaluation.
+- v0001 task behavior stays unchanged. `nanoagent plugin migrate` upgrades v0001 plugins to
+  v0002; newly scaffolded plugins use v0002.
+- Contract loading shares one lock across specs, preserving the concurrent-loading
+  safety fix when v0001 and v0002 plugins load together.
+
 What each NanoAgent release changes for plugins. Since 0.7.0 a plugin declares the plugin format it
 follows, its `spec`, and runs on every release that runs that spec (`nanoagent.plugin.manifest.SPECS`).
 

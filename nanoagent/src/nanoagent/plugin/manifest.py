@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import importlib
 import re
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
@@ -49,11 +50,16 @@ from slimconfig import merge_specs
 PLUGIN_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 MANIFEST = "nanoagent.yaml"
 # Every spec this NanoAgent runs, and its package.
-SPECS = {"nanoagent.plugin/v0001": "nanoagent.plugin.v0001"}
+SPECS = {
+    "nanoagent.plugin/v0001": "nanoagent.plugin.v0001",
+    "nanoagent.plugin/v0002": "nanoagent.plugin.v0002",
+}
 # The newest spec: the one `nanoagent plugin new` writes and `nanoagent plugin migrate` moves a plugin to.
-SPEC = "nanoagent.plugin/v0001"
+SPEC = "nanoagent.plugin/v0002"
 # The tool NanoAgent gives an agent task's agent, taking the task's output (nanoagent.plugin.tasks).
 SUBMIT = "submit"
+# All specs temporarily load the same module name, ``contract``.
+CONTRACT_LOCK = threading.Lock()
 # What git, uv, Python and the test tools create in a checkout, and the coding agents' instructions
 # (AGENTS.md, CLAUDE.md, GEMINI.md, which RUSH Lab writes into a project): allowed at the top level
 # and anywhere else, never checked, never packed.
@@ -97,6 +103,7 @@ class TaskDefinition:
     instructions: str
     input_type: type = field(compare=False, repr=False)
     output_type: type = field(compare=False, repr=False)
+    evaluator: str | None = None
 
 
 @dataclass(frozen=True)
@@ -182,6 +189,7 @@ class PluginManifest:
                     "output": task.output_class,
                     "reference": task.reference,
                     "instructions": task.instructions,
+                    **({"evaluator": task.evaluator} if task.evaluator is not None else {}),
                 }
                 for task in self.tasks
             ],

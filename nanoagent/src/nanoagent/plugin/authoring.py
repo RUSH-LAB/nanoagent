@@ -25,7 +25,7 @@ rule its author had no chance to meet.
    bounded above and below.
 3. A ``ready`` plugin's ``product/product.yaml`` is its own, none of it the template's placeholder.
 
-:func:`migrate` moves a plugin made before plugins declared their spec onto :data:`SPEC`.
+:func:`migrate` moves a plugin with an older spec, or made before specs, onto :data:`SPEC`.
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ def check_plugin(source: str | Path) -> PluginManifest:
 
 
 def migrate(source: str | Path) -> PluginManifest:
-    """Move the plugin folder ``source``, made for NanoAgent 0.6 or earlier, onto :data:`SPEC`.
+    """Move the plugin folder ``source`` from an older format onto :data:`SPEC`.
 
     Its ``nanoagent`` line becomes ``spec: <SPEC>``, ``nanoagent.yaml`` and ``product.yaml`` name
     :data:`SPEC`'s classes for ``nanoagent.plugin.manifest``'s, and ``run.sh``, which NanoAgent 0.6
@@ -80,12 +80,15 @@ def migrate(source: str | Path) -> PluginManifest:
     root = Path(source).expanduser().resolve()
     manifest = root / MANIFEST
     text = manifest.read_text(encoding="utf-8")
-    if not PRE_SPEC.search(text):
-        raise ValueError(f"{manifest} has no nanoagent line: it is not a plugin made before plugins declared their spec")
+    previous = next((spec for spec in SPECS if spec != SPEC and re.search(rf"^spec: {re.escape(spec)}$", text, re.MULTILINE)), None)
+    if not PRE_SPEC.search(text) and previous is None:
+        raise ValueError(f"{manifest} does not declare an older plugin spec")
     module = SPECS[SPEC] + "."
-    manifest.write_text(PRE_SPEC.sub(f"spec: {SPEC}", text, count=1).replace("nanoagent.plugin.manifest.", module), encoding="utf-8")
+    old_module = "nanoagent.plugin.manifest." if previous is None else SPECS[previous] + "."
+    pattern = PRE_SPEC if previous is None else re.compile(rf"^spec: {re.escape(previous)}$", re.MULTILINE)
+    manifest.write_text(pattern.sub(f"spec: {SPEC}", text, count=1).replace(old_module, module), encoding="utf-8")
     if (root / PRODUCT).is_file():
-        (root / PRODUCT).write_text((root / PRODUCT).read_text(encoding="utf-8").replace("nanoagent.plugin.manifest.", module), encoding="utf-8")
+        (root / PRODUCT).write_text((root / PRODUCT).read_text(encoding="utf-8").replace(old_module, module), encoding="utf-8")
     (root / "run.sh").unlink(missing_ok=True)
     return check_plugin(root)
 

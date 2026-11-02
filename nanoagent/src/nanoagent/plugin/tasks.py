@@ -29,7 +29,7 @@ from nanoagent.core.agent import Agent, AgentResult, DecisionModel, Reply, StopR
 from nanoagent.core.messages import assistant_message
 from nanoagent.core.tool import Tool
 from nanoagent.plugin.dataflow import Answers, Decider, Question, answer_schema, check, fill, values
-from nanoagent.plugin.manifest import SUBMIT, PluginManifest, TaskDefinition
+from nanoagent.plugin.manifest import SUBMIT, PluginManifest, TaskDefinition, ToolDefinition
 from nanoagent.plugin.provenance import PARTS, LoopRecorder, NodeType, Provenance
 from nanoagent.plugin.runtime import PluginSession, call_tool_async, plugin_tools
 from nanoagent.plugin.verifier import Verification, verify_task
@@ -48,17 +48,16 @@ class TaskOutcome:
 
 
 class SubmitTool(Tool):
-    """Submit the task's result. Call it once the task is done; if you call it again, the last
-    submission is the result."""
+    """Accept the task's typed output, or its evaluator's typed input."""
 
-    def __init__(self, task: TaskDefinition) -> None:
+    def __init__(self, task: TaskDefinition, evaluator: ToolDefinition | None = None) -> None:
         self.NAME = SUBMIT
-        self.PARAMETERS = task.output
-        self._task = task
+        self.PARAMETERS = task.output if evaluator is None else evaluator.input
+        self._output_type = task.output_type if evaluator is None else evaluator.input_type
         self.output: dict[str, Any] | None = None
 
     def run(self, **arguments: Any) -> str:
-        build_output(arguments, self._task.output_type)
+        build_output(arguments, self._output_type)
         self.output = arguments
         return "Submitted."
 
@@ -71,6 +70,12 @@ def task_prompt(manifest: PluginManifest, task: TaskDefinition, arguments: dict[
         f"Task: {task.description}.\n{task.instructions}\n\n"
         f"When the task is done, call {SUBMIT} with its result."
     )
+    if task.evaluator is not None:
+        system += (
+            f"\nSubmit {manifest.tool(task.evaluator).input_class}, the input of {task.evaluator}. "
+            "Submission ends your work immediately. NanoAgent then runs the evaluator and the "
+            "deterministic verifier automatically; do not produce an evaluation report yourself."
+        )
     return system, f"Task input:\n{json.dumps(arguments, indent=2)}"
 
 
@@ -211,7 +216,8 @@ async def _run(
             system, user = task_prompt(manifest, task, arguments)
             graph.value("system", NodeType.SYSTEM_PROMPT, PARTS[NodeType.SYSTEM_PROMPT].label, system)
             agent = make_agent(system)
-            submit = SubmitTool(task)
+            evaluator = None if task.evaluator is None else manifest.tool(task.evaluator)
+            submit = SubmitTool(task, evaluator)
             agent.add_tool(submit)
             reported = 0
             loop = LoopRecorder(graph, ["system", "input"])
@@ -243,16 +249,26 @@ async def _run(
             async with PluginSession(manifest, workspace, timeout=timeout) as session:
                 for tool in plugin_tools(manifest, workspace, task.tools, session=session):
                     agent.add_tool(tool)
-                result = await agent.run(user, on_step=on_step, on_delta=on_delta, on_tool=on_tool)
+                final = {} if evaluator is None else {"final_tool": SUBMIT}
+                result = await agent.run(user, on_step=on_step, on_delta=on_delta, on_tool=on_tool, **final)
             on_event("task.answer", {"text": result.answer})
             if submit.output is None:
                 raise RuntimeError(f"the agent ended task {task.id!r} without calling {SUBMIT}")
-            # The last submission is the output.
             output = loop.arguments[SUBMIT]
-            graph.retype(output, NodeType.TASK_OUTPUT, "Task output (submitted)")
-            on_event("task.result", {"response": submit.output})
-            verdict = await _verdict(manifest, task, arguments, submit.output, reference, workspace, on_event, graph, output)
-            return TaskOutcome(reference=reference, output=submit.output, agent=result, verdict=verdict)
+            made = submit.output
+            if evaluator is not None:
+                graph.call("evaluation", NodeType.TOOL, evaluator.name)
+                graph.edge(output, "evaluation", "used")
+                made = await call_tool_async(manifest, evaluator.name, made, workspace=workspace, timeout=timeout)
+                on_event("task.tool", {"name": evaluator.name, "arguments": submit.output, "output": made, "isError": False})
+                output = "output"
+                graph.value(output, NodeType.TASK_OUTPUT, PARTS[NodeType.TASK_OUTPUT].label, made)
+                graph.edge("evaluation", output, "generated")
+            else:
+                graph.retype(output, NodeType.TASK_OUTPUT, "Task output (submitted)")
+            on_event("task.result", {"response": made})
+            verdict = await _verdict(manifest, task, arguments, made, reference, workspace, on_event, graph, output)
+            return TaskOutcome(reference=reference, output=made, agent=result, verdict=verdict)
         case "decide":
             if make_decider is None:
                 raise ValueError(f"task {task.id!r} is a decide task: it needs a decider")

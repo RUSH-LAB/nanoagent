@@ -46,6 +46,9 @@ Before writing code, settle these with the person:
 - Whether the task has a `reference`: a tool outside the task's tools that
   NanoAgent runs first, out of the model's sight. Its output becomes the
   ground truth for `verify_task`.
+- Whether an agent task has an `evaluator`: a tool outside the agent's tools
+  that NanoAgent runs after submission. The agent submits that tool's typed
+  input and stops; NanoAgent executes it and verifies its typed output.
 - The network hosts the plugin must reach, if any.
 
 If any check needs a judgment that code cannot make, redesign the task now.
@@ -108,7 +111,7 @@ its dependencies and its `slimconfig` source unchanged.
 ## 5. Write the manifest: `nanoagent.yaml`
 
 - `version` is PEP 440 and matches `pyproject.toml`'s `version`.
-- `spec: nanoagent.plugin/v0001` is the plugin format it follows. Every NanoAgent
+- `spec: nanoagent.plugin/v0002` is the plugin format it follows. Every NanoAgent
   that runs that spec runs the plugin, so it never needs a new version just
   because NanoAgent has one.
 - `runtime.command` is exactly `[uv, run, --frozen, python, -m, plugin]`.
@@ -120,11 +123,17 @@ its dependencies and its `slimconfig` source unchanged.
   `tools`, `reference` (a tool name, or `null`) and `instructions`.
   - A `tool` task names exactly one tool, and its classes are that tool's.
   - No tool is named `submit`.
+  - An agent task may set `evaluator: <tool name>`, outside its `tools` list.
+    Its `submit` schema is that tool's input class. Accepting submission stops
+    the agent immediately; NanoAgent calls the evaluator, then `verify_task`.
+    The task's declared output must match the evaluator's output class.
+    Put compilation and benchmarking in the evaluator; the verifier checks
+    the recorded evidence without executing programs or using a model.
   - A `decide` task must be able to fill every field by a choice or a copy.
     It may never copy from the reference tool's output.
 
 Follow slimconfig's rules: the file keeps its class headers (such as
-`_ > nanoagent.plugin.v0001.ManifestConfig:`), sets every field, and adds
+`_ > nanoagent.plugin.v0002.ManifestConfig:`), sets every field, and adds
 no other field.
 
 ## 6. Write the verifier and its tests

@@ -1014,7 +1014,7 @@ def test_plugin_new_creates_a_plugin_with_the_standard_layout(tmp_path: Path, mo
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
     assert main(["new", str(tmp_path / "my-notes")]) == 0
     manifest = check_plugin(tmp_path / "my-notes")
-    assert (manifest.id, manifest.name, manifest.spec) == ("my-notes", "My Notes", "nanoagent.plugin/v0001")
+    assert (manifest.id, manifest.name, manifest.spec) == ("my-notes", "My Notes", "nanoagent.plugin/v0002")
     assert _layout(tmp_path / "my-notes") == {*STANDARD_FILES, *STANDARD_FOLDERS}
     assert not any((tmp_path / "my-notes" / name).exists() for name in AGENT_INSTRUCTIONS)
     license_text = (tmp_path / "my-notes" / "LICENSE").read_text()
@@ -1085,12 +1085,12 @@ async def test_plugin_tool_images_reach_the_model_as_images() -> None:
 @pytest.mark.parametrize(
     ("line", "problem"),
     [
-        ("spec: nanoagent.plugin/v0002", "nanoagent.yaml spec 'nanoagent.plugin/v0002' is not one this NanoAgent runs: nanoagent.plugin/v0001"),
-        ("", "nanoagent.yaml declares no spec, the plugin format it follows: this NanoAgent runs nanoagent.plugin/v0001"),
+        ("spec: nanoagent.plugin/v9999", "nanoagent.yaml spec 'nanoagent.plugin/v9999' is not one this NanoAgent runs: nanoagent.plugin/v0001, nanoagent.plugin/v0002"),
+        ("", "nanoagent.yaml declares no spec, the plugin format it follows: this NanoAgent runs nanoagent.plugin/v0001, nanoagent.plugin/v0002"),
         (
             "nanoagent: ~=0.6.0",
             "nanoagent.yaml names the NanoAgent it was made for, nanoagent: ~=0.6.0, from before plugins declared their"
-            " spec; `nanoagent plugin migrate <folder>` moves it to nanoagent.plugin/v0001",
+            " spec; `nanoagent plugin migrate <folder>` moves it to nanoagent.plugin/v0002",
         ),
     ],
 )
@@ -1104,7 +1104,7 @@ def test_a_plugin_declares_a_spec_this_nanoagent_runs(tmp_path: Path, line: str,
     assert error.value.violations == [problem]
 
 
-def test_migrate_moves_a_plugin_made_before_specs_onto_v1(tmp_path: Path) -> None:
+def test_migrate_moves_a_plugin_made_before_specs_onto_latest(tmp_path: Path) -> None:
     from nanoagent.cli.plugin import main
 
     manifest = write_plugin(tmp_path)
@@ -1113,7 +1113,7 @@ def test_migrate_moves_a_plugin_made_before_specs_onto_v1(tmp_path: Path) -> Non
     product.write_text(product.read_text().replace("nanoagent.plugin.v0001.", "nanoagent.plugin.manifest."))
     (tmp_path / "run.sh").write_text("#!/bin/sh\nexec uv run --frozen python -m plugin\n")
     assert main(["migrate", str(tmp_path)]) == 0
-    assert manifest.read_text() == MANIFEST and product.read_text() == PRODUCT
+    assert manifest.read_text() == MANIFEST.replace("v0001", "v0002") and product.read_text() == PRODUCT.replace("v0001", "v0002")
     assert not (tmp_path / "run.sh").exists()
     assert main(["migrate", str(tmp_path)]) == 1
 
@@ -1330,7 +1330,7 @@ def test_a_ready_plugin_describes_itself_and_names_its_tasks(tmp_path: Path) -> 
     from nanoagent.plugin.authoring import TEMPLATE
 
     write_plugin(tmp_path)
-    (tmp_path / "product" / "product.yaml").write_text((TEMPLATE / "product" / "product.yaml").read_text().replace("{{name}}", "Echo"))
+    (tmp_path / "product" / "product.yaml").write_text((TEMPLATE / "product" / "product.yaml").read_text().replace("{{name}}", "Echo").replace("v0002", "v0001"))
     readme = tmp_path / "README.md"
     readme.write_text(readme.read_text().replace("`echo` repeats its input.", "The echo tool repeats its input."))
     with pytest.raises(PluginError) as error:
