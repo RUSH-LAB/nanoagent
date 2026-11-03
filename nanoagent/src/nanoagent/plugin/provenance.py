@@ -379,9 +379,9 @@ class LoopRecorder:
                     self._graph.update(self._calls[call["id"]], duration_s=call["duration_s"])
             self._last, self._step = self._step, None
 
-    def finish(self, answer: str | None, step: dict[str, Any] | None) -> None:
+    def finish(self, answer: str | None, step: dict[str, Any] | None) -> str | None:
         """The loop ended: ``answer`` is what its last request wrote, None when it failed, which is
-        the agent's response."""
+        the agent's response. Return its node ID when present."""
         last = self._step
         self.step_done(step)
         if answer and last is not None:
@@ -391,6 +391,8 @@ class LoopRecorder:
                 self._graph.edge(last, at, "generated")
             self._graph.retype(at, NodeType.RESPONSE, PARTS[NodeType.RESPONSE].label)
             self._graph.update(at, value=answer)
+            return at
+        return None
 
 
 if __name__ == "__main__":

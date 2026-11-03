@@ -3,7 +3,8 @@
 A ``runner: tool`` task calls its tool once, and its output is the tool's. A ``runner: agent``
 task pins its reference tool's output first (in a scratch workspace the agent never sees), then
 lets an agent work the task with only the task's tools, sharing one plugin process, and the
-task's output is what the agent last passes to :data:`SUBMIT`. A ``runner: decide`` task pins its
+task's output is what the agent last passes to :data:`SUBMIT`. With no tools, the agent writes
+the output as JSON in its final answer. A ``runner: decide`` task pins its
 reference the same way, then calls its tools and builds its output itself, every value chosen by a
 :class:`~nanoagent.plugin.dataflow.Decider` or copied (:func:`~nanoagent.plugin.dataflow.fill`),
 and each batch of choices is a ``task.decision`` event; an agent task's agent streams what it writes
@@ -23,7 +24,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from slimconfig import build_output
+from slimconfig import build_output, plain_output
 
 from nanoagent.core.agent import Agent, AgentResult, DecisionModel, Reply, StopReason, ToolCall
 from nanoagent.core.messages import assistant_message
@@ -65,12 +66,16 @@ class SubmitTool(Tool):
 
 def task_prompt(manifest: PluginManifest, task: TaskDefinition, arguments: dict[str, Any]) -> tuple[str, str]:
     """The system prompt and the opening user message for an agent working ``task``."""
-    system = (
-        f"You work one task with the {manifest.name} plugin's tools. Every file a tool saves goes "
-        "into your workspace; paths you pass to tools are relative to it.\n\n"
-        f"Task: {task.description}.\n{task.instructions}\n\n"
-        f"When the task is done, call {SUBMIT} with its result."
-    )
+    if task.tools:
+        opening = (
+            f"You work one task with the {manifest.name} plugin's tools. Every file a tool saves goes "
+            "into your workspace; paths you pass to tools are relative to it."
+        )
+        closing = f"When the task is done, call {SUBMIT} with its result."
+    else:
+        opening = f"You work one task for {manifest.name}."
+        closing = f"Return only a JSON object matching this schema, without Markdown:\n{json.dumps(task.output)}"
+    system = f"{opening}\n\nTask: {task.description}.\n{task.instructions}\n\n{closing}"
     return system, f"Task input:\n{json.dumps(arguments, indent=2)}"
 
 
@@ -211,9 +216,11 @@ async def _run(
             system, user = task_prompt(manifest, task, arguments)
             graph.value("system", NodeType.SYSTEM_PROMPT, PARTS[NodeType.SYSTEM_PROMPT].label, system)
             agent = make_agent(system)
-            submit = SubmitTool(task)
-            agent.add_tool(submit)
+            submit = SubmitTool(task) if task.tools else None
+            if submit is not None:
+                agent.add_tool(submit)
             reported = 0
+            response_node = None
             loop = LoopRecorder(graph, ["system", "input"])
 
             def on_tool(event: dict[str, Any]) -> None:
@@ -221,7 +228,7 @@ async def _run(
                     loop.tool_started(event["id"], event["name"])
 
             def on_step(partial: AgentResult) -> None:
-                nonlocal reported
+                nonlocal reported, response_node
                 for call in partial.tool_calls[reported:]:
                     on_event(
                         "task.tool",
@@ -233,26 +240,39 @@ async def _run(
                 if partial.stop_reason is StopReason.RUNNING:
                     loop.step_done(step)
                 else:
-                    loop.finish(partial.answer if partial.stop_reason is StopReason.ANSWER else None, step)
+                    response_node = loop.finish(partial.answer if partial.stop_reason is StopReason.ANSWER else None, step)
 
             def on_delta(kind: str, text: str) -> None:
                 on_event("task.delta", {"kind": kind, "text": text})
                 loop.delta(kind, text)
 
-            # One plugin process for the whole task, so its tools can keep state between calls.
-            async with PluginSession(manifest, workspace, timeout=timeout) as session:
-                for tool in plugin_tools(manifest, workspace, task.tools, session=session):
-                    agent.add_tool(tool)
+            if submit is None:
                 result = await agent.run(user, on_step=on_step, on_delta=on_delta, on_tool=on_tool)
+                if result.stop_reason is not StopReason.ANSWER:
+                    raise RuntimeError(f"the agent ended task {task.id!r} with {result.stop_reason}")
+                try:
+                    answer = plain_output(build_output(json.loads(result.answer), task.output_type))
+                except ValueError as error:
+                    raise ValueError(f"invalid answer for task {task.id!r}: {error}") from error
+                output = "output"
+                graph.value(output, NodeType.TASK_OUTPUT, "Task output", answer)
+                if response_node is not None:
+                    graph.edge(response_node, output, "used")
+            else:
+                # One plugin process for the whole task so its tools can share state.
+                async with PluginSession(manifest, workspace, timeout=timeout) as session:
+                    for tool in plugin_tools(manifest, workspace, task.tools, session=session):
+                        agent.add_tool(tool)
+                    result = await agent.run(user, on_step=on_step, on_delta=on_delta, on_tool=on_tool)
+                if submit.output is None:
+                    raise RuntimeError(f"the agent ended task {task.id!r} without calling {SUBMIT}")
+                answer = submit.output
+                output = loop.arguments[SUBMIT]
+                graph.retype(output, NodeType.TASK_OUTPUT, "Task output (submitted)")
             on_event("task.answer", {"text": result.answer})
-            if submit.output is None:
-                raise RuntimeError(f"the agent ended task {task.id!r} without calling {SUBMIT}")
-            # The last submission is the output.
-            output = loop.arguments[SUBMIT]
-            graph.retype(output, NodeType.TASK_OUTPUT, "Task output (submitted)")
-            on_event("task.result", {"response": submit.output})
-            verdict = await _verdict(manifest, task, arguments, submit.output, reference, workspace, on_event, graph, output)
-            return TaskOutcome(reference=reference, output=submit.output, agent=result, verdict=verdict)
+            on_event("task.result", {"response": answer})
+            verdict = await _verdict(manifest, task, arguments, answer, reference, workspace, on_event, graph, output)
+            return TaskOutcome(reference=reference, output=answer, agent=result, verdict=verdict)
         case "decide":
             if make_decider is None:
                 raise ValueError(f"task {task.id!r} is a decide task: it needs a decider")

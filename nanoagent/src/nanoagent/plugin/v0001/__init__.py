@@ -545,7 +545,7 @@ def _config_violations(config: Any) -> list[str]:
     for key, task in config.tasks.items():
         where = f"{MANIFEST} tasks.{key.value}"
         violations += [f"{where}.{name} is blank" for name in ("description", "instructions") if not getattr(task, name).strip()]
-        if not task.tools:
+        if not task.tools and task.runner is not Runner.AGENT:
             violations.append(f"{where}.tools is empty")
         unknown = sorted(set(task.tools) - names)
         if unknown:
