@@ -224,3 +224,6 @@ __marimo__/
 
 # Secrets kept by hand: never in this public repository.
 KEY
+
+# Claude Code settings for one computer only.
+.claude/settings.local.json

@@ -1,0 +1,19 @@
+{
+  "inputs": [
+    {"date": "2026-10-26", "measure": "precipitation_mm", "comparison": "at_least", "threshold": 5.0},
+    {"date": "2026-10-26", "measure": "temperature_min_c", "comparison": "at_most", "threshold": 5.0},
+    {"date": "2026-10-20", "measure": "temperature_max_c", "comparison": "at_least", "threshold": 30.0},
+    {"date": "2026-10-15", "measure": "precipitation_mm", "comparison": "at_least", "threshold": 10.0},
+    {"date": "2026-10-10", "measure": "temperature_max_c", "comparison": "at_least", "threshold": 25.0},
+    {"date": "2026-10-05", "measure": "temperature_min_c", "comparison": "at_most", "threshold": 0.0},
+    {"date": "2026-10-22", "measure": "temperature_max_c", "comparison": "at_most", "threshold": 10.0},
+    {"date": "2026-10-18", "measure": "precipitation_mm", "comparison": "at_least", "threshold": 20.0},
+    {"date": "2026-10-01", "measure": "temperature_max_c", "comparison": "at_least", "threshold": 35.0},
+    {"date": "2026-10-28", "measure": "temperature_min_c", "comparison": "at_most", "threshold": 3.0},
+    {"date": "2026-10-12", "measure": "precipitation_mm", "comparison": "at_least", "threshold": 1.0},
+    {"date": "2026-10-08", "measure": "temperature_min_c", "comparison": "at_least", "threshold": 20.0},
+    {"date": "2026-11-20", "measure": "precipitation_mm", "comparison": "at_least", "threshold": 5.0},
+    {"date": "2026-12-01", "measure": "temperature_max_c", "comparison": "at_least", "threshold": 20.0},
+    {"date": "1930-06-01", "measure": "temperature_max_c", "comparison": "at_least", "threshold": 25.0}
+  ]
+}
