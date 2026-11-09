@@ -1,0 +1,40 @@
+_ > step2_run_agents.RunAgentsConfig:
+
+cases: examples/agent_timing/outputs/step1_build_cases
+only: null
+systems: [nanoagent, claude-code]
+repeats: 3
+timeout: 900.0
+
+# NanoAgent as RUSH Lab runs it by default: RUSH's default model, on OpenRouter.
+nanoagent > step2_run_agents.NanoAgentSystemConfig:
+  llm > nanoagent.llm.openrouter.OpenRouterConfig:
+    model: deepseek/deepseek-v4-flash-0731
+    max_tokens: null
+    temperature: null
+    max_attempts: 3
+    read_timeout: 120.0
+    # OpenRouter's price per million tokens on 2026-11-05; cached input is counted at the full price.
+    input_price: 0.059
+    output_price: 0.3
+  harness > nanoagent.harness.nanoagent.NanoAgentConfig:
+    max_steps: 10
+    cost_limit: null
+    token_limit: null
+    context_window: null
+    hooks: []
+    skills: null
+    context_files: []
+    events: null
+
+# Claude Code as it runs out of the box: its own model and tools.
+claude_code > step2_run_agents.ClaudeCodeSystemConfig:
+  model: default
+  openrouter: null
+
+# Claude Code with its own tools on NanoAgent's model, to compare the two on one model.
+claude_code_openrouter > step2_run_agents.ClaudeCodeSystemConfig:
+  model: deepseek/deepseek-v4-flash-0731
+  openrouter > step2_run_agents.OpenRouterPricesConfig:
+    input_price: 0.059
+    output_price: 0.3

@@ -1,0 +1,76 @@
+_ > step1_build_cases.BuildCasesConfig:
+
+plugins > dict[step1_build_cases.Plugin, step1_build_cases.PluginCasesConfig]:
+  nasdaq-drops:
+    folder: /Users/minghaotian/Desktop/rush-plugins/nasdaq-drops
+    task: find-drops
+    context: |-
+      The stocks are the current members of the Nasdaq-100 index, as Nasdaq lists them today, whatever the window's dates.
+      Use the daily closing prices Nasdaq lists on nasdaq.com. A window of N trading days ending on as_of starts on the trading day N sessions before as_of; change_percent is (end_close / start_close - 1) * 100, rounded half to even to 2 decimals.
+      as_of must be a trading day whose market has closed.
+    inputs: examples/agent_timing/configs/step1_nasdaq_drops_cases.json
+  city-weather:
+    folder: /Users/minghaotian/Desktop/rush-plugins/city-weather
+    task: find-cities
+    context: |-
+      Use Open-Meteo's historical weather (its archive of daily highest and lowest 2 m air temperature and total precipitation), each city's day in its own time zone, at these 40 cities and coordinates:
+      - Amsterdam, Netherlands: latitude 52.37, longitude 4.9
+      - Athens, Greece: latitude 37.98, longitude 23.73
+      - Auckland, New Zealand: latitude -36.85, longitude 174.76
+      - Bangkok, Thailand: latitude 13.76, longitude 100.5
+      - Beijing, China: latitude 39.9, longitude 116.41
+      - Berlin, Germany: latitude 52.52, longitude 13.4
+      - Buenos Aires, Argentina: latitude -34.6, longitude -58.38
+      - Cairo, Egypt: latitude 30.04, longitude 31.24
+      - Cape Town, South Africa: latitude -33.92, longitude 18.42
+      - Chicago, United States: latitude 41.88, longitude -87.63
+      - Delhi, India: latitude 28.61, longitude 77.21
+      - Dubai, United Arab Emirates: latitude 25.2, longitude 55.27
+      - Hong Kong, China: latitude 22.32, longitude 114.17
+      - Honolulu, United States: latitude 21.31, longitude -157.86
+      - Istanbul, Turkey: latitude 41.01, longitude 28.98
+      - Jakarta, Indonesia: latitude -6.21, longitude 106.85
+      - Lagos, Nigeria: latitude 6.52, longitude 3.38
+      - Lima, Peru: latitude -12.05, longitude -77.04
+      - London, United Kingdom: latitude 51.51, longitude -0.13
+      - Los Angeles, United States: latitude 34.05, longitude -118.24
+      - Madrid, Spain: latitude 40.42, longitude -3.7
+      - Mexico City, Mexico: latitude 19.43, longitude -99.13
+      - Moscow, Russia: latitude 55.76, longitude 37.62
+      - Mumbai, India: latitude 19.08, longitude 72.88
+      - Nairobi, Kenya: latitude -1.29, longitude 36.82
+      - New York, United States: latitude 40.71, longitude -74.01
+      - Paris, France: latitude 48.86, longitude 2.35
+      - Rome, Italy: latitude 41.9, longitude 12.5
+      - San Francisco, United States: latitude 37.77, longitude -122.42
+      - Santiago, Chile: latitude -33.45, longitude -70.67
+      - Sao Paulo, Brazil: latitude -23.55, longitude -46.63
+      - Seattle, United States: latitude 47.61, longitude -122.33
+      - Seoul, South Korea: latitude 37.57, longitude 126.98
+      - Shanghai, China: latitude 31.23, longitude 121.47
+      - Singapore, Singapore: latitude 1.35, longitude 103.82
+      - Stockholm, Sweden: latitude 59.33, longitude 18.07
+      - Sydney, Australia: latitude -33.87, longitude 151.21
+      - Tokyo, Japan: latitude 35.68, longitude 139.69
+      - Toronto, Canada: latitude 43.65, longitude -79.38
+      - Vancouver, Canada: latitude 49.28, longitude -123.12
+      The day must be over in every city.
+    inputs: examples/agent_timing/configs/step1_city_weather_cases.json
+
+prompt: |-
+  Task: {description}.
+
+  {context}
+
+  The task's input:
+  {arguments}
+
+  The input's JSON Schema:
+  {input_schema}
+
+  Write your answer to answer.json in the current folder: one JSON object following this JSON Schema.
+  {output_schema}
+
+  If the input cannot be answered (the day or window has not ended, the market was closed, or no data covers it), write {{"refused": "<why>"}} to answer.json instead.
+
+timeout: 300.0

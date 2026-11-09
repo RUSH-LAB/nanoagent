@@ -66,6 +66,12 @@ def _run(payload: dict[str, Any]) -> dict[str, Any]:
     cost = result.get("total_cost_usd", 0.0)
     steps = result.get("num_turns", 0)
     failed = bool(result.get("is_error"))
+    # Claude Code's own clock: the whole run, and the part of it spent waiting on the model's API.
+    metrics = {
+        name: result[field] / 1000
+        for name, field in (("duration_s", "duration_ms"), ("model_s", "duration_api_ms"))
+        if isinstance(result.get(field), (int, float)) and not isinstance(result.get(field), bool)
+    }
     return {
         "type": "done",
         "answer": result.get("result", ""),
@@ -74,6 +80,7 @@ def _run(payload: dict[str, Any]) -> dict[str, Any]:
         "usage": usage,
         "cost": float(cost) if isinstance(cost, (int, float)) else 0.0,
         "error": str(result.get("result")) if failed else None,
+        "metrics": metrics or None,
     }
 
 

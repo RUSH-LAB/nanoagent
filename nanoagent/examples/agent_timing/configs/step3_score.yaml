@@ -1,0 +1,11 @@
+_ > step3_score.ScoreConfig:
+
+cases: examples/agent_timing/outputs/step1_build_cases
+attempts: examples/agent_timing/outputs/step2_run_agents/out-of-box
+items > dict[step3_score.Task, step3_score.ItemsConfig]:
+  find-drops:
+    field: drops
+    key: symbol
+  find-cities:
+    field: cities
+    key: city
