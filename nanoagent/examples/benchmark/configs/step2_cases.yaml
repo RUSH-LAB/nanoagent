@@ -1,16 +1,10 @@
-_ > step1_build_cases.BuildCasesConfig:
+_ > step2_cases.CasesConfig:
 
-plugins > dict[step1_build_cases.Plugin, step1_build_cases.PluginCasesConfig]:
-  nasdaq-drops:
-    folder: /Users/minghaotian/Desktop/rush-plugins/nasdaq-drops
-    task: find-drops
-    context: |-
-      The stocks are the current members of the Nasdaq-100 index, as Nasdaq lists them today, whatever the window's dates.
-      Use the daily closing prices Nasdaq lists on nasdaq.com. A window of N trading days ending on as_of starts on the trading day N sessions before as_of; change_percent is (end_close / start_close - 1) * 100, rounded half to even to 2 decimals.
-      as_of must be a trading day whose market has closed.
-    inputs: examples/agent_timing/configs/step1_nasdaq_drops_cases.json
+# Step 1's unpacked plugins.
+plugins_folder: examples/benchmark/outputs/step1_plugins/plugins
+
+plugins > dict[step2_cases.Plugin, step2_cases.PluginCasesConfig]:
   city-weather:
-    folder: /Users/minghaotian/Desktop/rush-plugins/city-weather
     task: find-cities
     context: |-
       Use Open-Meteo's historical weather (its archive of daily highest and lowest 2 m air temperature and total precipitation), each city's day in its own time zone, at these 40 cities and coordinates:
@@ -55,7 +49,10 @@ plugins > dict[step1_build_cases.Plugin, step1_build_cases.PluginCasesConfig]:
       - Toronto, Canada: latitude 43.65, longitude -79.38
       - Vancouver, Canada: latitude 49.28, longitude -123.12
       The day must be over in every city.
-    inputs: examples/agent_timing/configs/step1_city_weather_cases.json
+    inputs: examples/benchmark/configs/step2_city_weather_inputs.json
+    # How many of the inputs to answer, and of those to refuse, from the first, are cases.
+    answer: 1
+    refuse: 0
 
 prompt: |-
   Task: {description}.

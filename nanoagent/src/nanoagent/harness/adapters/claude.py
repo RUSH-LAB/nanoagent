@@ -1,20 +1,30 @@
-"""Translate NanoAgent's runner protocol to the local Claude Code CLI."""
+"""Translate NanoAgent's runner protocol to the local Claude Code CLI.
+
+Claude Code runs with ``--output-format stream-json --include-partial-messages``: its events are
+relayed as they arrive (streamed text and reasoning as deltas, each tool call as ``tool_start`` and
+then ``tool``, each finished step as ``step``) and profiled into NanoAgent's standard profile, the
+done event's ``metrics``. A model call starts when Claude Code has what it needs to make it (the run
+starting, or the last result of the tools it asked for) and ends at its ``message_stop``. Work a
+subagent does belongs to the tool that started it. The run's tokens are every model's in Claude
+Code's own account (``modelUsage``), which also holds the calls Claude Code makes outside the stream;
+what Claude Code reports of its own clock and cost is kept as ``metrics.reported``."""
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from nanoagent.harness.adapters._coding_cli import (
     aws_environment,
+    emit,
     executable,
     extra_args,
     prompt,
     request_and_options,
-    run_child,
     run_main,
+    stream_child,
     workspace,
 )
+from nanoagent.profiler import StepProfile, StreamProfiler, accumulate_usage, messages_usage
 
 
 def _command(executable_path: str, options: dict[str, Any]) -> list[str]:
@@ -22,7 +32,9 @@ def _command(executable_path: str, options: dict[str, Any]) -> list[str]:
         executable_path,
         "-p",
         "--output-format",
-        "json",
+        "stream-json",
+        "--verbose",
+        "--include-partial-messages",
         "--permission-mode",
         str(options.get("permission_mode", "bypassPermissions")),
     ]
@@ -30,6 +42,112 @@ def _command(executable_path: str, options: dict[str, Any]) -> list[str]:
     if isinstance(model, str) and model and model != "default":
         command.extend(["--model", model])
     return [*command, *extra_args(options)]
+
+
+class _Relay:
+    """Claude Code's events passed on as NanoAgent progress and recorded in the run's profile."""
+
+    def __init__(self) -> None:
+        self.profiler = StreamProfiler()
+        self.calls: dict[str, dict[str, Any]] = {}
+        self.calling = False  # a model call is open
+        self.result: dict[str, Any] | None = None
+
+    def start_call(self) -> None:
+        self.passed(self.profiler.model_start())
+        self.calling = True
+
+    @staticmethod
+    def passed(step: StepProfile | None) -> None:
+        """Pass on a step just closed."""
+        if step is not None:
+            emit({"type": "step", "step": step.step, "cost": 0.0, "usage": step.usage, "metrics": step.to_dict()})
+
+    def __call__(self, event: dict[str, Any]) -> None:
+        kind = event.get("type")
+        if kind == "result":
+            self.result = event
+            return
+        if event.get("parent_tool_use_id") is not None:
+            return
+        if kind == "system" and event.get("subtype") == "init":
+            self.start_call()
+        elif kind == "stream_event":
+            self.stream(event["event"])
+        elif kind == "assistant":
+            for block in event["message"]["content"]:
+                if block.get("type") == "tool_use":
+                    self.calls[block["id"]] = block
+                    self.profiler.tool_start(block["id"], block["name"])
+                    emit({"type": "tool_start", "id": block["id"], "name": block["name"]})
+        elif kind == "user":
+            content = event["message"]["content"]
+            for block in content if isinstance(content, list) else []:
+                if block.get("type") == "tool_result":
+                    self.tool_result(block)
+
+    def stream(self, event: dict[str, Any]) -> None:
+        kind = event["type"]
+        if kind == "message_start" and not self.calling:
+            # A call with no tool results before it: it starts when Claude Code says it did.
+            self.start_call()
+        elif kind == "content_block_delta":
+            self.profiler.first_token()
+            delta = event["delta"]
+            if delta.get("type") == "text_delta":
+                emit({"type": "delta", "kind": "content", "text": delta["text"]})
+            elif delta.get("type") == "thinking_delta":
+                emit({"type": "delta", "kind": "reasoning", "text": delta["thinking"]})
+        elif kind == "message_delta":
+            self.profiler.usage(_usage(event["usage"]))
+        elif kind == "message_stop":
+            self.profiler.model_end()
+            self.calling = False
+
+    def tool_result(self, block: dict[str, Any]) -> None:
+        call = self.calls[block["tool_use_id"]]
+        failed = bool(block.get("is_error"))
+        self.profiler.tool_end(call["id"], is_error=failed)
+        content = block.get("content")
+        output = content if isinstance(content, str) else "".join(part.get("text", "") for part in content or [])
+        emit({"type": "tool", "id": call["id"], "name": call["name"], "arguments": call["input"], "output": output, "is_error": failed})
+        if not self.profiler.tools_running:
+            # Its tools done, Claude Code calls the model again with their results.
+            self.start_call()
+
+
+def _usage(raw: dict[str, Any]) -> dict[str, int]:
+    """One call's usage from Claude Code's Messages counts."""
+    details = raw.get("output_tokens_details") or {}
+    return messages_usage(
+        raw["input_tokens"],
+        raw["output_tokens"],
+        raw.get("cache_read_input_tokens") or 0,
+        raw.get("cache_creation_input_tokens") or 0,
+        details.get("thinking_tokens"),
+    )
+
+
+def _model_usage(models: dict[str, Any]) -> dict[str, int]:
+    """Every model's tokens in Claude Code's own account of the run."""
+    total: dict[str, int] = {}
+    for counts in models.values():
+        accumulate_usage(
+            total,
+            messages_usage(
+                counts["inputTokens"],
+                counts["outputTokens"],
+                counts["cacheReadInputTokens"],
+                counts["cacheCreationInputTokens"],
+                counts.get("thinkingTokens"),
+            ),
+        )
+    return total
+
+
+def _seconds(result: dict[str, Any], field: str) -> float | None:
+    value = result.get(field)
+    return value / 1000 if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
 def _run(payload: dict[str, Any]) -> dict[str, Any]:
@@ -41,46 +159,38 @@ def _run(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Claude Code provider must be 'bedrock' when set")
     if provider == "bedrock":
         environment["CLAUDE_CODE_USE_BEDROCK"] = "1"
-    stdout, _ = run_child(
+    relay = _Relay()
+    status, diagnostics = stream_child(
         _command(executable(options, "claude"), options),
         cwd=root,
-        input_text=prompt(request),
+        input_text=prompt(request) + "\n",
+        on_event=relay,
         env=environment,
     )
-    try:
-        result = json.loads(stdout)
-    except json.JSONDecodeError as error:
-        raise RuntimeError("Claude Code returned invalid JSON") from error
-    if not isinstance(result, dict) or not isinstance(result.get("result", ""), str):
-        raise RuntimeError("Claude Code returned an invalid result")
-    raw_usage = result.get("usage", {})
-    usage = (
-        {
-            key: int(value)
-            for key, value in raw_usage.items()
-            if isinstance(key, str) and isinstance(value, int) and not isinstance(value, bool)
-        }
-        if isinstance(raw_usage, dict)
-        else {}
-    )
-    cost = result.get("total_cost_usd", 0.0)
-    steps = result.get("num_turns", 0)
-    failed = bool(result.get("is_error"))
-    # Claude Code's own clock: the whole run, and the part of it spent waiting on the model's API.
-    metrics = {
-        name: result[field] / 1000
-        for name, field in (("duration_s", "duration_ms"), ("model_s", "duration_api_ms"))
-        if isinstance(result.get(field), (int, float)) and not isinstance(result.get(field), bool)
+    result = relay.result
+    if result is None:
+        raise RuntimeError(diagnostics or f"Claude Code exited with status {status} and no result")
+    failed = bool(result.get("is_error")) or status != 0
+    relay.passed(relay.profiler.close())
+    profile = relay.profiler.finish(_model_usage(result["modelUsage"]))
+    # Claude Code's own clock and cost: the whole run, its time on the model's API, its first token.
+    reported = {
+        "duration_s": _seconds(result, "duration_ms"),
+        "model_s": _seconds(result, "duration_api_ms"),
+        "ttft_s": _seconds(result, "ttft_ms"),
+        "cost": result.get("total_cost_usd"),
+        "turns": result.get("num_turns"),
     }
+    cost = result.get("total_cost_usd", 0.0)
     return {
         "type": "done",
         "answer": result.get("result", ""),
         "stop_reason": "error" if failed else "answer",
-        "steps": steps if isinstance(steps, int) and steps >= 0 else 0,
-        "usage": usage,
+        "steps": len(profile.steps),
+        "usage": profile.usage,
         "cost": float(cost) if isinstance(cost, (int, float)) else 0.0,
-        "error": str(result.get("result")) if failed else None,
-        "metrics": metrics or None,
+        "error": f"{result.get('result')} {diagnostics}".strip() if failed else None,
+        "metrics": profile.to_dict() | {"reported": reported},
     }
 
 

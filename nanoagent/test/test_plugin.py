@@ -416,9 +416,6 @@ async def test_a_decide_task_checks_words_with_no_model(tmp_path: Path) -> None:
     outcome = await _run_decide(manifest, manifest.task("check-words"), arguments, tmp_path, _Scripted(answer), events)
     assert outcome.verdict.valid and outcome.verdict.score == 1.0, outcome.verdict.message
     assert [verdict["differs"] for verdict in outcome.output["verdicts"]] == [None, ["first"], ["first", "rest"], None, None]
-    # Each stage timed apart: the reference pinned, the task decided, its output verified.
-    timing = outcome.timing
-    assert timing.reference is not None and min(timing.reference, timing.task, timing.verdict) > 0
     assert [kind for kind, _ in events if kind not in ("task.decision", "task.graph")] == [
         "task.started",
         "task.reference",
@@ -761,7 +758,6 @@ timeout: 60.0
     assert exit_.value.code == 0
     run = load_layout(home, PluginRunLayout)
     assert run.result.output == {"value": "hello"}
-    assert run.timing.reference_seconds is None and run.timing.task_seconds > 0 and run.timing.verdict_seconds > 0
     assert (run.workspace / "echo.txt").read_text() == "hello"
     assert (run.workspace / "inputs" / "given.txt").read_text() == "a file the task reads"
     assert run.verdict.valid is True
@@ -839,8 +835,6 @@ timeout: 60.0
     assert [(cfg.model, cfg.provider, cfg.api_key) for cfg in built] == [("a-model", provider, None)]
     run = load_layout(home, PluginAgentLayout)
     assert run.result.output == {"value": "hello"} and run.verdict.valid is True
-    assert run.timing.reference_seconds is None and run.timing.task_seconds > 0
-    assert "timing: task " in (home / "run.log").read_text()
     calls = [call["function_name"] for step in run.messages.steps for call in step["tool_calls"] or []]
     assert calls == ["answer", "answer"]
     assert 'decision: {"next": "echo"} forced {}' in (home / "run.log").read_text()

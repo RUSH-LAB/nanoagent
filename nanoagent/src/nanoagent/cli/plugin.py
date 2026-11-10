@@ -45,7 +45,7 @@ from nanoagent.plugin.dataflow import Decider
 from nanoagent.plugin.manifest import TaskDefinition
 from nanoagent.plugin.package import pack
 from nanoagent.plugin.scaffold import create_plugin
-from nanoagent.plugin.tasks import ModelDecider, TaskTiming, run_task
+from nanoagent.plugin.tasks import ModelDecider, run_task
 from nanoagent.plugin.verifier import Verification
 from nanoagent.runtime.build import build_agent
 from nanoagent.runtime.config import AgentDefinitionConfig
@@ -120,19 +120,9 @@ class PluginVerdict(Output):
 
 
 @dataclass
-class PluginTiming(Output):
-    # Wall-clock seconds of each stage: pinning the reference (null without one), working the task
-    # (its tool, agent or decider, the plugin's launch included), and verifying its output.
-    reference_seconds: float | None
-    task_seconds: float
-    verdict_seconds: float
-
-
-@dataclass
 class PluginRunLayout(Layout):
     result: PluginResult
     verdict: PluginVerdict
-    timing: PluginTiming
     workspace: Folder
 
 
@@ -142,7 +132,6 @@ class PluginAgentLayout(Layout):
     reference: PluginReference
     messages: AtifTrajectory
     verdict: PluginVerdict
-    timing: PluginTiming
     workspace: Folder
 
 
@@ -195,14 +184,6 @@ def _verdict(task: TaskDefinition, verification: Verification) -> PluginVerdict:
     return PluginVerdict(task=task.id, **verification.to_dict())
 
 
-def _timing(timing: TaskTiming) -> PluginTiming:
-    """``timing`` as the run's output, and a line of run.log."""
-    stages = [("reference", timing.reference)] if timing.reference is not None else []
-    stages += [("task", timing.task), ("verdict", timing.verdict)]
-    print("timing: " + " · ".join(f"{stage} {seconds:.1f}s" for stage, seconds in stages))
-    return PluginTiming(reference_seconds=timing.reference, task_seconds=timing.task, verdict_seconds=timing.verdict)
-
-
 class PluginRun(Run):
     """One `runner: tool` task: its tool called once, against the run folder's workspace."""
 
@@ -226,7 +207,6 @@ class PluginRun(Run):
         )
         self.layout.result = PluginResult(plugin=manifest.id, task=task.id, output=outcome.output)
         self.layout.verdict = _verdict(task, outcome.verdict)
-        self.layout.timing = _timing(outcome.timing)
         return 0 if self.layout.verdict.valid else 1
 
 
@@ -287,7 +267,6 @@ class PluginAgent(Run):
             )
         )
         self.layout.verdict = _verdict(task, outcome.verdict)
-        self.layout.timing = _timing(outcome.timing)
         return 0 if self.layout.verdict.valid else 1
 
 

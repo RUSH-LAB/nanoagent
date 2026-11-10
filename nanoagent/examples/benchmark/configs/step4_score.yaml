@@ -1,0 +1,4 @@
+_ > step4_score.ScoreConfig:
+
+cases: examples/benchmark/outputs/step2_cases/cases.json
+runs: examples/benchmark/outputs/step3_profile

@@ -1,0 +1,6 @@
+_ > step1_plugins.PluginsConfig:
+
+# The local RUSH database that helpinghands' `npm run local` makes and fills with production's.
+database: postgres://neondb_owner@127.0.0.1:55432/mochi
+psql: /opt/homebrew/opt/postgresql@18/bin/psql
+plugins: [city-weather]

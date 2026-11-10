@@ -26,6 +26,13 @@ RUSH Lab is not connected, their AI and plugins are refused, never run elsewhere
 
 ## Running locally
 
+`npm run local` does everything below in one go, and is safe to run again: this
+checkout's packages, `.env` (the GitHub sign-in values it lacks taken from
+Railway's production service), PostgreSQL 18, the local database filled with a
+fresh copy of production's (production is only read), `npm start`, and RUSH Lab
+Dev built, installed and opened (scripts/dev/local.mjs). Stop a running
+`npm start` first. The steps one by one:
+
 Install the required runtimes, dependencies, adjacent NanoAgent checkout, and
 sanitized local environment file:
 

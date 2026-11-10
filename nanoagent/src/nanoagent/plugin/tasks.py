@@ -18,7 +18,6 @@ from __future__ import annotations
 import asyncio
 import json
 import tempfile
-import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -41,22 +40,11 @@ ANSWER = "answer"  # the name a decider's model answers under
 
 
 @dataclass(frozen=True)
-class TaskTiming:
-    """Wall-clock seconds each stage of a task took: pinning its reference (None without one), working
-    it (its tool, agent or decider, the plugin's launch included) and verifying its output."""
-
-    reference: float | None
-    task: float
-    verdict: float
-
-
-@dataclass(frozen=True)
 class TaskOutcome:
     reference: dict[str, Any] | None  # the reference tool's pinned output (agent and decide tasks)
     output: dict[str, Any]  # the task's output, an instance of its output class as JSON
     agent: AgentResult | None  # the agent's run (agent tasks), or the decider's requests (decide tasks)
     verdict: Verification
-    timing: TaskTiming
 
 
 class SubmitTool(Tool):
@@ -211,20 +199,15 @@ async def _run(
     match task.runner:
         case "tool":
             [tool] = task.tools
-            started = time.monotonic()
             output = await call_tool_async(manifest, tool, arguments, workspace=workspace, timeout=timeout)
             graph.ran("calls[0]", NodeType.TOOL, tool, "input", ("output", NodeType.TASK_OUTPUT, PARTS[NodeType.TASK_OUTPUT].label, output))
             on_event("task.result", {"response": output})
-            worked = time.monotonic()
             verdict = await _verdict(manifest, task, arguments, output, None, workspace, on_event, graph, "output")
-            timing = TaskTiming(reference=None, task=worked - started, verdict=time.monotonic() - worked)
-            return TaskOutcome(reference=None, output=output, agent=None, verdict=verdict, timing=timing)
+            return TaskOutcome(reference=None, output=output, agent=None, verdict=verdict)
         case "agent":
             if make_agent is None:
                 raise ValueError(f"task {task.id!r} is an agent task: it needs an agent")
-            started = time.monotonic()
             reference = await _pin_reference(manifest, task, arguments, timeout, on_event, stage, graph)
-            pinned = time.monotonic()
             system, user = task_prompt(manifest, task, arguments)
             graph.value("system", NodeType.SYSTEM_PROMPT, PARTS[NodeType.SYSTEM_PROMPT].label, system)
             agent = make_agent(system)
@@ -268,20 +251,12 @@ async def _run(
             output = loop.arguments[SUBMIT]
             graph.retype(output, NodeType.TASK_OUTPUT, "Task output (submitted)")
             on_event("task.result", {"response": submit.output})
-            worked = time.monotonic()
             verdict = await _verdict(manifest, task, arguments, submit.output, reference, workspace, on_event, graph, output)
-            timing = TaskTiming(
-                reference=None if task.reference is None else pinned - started,
-                task=worked - pinned,
-                verdict=time.monotonic() - worked,
-            )
-            return TaskOutcome(reference=reference, output=submit.output, agent=result, verdict=verdict, timing=timing)
+            return TaskOutcome(reference=reference, output=submit.output, agent=result, verdict=verdict)
         case "decide":
             if make_decider is None:
                 raise ValueError(f"task {task.id!r} is a decide task: it needs a decider")
-            started = time.monotonic()
             reference = await _pin_reference(manifest, task, arguments, timeout, on_event, stage, graph)
-            pinned = time.monotonic()
             decider = make_decider(decide_prompt(manifest, task))
             state: dict[str, Any] = {"task": task.id, "input": arguments, "calls": []}
             asked: list[Answers] = []  # each batch's answers, the last the "next" one once it is asked
@@ -332,14 +307,8 @@ async def _run(
                     on_event("task.tool", {"name": chosen, "arguments": tool_input, "output": tool_output, "isError": False})
             build_output(output, task.output_type)
             on_event("task.result", {"response": output})
-            worked = time.monotonic()
             verdict = await _verdict(manifest, task, arguments, output, reference, workspace, on_event, graph, "output")
-            timing = TaskTiming(
-                reference=None if task.reference is None else pinned - started,
-                task=worked - pinned,
-                verdict=time.monotonic() - worked,
-            )
-            return TaskOutcome(reference=reference, output=output, agent=decider.record(), verdict=verdict, timing=timing)
+            return TaskOutcome(reference=reference, output=output, agent=decider.record(), verdict=verdict)
         case runner:
             raise ValueError(f"task {task.id!r}: unknown runner {runner!r}")
 

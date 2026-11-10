@@ -8,6 +8,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Sequence
@@ -129,6 +130,51 @@ def run_child(
         return stdout, stderr
     finally:
         signal.signal(signal.SIGTERM, previous_handler)
+
+
+def stream_child(
+    argv: Sequence[str],
+    *,
+    cwd: Path,
+    input_text: str,
+    on_event: Callable[[dict[str, Any]], None],
+    env: dict[str, str] | None = None,
+) -> tuple[int, str]:
+    """Run a harness that prints one JSON event per line, passing each to ``on_event`` as it arrives;
+    returns its exit status and the tail of its stderr. An event that fails stops the harness."""
+    child: subprocess.Popen[str] | None = None
+    previous_handler = signal.getsignal(signal.SIGTERM)
+    with tempfile.TemporaryFile("w+", encoding="utf-8") as stderr:
+        try:
+            child = subprocess.Popen(
+                list(argv),
+                cwd=cwd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=stderr,
+                text=True,
+                env=os.environ | (env or {}),
+            )
+
+            def terminate_child(_signum: int, _frame: Any) -> None:
+                if child is not None and child.poll() is None:
+                    child.terminate()
+                raise SystemExit(143)
+
+            signal.signal(signal.SIGTERM, terminate_child)
+            assert child.stdin is not None and child.stdout is not None
+            child.stdin.write(input_text)
+            child.stdin.close()
+            for line in child.stdout:
+                on_event(json.loads(line))
+            child.wait()
+        finally:
+            signal.signal(signal.SIGTERM, previous_handler)
+            if child is not None and child.poll() is None:
+                child.kill()
+                child.wait()
+        stderr.seek(0)
+        return child.returncode, stderr.read().strip()[-8000:]
 
 
 def run_main(

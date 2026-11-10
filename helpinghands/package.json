@@ -27,6 +27,7 @@
     "proofs:test": "node --test 'tests/unit/plugins/lean-proofs/**/*.test.mjs' && npm run proofs:check",
     "docusaurus": "docusaurus",
     "start": "node scripts/dev/start-local.mjs",
+    "local": "node scripts/dev/local.mjs",
     "desktop": "npm --prefix desktop install --no-audit --no-fund && npm --prefix desktop run build && open \"desktop/src-tauri/target/release/bundle/macos/RUSH Lab.app\"",
     "desktop:dev": "node scripts/dev/desktop-dev.mjs",
     "desktop:dev:build": "node --input-type=module -e \"(await import('./scripts/dev/desktop-dev.mjs')).buildDev()\"",
