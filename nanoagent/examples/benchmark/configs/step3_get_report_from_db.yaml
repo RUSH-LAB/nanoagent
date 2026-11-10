@@ -1,0 +1,4 @@
+_ > step3_get_report_from_db.ReportConfig:
+
+# Step 2's folder of runs.
+runs: examples/benchmark/outputs/step2_batch_runs/runs

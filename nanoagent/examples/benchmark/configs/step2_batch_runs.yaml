@@ -1,0 +1,14 @@
+_ > step2_batch_runs.BatchConfig:
+
+# Step 1's config, which every run starts from, and overrides of it for every run.
+single_run: examples/benchmark/configs/step1_single_run.yaml
+overrides: []
+cases: examples/benchmark/configs/step1_city_weather_cases.json
+# How many of the cases to answer (up to 12), and of those to refuse (up to 3), from the first.
+answer: 1
+refuse: 0
+harnesses: [nanoagent, claude, codex, hermes, pi, dsh]
+# Cores each run gets: as many runs run at once as the machine has cores for.
+cpus_per_run: 1
+# The npx packages step 1's harnesses table starts, fetched once before the runs.
+packages: ["@openai/codex@0.167.0", "@deepseek-ai/dsh@0.2.2-rc.1"]

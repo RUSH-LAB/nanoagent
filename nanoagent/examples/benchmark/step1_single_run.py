@@ -1,12 +1,20 @@
-"""Step 3: one harness run once on one case of step 2, and profiled to one standard.
+"""Step 1: one run. One harness, on one model, works one case of a plugin's task once; the run pins
+the case's right answer, profiles the harness to one standard, and checks its answer with the
+plugin's verifier.
 
-NanoAgent works the case as RUSH Lab does: the task's reference pinned, then its agent with the
-plugin's tools, which ends by submitting the task's output. Every other harness (Claude Code, Codex,
-Hermes, PI, DeepSeek Harness) gets the case's prompt and its own tools, and writes its answer to
-answer.json in its workspace. How each harness starts, and how it reaches each provider, is the
-config's `harnesses` table.
+The case is one input of a plugin's agent task, from the cases file, which says whether it is to be
+answered or refused. The run unpacks the plugin from the RUSH marketplace's package in the local
+RUSH database (helpinghands' `npm run local`, a copy of production's), checked against its SHA-256,
+into its own folder, and readies its Python environment: setup, before any clock starts. It pins the
+answer with the task's reference tool; a case to answer the reference cannot answer, or a case to
+refuse it answers, fails the run. NanoAgent then works the case as RUSH Lab does: the reference
+pinned, then its agent with the plugin's tools, which submits the task's output. Every other harness
+(Claude Code, Codex, Hermes, PI, DeepSeek Harness) gets the case's prompt and its own tools, and
+writes its answer to answer.json in its workspace. How each harness starts, and how it reaches each
+provider, is the config's `harnesses` table. The plugin's verifier judges the answer against the
+pinned one; a case to refuse is right when refused.
 
-The standard is RUSH's dashboard figures, measured alike for every harness:
+The profile is RUSH's dashboard figures, measured alike for every harness:
   * End-to-End Latency: this process's clock, from giving the harness its work to having its answer.
     For NanoAgent that is its agent's run; pinning the reference before it and checking the output
     after it are RUSH's own work, kept apart as reference_seconds and check_seconds.
@@ -21,21 +29,32 @@ The standard is RUSH's dashboard figures, measured alike for every harness:
     calls it makes outside its steps included.
   * Cost: those tokens at the config's prices, alike for every harness; the harness's own figures
     (its cost, and its own clock where it has one) are kept as `reported`.
-Whether the answer is right is step 4's."""
+  * CPU seconds: the CPU time the run's processes used while the harness worked, which shows when
+    runs side by side (step 2) competed for the machine."""
 
 import asyncio
+import base64
+import hashlib
+import io
 import json
+import logging
 import os
+import resource
+import subprocess
+import sys
+import tarfile
+import tempfile
 import time
+import traceback
 import uuid
-from contextlib import AsyncExitStack, contextmanager
+from contextlib import AsyncExitStack, contextmanager, redirect_stderr
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from omegaconf import MISSING
-from slimconfig import Config, Layout, Output, Run, Workspace
+from slimconfig import Config, Layout, Output, Run, Workspace, output_schema
 
 from nanoagent import __version__
 from nanoagent.harness import Conversation, HarnessProfile
@@ -45,12 +64,19 @@ from nanoagent.harness.subprocess import SubprocessRunner
 from nanoagent.llm.openrouter import OpenRouterConfig
 from nanoagent.plugin import load_manifest
 from nanoagent.plugin.manifest import SUBMIT
+from nanoagent.plugin.runtime import call_tool_async
 from nanoagent.plugin.tasks import run_task
+from nanoagent.plugin.verifier import verify_task
 from nanoagent.profiler import RunProfile, normalize_usage
 from nanoagent.runtime.build import build_agent
 from nanoagent.runtime.config import AgentDefinitionConfig
 from nanoagent.trajectory.atif import ATIF_VERSION, AtifTrajectory, to_atif
-from step2_cases import Case, Cases
+
+# The marketplace's package of a plugin, one tab-separated line: version, SHA-256, package (base64,
+# which Postgres breaks into lines of 76 characters, joined back here).
+PACKAGE_QUERY = """select v.version, v.sha256, replace(encode(v.package, 'base64'), E'\\n', '')
+from market_plugin p join market_plugin_version v on v.plugin_id = p.id and v.version = p.version
+where p.id = :'id'"""
 
 
 class Harness(Enum):
@@ -115,8 +141,30 @@ class NanoAgentLoopConfig(Config):
 
 
 @dataclass
-class ProfileConfig(Config):
-    # Step 2's cases, and the one this run works.
+class Cases(Output):
+    """One agent task of one plugin, and its inputs: to answer, and to refuse."""
+
+    plugin: str
+    task: str
+    # What a coding agent is told that the task's input does not say: its universe and data source.
+    context: str
+    answer: list[dict[str, Any]]
+    refuse: list[dict[str, Any]]
+
+    def case(self, id: str) -> tuple[dict[str, Any], bool]:
+        """The input of case ``id`` (<plugin>-<n>, the inputs to answer first), and whether to refuse it."""
+        inputs = [(arguments, False) for arguments in self.answer] + [(arguments, True) for arguments in self.refuse]
+        ids = [f"{self.plugin}-{index:02d}" for index in range(1, len(inputs) + 1)]
+        if id not in ids:
+            raise ValueError(f"{self.plugin}'s cases are {ids[0]} to {ids[-1]}, not {id}")
+        return inputs[ids.index(id)]
+
+
+@dataclass
+class SingleRunConfig(Config):
+    # The local RUSH database, and the psql that reads its marketplace.
+    database: str = MISSING
+    psql: str = MISSING
     cases: Cases = MISSING
     case: str = MISSING
     harness: Harness = MISSING
@@ -129,18 +177,39 @@ class ProfileConfig(Config):
     input_price: float = MISSING
     cached_input_price: float = MISSING
     output_price: float = MISSING
-    # Seconds the run may take before it fails.
+    # The coding agent's prompt, with {description}, {context}, {arguments}, {input_schema} and
+    # {output_schema} filled in for the case.
+    prompt: str = MISSING
+    # Seconds the harness, and the reference tool, may take before the run fails.
     timeout: float = MISSING
     nanoagent: NanoAgentLoopConfig = field(default_factory=NanoAgentLoopConfig)
     harnesses: dict[Harness, HarnessConfig] = MISSING
 
 
 @dataclass
-class StandardProfile(Output):
+class Case:
+    id: str
+    # The plugin's folder, its agent task and the case's input.
+    plugin: str
+    task: str
+    arguments: dict[str, Any]
+    prompt: str
+
+
+@dataclass
+class SingleRun(Output):
     harness: str
     model: str
     provider: str | None
+    plugin: str
+    plugin_version: str
     case: str
+    arguments: dict[str, Any]
+    # answer, or refuse: what the right outcome of the case is; and whether the harness's was right,
+    # with the verifier's word on its answer.
+    expected: str
+    correct: bool
+    verdict: str
     # RUSH's dashboard figures (see the module's docstring).
     latency_seconds: float
     model_seconds: float
@@ -160,6 +229,7 @@ class StandardProfile(Output):
     # after it (null for other harnesses, and for a part that did not run).
     reference_seconds: float | None
     check_seconds: float | None
+    cpu_seconds: float
     steps: int
     model_calls: int
     tool_calls: int
@@ -172,6 +242,8 @@ class StandardProfile(Output):
     refused: str | None
     # What failed, when it neither answered nor refused.
     error: str | None
+    # The right answer, as the reference tool pinned it; null for a case to refuse.
+    reference: dict[str, Any] | None
     # The harness's standard profile: every step's model calls and tool calls, on its own clock.
     profile: dict[str, Any]
     # What the harness reports of itself (its cost, its own clock); null when it reports nothing.
@@ -181,10 +253,11 @@ class StandardProfile(Output):
 
 
 @dataclass
-class ProfileLayout(Layout):
-    profile: StandardProfile
+class SingleRunLayout(Layout):
+    result: SingleRun
     messages: AtifTrajectory
-    # The harness's own work, whatever files it writes (answer.json among them).
+    # The plugin, unpacked from its package; and the harness's own work, whatever files it writes.
+    plugin: Workspace
     workspace: Workspace
 
 
@@ -250,7 +323,7 @@ def environment(values: dict[str, str]):
                 os.environ[name] = value
 
 
-async def nanoagent_work(config: ProfileConfig, case: Case, workspace: Path) -> Work:
+async def nanoagent_work(config: SingleRunConfig, case: Case, workspace: Path) -> Work:
     """NanoAgent working the case's plugin task as RUSH Lab does."""
     if config.provider is not Provider.OPENROUTER:
         raise ValueError(f"NanoAgent runs here on OpenRouter only: provider is {config.provider}")
@@ -352,7 +425,7 @@ async def nanoagent_work(config: ProfileConfig, case: Case, workspace: Path) -> 
     )
 
 
-def other_runner(config: ProfileConfig) -> tuple[SubprocessRunner, dict[str, str]]:
+def other_runner(config: SingleRunConfig) -> tuple[SubprocessRunner, dict[str, str]]:
     """The harness with only its own tools, and the environment it runs in."""
     if config.harness not in config.harnesses:
         raise ValueError(f"the config's harnesses table has no {config.harness.value}")
@@ -392,7 +465,7 @@ def read_answer(workspace: Path) -> tuple[dict[str, Any] | None, str | None, str
     return value, None, None
 
 
-async def other_work(config: ProfileConfig, case: Case, workspace: Path) -> Work:
+async def other_work(config: SingleRunConfig, case: Case, workspace: Path) -> Work:
     """A coding harness given the case's prompt, answering in answer.json."""
     runner, route = other_runner(config)
     async with AsyncExitStack() as stack:
@@ -424,20 +497,120 @@ async def other_work(config: ProfileConfig, case: Case, workspace: Path) -> Work
     )
 
 
-class Profile(Run):
-    """Run the harness once on the case and profile it."""
+def unpack(config: SingleRunConfig, folder: Path) -> str:
+    """Unpack the plugin from the marketplace's package into ``folder``, checked against its SHA-256,
+    and ready its Python environment; returns its version."""
+    plugin = config.cases.plugin
+    found = subprocess.run(
+        [config.psql, config.database, "--no-psqlrc", "-At", "-F", "\t", "-v", "ON_ERROR_STOP=1", "-v", f"id={plugin}"],
+        input=PACKAGE_QUERY,
+        capture_output=True,
+        text=True,
+    )
+    if found.returncode != 0:
+        raise RuntimeError(f"psql could not read {plugin} from {config.database}: {found.stderr.strip()}")
+    rows = [line for line in found.stdout.splitlines() if line]
+    if len(rows) != 1:
+        raise RuntimeError(f"the marketplace has {len(rows)} packages of {plugin}, not one")
+    version, sha256, encoded = rows[0].split("\t")
+    package = base64.b64decode(encoded)
+    if hashlib.sha256(package).hexdigest() != sha256:
+        raise RuntimeError(f"{plugin} {version}'s package does not match the SHA-256 the marketplace recorded")
+    with tarfile.open(fileobj=io.BytesIO(package), mode="r:gz") as archive:
+        tops = {Path(member.name).parts[0] for member in archive.getmembers()}
+        if tops != {plugin}:
+            raise RuntimeError(f"{plugin}'s package holds {sorted(tops)}, not the one folder {plugin}")
+        archive.extractall(folder, filter="data")
+    # The plugin's runtime is `uv run --frozen`: its environment is made here, not on the clock.
+    subprocess.run(["uv", "sync", "--frozen", "--quiet"], cwd=folder / plugin, check=True)
+    return version
 
-    config: ProfileConfig
-    layout: ProfileLayout
+
+async def pin(manifest, task, arguments: dict[str, Any], refuse: bool, timeout: float) -> dict[str, Any] | None:
+    """The reference tool's answer to a case to answer; None for a case to refuse, which it refuses."""
+    with tempfile.TemporaryDirectory() as scratch:
+        try:
+            output = await call_tool_async(manifest, task.reference, arguments, workspace=Path(scratch), timeout=timeout)
+        except RuntimeError as error:
+            if refuse and f"{manifest.id} {task.reference} failed:" in str(error):
+                return None
+            raise RuntimeError(f"{task.reference} could not answer {json.dumps(arguments)}, a case to answer: {error}") from error
+    if refuse:
+        raise RuntimeError(f"{task.reference} answered {json.dumps(arguments)}, a case to refuse")
+    return output
+
+
+def judge(manifest, case: Case, work: Work, reference: dict[str, Any] | None, refuse: bool) -> tuple[bool, str]:
+    """Whether the harness's outcome was right, and why."""
+    if refuse:
+        return work.refused is not None, work.error or (f"refused: {work.refused}" if work.refused else "answered a case to refuse")
+    if work.output is None:
+        return False, work.error or f"refused a case to answer: {work.refused}"
+    with tempfile.TemporaryDirectory() as scratch:
+        verdict = verify_task(manifest, case.task, case.arguments, work.output, reference, Path(scratch))
+    return verdict.valid, verdict.message
+
+
+@contextmanager
+def logged():
+    """Everything a step writes into its run.log, as slimconfig puts its stdout there: stderr, every
+    logged warning and, when the step fails, its traceback."""
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    logging.getLogger().addHandler(handler)
+    try:
+        with redirect_stderr(sys.stdout):
+            try:
+                yield
+            except BaseException:
+                traceback.print_exc()
+                raise
+    finally:
+        logging.getLogger().removeHandler(handler)
+
+
+def cpu() -> float:
+    """CPU seconds this process and its ended children have used."""
+    own, children = resource.getrusage(resource.RUSAGE_SELF), resource.getrusage(resource.RUSAGE_CHILDREN)
+    return own.ru_utime + own.ru_stime + children.ru_utime + children.ru_stime
+
+
+class SingleRunner(Run):
+    """Pin the case's answer, run the harness on it, profile it and judge its answer."""
+
+    config: SingleRunConfig
+    layout: SingleRunLayout
 
     def main(self) -> int:
+        with logged():
+            return self.work()
+
+    def work(self) -> int:
         config = self.config
-        cases = {case.id: case for case in config.cases.cases}
-        if config.case not in cases:
-            raise ValueError(f"step 2 has no case {config.case}: its cases are {sorted(cases)}")
-        case = cases[config.case]
+        arguments, refuse = config.cases.case(config.case)
+        version = unpack(config, Path(self.layout.plugin))
+        folder = Path(self.layout.plugin, config.cases.plugin).resolve()
+        manifest = load_manifest(folder)
+        task = manifest.task(config.cases.task)
+        reference = asyncio.run(pin(manifest, task, arguments, refuse, config.timeout))
+        case = Case(
+            id=config.case,
+            plugin=str(folder),
+            task=task.id,
+            arguments=arguments,
+            prompt=config.prompt.format(
+                description=task.description,
+                context=config.cases.context.strip(),
+                arguments=json.dumps(arguments, indent=2),
+                input_schema=json.dumps(output_schema(task.input_type), indent=2),
+                output_schema=json.dumps(output_schema(task.output_type), indent=2),
+            ),
+        )
         workspace = Path(self.layout.workspace)
+        used = cpu()
         work = asyncio.run(nanoagent_work(config, case, workspace) if config.harness is Harness.NANOAGENT else other_work(config, case, workspace))
+        used = cpu() - used
+        correct, verdict = judge(manifest, case, work, reference, refuse)
         own = dict(work.profile)
         reported = own.pop("reported", None)
         usage = normalize_usage(own["usage"])
@@ -450,11 +623,17 @@ class Profile(Run):
             + tokens["completion_tokens"] * config.output_price
         )
         steps = own["steps"]
-        self.layout.profile = run = StandardProfile(
+        self.layout.result = run = SingleRun(
             harness=config.harness.value,
             model=config.model,
             provider=None if config.provider is None else config.provider.value,
+            plugin=config.cases.plugin,
+            plugin_version=version,
             case=case.id,
+            arguments=arguments,
+            expected="refuse" if refuse else "answer",
+            correct=correct,
+            verdict=verdict,
             latency_seconds=work.seconds,
             model_seconds=own["model_s"],
             tools_seconds=own["tools_s"],
@@ -469,6 +648,7 @@ class Profile(Run):
             generation_seconds=own["generation_s"],
             reference_seconds=work.reference_seconds,
             check_seconds=work.check_seconds,
+            cpu_seconds=used,
             steps=len(steps),
             model_calls=sum(len(step["model_calls"]) for step in steps),
             tool_calls=sum(len(step["tool_calls"]) for step in steps),
@@ -477,23 +657,22 @@ class Profile(Run):
             output=work.output,
             refused=work.refused,
             error=work.error,
+            reference=reference,
             profile=own,
             reported=reported,
             timeline=work.timeline,
         )
         self.layout.messages = work.messages
-        outcome = "refused" if run.refused else "failed" if run.error else "answered"
         print(
-            f"{run.harness} · {run.case}: {outcome} · latency {run.latency_seconds:.1f}s"
+            f"{run.harness} · {run.case}: {'right' if run.correct else 'wrong'} · latency {run.latency_seconds:.1f}s"
             f" · model {run.model_seconds:.1f}s · tools {run.tools_seconds:.1f}s · overhead {run.overhead_seconds:.1f}s"
-            f" · {run.input_tokens:,} in / {run.output_tokens:,} out · ${run.cost:.4f}"
-            f" · {run.steps} steps, {run.tool_calls} tool calls"
+            f" · {run.input_tokens:,} in / {run.output_tokens:,} out · ${run.cost:.4f} · cpu {run.cpu_seconds:.1f}s"
         )
-        if run.error:
-            print(f"{run.harness} failed: {run.error}")
-        # A failed run keeps its profile, and fails.
+        if not run.correct:
+            print(f"{run.harness} · {run.case}: {run.verdict}")
+        # A failed run keeps its result, and fails.
         return 1 if run.error else 0
 
 
 if __name__ == "__main__":
-    Profile().run()
+    SingleRunner().run()
