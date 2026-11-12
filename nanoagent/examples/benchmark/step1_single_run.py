@@ -212,6 +212,7 @@ class SingleRun(Output):
     model: str
     provider: str | None
     plugin: str
+    task: str
     plugin_version: str
     case: str
     arguments: dict[str, Any]
@@ -695,6 +696,7 @@ class SingleRunner(Run):
             model=config.model,
             provider=None if config.provider is None else config.provider.value,
             plugin=config.cases.plugin,
+            task=task.id,
             plugin_version=version,
             case=case.id,
             arguments=arguments,
