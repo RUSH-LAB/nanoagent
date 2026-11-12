@@ -104,7 +104,7 @@ export interface RunMetrics {
   tools_s: number;
   overhead_s: number;
   ttft_s: number | null;
-  generation_s: number;
+  generation_s: number | null;
   usage: Usage;
   cost: number;
   steps: StepMetrics[];
