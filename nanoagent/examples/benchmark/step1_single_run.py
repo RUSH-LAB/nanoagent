@@ -2,13 +2,21 @@
 the case's right answer, profiles the harness to one standard, and checks its answer with the
 plugin's verifier.
 
-The case is one input of a plugin's agent task, from the cases file, which says whether it is to be
+The case is one input of a plugin's task, from the cases file, which says whether it is to be
 answered or refused. The run unpacks the plugin from the RUSH marketplace's package in the local
 RUSH database (helpinghands' `npm run local`, a copy of production's), checked against its SHA-256,
-into its own folder, and readies its Python environment: setup, before any clock starts. It pins the
-answer with the task's reference tool; a case to answer the reference cannot answer, or a case to
-refuse it answers, fails the run. NanoAgent then works the case as RUSH Lab does: the reference
-pinned, then its agent with the plugin's tools, which submits the task's output. Every other harness
+into its own folder, and readies its Python environment: setup, before any clock starts. The task's
+manifest decides how the case is pinned and worked (`reference_tool`):
+  * an agent or decide task with a reference tool: the reference pins the answer, and NanoAgent works
+    the case as RUSH Lab does, the reference pinned, then its agent with the task's tools, which
+    submits the task's output, or its decider on the run's model, which chooses every value of it.
+  * an agent task with no reference: nothing is pinned, and the verifier judges the output with
+    reference None; NanoAgent's agent works it as above.
+  * a tool task, which RUSH answers by calling its one tool: its reference tool, or else that one
+    tool, pins the answer, and NanoAgent works it as an agent task, its agent given the task's tools
+    and submit, not the direct call.
+A case to answer the pinning tool cannot answer, or a case to refuse it answers, fails the run; a
+case with no tool to pin it is taken as the cases file says. Every other harness
 (Claude Code, Codex, Hermes, PI, DeepSeek Harness) gets the case's prompt and its own tools, and
 writes its answer to answer.json in its workspace. How each harness starts, and how it reaches each
 provider, is the config's `harnesses` table. The plugin's verifier judges the answer against the
@@ -51,7 +59,7 @@ import traceback
 import uuid
 from collections.abc import Iterator
 from contextlib import AsyncExitStack, contextmanager, redirect_stderr
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -72,11 +80,12 @@ from nanoagent.plugin import load_manifest, sandbox
 from nanoagent.plugin.install import INSTALL_HOSTS, SYNC, SYNC_TIMEOUT
 from nanoagent.plugin.python import PluginPython, plugin_python
 from nanoagent.plugin.runtime import call_tool_async
-from nanoagent.plugin.tasks import PinnedReference, TaskNotSubmitted, run_task
+from nanoagent.plugin.tasks import ModelDecider, PinnedReference, TaskNotSubmitted, run_task
 from nanoagent.plugin.verifier import Verification, verify_task
 from nanoagent.profiler import normalize_usage
 from nanoagent.runtime.build import build_agent
 from nanoagent.runtime.config import AgentDefinitionConfig
+from nanoagent.runtime.model import Model
 from nanoagent.trajectory.atif import AtifTrajectory, to_atif
 
 # The marketplace's package of a plugin, one tab-separated line: version, SHA-256, package (base64,
@@ -150,7 +159,7 @@ class NanoAgentLoopConfig(Config):
 
 @dataclass
 class Cases(Output):
-    """One agent task of one plugin, and its inputs: to answer, and to refuse."""
+    """One task of one plugin, and its inputs: to answer, and to refuse."""
 
     plugin: str
     task: str
@@ -212,6 +221,7 @@ class SingleRun(Output):
     model: str
     provider: str | None
     plugin: str
+    task: str
     plugin_version: str
     case: str
     arguments: dict[str, Any]
@@ -324,13 +334,16 @@ class Timed:
 
 
 async def nanoagent_work(
-    config: SingleRunConfig, case: Case, workspace: Path, reference: PinnedReference, reference_seconds: float
+    config: SingleRunConfig, case: Case, workspace: Path, reference: PinnedReference | None, reference_seconds: float | None
 ) -> Work:
-    """NanoAgent working the case's plugin task as RUSH Lab does."""
+    """NanoAgent working the case's plugin task as RUSH Lab does; a tool task as an agent task, its
+    agent given the task's tools, with the tool that pinned the answer as its reference."""
     if config.provider is not Provider.OPENROUTER:
         raise ValueError(f"NanoAgent runs here on OpenRouter only: provider is {config.provider}")
     manifest = load_manifest(case.plugin)
     task = manifest.task(case.task)
+    if task.runner == "tool":
+        task = replace(task, runner="agent", reference=reference_tool(task))
     loop = config.nanoagent
     llm = OpenRouterConfig(
         model=config.model,
@@ -343,12 +356,29 @@ async def nanoagent_work(
     )
     marks: dict[str, float] = {}
     result: AgentResult | None = None
+    decider: ModelDecider | None = None
     timeline: list[dict[str, Any]] = []
 
-    def make_agent(system_prompt: str):
-        # The reference is pinned: the agent's run starts.
+    def start() -> None:
+        # The reference is pinned: the agent's, or the decider's, run starts.
         marks["agent"] = time.monotonic()
         marks["agent_cpu"] = cpu()
+
+    def make_decider(system_prompt: str) -> ModelDecider:
+        nonlocal decider
+        start()
+        limits = loop.harness
+        decider = ModelDecider(
+            Model.from_config(llm.runtime()),
+            system_prompt,
+            max_steps=limits.max_steps,
+            cost_limit=limits.cost_limit,
+            token_limit=limits.token_limit,
+        )
+        return decider
+
+    def make_agent(system_prompt: str):
+        start()
         definition = AgentDefinitionConfig(
             model=llm.runtime(), agent=loop.harness.runtime(system_prompt=system_prompt), tools=[], tools_dir=None, allowed_tools=None
         )
@@ -366,10 +396,11 @@ async def nanoagent_work(
 
     def on_event(kind: str, data: dict[str, Any]) -> None:
         now = time.monotonic()
-        if kind == "task.answer":
+        # The agent's answer, or the decider's output (a decide task has no task.answer): its work is done.
+        if kind in {"task.answer", "task.result"} and "answer" not in marks:
             marks["answer"] = now
             marks["answer_cpu"] = cpu()
-        if kind in {"task.tool", "task.answer", "task.result", "task.verdict"} and "agent" in marks:
+        if kind in {"task.tool", "task.decision", "task.answer", "task.result", "task.verdict"} and "agent" in marks:
             timeline.append({"t": now - marks["agent"], "type": kind, **({"name": data["name"]} if "name" in data else {})})
 
     output = refused = error = verification = None
@@ -380,7 +411,7 @@ async def nanoagent_work(
             case.arguments,
             workspace,
             make_agent=make_agent,
-            make_decider=None,
+            make_decider=make_decider,
             timeout=config.timeout,
             on_event=on_event,
             stage=lambda _folder: None,
@@ -388,6 +419,8 @@ async def nanoagent_work(
         )
         output = outcome.output
         verification = outcome.verdict
+        if task.runner == "decide":
+            result = outcome.agent
     except TaskNotSubmitted as failure:
         if result is None:
             raise
@@ -395,6 +428,15 @@ async def nanoagent_work(
             refused = result.answer.strip() or str(failure)
         elif result.stop_reason is StopReason.ERROR:
             error = result.error or str(failure)
+    except Exception as failure:
+        # The decider stopped before an output (its limits, a tool it chose failing): its run fails
+        # with what it did.
+        if decider is None or "answer" in marks:
+            raise
+        result = replace(decider.record(), stop_reason=StopReason.ERROR, error=f"{type(failure).__name__}: {failure}")
+        error = result.error
+        marks["answer"] = time.monotonic()
+        marks["answer_cpu"] = cpu()
     ended = time.monotonic()
     assert result is not None
     messages = AtifTrajectory.from_dict(
@@ -580,17 +622,35 @@ def prepared_plugin(source: Path, python: PluginPython) -> Iterator[Path]:
         yield root
 
 
-async def pin(manifest, task, arguments: dict[str, Any], refuse: bool, timeout: float) -> dict[str, Any] | None:
-    """The reference tool's answer to a case to answer; None for a case to refuse, which it refuses."""
+def reference_tool(task) -> str | None:
+    """The tool that pins the task's right answer, as its manifest says: its reference tool; for a
+    tool task without one, its one tool, whose output RUSH gives; None for an agent task without one,
+    which its verifier judges with reference None."""
+    if task.reference is not None:
+        return task.reference
+    match task.runner:
+        case "tool":
+            [tool] = task.tools
+            return tool
+        case "agent":
+            return None
+    raise ValueError(f"task {task.id!r}: the benchmark cannot pin a {task.runner} task without a reference tool")
+
+
+async def pin(manifest, tool: str | None, arguments: dict[str, Any], refuse: bool, timeout: float) -> dict[str, Any] | None:
+    """``tool``'s answer to a case to answer; None for a case to refuse, which it refuses, and for a
+    task with no tool to pin it."""
+    if tool is None:
+        return None
     with tempfile.TemporaryDirectory() as scratch:
         try:
-            output = await call_tool_async(manifest, task.reference, arguments, workspace=Path(scratch), timeout=timeout)
+            output = await call_tool_async(manifest, tool, arguments, workspace=Path(scratch), timeout=timeout)
         except RuntimeError as error:
-            if refuse and f"{manifest.id} {task.reference} failed:" in str(error):
+            if refuse and f"{manifest.id} {tool} failed:" in str(error):
                 return None
-            raise RuntimeError(f"{task.reference} could not answer {json.dumps(arguments)}, a case to answer: {error}") from error
+            raise RuntimeError(f"{tool} could not answer {json.dumps(arguments)}, a case to answer: {error}") from error
     if refuse:
-        raise RuntimeError(f"{task.reference} answered {json.dumps(arguments)}, a case to refuse")
+        raise RuntimeError(f"{tool} answered {json.dumps(arguments)}, a case to refuse")
     return output
 
 
@@ -660,9 +720,12 @@ class SingleRunner(Run):
         config = self.config
         manifest = load_manifest(folder)
         task = manifest.task(config.cases.task)
+        tool = reference_tool(task)
         pin_started = time.monotonic()
-        reference = asyncio.run(pin(manifest, task, arguments, refuse, config.timeout))
-        reference_seconds = time.monotonic() - pin_started
+        reference = asyncio.run(pin(manifest, tool, arguments, refuse, config.timeout))
+        reference_seconds = None if tool is None else time.monotonic() - pin_started
+        # NanoAgent is given no pinned answer when no tool pins a case to answer.
+        pinned = None if tool is None and not refuse else PinnedReference(reference)
         workspace = Path(self.layout.workspace).resolve()
         case = Case(
             id=config.case,
@@ -679,7 +742,7 @@ class SingleRunner(Run):
             ),
         )
         if config.harness is Harness.NANOAGENT:
-            work = asyncio.run(nanoagent_work(config, case, workspace, PinnedReference(reference), reference_seconds))
+            work = asyncio.run(nanoagent_work(config, case, workspace, pinned, reference_seconds))
         else:
             work = asyncio.run(other_work(config, case, workspace))
         correct, verdict = judge(manifest, task, case, work, reference, refuse, workspace)
@@ -700,6 +763,7 @@ class SingleRunner(Run):
             model=config.model,
             provider=None if config.provider is None else config.provider.value,
             plugin=config.cases.plugin,
+            task=task.id,
             plugin_version=version,
             case=case.id,
             arguments=arguments,
