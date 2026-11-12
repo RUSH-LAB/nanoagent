@@ -1,0 +1,43 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "avl-tree-operations",
+  "task": "tree-operations",
+  "context": "Use the left-leaning 2-3 red-black tree variant (LLRB) for tree_type red_black, not CLRS-style red-black. Start from an empty tree (initial null) and apply the operations exactly in the given order; never sort or deduplicate. Insertion creates a red leaf and repairs on the way back up: left-rotate a right red link, right-rotate consecutive left red links, and flip colors to split temporary 4-nodes. Deletion moves red links toward the deletion path before descending, then restores left-leaning form on ascent; the root is normalized to black after every operation. The in-order successor (smallest key in the right subtree) replaces a deleted node with two children. Heights: empty subtree 0, leaf 1; balance is left height minus right height. Snapshots list nodes sorted by key. Recolors record only actual color changes in execution order, including root normalization and temporary flips; creating a fresh red leaf is not a recolor. Rotations and recolors are separate ordered traces. The user's request was: 'Start with an empty red-black tree. Insert 10, 20, 30, 40, 50, 60, then delete 50. Show every intermediate tree, rotation, and color change.'",
+  "answer": [
+    {
+      "initial": null,
+      "operations": [
+        {
+          "kind": "insert",
+          "key": 10
+        },
+        {
+          "kind": "insert",
+          "key": 20
+        },
+        {
+          "kind": "insert",
+          "key": 30
+        },
+        {
+          "kind": "insert",
+          "key": 40
+        },
+        {
+          "kind": "insert",
+          "key": 50
+        },
+        {
+          "kind": "insert",
+          "key": 60
+        },
+        {
+          "kind": "delete",
+          "key": 50
+        }
+      ],
+      "tree_type": "red_black"
+    }
+  ],
+  "refuse": []
+}

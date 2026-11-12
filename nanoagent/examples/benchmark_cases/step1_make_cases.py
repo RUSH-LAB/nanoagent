@@ -1,14 +1,18 @@
-"""Step 1: make the benchmark's cases, one per plugin. A plugin is benchmarked here by its first agent
-task, in its latest version's manifest, whose reference tool is set; for every such plugin without a
-cases file yet, a model proposes one input to answer and the `context` a coding agent without the
-plugin's tools needs; code decides whether it is kept. Plugins with no such task are listed, not worked.
+"""Step 1: make the benchmark's cases, one per plugin. A plugin is benchmarked by one task of its
+latest version: its first agent task whose reference tool is set, else its first decide task, else its
+first agent task without a reference, else its first tool task. For every plugin without a cases file
+yet, a model proposes one input to answer and the `context` a coding agent without the plugin's tools
+needs; code decides whether it is kept. Plugins with no such task are listed, not worked.
 
 The plugin is unpacked from its package in the local RUSH database and readied as the benchmark's
 step 1 does (its `unpack`, `prepared_plugin`). The model sees the task's manifest entry, schemas,
 instructions, README and the plugin's source. Its proposal is kept only when the input builds as the
-task's input type and the task's reference tool answers it, pinned exactly as the benchmark's step 1
-pins it (its `pin`). Otherwise the error goes back to the model, up to `attempts` proposals; a task
-with none kept is recorded as not made, with the last error. A kept case is written as the benchmark's
+task's input type and, for a task a tool pins (`reference_tool`), that tool answers it, pinned exactly
+as the benchmark's step 1 pins it (its `pin`). For an agent task no tool pins, the model also proposes
+an answer, and the case is kept only when the plugin's verifier accepts that answer and rejects a copy
+of it code made wrong. Otherwise the error goes back to the model, up to `attempts` proposals; a task
+with none kept, or a plugin that cannot be readied, is marked as having a bug in the bugs file
+(examples/benchmark/configs/plugin_bugs.json) with its reason, and never tried again. A kept case is written as the benchmark's
 cases file, examples/benchmark/configs/step1_<plugin>_cases.json: `answer` holds the one case and
 `refuse` is empty. At most `workers` tasks are worked at once, as the plugins' data sources and the
 model's API rate-limit."""
@@ -21,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,17 +37,22 @@ from slimconfig import Config, Layout, Output, Run, build_output, load_output, o
 
 # The benchmark's step 1, whose cases this step makes and whose plugin handling it reuses.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmark"))
-from step1_single_run import Cases, isolate, logged, pin, prepared_plugin, unpack  # noqa: E402
+from step1_single_run import Cases, isolate, logged, pin, prepared_plugin, reference_tool, unpack  # noqa: E402
 
 from nanoagent.plugin import load_manifest  # noqa: E402
 from nanoagent.plugin.python import PluginPython  # noqa: E402
+from nanoagent.plugin.verifier import verify_task  # noqa: E402
 
-# Every plugin's latest version, one tab-separated line: the plugin, the first agent task in its
-# manifest whose reference is set (empty when it has none), and all its tasks as task:runner, with
-# :no-reference for an agent task whose reference is null.
+# Every plugin's latest version, one tab-separated line: the plugin, the task it is benchmarked by
+# (empty when it has none: the first agent task whose reference is set, else its first decide task,
+# else its first agent task without a reference, else its first tool task), and all its tasks as
+# task:runner, with :no-reference for an agent task whose reference is null.
 PLUGINS_QUERY = """select p.id,
   coalesce((select t->>'id' from jsonb_array_elements(v.entry->'tasks') with ordinality as x(t, n)
-            where t->>'runner' = 'agent' and t->>'reference' is not null order by n limit 1), ''),
+            where t->>'runner' in ('agent', 'decide', 'tool')
+            order by case when t->>'runner' = 'agent' and t->>'reference' is not null then 0
+                          when t->>'runner' = 'decide' then 1 when t->>'runner' = 'agent' then 2 else 3 end, n
+            limit 1), ''),
   coalesce((select string_agg(concat(t->>'id', ':', t->>'runner',
                     case when t->>'runner' = 'agent' and t->>'reference' is null then ':no-reference' end), ' ' order by n)
             from jsonb_array_elements(v.entry->'tasks') with ordinality as x(t, n)), '')
@@ -61,6 +71,8 @@ class MakeCasesConfig(Config):
     psql: str = MISSING
     # Where the benchmark's cases files live: a plugin with one there already is skipped.
     cases_dir: str = MISSING
+    # The plugins marked as having a bug (PluginBugs): skipped, and every plugin that fails is added.
+    bugs: str = MISSING
     # The plugins to work, or null for every plugin.
     only: list[str] | None = MISSING
     # The proposing model, on OpenRouter, and its price per million tokens (input, output).
@@ -70,6 +82,8 @@ class MakeCasesConfig(Config):
     # The model's reply budget and how long a call may take.
     max_tokens: int = MISSING
     read_timeout: float = MISSING
+    # OpenRouter's reasoning effort for the model (low, medium, high), or null for the model's own.
+    reasoning_effort: str | None = MISSING
     # Proposals per task, tasks worked at once, and seconds the reference tool may take.
     attempts: int = MISSING
     workers: int = MISSING
@@ -77,9 +91,12 @@ class MakeCasesConfig(Config):
     # Characters of each plugin file, and of all of them, the model reads.
     file_chars: int = MISSING
     source_chars: int = MISSING
-    # The model's instructions, with {today} filled in, and its request, with the task filled in.
+    # The model's instructions, with {today} filled in, and its request, with the task filled in and
+    # {pinning}: pinned_by, with the tool that pins the answer, or unpinned, for a task no tool pins.
     system_prompt: str = MISSING
     prompt: str = MISSING
+    pinned_by: str = MISSING
+    unpinned: str = MISSING
 
 
 @dataclass
@@ -90,9 +107,9 @@ class MadeCases(Output):
     tried: int
     made: int
     not_made: int
-    # Plugins that already had a cases file.
+    # Plugins that already had a cases file, or were marked as having a bug.
     skipped: list[str]
-    # Plugins with no agent task whose reference is set, each with its tasks as task:runner.
+    # Plugins with no task to benchmark, each with its tasks as task:runner.
     left_out: list[str]
     # Each task tried: plugin, task, attempts, and its cases file or the reason it has none.
     tasks: list[dict[str, Any]]
@@ -102,8 +119,30 @@ class MadeCases(Output):
 
 
 @dataclass
+class PluginBugs(Output):
+    """The plugins marked as having a bug: each failed once (could not be readied, or no proposal was
+    kept), with its task and why, and is never tried again."""
+
+    plugins: list[dict[str, str]]
+
+
+@dataclass
 class MakeCasesLayout(Layout):
     result: MadeCases
+
+
+class Bugs:
+    """The bugs file, a plugin added and written back as soon as it fails."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.lock = threading.Lock()
+        self.plugins = load_output(str(path), PluginBugs).plugins
+
+    def add(self, plugin: str, task: str, reason: str) -> None:
+        with self.lock:
+            self.plugins.append({"plugin": plugin, "task": task, "reason": reason})
+            write_output(str(self.path), PluginBugs(plugins=self.plugins))
 
 
 class Spend:
@@ -162,21 +201,63 @@ def source_text(root: Path, config: MakeCasesConfig) -> str:
     return "".join(parts)
 
 
-def proposal(text: str) -> tuple[dict[str, Any], str]:
-    """The input and context in the model's reply: one JSON object, maybe in a code fence."""
+def proposal(text: str, keys: set[str]) -> dict[str, Any]:
+    """The model's reply, one JSON object (maybe in a code fence) with exactly ``keys``: a nonempty
+    context, and an input (and an answer) as JSON objects."""
     fenced = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", text, re.S)
     value = json.loads(fenced.group(1) if fenced else text)
-    if not isinstance(value, dict) or set(value) != {"context", "input"}:
-        raise ValueError('the reply must be one JSON object with exactly the keys "context" and "input"')
-    if not isinstance(value["input"], dict):
-        raise ValueError('"input" must be a JSON object, the task\'s input')
+    if not isinstance(value, dict) or set(value) != keys:
+        raise ValueError(f"the reply must be one JSON object with exactly the keys {sorted(keys)}")
+    for key in keys - {"context"}:
+        if not isinstance(value[key], dict):
+            raise ValueError(f'"{key}" must be a JSON object')
     if not isinstance(value["context"], str) or not value["context"].strip():
         raise ValueError('"context" must be a nonempty string')
-    return value["input"], value["context"].strip()
+    return value | {"context": value["context"].strip()}
+
+
+def mutations(value: Any) -> Iterator[Any]:
+    """Copies of ``value`` each with one leaf made wrong, in order: a number plus one, a string with
+    a suffix, a boolean flipped, a nonempty list without its last item."""
+    if isinstance(value, bool):
+        yield not value
+    elif isinstance(value, int | float):
+        yield value + 1
+    elif isinstance(value, str):
+        yield value + " (wrong)"
+    elif isinstance(value, list):
+        if value:
+            yield value[:-1]
+        for index, item in enumerate(value):
+            for wrong in mutations(item):
+                yield [*value[:index], wrong, *value[index + 1 :]]
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            for wrong in mutations(item):
+                yield value | {key: wrong}
+
+
+def check_unpinned(manifest, task, arguments: dict[str, Any], answer: dict[str, Any]) -> str:
+    """For a task no tool pins: the verifier must accept the proposed answer and reject a copy of it
+    made wrong by code (the first that is still a valid output it rejects); what was rejected."""
+    build_output(answer, task.output_type)
+    with tempfile.TemporaryDirectory() as scratch:
+        verdict = verify_task(manifest, task.id, arguments, answer, None, Path(scratch))
+        if not verdict.valid:
+            raise ValueError(f"the verifier rejected the proposed answer: {verdict.message}")
+        for wrong in mutations(answer):
+            try:
+                build_output(wrong, task.output_type)
+            except (TypeError, ValueError):
+                continue
+            verdict = verify_task(manifest, task.id, arguments, wrong, None, Path(scratch))
+            if not verdict.valid:
+                return f"accepted the answer and rejected a wrong copy ({verdict.message})"
+    raise ValueError("the verifier accepted every wrong copy of the proposed answer, so it cannot tell a wrong answer here")
 
 
 def make_case(
-    config: MakeCasesConfig, python: PluginPython, client: OpenAI, spend: Spend, plugin: str, task_id: str, path: Path
+    config: MakeCasesConfig, python: PluginPython, client: OpenAI, spend: Spend, bugs: Bugs, plugin: str, task_id: str, path: Path
 ) -> dict[str, Any]:
     """Propose and check one task's case; write its cases file when one is kept."""
     record: dict[str, Any] = {"plugin": plugin, "task": task_id, "attempts": 0}
@@ -186,7 +267,11 @@ def make_case(
             with prepared_plugin(Path(unpacked, plugin), python) as folder:
                 manifest = load_manifest(folder)
                 task = manifest.task(task_id)
-                reference = manifest.tool(task.reference)
+                tool = reference_tool(task)
+                if tool is None:
+                    keys, pinning = {"context", "input", "answer"}, config.unpinned
+                else:
+                    keys, pinning = {"context", "input"}, config.pinned_by.format(tool=tool, description=manifest.tool(tool).description)
                 messages = [
                     {"role": "system", "content": config.system_prompt.format(today=today())},
                     {
@@ -198,8 +283,8 @@ def make_case(
                             instructions=task.instructions,
                             input_schema=json.dumps(output_schema(task.input_type), indent=2),
                             output_schema=json.dumps(output_schema(task.output_type), indent=2),
-                            reference=reference.name,
-                            reference_description=reference.description,
+                            runner=task.runner,
+                            pinning=pinning,
                             source=source_text(folder, config),
                         ),
                     },
@@ -207,7 +292,12 @@ def make_case(
                 error = None
                 for attempt in range(1, config.attempts + 1):
                     record["attempts"] = attempt
-                    reply = client.chat.completions.create(model=config.model, messages=messages, max_tokens=config.max_tokens)
+                    reply = client.chat.completions.create(
+                        model=config.model,
+                        messages=messages,
+                        max_tokens=config.max_tokens,
+                        extra_body={} if config.reasoning_effort is None else {"reasoning": {"effort": config.reasoning_effort}},
+                    )
                     spend.add(reply.usage, config)
                     choice = reply.choices[0]
                     text = choice.message.content or ""
@@ -215,9 +305,13 @@ def make_case(
                     try:
                         if not text.strip():
                             raise ValueError(f"the reply was empty (finish reason {choice.finish_reason}): think less, then reply")
-                        arguments, context = proposal(text)
+                        value = proposal(text, keys)
+                        arguments, context = value["input"], value["context"]
                         build_output(arguments, task.input_type)
-                        asyncio.run(pin(manifest, task, arguments, False, config.timeout))
+                        if tool is None:
+                            record["check"] = check_unpinned(manifest, task, arguments, value["answer"])
+                        else:
+                            asyncio.run(pin(manifest, tool, arguments, False, config.timeout))
                     except (ValueError, TypeError, RuntimeError, TimeoutError) as failure:
                         error = f"{type(failure).__name__}: {failure}"
                         print(f"{plugin} · {task_id}: proposal {attempt} rejected: {error[:300]}", flush=True)
@@ -229,11 +323,12 @@ def make_case(
                     record["file"] = str(path)
                     print(f"{plugin} · {task_id}: made {path.name} on proposal {attempt}", flush=True)
                     return record
-                record["reason"] = f"no proposal of {config.attempts} was answered; the last: {error}"
+                record["reason"] = f"no proposal of {config.attempts} was kept; the last: {error}"
         except (subprocess.SubprocessError, RuntimeError, ValueError, OSError) as failure:
-            # The plugin could not be unpacked or readied: no proposal can be checked.
-            record["reason"] = f"the plugin could not be readied: {type(failure).__name__}: {failure}"
-    print(f"{plugin} · {task_id}: not made: {record['reason'][:300]}", flush=True)
+            # The plugin could not be unpacked or readied, or its task cannot be pinned: no proposal can be checked.
+            record["reason"] = f"the plugin or its task could not be readied: {type(failure).__name__}: {failure}"
+    bugs.add(plugin, task_id, record["reason"])
+    print(f"{plugin} · {task_id}: not made, marked as having a bug: {record['reason'][:300]}", flush=True)
     return record
 
 
@@ -270,16 +365,18 @@ class CaseMaker(Run):
         existing = existing_cases(folder)
         for plugin, task in benchmarked:
             if plugin in existing and existing[plugin].task != task:
-                raise RuntimeError(f"{plugin}'s cases file holds {existing[plugin].task}, not its first task with a reference, {task}")
-        skipped = [plugin for plugin, _ in benchmarked if plugin in existing]
-        todo = [(p, t) for p, t in benchmarked if p not in existing and (config.only is None or p in config.only)]
+                raise RuntimeError(f"{plugin}'s cases file holds {existing[plugin].task}, not the task it is benchmarked by, {task}")
+        bugs = Bugs(Path(config.bugs))
+        buggy = {bug["plugin"] for bug in bugs.plugins}
+        skipped = [plugin for plugin, _ in benchmarked if plugin in existing or plugin in buggy]
+        todo = [(p, t) for p, t in benchmarked if p not in skipped and (config.only is None or p in config.only)]
         paths = {(p, t): folder / f"step1_{p.replace('-', '_')}_cases.json" for p, t in todo}
         taken = [path.name for path in paths.values() if path.exists()]
         if taken:
             raise RuntimeError(f"cases files of other plugins already have the names {taken}")
         print(
-            f"{len(rows)} plugins; {len(benchmarked)} with an agent task whose reference is set, {len(left_out)} without;"
-            f" {len(skipped)} have cases files; {len(todo)} to make",
+            f"{len(rows)} plugins; {len(benchmarked)} with a task to benchmark, {len(left_out)} without;"
+            f" {len(existing)} have cases files, {len(buggy)} are marked as having a bug; {len(todo)} to make",
             flush=True,
         )
         python = isolate()
@@ -288,7 +385,7 @@ class CaseMaker(Run):
         )
         spend = Spend()
         with ThreadPoolExecutor(max_workers=config.workers) as pool:
-            records = list(pool.map(lambda item: make_case(config, python, client, spend, *item, paths[item]), todo))
+            records = list(pool.map(lambda item: make_case(config, python, client, spend, bugs, *item, paths[item]), todo))
         made = sum(1 for record in records if "file" in record)
         self.layout.result = MadeCases(
             model=config.model,

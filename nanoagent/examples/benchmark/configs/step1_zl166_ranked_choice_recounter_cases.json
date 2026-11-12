@@ -1,0 +1,62 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "zl166-ranked-choice-recounter",
+  "task": "recount-ranked-choice",
+  "context": "Recount this ranked-choice (instant-runoff) election. The `candidates` array lists every candidate id. Each object in `ballots` is one ballot; its `rankings` array lists ranked candidates from most to least preferred. A ballot may rank only some candidates (unranked candidates are never considered), and an empty `rankings` array is allowed. In each round, the active candidates are those not yet eliminated. Sort the active candidates lexicographically to form `active`, and count each ballot for the first candidate in its `rankings` who is still active; if no ranked candidate is active, the ballot is `exhausted`. A candidate wins by receiving a strict majority of continuing ballots, where continuing ballots are the total number of ballots minus the number of exhausted ballots. If no candidate has a strict majority and more than one candidate remains, eliminate the active candidate with the fewest votes, breaking ties among the lowest by eliminating the lexicographically greatest candidate id. Then continue with the next round. If only one candidate remains, that candidate wins. Record every round in order, with `tallies` aligned to `active`, and end with the winning round (whose `eliminated` is an empty string).",
+  "answer": [
+    {
+      "candidates": [
+        "alice",
+        "bob",
+        "carol",
+        "dave"
+      ],
+      "ballots": [
+        {
+          "rankings": [
+            "alice",
+            "bob"
+          ]
+        },
+        {
+          "rankings": [
+            "alice",
+            "carol"
+          ]
+        },
+        {
+          "rankings": [
+            "bob",
+            "alice"
+          ]
+        },
+        {
+          "rankings": [
+            "bob",
+            "carol"
+          ]
+        },
+        {
+          "rankings": [
+            "carol",
+            "alice"
+          ]
+        },
+        {
+          "rankings": [
+            "dave"
+          ]
+        },
+        {
+          "rankings": [
+            "dave"
+          ]
+        },
+        {
+          "rankings": []
+        }
+      ]
+    }
+  ],
+  "refuse": []
+}

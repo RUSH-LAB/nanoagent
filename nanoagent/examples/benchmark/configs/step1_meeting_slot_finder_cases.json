@@ -1,0 +1,96 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "meeting-slot-finder",
+  "task": "earliest-common-slot",
+  "context": "The scheduling data is exactly the busy times in the input: each person's busy list is complete for the week, and there is no other calendar. Busy times and meetings are half-open intervals: a busy time that ends at 10:00 leaves 10:00 free, and two meetings that touch do not conflict. The working day is day_start to day_end on the requested days; a meeting must lie entirely inside it. Gaps are considered in week order (mon, tue, wed, thu, fri, sat, sun), and within a day by start time, regardless of the order the days are listed in the input. The earliest slot is the start of the first gap whose length in minutes is at least duration_minutes, and it ends exactly duration_minutes later. Overlapping or touching busy times of different people merge into one busy span. When no gap on any requested day is long enough, the answer's day, start and end must all be null. Times are HH:MM.",
+  "answer": [
+    {
+      "people": [
+        {
+          "name": "Alice",
+          "busy": [
+            {
+              "day": "mon",
+              "start": "09:00",
+              "end": "10:30"
+            },
+            {
+              "day": "mon",
+              "start": "13:00",
+              "end": "14:00"
+            },
+            {
+              "day": "tue",
+              "start": "09:00",
+              "end": "10:30"
+            },
+            {
+              "day": "wed",
+              "start": "09:00",
+              "end": "11:00"
+            }
+          ]
+        },
+        {
+          "name": "Bob",
+          "busy": [
+            {
+              "day": "mon",
+              "start": "10:00",
+              "end": "11:00"
+            },
+            {
+              "day": "mon",
+              "start": "14:00",
+              "end": "15:00"
+            },
+            {
+              "day": "mon",
+              "start": "15:00",
+              "end": "17:00"
+            },
+            {
+              "day": "tue",
+              "start": "13:00",
+              "end": "14:00"
+            },
+            {
+              "day": "wed",
+              "start": "11:00",
+              "end": "12:00"
+            }
+          ]
+        },
+        {
+          "name": "Cara",
+          "busy": [
+            {
+              "day": "mon",
+              "start": "11:00",
+              "end": "12:00"
+            },
+            {
+              "day": "tue",
+              "start": "15:00",
+              "end": "16:00"
+            },
+            {
+              "day": "wed",
+              "start": "10:00",
+              "end": "10:30"
+            }
+          ]
+        }
+      ],
+      "days": [
+        "wed",
+        "mon",
+        "tue"
+      ],
+      "day_start": "08:00",
+      "day_end": "18:00",
+      "duration_minutes": 150
+    }
+  ],
+  "refuse": []
+}

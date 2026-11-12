@@ -1,0 +1,68 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "prereq-semester-planner",
+  "task": "plan-semesters",
+  "context": "The input is the complete catalog; no external data is needed. max_credits is the cap on the sum of credits in one semester. Every course must appear exactly once, each course must be placed in a semester strictly after all of its prerequisites, no semester may be empty, and no semester may exceed max_credits. If a blocker exists, report it with this precedence: unknown prerequisite, then course over the cap, then cycle, and leave semesters empty. Otherwise build the greedy plan: starting with no done courses, for each next semester scan the catalog in its given order and add every course whose prerequisites are all in earlier semesters and whose credits still fit, skipping any course that would exceed the cap; courses added in the same semester do not unlock other courses until the next semester. Output the resulting semesters in the order taken, using course codes exactly as written.",
+  "answer": [
+    {
+      "courses": [
+        {
+          "code": "MATH 101",
+          "credits": 3,
+          "prereqs": []
+        },
+        {
+          "code": "COMP 140",
+          "credits": 4,
+          "prereqs": []
+        },
+        {
+          "code": "MATH 102",
+          "credits": 3,
+          "prereqs": [
+            "MATH 101"
+          ]
+        },
+        {
+          "code": "COMP 182",
+          "credits": 4,
+          "prereqs": [
+            "COMP 140",
+            "MATH 102"
+          ]
+        },
+        {
+          "code": "PHYS 101",
+          "credits": 3,
+          "prereqs": [
+            "MATH 101"
+          ]
+        },
+        {
+          "code": "COMP 215",
+          "credits": 4,
+          "prereqs": [
+            "COMP 182"
+          ]
+        },
+        {
+          "code": "STAT 210",
+          "credits": 3,
+          "prereqs": [
+            "MATH 102"
+          ]
+        },
+        {
+          "code": "COMP 321",
+          "credits": 3,
+          "prereqs": [
+            "COMP 215",
+            "STAT 210"
+          ]
+        }
+      ],
+      "max_credits": 8
+    }
+  ],
+  "refuse": []
+}

@@ -1,0 +1,84 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "zl166-league-tiebreak-auditor",
+  "task": "audit-league-standings",
+  "context": "Compute the league table from these completed matches. Award 3 points for a win, 1 point for a draw, and 0 points for a loss. For each team, count matches played, total points, goals for, goals against, and goal difference (goals for minus goals against). Rank every team in the teams list by points descending, then goal difference descending, then goals for descending, then team id ascending (lexicographic order). Ranks are one-based and are assigned after all tie-breaks, so tied teams occupy distinct ranks in that sorted order. The match list is the complete set of completed matches; there are no other matches.",
+  "answer": [
+    {
+      "teams": [
+        "a",
+        "b",
+        "c",
+        "d",
+        "e",
+        "f"
+      ],
+      "matches": [
+        {
+          "home": "a",
+          "away": "c",
+          "home_score": 3,
+          "away_score": 1
+        },
+        {
+          "home": "b",
+          "away": "d",
+          "home_score": 3,
+          "away_score": 1
+        },
+        {
+          "home": "c",
+          "away": "e",
+          "home_score": 3,
+          "away_score": 1
+        },
+        {
+          "home": "d",
+          "away": "f",
+          "home_score": 3,
+          "away_score": 1
+        },
+        {
+          "home": "c",
+          "away": "f",
+          "home_score": 2,
+          "away_score": 2
+        },
+        {
+          "home": "d",
+          "away": "e",
+          "home_score": 2,
+          "away_score": 2
+        },
+        {
+          "home": "e",
+          "away": "a",
+          "home_score": 1,
+          "away_score": 0
+        },
+        {
+          "home": "f",
+          "away": "b",
+          "home_score": 2,
+          "away_score": 1
+        },
+        {
+          "home": "a",
+          "away": "f",
+          "home_score": 4,
+          "away_score": 2
+        },
+        {
+          "home": "b",
+          "away": "e",
+          "home_score": 3,
+          "away_score": 1
+        }
+      ],
+      "win_points": 3,
+      "draw_points": 1,
+      "loss_points": 0
+    }
+  ],
+  "refuse": []
+}

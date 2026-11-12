@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "pubmed-related-paper",
+  "task": "pubmed-related-paper",
+  "context": "Query NCBI E-utilities ELink for the given PMID: GET https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi with parameters dbfrom=pubmed, db=pubmed, id=<the input pmid>, cmd=neighbor_score, linkname=pubmed_pubmed, retmode=json. In the JSON response, take linksets[0].linksetdbs and use the entry whose linkname is \"pubmed_pubmed\"; its links array contains objects with id and score. Drop any link whose id equals the query PMID. Among the remaining links, choose the one with the highest score; if scores tie, choose the numerically smaller PMID. Return that id as related_pmid and its integer score as neighbor_score.",
+  "answer": [
+    {
+      "pmid": "16136131"
+    }
+  ],
+  "refuse": []
+}

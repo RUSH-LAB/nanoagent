@@ -1,0 +1,94 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "survivor-alliance",
+  "task": "scenario-outcome",
+  "context": "Resolve this hypothetical Survivor-style tribal council under the standard vote/revote/deadlock rules. It is an ordinary tribal council, not a final-four format, so council.format is null. The contestants are Ava, Ben, Cara, Dan, Eve, and Finn; the alliance is Ava, Cara, and Eve, and Ava is the perspective. No one has challenge immunity. The assumed ordinary initial votes are Ava\u2192Ben, Ben\u2192Cara, Cara\u2192Dan, Dan\u2192Cara, Eve\u2192Ben, and Finn\u2192Ben. The assumed plays are: Eve plays her idol on Ben; Ava plays an extra vote on Dan; Dan blocks Eve's ordinary vote. Votes are counted as a multiset and order never matters. The idol nullifies all initial votes cast for Ben even though Eve owns it; the extra vote adds one ballot from Ava to Dan; the block removes only Eve's ordinary initial ballot. On an initial tie, the tied contestants do not vote in the revote, and every other contestant votes only for one of the tied contestants. The assumed revote is Ava\u2192Cara, Ben\u2192Cara, Eve\u2192Cara, and Finn\u2192Dan. If the revote has a unique leader, that contestant goes home. No deadlock decision, rock result, or fire facts were stated. Report who goes home, whether the alliance survives, and Ava's personal outcome.",
+  "answer": [
+    {
+      "council": {
+        "contestants": [
+          "Ava",
+          "Ben",
+          "Cara",
+          "Dan",
+          "Eve",
+          "Finn"
+        ],
+        "alliance": [
+          "Ava",
+          "Cara",
+          "Eve"
+        ],
+        "votes": [
+          {
+            "voter": "Ava",
+            "target": "Ben"
+          },
+          {
+            "voter": "Ben",
+            "target": "Cara"
+          },
+          {
+            "voter": "Cara",
+            "target": "Dan"
+          },
+          {
+            "voter": "Dan",
+            "target": "Cara"
+          },
+          {
+            "voter": "Eve",
+            "target": "Ben"
+          },
+          {
+            "voter": "Finn",
+            "target": "Ben"
+          }
+        ],
+        "challenge_immune": [],
+        "format": null,
+        "revotes": [
+          {
+            "voter": "Ava",
+            "target": "Cara"
+          },
+          {
+            "voter": "Ben",
+            "target": "Cara"
+          },
+          {
+            "voter": "Eve",
+            "target": "Cara"
+          },
+          {
+            "voter": "Finn",
+            "target": "Dan"
+          }
+        ]
+      },
+      "plays": [
+        {
+          "id": "Eve-idol",
+          "owner": "Eve",
+          "kind": "idol",
+          "target": "Ben"
+        },
+        {
+          "id": "Ava-extra",
+          "owner": "Ava",
+          "kind": "extra_vote",
+          "target": "Dan"
+        },
+        {
+          "id": "Dan-block",
+          "owner": "Dan",
+          "kind": "vote_block",
+          "target": "Eve"
+        }
+      ],
+      "perspective": "Ava",
+      "resolution_facts": null
+    }
+  ],
+  "refuse": []
+}

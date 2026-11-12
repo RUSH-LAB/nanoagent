@@ -1,0 +1,15 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "currency-exchange",
+  "task": "convert-currency",
+  "context": "Use the fixed snapshot of European Central Bank euro reference rates covering publication days from 1999-01-04 to 2026-10-26. Each publication day has rates expressed as units per euro; EUR is 1 and a currency with no published rate that day is recorded as an empty value. Saturdays, Sundays and TARGET holidays have no publication; use the requested date if it is a publication day, otherwise the nearest earlier publication day among the requested date and the four preceding calendar days. If none of those days has a publication, the result is date_out_of_range. A date outside the snapshot is out of range, and a date that is not a real YYYY-MM-DD date is invalid. Currency names may be ISO codes or English names; matching ignores case and accents and accepts common plurals, and a name matching several currencies is ambiguous. Check the amount first: after trimming spaces it must be a nonnegative decimal written with digits, such as 100 or 25.50 (digits are required on both sides of a decimal point), otherwise the amount is invalid. If the selected publication day has an empty rate for either currency, the result is no_rate; do not search further back for that currency. Otherwise convert with amount * target_rate / source_rate and round half up to two decimal places. For any result other than converted, all of from_currency, to_currency, rate_date and converted are empty strings. Relevant data for the input: 2010-06-01 is a publication day, and its rates include EUR 1 and no rate for ISK.",
+  "answer": [
+    {
+      "amount": "100",
+      "from_currency": "ISK",
+      "to_currency": "EUR",
+      "date": "2010-06-01"
+    }
+  ],
+  "refuse": []
+}

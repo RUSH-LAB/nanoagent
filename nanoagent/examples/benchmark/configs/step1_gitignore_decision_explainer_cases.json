@@ -1,0 +1,24 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "gitignore-decision-explainer",
+  "task": "explain-decisions",
+  "context": "The .gitignore contents are supplied inline in the input; there is no external data source. Evaluate each repository-relative candidate path against only the supported .gitignore subset: exact file/path patterns, * wildcards (which may match / characters), directory patterns ending in / (matching the exact directory candidate and any path beginning with that directory/), and negation patterns starting with !. Blank lines, lines beginning with #, and a lone ! are ignored and receive no rule number. Each line is stripped of surrounding whitespace before parsing. Number supported patterns from 1 in top-to-bottom order. For every candidate path, the last matching supported pattern wins: a normal match means ignored, a ! match means included. If no supported pattern matches, report included with null winning_rule and winning_pattern. Output one decision per candidate path, in the input order, with the original path, the final status, the one-based pattern-only rule number, and the exact winning pattern including any leading !.",
+  "answer": [
+    {
+      "gitignore_contents": "# Logs and temp files\n*.log\n\ncache/\n!cache/keep.log\n!important.log\nimportant.log\nbuild/output.log\n# ignore all output?\n*out*\n!\n",
+      "candidate_paths": [
+        "app.log",
+        "important.log",
+        "cache/session.json",
+        "cache/keep.log",
+        "cache",
+        "build/output.log",
+        "build/readme.txt",
+        "src/output/data.txt",
+        "src/notes",
+        "output.log"
+      ]
+    }
+  ],
+  "refuse": []
+}

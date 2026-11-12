@@ -1,0 +1,14 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "dinner-plan-verifier",
+  "task": "plan-dinner",
+  "context": "Use the preset dinner-plan data. All times are integer minutes after midnight. The planning window is from max(0, serving_minute-120) through serving_minute. One cook is shared by all hands-on steps; each oven and burner runs one activity at a time, and a step may start as soon as a prior activity on the same resource ends. Oven changes occupy the oven and end immediately before the next bake; change times are 10 minutes between 375\u00b0F and 425\u00b0F, 15 minutes between 375\u00b0F and 450\u00b0F, and 5 minutes between 425\u00b0F and 450\u00b0F. The one-oven kitchen has oven-1 initially at 425\u00b0F, plus burner-1 and burner-2. For the baked-pasta menu: assemble-pasta takes 15 minutes and is cook-only; bake-pasta takes 30 minutes unattended at 375\u00b0F, must follow assemble-pasta, and must finish 5-25 minutes before serving. prep-bread takes 5 minutes and is cook-only; bake-bread takes 10 minutes unattended at 425\u00b0F, must follow prep-bread, and must finish 0-5 minutes before serving. cook-beans takes 8 minutes, is hands-on and uses a burner, and must finish 0-5 minutes before serving. Maximize the earliest start among all recipe steps and required oven changes.",
+  "answer": [
+    {
+      "menu_id": "baked-pasta",
+      "kitchen_id": "one-oven",
+      "serving_minute": 1080
+    }
+  ],
+  "refuse": []
+}

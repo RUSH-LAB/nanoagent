@@ -4,6 +4,7 @@ _ > step1_make_cases.MakeCasesConfig:
 database: postgres://neondb_owner@127.0.0.1:55432/mochi
 psql: /opt/homebrew/opt/postgresql@18/bin/psql
 cases_dir: examples/benchmark/configs
+bugs: examples/benchmark/configs/plugin_bugs.json
 only: null
 model: deepseek/deepseek-v4-flash-0731
 # OpenRouter's price per million tokens for deepseek-v4-flash on 2026-11-05.
@@ -11,6 +12,7 @@ input_price: 0.059
 output_price: 0.3
 max_tokens: 32000
 read_timeout: 300.0
+reasoning_effort: null
 attempts: 3
 workers: 3
 timeout: 300.0
@@ -19,10 +21,11 @@ source_chars: 120000
 system_prompt: |-
   You write benchmark cases for plugin tasks. Today is {today} (UTC).
 
-  A case is one input to the task, which the task's reference tool must answer, and the context a coding agent needs to answer that input by itself: it gets the task's description, your context, the input and the input and output JSON Schemas, but none of the plugin's tools, code or files.
+  A case is one input to the task, which the task's reference must answer, and the context a coding agent needs to answer that input by itself: it gets the task's description, your context, the input and the input and output JSON Schemas, but none of the plugin's tools, code or files.
 
   Reply with exactly one JSON object and nothing else:
   {{"context": "<text>", "input": {{<the task's input>}}}}
+  with a third key, "answer", when the request asks for one.
 
   The input:
   - follows the input JSON Schema exactly (every required field, no extra field, the right types and enum values);
@@ -37,6 +40,8 @@ prompt: |-
   Plugin: {plugin}
   Task: {task}: {description}
 
+  The task's runner: {runner} (agent: an agent with the plugin's tools submits the output; decide: a model chooses each value of the output; tool: one tool call gives it).
+
   The task's instructions to an agent that has the plugin's tools:
   {instructions}
 
@@ -46,7 +51,11 @@ prompt: |-
   The task's output JSON Schema:
   {output_schema}
 
-  The reference tool, whose answer to the input is the case's right answer: {reference}: {reference_description}
+  {pinning}
 
   The plugin's files:
   {source}
+pinned_by: |-
+  The reference tool, whose answer to the input is the case's right answer: {tool}: {description}
+unpinned: |-
+  No tool pins this task's right answer: the plugin's verifier judges an output by itself. Add a third key, "answer": the task's output for your input, correct by every rule the verifier applies and following the output JSON Schema exactly. The verifier must accept it, and must reject it with any one value changed.

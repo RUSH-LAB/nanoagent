@@ -1,0 +1,176 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "pc-coverage-timeline",
+  "task": "resolve-coverage",
+  "context": "All source data is contained in the task input: the policies, endorsements, and claims arrays are the complete dataset, so no external lookup is needed. Resolve each claim independently and return exactly one resolution per claim; the order of resolutions in the output does not matter.\n\nCoverage intervals are half-open: a record covers a claim when the record's policy_id and category equal the claim's policy_id and category, the claim's event_date is on or after effective_from, and either effective_to is null or the event_date is strictly before effective_to. A null effective_to means no end. Candidate base versions are all policy versions that cover the claim, and candidate_version_ids must be sorted ascending by ID. Zero candidates gives status 'missing'; more than one gives 'overlap'; both use version_id null, endorsement_ids [], conflicting_fields [], and terms null.\n\nFor exactly one candidate, version_id is that version's ID. Endorsements are matched to the claim the same way, independently of the base version. All active matching endorsement IDs go into endorsement_ids, sorted ascending. If any term field has two or more different simultaneous active override values, the status is 'endorsement_conflict', conflicting_fields lists exactly those fields sorted alphabetically by field name (coinsurance_bps, deductible_cents, limit_cents), and terms is null. Otherwise the status is 'selected', conflicting_fields is [], and terms are the base version's terms with each overridden field replaced by the single active override value. Identical simultaneous override values are compatible. Money is integer cents, coinsurance is integer basis points, and no rounding is applied. Sorting is lexicographic ASCII order. Use the source values exactly; do not invent or alter records.",
+  "answer": [
+    {
+      "policies": [
+        {
+          "policy_id": "A",
+          "version_id": "hv1",
+          "category": "health",
+          "effective_from": "2026-01-01",
+          "effective_to": "2026-04-01",
+          "terms": {
+            "deductible_cents": 50000,
+            "coinsurance_bps": 2000,
+            "limit_cents": 200000
+          }
+        },
+        {
+          "policy_id": "A",
+          "version_id": "hv2",
+          "category": "health",
+          "effective_from": "2026-04-01",
+          "effective_to": null,
+          "terms": {
+            "deductible_cents": 60000,
+            "coinsurance_bps": 2500,
+            "limit_cents": 250000
+          }
+        },
+        {
+          "policy_id": "B",
+          "version_id": "av1",
+          "category": "auto",
+          "effective_from": "2026-01-01",
+          "effective_to": "2026-03-01",
+          "terms": {
+            "deductible_cents": 100000,
+            "coinsurance_bps": 0,
+            "limit_cents": 1000000
+          }
+        },
+        {
+          "policy_id": "B",
+          "version_id": "av2",
+          "category": "auto",
+          "effective_from": "2026-03-01",
+          "effective_to": null,
+          "terms": {
+            "deductible_cents": 150000,
+            "coinsurance_bps": 0,
+            "limit_cents": 1500000
+          }
+        },
+        {
+          "policy_id": "C",
+          "version_id": "cv1",
+          "category": "health",
+          "effective_from": "2026-01-01",
+          "effective_to": "2026-06-01",
+          "terms": {
+            "deductible_cents": 25000,
+            "coinsurance_bps": 1000,
+            "limit_cents": 100000
+          }
+        },
+        {
+          "policy_id": "C",
+          "version_id": "cv2",
+          "category": "health",
+          "effective_from": "2026-02-01",
+          "effective_to": "2026-07-01",
+          "terms": {
+            "deductible_cents": 30000,
+            "coinsurance_bps": 1500,
+            "limit_cents": 120000
+          }
+        }
+      ],
+      "endorsements": [
+        {
+          "endorsement_id": "e1",
+          "policy_id": "A",
+          "category": "health",
+          "effective_from": "2026-02-01",
+          "effective_to": "2026-05-01",
+          "overrides": [
+            {
+              "field": "deductible_cents",
+              "value": 30000
+            }
+          ]
+        },
+        {
+          "endorsement_id": "e2",
+          "policy_id": "A",
+          "category": "health",
+          "effective_from": "2026-04-15",
+          "effective_to": null,
+          "overrides": [
+            {
+              "field": "limit_cents",
+              "value": 300000
+            }
+          ]
+        },
+        {
+          "endorsement_id": "e3",
+          "policy_id": "A",
+          "category": "health",
+          "effective_from": "2026-04-15",
+          "effective_to": null,
+          "overrides": [
+            {
+              "field": "limit_cents",
+              "value": 350000
+            }
+          ]
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-1",
+          "policy_id": "A",
+          "category": "health",
+          "event_date": "2026-01-01"
+        },
+        {
+          "claim_id": "claim-2",
+          "policy_id": "A",
+          "category": "health",
+          "event_date": "2026-03-10"
+        },
+        {
+          "claim_id": "claim-3",
+          "policy_id": "A",
+          "category": "health",
+          "event_date": "2026-04-01"
+        },
+        {
+          "claim_id": "claim-4",
+          "policy_id": "A",
+          "category": "health",
+          "event_date": "2026-05-01"
+        },
+        {
+          "claim_id": "claim-5",
+          "policy_id": "B",
+          "category": "auto",
+          "event_date": "2026-02-15"
+        },
+        {
+          "claim_id": "claim-6",
+          "policy_id": "B",
+          "category": "auto",
+          "event_date": "2026-03-15"
+        },
+        {
+          "claim_id": "claim-7",
+          "policy_id": "C",
+          "category": "health",
+          "event_date": "2026-03-01"
+        },
+        {
+          "claim_id": "claim-8",
+          "policy_id": "D",
+          "category": "auto",
+          "event_date": "2026-04-01"
+        }
+      ]
+    }
+  ],
+  "refuse": []
+}
