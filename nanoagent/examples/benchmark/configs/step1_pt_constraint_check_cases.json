@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "pt-constraint-check",
+  "task": "check-constraints",
+  "context": "The data is fixed and written out in full here; nothing is fetched. Allowed tickers in every case: AAA, BBB, CCC, DDD, EEE, FFF, GGG. Ticker sectors: AAA, BBB and CCC are Tech; DDD and EEE are Health; FFF and GGG are Energy; HHH is Finance. The four cases: main has max_position 0.25, max_sector 0.45, min_cash 0.05, holdings AAA 0.28 (Tech), BBB 0.20 (Tech), CCC 0.10 (Tech), DDD 0.15 (Health), FFF 0.12 (Energy), HHH 0.12 (Finance), cash 0.03, sector_totals Tech 0.58, Health 0.15, Energy 0.12, Finance 0.12, total_weight 1.0. at-limits has max_position 0.25, max_sector 0.45, min_cash 0.05, holdings AAA 0.25 (Tech), BBB 0.20 (Tech), DDD 0.25 (Health), FFF 0.25 (Energy), cash 0.05, sector_totals Tech 0.45, Health 0.25, Energy 0.25, total_weight 1.0. sum-error has max_position 0.40, max_sector 0.70, min_cash 0.0, holdings AAA -0.10 (Tech), BBB 0.30 (Tech), DDD 0.30 (Health), cash 0.20, sector_totals Tech 0.20, Health 0.30, total_weight 0.70. all-cash has max_position 0.15, max_sector 0.35, min_cash 0.10, no holdings, cash 1.0, empty sector_totals, total_weight 1.0. The six rules: max-position is broken when a holding's weight is above max_position, subject is its ticker; max-sector when a sector total is above max_sector, subject is the sector; min-cash when cash is below min_cash, subject is CASH; disallowed-ticker when a held ticker is not in allowed_tickers, subject is its ticker; negative-weight when a holding's weight is below 0, subject is its ticker; weights-sum when total_weight differs from 1 by more than 0.000001, subject is PORTFOLIO. A value exactly equal to its limit is never a violation. Compare numbers exactly as given; sector_totals and total_weight are exact, never recompute or round them. Report one violation per broken rule and subject, with no duplicates; one holding can break several rules. compliant is true only when the list of violations is empty; use [] for none. The case field in the report must be copied from the task.",
+  "answer": [
+    {
+      "case": "main"
+    }
+  ],
+  "refuse": []
+}

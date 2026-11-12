@@ -1,0 +1,128 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "pc-payment-ledger",
+  "task": "reconcile-ledger",
+  "context": "Reconcile a synthetic payment ledger at the inclusive cutoff 2026-10-25. The complete register is in the input; no external data is needed. Amounts are integer cents and are not rounded. Each claim has an expected_cents. A payment adds its amount_cents and must have an empty reverses_id. A reversal fully cancels one payment event on the same claim, must name that payment's event_id, have the same amount_cents, and be posted on or after the payment; each payment can be reversed at most once, and reversals cannot be reversed. Identical rows with the same event_id are retransmissions: they count as one event and their event_id appears in duplicate_event_ids; reusing an event_id with different content invalidates the input. Events with posted_on <= as_of are included; events with posted_on > as_of are excluded. For each claim, included_event_ids and excluded_event_ids list the unique events in those groups; duplicate_event_ids lists the claim's event IDs that occur more than once as input rows, regardless of cutoff. paid_cents is included payment sum minus included reversal sum; balance_cents = expected_cents - paid_cents; status is balanced when balance_cents is 0, underpaid when positive, overpaid when negative. Output exactly one balance row per claim, including claims with no events; list orders are not significant.",
+  "answer": [
+    {
+      "as_of": "2026-10-25",
+      "claims": [
+        {
+          "claim_id": "a",
+          "expected_cents": 10000
+        },
+        {
+          "claim_id": "b",
+          "expected_cents": 4000
+        },
+        {
+          "claim_id": "c",
+          "expected_cents": 2000
+        },
+        {
+          "claim_id": "d",
+          "expected_cents": 0
+        }
+      ],
+      "events": [
+        {
+          "event_id": "p1",
+          "claim_id": "a",
+          "posted_on": "2026-10-01",
+          "kind": "payment",
+          "amount_cents": 3000,
+          "reverses_id": ""
+        },
+        {
+          "event_id": "p1",
+          "claim_id": "a",
+          "posted_on": "2026-10-01",
+          "kind": "payment",
+          "amount_cents": 3000,
+          "reverses_id": ""
+        },
+        {
+          "event_id": "p2",
+          "claim_id": "a",
+          "posted_on": "2026-10-15",
+          "kind": "payment",
+          "amount_cents": 2500,
+          "reverses_id": ""
+        },
+        {
+          "event_id": "r1",
+          "claim_id": "a",
+          "posted_on": "2026-10-20",
+          "kind": "reversal",
+          "amount_cents": 2500,
+          "reverses_id": "p2"
+        },
+        {
+          "event_id": "p3",
+          "claim_id": "a",
+          "posted_on": "2026-10-30",
+          "kind": "payment",
+          "amount_cents": 1000,
+          "reverses_id": ""
+        },
+        {
+          "event_id": "p4",
+          "claim_id": "b",
+          "posted_on": "2026-10-05",
+          "kind": "payment",
+          "amount_cents": 5000,
+          "reverses_id": ""
+        },
+        {
+          "event_id": "r2",
+          "claim_id": "b",
+          "posted_on": "2026-10-06",
+          "kind": "reversal",
+          "amount_cents": 5000,
+          "reverses_id": "p4"
+        },
+        {
+          "event_id": "p5",
+          "claim_id": "b",
+          "posted_on": "2026-10-10",
+          "kind": "payment",
+          "amount_cents": 2000,
+          "reverses_id": ""
+        },
+        {
+          "event_id": "p6",
+          "claim_id": "b",
+          "posted_on": "2026-10-11",
+          "kind": "payment",
+          "amount_cents": 2000,
+          "reverses_id": ""
+        },
+        {
+          "event_id": "p8",
+          "claim_id": "b",
+          "posted_on": "2026-11-01",
+          "kind": "payment",
+          "amount_cents": 500,
+          "reverses_id": ""
+        },
+        {
+          "event_id": "p9",
+          "claim_id": "c",
+          "posted_on": "2026-10-12",
+          "kind": "payment",
+          "amount_cents": 2500,
+          "reverses_id": ""
+        },
+        {
+          "event_id": "p9",
+          "claim_id": "c",
+          "posted_on": "2026-10-12",
+          "kind": "payment",
+          "amount_cents": 2500,
+          "reverses_id": ""
+        }
+      ]
+    }
+  ],
+  "refuse": []
+}

@@ -1,0 +1,46 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "sz-free-slot-grid",
+  "task": "find-slots",
+  "context": "Compute all candidate meeting slots for one day (minute 0 to 1440). Candidate start times are window_start + k*step for nonnegative integer k, but only if the resulting slot [start, start+length) lies entirely within the half-open window [window_start, window_end). Each slot is rejected if it overlaps any of the given blocked intervals; intervals are half-open, so a zero-width block ([x, x)) blocks nothing, and touching only at an endpoint is allowed (e.g., a slot ending exactly at a block's start, or starting exactly at a block's end, is free). The output must list the free slots in ascending start order as objects with 'start' and 'end' (the exclusive end). The output also must include 'total' (the count) and 'path' (the destination path). The results must be written to a file at the given destination path: UTF-8 JSON text of exactly the object {\"records\":[...], \"total\":...} with keys sorted lexicographically, no extra whitespace, commas and colons as separators, and a single trailing newline; the file must be newly created (never overwrite an existing file). Also return the same records and total in the response, with the path field equal to the destination.",
+  "answer": [
+    {
+      "window_start": 100,
+      "window_end": 500,
+      "length": 45,
+      "step": 30,
+      "blocked": [
+        {
+          "start": 150,
+          "end": 180
+        },
+        {
+          "start": 250,
+          "end": 260
+        },
+        {
+          "start": 350,
+          "end": 400
+        },
+        {
+          "start": 450,
+          "end": 470
+        },
+        {
+          "start": 200,
+          "end": 200
+        },
+        {
+          "start": 445,
+          "end": 460
+        },
+        {
+          "start": 260,
+          "end": 280
+        }
+      ],
+      "destination": "results/meeting.json"
+    }
+  ],
+  "refuse": []
+}

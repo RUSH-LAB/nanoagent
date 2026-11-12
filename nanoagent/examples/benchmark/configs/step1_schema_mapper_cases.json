@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "schema-mapper",
+  "task": "map-columns",
+  "context": "Here is a customer export with 10 columns, each shown with its header and four sample values. Map each column to exactly one target field: customer_id, full_name, first_name, last_name, email, phone, birth_date, street, city, state, postal_code, country, signup_date, lifetime_value, or unmapped. Use the header and the sample values together. Headers may be abbreviated, in German, Spanish or French, from a vendor system, or opaque; a vague header (like Name, Datum, Nr., Code) can be any field of its kind, and the values then decide. birth_date is a date of birth; signup_date is when the account was opened; lifetime_value is total money spent; full_name holds given name and surname together. Use each field for at most one column. Choose unmapped for a column that fits no target field: internal references, promo codes, categories, flags, notes, and any column whose header names something that is not a target field (for example a last-login date or a credit limit), even if its values look like a target field's. The export:\n\ncol01 KUNNR: 0012345, 0012346, 0012347, 0012348\ncol02 Vollst\u00e4ndiger Name: Maria Schmidt, Lukas M\u00fcller, Sofia Garc\u00eda, Mateo Dubois\ncol03 fld_07: maria.schmidt@example.com, lukas.muller@example.net, sofia.garcia@example.org, mateo.dubois@example.com\ncol04 T\u00e9l\u00e9phone: (212) 555-0101, (312) 555-0102, (415) 555-0103, (512) 555-0104\ncol05 Geburtsdatum: 12.03.1987, 25.11.1992, 01.07.1980, 18.09.1975\ncol06 Ort: Chicago, Seattle, Denver, Boston\ncol07 PLZ: 60601, 98101, 80202, 02108\ncol08 Land: United States, Germany, Spain, France\ncol09 Last Login: 2026-09-01, 2026-08-15, 2026-09-10, 2026-07-22\ncol10 VIP: Y, N, Y, N",
+  "answer": [
+    {
+      "case": 42
+    }
+  ],
+  "refuse": []
+}

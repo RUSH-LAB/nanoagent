@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "pt-trade-replay",
+  "task": "replay-trades",
+  "context": "Use the fixed main trade log. Initial cash is 20000.0. Final prices of the traded tickers are: AAA 72.0, BBB 98.0, CCC 190.0, DDD 310.0. The log's rows, in file order, are (id, date, ticker, side, qty, price, fee): t9 2025-04-07 AAA buy 20 65.0 1.0; t3 2025-03-10 AAA buy 100 60.0 1.0; t1 2025-03-03 AAA buy 100 50.0 1.0; t7 2025-03-24 DDD buy 10 300.0 2.0; t4 2025-03-17 AAA sell 150 70.0 1.0; t2 2025-03-03 BBB buy 50 100.0 1.0; t5 2025-03-17 BBB sell 60 110.0 1.0; t6 2025-03-24 CCC buy 1000 200.0 5.0; t8 2025-03-31 BBB sell 50 95.0 1.0. The file order is not the processing order: process the rows sorted by date, and by id as text when dates are equal. For a buy, cost = qty * price + fee; reject the trade if cost is more than the cash. For a sell, proceeds = qty * price - fee; reject if qty is more than the shares held at that moment. A malformed row (side not buy or sell, qty <= 0, price <= 0, fee < 0) is also rejected. A rejected trade changes nothing: no cash, fees, turnover or realized profit. Sells consume FIFO lots, oldest first, and realized_pnl is the sum over consumed shares of sale price minus purchase price; fees are not in realized_pnl. total_fees is the sum of the fees of executed trades. turnover = sum over executed trades of qty * price / initial_cash. At the end, positions lists only tickers with shares left; position value = shares * final price; hhi = sum over positions of (position value / total position value)^2, and is null when there are no positions; cash_exposure = cash / (cash + total position value). If two trades share an id, or initial cash <= 0, or any traded ticker has no final price, set status invalid-input, positions to {}, cash, realized_pnl, total_fees, turnover, hhi and cash_exposure to null, and rejected_trade_ids to []; otherwise status is ok. Round cash, realized_pnl and total_fees to 2 decimals, and turnover, hhi and cash_exposure to 4 decimals. Report case as main. Rejected trade ids can be in any order for the check, but the key lists them sorted as text; do not repeat an id.",
+  "answer": [
+    {
+      "case": "main"
+    }
+  ],
+  "refuse": []
+}

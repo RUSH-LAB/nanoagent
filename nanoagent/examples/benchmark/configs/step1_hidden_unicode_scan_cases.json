@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "hidden-unicode-scan",
+  "task": "scan-document",
+  "context": "The case's document is fixed and has exactly these four lines (line 1 to line 4):\n1. `Log in at p\u0430ypal.com to confirm your G\u043e\u043egle account.` (the \u0430 in `p\u0430ypal` is Cyrillic small \u0430 U+0430; the two \u043e's in `G\u043e\u043egle` are Cyrillic small \u043e U+043E)\n2. `\u041f\u0440\u0438\u0432\u0435\u0442, \u044d\u0442\u043e \u043e\u0431\u044b\u0447\u043d\u044b\u0439 \u0442\u0435\u043a\u0441\u0442 \u043d\u0430 \u0440\u0443\u0441\u0441\u043a\u043e\u043c \u044f\u0437\u044b\u043a\u0435.`\n3. `Visit \u039cicrosoft support, or Microsoft-\u041c\u0438\u0440 for the \u0441\u0430\u0439\u0442.` (the \u039c of `\u039cicrosoft` is Greek capital \u039c U+039C; the \u041c of `\u041c\u0438\u0440` is Cyrillic capital \u041c U+041C)\n4. `The Greek word \u03bb\u03cc\u03b3\u03bf\u03c2 and the letters \u0391\u0392\u0393 stay as they are.`\n\nClassify hidden characters with the four fixed tables from the task: zero-width, bidi controls, tag characters, and the listed homoglyph Cyrillic/Greek letters. A homoglyph counts only when it lies inside a word that also contains an ASCII letter (A-Z or a-z); a word is a maximal run of characters whose Unicode general category starts with L, so spaces, digits, punctuation, hyphens and characters in category Cf all end a word. All-Cyrillic or all-Greek words are real text and are not homoglyph findings. Report each hidden character once with line (from 1), column (from 1, counted in code points), U+ upper-case code point, and one of the four categories. Decode each maximal run of tag characters on one line into its spelled text in document order (U+E0020 to U+E007E map to ASCII U+0020 to U+007E); a run that spells nothing contributes no message. Findings may be in any order; tag_messages must be in document order.",
+  "answer": [
+    {
+      "case": 4
+    }
+  ],
+  "refuse": []
+}

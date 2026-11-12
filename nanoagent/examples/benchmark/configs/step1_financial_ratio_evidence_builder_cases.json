@@ -1,0 +1,14 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "financial-ratio-evidence-builder",
+  "task": "calculate-ratio",
+  "context": "The data source is a fixed set of 17 fictional financial facts for four companies. Scale factors are: units = 1, thousand = 1000, million = 1000000. The facts are:\nAS23-TA | Aquila Stores | FY2023 | Total assets | year-end instant | 400 | USD | million\nAS24-CA | Aquila Stores | FY2024 | Current assets | year-end instant | 200.00 | USD | million\nAS24-CL | Aquila Stores | FY2024 | Current liabilities | year-end instant | 100000 | USD | thousand\nAS24-NI | Aquila Stores | FY2024 | Net income | full fiscal year | -20 | USD | million\nAS24-TA | Aquila Stores | FY2024 | Total assets | year-end instant | 600 | USD | million\nBW23-TA | Birch Works | FY2023 | Total assets | year-end instant | 300 | EUR | million\nBW24-CA | Birch Works | FY2024 | Current assets | year-end instant | 150 | EUR | million\nBW24-CL | Birch Works | FY2024 | Current liabilities | year-end instant | 0 | EUR | million\nBW24-NI | Birch Works | FY2024 | Net income | full fiscal year | 30000 | EUR | thousand\nBW24-TA | Birch Works | FY2024 | Total assets | year-end instant | 300 | EUR | million\nCM23-TA | Cobalt Medical | FY2023 | Total assets | year-end instant | 100 | USD | million\nCM24-CA | Cobalt Medical | FY2024 | Current assets | year-end instant | 50 | USD | million\nCM24-CL | Cobalt Medical | FY2024 | Current liabilities | year-end instant | 25 | USD | million\nCM24-TA | Cobalt Medical | FY2024 | Total assets | year-end instant | 120 | USD | million\nDS23-TA | Dune Systems | FY2023 | Total assets | year-end instant | -100 | USD | million\nDS24-NI | Dune Systems | FY2024 | Net income | full fiscal year | 10 | USD | million\nDS24-TA | Dune Systems | FY2024 | Total assets | year-end instant | 50 | USD | million\n\nFor return_on_assets_percent, required components in formula order are: target full-year net income, previous-year-end total assets, target-year-end total assets. Normalize each value to currency units before calculating. All components must share one currency. If any required component is absent or currencies differ, submit status missing_components with an empty components array and an empty ratio_value. If the average of previous-year-end and target-year-end total assets is nonpositive, submit status undefined_denominator with all components and an empty ratio_value. Negative net income is valid. Round only the final ratio to two decimals using ROUND_HALF_UP; do not round component values.",
+  "answer": [
+    {
+      "company": "Dune Systems",
+      "fiscal_year": "FY2024",
+      "ratio": "return_on_assets_percent"
+    }
+  ],
+  "refuse": []
+}

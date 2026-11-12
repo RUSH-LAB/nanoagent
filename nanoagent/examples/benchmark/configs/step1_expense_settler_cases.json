@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "expense-settler",
+  "task": "settle",
+  "context": "The trip group's members are Ana, Ben, Cara, Dan, Eli and Fay. Its expense log is below; all amounts are in cents. For each expense, every listed sharer owes floor(amount \u00d7 weight / total weight); if the shares do not divide evenly, the leftover cents go one each to the sharers in the order listed (none of these expenses leaves a leftover). Each member's balance is what they paid minus what they owe, so a positive balance means the group owes them and a negative balance means they owe the group. The balances are: Ana +5000, Ben -5000, Cara +6000, Dan +2000, Eli -4500, Fay -3500.\n\nExpenses:\n- e1 Hotel room for two: Ana paid 10000; shares: Ana (weight 1), Ben (weight 1).\n- e2 Boat tour: Eli paid 9000; shares: Ana, Eli, Cara (weights all 1).\n- e3 Group dinner: Cara paid 8000; shares: Cara, Dan, Eli, Fay (weights all 1).\n- e4 Concert tickets (Dan brought a friend): Ben paid 9000; shares: Ben (1), Dan (2).\n- e5 Car rental: Ana paid 6000; shares: Ana (1), Eli (1).\n- e6 Museum tickets for Eli and Fay: Dan paid 4000; shares: Eli (1), Fay (1).\n- e7 Breakfast: Fay paid 2400; shares: Fay, Ana, Dan (weights all 1).\n- e8 Late-night groceries (Ben ate double): Dan paid 9000; shares: Dan (1), Ben (2).\n- e9 Fuel: Cara paid 6000; shares: Cara (1), Eli (1).\n- e10 Parking: Ana paid 1600; shares: Ana (1), Fay (1).\n- e11 Snacks for Eli: Fay paid 500; shares: Eli (1).\n- e12 Beach chairs: Dan paid 1600; shares: Dan (1), Fay (1).\n\nTo settle with the fewest payments, split the non-zero members into as many disjoint groups as possible whose balances add to exactly 0. A group of k members is settled with k-1 payments, by having the member who owes most pay the member who is owed most until that group is even, so the fewest possible payments equals the number of non-zero members minus the number of such groups. A payment moves whole cents from one member to another; nobody with balance 0 pays or is paid, and no one pays themselves. Any list of payments that brings every balance to exactly 0 with the fewest possible payments is acceptable. Check your plan by applying each payment: the payer's balance rises by the amount and the payee's balance falls by the amount.",
+  "answer": [
+    {
+      "group": "trip"
+    }
+  ],
+  "refuse": []
+}

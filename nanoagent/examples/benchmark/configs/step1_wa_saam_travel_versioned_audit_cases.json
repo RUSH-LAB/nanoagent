@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "wa-saam-travel-versioned-audit",
+  "task": "audit-wa-travel-voucher",
+  "context": "The data are the plugin's bundled fixtures: a small set of airports, travelers, and 26 travel vouchers, plus a rule-regime table covering 2024 onward. Call get_voucher with the scenario name to read the voucher's typed facts (traveler type, departure and return dates, overnight flag, travel status minutes for same-day trips, air travel with scheduled_one_way_minutes, cabin flown, business approval date and unused miles, POV drives with dates and miles, and lodging with nightly rate, maximum lodging and M&IE rates, exception approval date, claimed reasons, attendance required, and lowest advertised rate). Call get_rules_in_effect once with the voucher's departure_date when air is not null, and the date of each POV drive, each date once, to get the regime in effect on each date (business threshold and POV rate in tenths of a cent). Then apply the handbook's C1-C10: the departure date selects the regime for the airfare threshold; each drive uses its own date's rate; business class requires scheduled one-way minutes strictly greater than the regime's business_over_minutes, either endpoint outside the continental US, advance approval (approval earlier calendar day than departure), and unused_state_miles == 0; reimbursable cabin is the lower of that entitlement and the flown cabin (tourist < business < first). Mileage is the sum of miles \u00d7 rate in tenths of a cent, rounded once half up to whole cents. Lodging: rate \u2264 max \u2192 within_max at rate; else if rate > cap (150% of lodging+M&IE, floor) and exception approved in advance and conference_venue claimed and attendance_required and lowest advertised rate > cap \u2192 above_150_conference at min(rate, lowest); else if approved and any listed reason \u2192 exception_150 at min(rate, cap); else capped_at_max at max. Same-day meals: true if travel_status_minutes \u2265 660 for employees or \u2265300 for volunteers/board members, null for overnight. Total = nights \u00d7 lodging_per_night_cents + mileage_cents. Airfare is a cabin, not an amount, and meals a flag, so they don't enter the total. Submit the six output fields. The verifier requires each null/zero exactly when the voucher lacks that part.",
+  "answer": [
+    {
+      "scenario": "spokane-arena-inspection"
+    }
+  ],
+  "refuse": []
+}

@@ -1,0 +1,15 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "gapmap-venn-regions",
+  "task": "venn-regions",
+  "context": "Use the bundled dataset `standard`, reproduced in full here. The vocabulary (exact concept strings) is: chain of thought, dense retrieval, instruction tuning, large language model, question answering, reinforcement learning, retrieval augmented generation, summarization.\n\nThe papers, each with its exact list of concepts, are:\n1810.04805: [question answering]\n1910.10683: [question answering, summarization]\n2004.04906: [dense retrieval, question answering]\n2005.11401: [dense retrieval, question answering, retrieval augmented generation]\n2005.14165: [large language model, question answering]\n2009.01325: [reinforcement learning, summarization]\n2109.01652: [instruction tuning, large language model]\n2201.11903: [chain of thought, large language model]\n2203.02155: [instruction tuning, large language model, reinforcement learning]\n2205.11916: [chain of thought, large language model, question answering]\n2208.03299: [dense retrieval, large language model, question answering, retrieval augmented generation]\n2210.03629: [chain of thought, large language model, retrieval augmented generation]\n2302.04761: [large language model]\n2305.18290: [large language model, reinforcement learning]\n\nRules the verifier applies beyond the schemas: a paper has a concept only if that exact string is in its concepts list (no substring or partial match). Place every paper that has at least one of the query's a, b and c into exactly one region by which of them it has: only a -> a_only; only b -> b_only; only c -> c_only; a and b -> ab_only; a and c -> ac_only; b and c -> bc_only; all three -> abc. A paper with none of a, b, c is in no region. Region names follow a, b and c as given, never re-sorted. Within each region list paper ids once, sorted ascending in Python's default string order (lexicographic; e.g. '1810.04805' before '1910.10683' before '2004.04906'); an empty region is []. The output must copy dataset, a, b and c unchanged from the task.",
+  "answer": [
+    {
+      "dataset": "standard",
+      "a": "summarization",
+      "b": "question answering",
+      "c": "reinforcement learning"
+    }
+  ],
+  "refuse": []
+}

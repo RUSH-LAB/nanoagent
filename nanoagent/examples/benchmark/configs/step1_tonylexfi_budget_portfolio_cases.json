@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "tonylexfi-budget-portfolio",
+  "task": "tonylexfi-budget-portfolio",
+  "context": "All data is a fixed synthetic fixture; there is no live API. The case is 'standard' with budget 10, max_sources 3, and required_targets ['demand', 'labor', 'freight']. The available candidates are:\n- A: cost 6, value 10, targets [demand, labor], verified true\n- B: cost 4, value 7, targets [freight], verified true\n- C: cost 5, value 9, targets [demand, freight], verified true\n- D: cost 3, value 5, targets [labor], verified true\n- E: cost 2, value 4, targets [demand], verified true\n- F: cost 1, value 20, targets [labor, freight], verified false\n- G: cost 4, value 7, targets [labor, freight], verified true\n- H: cost 0, value 0, targets [demand], verified true\n\nRules: use only verified candidates, each at most once. A selection is feasible if total cost <= 10, selected count <= 3, and the union of selected targets covers all required_targets. Among feasible selections, maximize total value; if tied, minimize total cost; if still tied, choose the selection whose sorted source-id list is lexicographically smallest (standard string comparison). Return selected ids in sorted order. Write result.json containing exactly: rows (a list of objects, each with source_id), feasible (boolean), total_cost (integer), total_value (integer). If no feasible selection exists, use rows [], feasible false, total_cost 0, total_value 0. Then submit path 'result.json' and count equal to the number of rows.",
+  "answer": [
+    {
+      "case": "standard"
+    }
+  ],
+  "refuse": []
+}

@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "regex-from-examples",
+  "task": "write-regex",
+  "context": "Write a regex for the octet format: a whole number from 0 to 255, written without leading zeros. 0 itself is allowed, but 00, 007 and 010 are not. The regex must match the whole string, as Python's re.fullmatch does, so never write ^ or $. Use only the allowed dialect: literal characters (escape . $ ( ) [ ] { } * + ? | \\ when meant literally), . for any character but a newline, \\d \\D \\w \\W \\s \\S, character classes like [0-9], groups (...) and (?:...), alternation |, and quantifiers * + ? {n} {n,} {n,m} with counts up to 20. Anchors, lookarounds, backreferences, named groups, inline flags and lazy quantifiers are not allowed. \\d means ASCII 0-9 and \\w means ASCII letters, digits and underscore. The pattern may be at most 80 characters. It must accept exactly the format's strings: allowed examples include 0, 7, 42, 100, 199 and 255; rejected examples include -1, 1.5, 3a, the empty string, '1 0' and 1000. Pay attention to the boundaries: 249, 250 and 255 are allowed; 256, 260, 300, 00, 007 and 010 are not.",
+  "answer": [
+    {
+      "format": "octet"
+    }
+  ],
+  "refuse": []
+}

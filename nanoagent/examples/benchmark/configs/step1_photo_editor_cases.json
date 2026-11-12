@@ -1,0 +1,27 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "photo-editor",
+  "task": "match-the-target",
+  "context": "The two 6\u00d76 grids in the input are all the data needed: `picture` is the starting grid and `target` the grid to produce, each 6 strings of 6 color letters, row 0 at the top. The letters are K black, W white, R red, G green, B blue, Y yellow, O orange, P purple. Edits are applied in order to the whole grid: `rotate 90`, `rotate 180` or `rotate 270` turn it clockwise; `flip horizontal` swaps left and right; `flip vertical` swaps top and bottom; `recolor` with changes such as `recolor R>B G>W` replaces every pixel of each old color with its new color all at once, so `recolor R>B B>R` swaps red and blue. Edit text is read ignoring case and extra spaces. Return the shortest list of edits that turns `picture` into `target`. Every reachable target is produced by one of the 8 turn/flip arrangements followed by one recolor, so use these arrangements as the geometry, in this tie-break order: none, rotate 90, rotate 180, rotate 270, flip horizontal, flip vertical, rotate 90 then flip horizontal, rotate 90 then flip vertical. For each arrangement in order, apply it to the picture and see whether every color in the result can be changed to exactly one color in the target; if so, the candidate is the arrangement plus a `recolor` edit listing only the changed colors, sorted alphabetically by the old color (for example `recolor R>P W>Y`), or no recolor if the colors already agree. Output the first candidate that is as short as possible. The answer is the `edits` array of the output schema.",
+  "answer": [
+    {
+      "picture": [
+        "WWWWWW",
+        "WRRRRW",
+        "WRWWWW",
+        "WRRRWW",
+        "WRWWWW",
+        "WRWWWW"
+      ],
+      "target": [
+        "YYYYYY",
+        "YYYYPY",
+        "YYPYPY",
+        "YYPYPY",
+        "PPPPPY",
+        "YYYYYY"
+      ]
+    }
+  ],
+  "refuse": []
+}

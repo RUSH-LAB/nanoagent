@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "bpe-tokenize",
+  "task": "tokenize-case",
+  "context": "There are 6 cases, numbered 1 to 6. Each case has a fixed text, a fixed set of merge rules (rank 1 first), and a fixed vocabulary. The vocabulary contains the unk token (always '<unk>' with id 0), then the sorted unique characters of the case's training corpus plus the word-start mark \u2581 (U+2581), then, in merge-rank order, the symbols each merge would produce that are not already present; ids are positions. The text may contain characters not in the vocabulary; each such symbol is replaced by the unk token and unk id. Spaces separate words and produce no tokens, even multiple spaces. To tokenize: for each word (a maximal run of non-space characters), form symbols \u2581 followed by each character; then repeatedly apply the merge rule of the lowest rank among the word's adjacent pairs, joining every occurrence of that pair left to right without overlap, until no adjacent pair has a rule; the resulting symbols are that word's tokens. Concatenate all words' tokens in text order. For each token, look up its id; if the vocabulary does not hold it, use the unk token and unk id. Output the tokens and ids in the same order. The case's text, merge rules, unk token and unk id are provided by the tools; merge_once applies one round, and lookup_ids gives ids (null for unknown).",
+  "answer": [
+    {
+      "case": 3
+    }
+  ],
+  "refuse": []
+}

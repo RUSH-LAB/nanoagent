@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "meeting-scheduler",
+  "task": "schedule-week",
+  "context": "The task is to schedule as many of a week's meetings as possible, given the attendees' availability, room capacities, and working hours. The week is generated deterministically from the case number by the plugin's generator, which you cannot read; you must call get_week with the case to see the week's meetings, rooms, and everyone's busy hours. A week has 7 to 9 meetings, each with attendees, a duration of 1 or 2 hours, a minimum required room capacity, an optional fixed day (if set, the meeting must be held on that day), lists of open start hours per day (when every attendee is free and it ends by 17) and the rooms that are big enough. There are three rooms (oak, pine, elm) with capacities, and seven people with busy hour blocks per day. A placement assigns a meeting to a day (mon to fri), a start hour (9 to 16 for 2-hour meetings, 9 to 17 for 1-hour ones, so it ends by 17), and a room with capacity at least the meeting's min_capacity. Every attendee must be free for the whole meeting. Two meetings that share an attendee (they are listed as clashes) must not overlap in time on the same day, and two meetings in the same room must not overlap. Not every meeting fits; the goal is to hold as many as possible, and the optimum (found by exhaustive search) is the maximum number that any valid schedule can hold. Call get_week once, choose placements (each meeting at most once, meetings left out are simply not held), call save_schedule with the case and your placements; it will refuse and list any broken rule, in which case fix and retry. When it accepts, it returns a summary (case, receipt, digest, scheduled); submit exactly that summary. The grade is the number of meetings held divided by the optimum; you need the optimum for full marks.",
+  "answer": [
+    {
+      "case": 42
+    }
+  ],
+  "refuse": []
+}

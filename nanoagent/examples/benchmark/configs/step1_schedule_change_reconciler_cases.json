@@ -1,0 +1,114 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "schedule-change-reconciler",
+  "task": "reconcile-schedule",
+  "context": "The schedule is a small synthetic one-day conference on 2026-10-15, with all instants already in the past. Event, room, speaker and message IDs are case-sensitive labels; process messages strictly in list order, never sorted by ID. Each message text is exactly one sentence: Cancel EVENT, Reinstate EVENT, Move EVENT to room ROOM, Swap rooms of EVENT and OTHER, or Reschedule EVENT to START through END, with an optional exact prefix 'Correction: ' that does not change how the command applies. Rescheduling replaces both endpoints. Cancellation keeps the event's fields; later moves, swaps and reschedules may still update a cancelled event, and reinstatement restores it with its latest fields. Convert all timestamps to UTC using the explicit offsets (never infer a time zone); the end must be strictly after the start. Two active events conflict exactly when max(start) < min(end) in UTC and they share a room or at least one speaker; report each conflicting pair once with the common room (or null), sorted shared speakers, and the exact UTC intersection. Output final active events sorted by event_id with sorted speakers and canonical YYYY-MM-DDTHH:MM:SSZ times, and all cancelled IDs sorted.",
+  "answer": [
+    {
+      "initial_events": [
+        {
+          "event_id": "A",
+          "title": "Keynote",
+          "room": "Atlas",
+          "speakers": [
+            "P1"
+          ],
+          "start": "2026-10-15T09:00:00-05:00",
+          "end": "2026-10-15T10:00:00-05:00"
+        },
+        {
+          "event_id": "B",
+          "title": "Workshop",
+          "room": "Birch",
+          "speakers": [
+            "P2"
+          ],
+          "start": "2026-10-15T09:30:00-05:00",
+          "end": "2026-10-15T10:30:00-05:00"
+        },
+        {
+          "event_id": "C",
+          "title": "Panel",
+          "room": "Cedar",
+          "speakers": [
+            "P3",
+            "P1"
+          ],
+          "start": "2026-10-15T10:00:00-05:00",
+          "end": "2026-10-15T11:00:00-05:00"
+        },
+        {
+          "event_id": "D",
+          "title": "Night session",
+          "room": "Delta",
+          "speakers": [],
+          "start": "2026-10-15T23:30:00+05:30",
+          "end": "2026-10-16T00:30:00+05:30"
+        },
+        {
+          "event_id": "E",
+          "title": "Tutorial",
+          "room": "Elm",
+          "speakers": [
+            "P4"
+          ],
+          "start": "2026-10-15T15:00:00Z",
+          "end": "2026-10-15T17:00:00Z"
+        },
+        {
+          "event_id": "F",
+          "title": "Lightning talks",
+          "room": "Delta",
+          "speakers": [
+            "P4"
+          ],
+          "start": "2026-10-15T14:30:00Z",
+          "end": "2026-10-15T15:30:00Z"
+        }
+      ],
+      "messages": [
+        {
+          "message_id": "M90",
+          "text": "Swap rooms of B and C."
+        },
+        {
+          "message_id": "M05",
+          "text": "Move A to room Cedar."
+        },
+        {
+          "message_id": "M44",
+          "text": "Move F to room Birch."
+        },
+        {
+          "message_id": "M01",
+          "text": "Reschedule C to 2026-10-15T20:30:00+05:30 through 2026-10-15T21:30:00+05:30."
+        },
+        {
+          "message_id": "M70",
+          "text": "Cancel D."
+        },
+        {
+          "message_id": "M12",
+          "text": "Move D to room Elm."
+        },
+        {
+          "message_id": "M02",
+          "text": "Reschedule D to 2026-10-15T23:30:00+05:30 through 2026-10-16T00:30:00+05:30."
+        },
+        {
+          "message_id": "M98",
+          "text": "Reinstate D."
+        },
+        {
+          "message_id": "M31",
+          "text": "Cancel E."
+        },
+        {
+          "message_id": "M03",
+          "text": "Correction: Reschedule C to 2026-10-15T20:15:00+05:30 through 2026-10-15T20:45:00+05:30."
+        }
+      ]
+    }
+  ],
+  "refuse": []
+}

@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "dependency-ordering",
+  "task": "order-jobs",
+  "context": "The task's data is a fixed, deterministic job graph identified by the plan name. For plan 'website', the jobs and their prerequisite lists are: design requires none; database requires none; backend requires database; frontend requires design; integration requires backend and frontend; security requires backend; deploy requires integration and security; docs requires none. The graph is acyclic, so the required status is 'ordered' and the order must be a topological order: include every job exactly once, and every job must appear after all jobs it requires. Any topological order is accepted; there is no tie-break or preferred order. Do not add, omit, or duplicate jobs. The output contains plan, path, digest, and count; count is the number of jobs in the order (8 for this plan). The saved report must not be edited after it is produced.",
+  "answer": [
+    {
+      "plan": "website"
+    }
+  ],
+  "refuse": []
+}

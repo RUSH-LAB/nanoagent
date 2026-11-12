@@ -1,0 +1,13 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "baseball-elimination-proof",
+  "task": "find-eliminated",
+  "context": "Use the standings for the deterministic division with seed 0 and 6 teams: each team has a name, wins, losses, games left against division opponents, games left outside the division, and max_wins (wins plus every game it has left). The remaining division games between each pair of teams are also given. A team x is eliminated exactly when some nonempty group R of other teams (each named once, none of them x) has (the sum of R's wins + the sum of the remaining games between pairs of teams in R) / |R| strictly greater than x's max_wins. Games against teams outside the division count toward x's max_wins but never toward R. If x's best possible finish only ties for first, x is alive. For every eliminated team, provide a certificate R that satisfies that strict inequality; any valid certificate is accepted. List each of the 6 teams exactly once, either in eliminated with its certificate or in alive, using the exact team names from the standings.",
+  "answer": [
+    {
+      "seed": 0,
+      "teams": 6
+    }
+  ],
+  "refuse": []
+}

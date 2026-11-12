@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "mbpp-verified-solver",
+  "task": "solve-problem",
+  "context": "Use the plugin's get_problem tool with task_id 11 to read the problem statement, the entry-point function name, and the assert tests. Write a Python solution that defines that entry-point function exactly (no renaming), so that every official assert passes when run_tests runs the code. run_tests evaluates both sides of each assert with == and also requires the returned value to be of the same built-in kind as the expected value (e.g., int, str, list, dict, tuple, set, bool, float, None, bytes, frozenset, complex); standard-library collections subclasses like Counter count as their base type. So the function must return the correct type, not merely compare equal. You may use imports and helper functions. Do not hard-code the test inputs; solve the general problem. Iterate: call run_tests, read any errors, fix the code, and call run_tests again until all_passed is true, then submit exactly that code character for character. The code must be at most 20000 characters. The MBPP dataset is the test split, task ids 11 to 510; this case is task 11.",
+  "answer": [
+    {
+      "task_id": 11
+    }
+  ],
+  "refuse": []
+}

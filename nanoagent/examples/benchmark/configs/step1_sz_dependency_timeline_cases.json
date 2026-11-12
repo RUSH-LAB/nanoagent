@@ -1,0 +1,61 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "sz-dependency-timeline",
+  "task": "schedule-jobs",
+  "context": "Compute the earliest schedule from the jobs in the input. Jobs have unlimited parallel workers, and each job may start as soon as all of its direct prerequisites have finished. For each job, start = maximum finish over the job_ids in its needs list, or 0 if needs is empty; finish = start + duration. Prerequisites are direct only and the graph is a DAG. Output each job exactly once as a record with job_id, start, and finish, ordered by job_id ascending (ordinary lexicographic order), not by execution order. total is the maximum finish among all jobs. Create the output artifact as a new UTF-8 JSON file at the given destination containing exactly an object with records and total, with object keys sorted alphabetically at every level, compact separators (',' and ':'), ASCII escaping, and one final newline. Return path exactly equal to destination and records/total identical to the file. No other data is needed.",
+  "answer": [
+    {
+      "destination": "results/schedule.json",
+      "jobs": [
+        {
+          "job_id": "alpha",
+          "duration": 3,
+          "needs": []
+        },
+        {
+          "job_id": "beta",
+          "duration": 2,
+          "needs": [
+            "alpha"
+          ]
+        },
+        {
+          "job_id": "gamma",
+          "duration": 5,
+          "needs": [
+            "alpha"
+          ]
+        },
+        {
+          "job_id": "delta",
+          "duration": 1,
+          "needs": [
+            "beta",
+            "gamma"
+          ]
+        },
+        {
+          "job_id": "epsilon",
+          "duration": 4,
+          "needs": [
+            "beta"
+          ]
+        },
+        {
+          "job_id": "zeta",
+          "duration": 0,
+          "needs": [
+            "delta",
+            "epsilon"
+          ]
+        },
+        {
+          "job_id": "eta",
+          "duration": 2,
+          "needs": []
+        }
+      ]
+    }
+  ],
+  "refuse": []
+}
