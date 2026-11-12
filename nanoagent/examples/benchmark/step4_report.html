@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Harness benchmark</title>
 <style>
-:root { color-scheme: light dark; --bg: #fff; --fg: #1d1d1f; --muted: #6e6e73; --line: #e3e3e6; --soft: #f5f5f7; --accent: #0a66c2; --right: #1a7f37; --wrong: #c62828; --ours: rgba(10, 102, 194, 0.07); }
-@media (prefers-color-scheme: dark) { :root { --bg: #161618; --fg: #ececee; --muted: #9a9aa0; --line: #2e2e33; --soft: #1f1f23; --accent: #6cb0ff; --right: #4ac26b; --wrong: #ff7b72; --ours: rgba(108, 176, 255, 0.1); } }
+:root { color-scheme: light dark; --bg: #fff; --fg: #1d1d1f; --muted: #6e6e73; --line: #e3e3e6; --soft: #f5f5f7; --accent: #0a66c2; --right: #1a7f37; --wrong: #c62828; --ours: rgba(10, 102, 194, 0.2); }
+@media (prefers-color-scheme: dark) { :root { --bg: #161618; --fg: #ececee; --muted: #9a9aa0; --line: #2e2e33; --soft: #1f1f23; --accent: #6cb0ff; --right: #4ac26b; --wrong: #ff7b72; --ours: rgba(108, 176, 255, 0.2); } }
 * { box-sizing: border-box; }
 body { background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
 h1 { font-size: 1.5rem; margin: 0 0 4px; }
@@ -31,7 +31,11 @@ dt { color: var(--muted); } dd { margin: 0; min-width: 0; overflow-wrap: anywher
 .runs { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
 .card { border: 1px solid var(--line); border-radius: 8px; padding: 12px; min-width: 0; }
 .ours { background: var(--ours); }
-.card.ours { border: 2px solid var(--accent); }
+th.ours, td.ours, tr.ours > td { color: var(--accent); font-weight: 700; }
+tr.ours > td:first-child { border-left: 3px solid var(--accent); }
+th.ours, td.ours { border-left: 2px solid var(--accent); border-right: 2px solid var(--accent); }
+.card.ours { border: 3px solid var(--accent); }
+.pill { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: 0.03em; vertical-align: middle; }
 .figures { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 4px 12px; font-size: 13px; margin: 8px 0; font-variant-numeric: tabular-nums; }
 .figures span { color: var(--muted); display: block; font-size: 12px; }
 .label { color: var(--muted); font-size: 12px; margin-top: 8px; }
@@ -52,6 +56,7 @@ const PLUGIN_HARNESS = "nanoagent";
 const DISPLAY = { nanoagent: "RUSH" };
 const display = (harness) => DISPLAY[harness] ?? harness;
 const ours = (harness) => (harness === PLUGIN_HARNESS ? ' class="ours"' : "");
+const pill = (harness) => (harness === PLUGIN_HARNESS ? '<span class="pill">RUSH</span>' : "");
 const SHORT = 600;
 let summary, state = { query: "", allCodingFailed: false, disagree: false, sort: "plugin", dir: 1 };
 
@@ -101,7 +106,7 @@ function home() {
   document.title = "Harness benchmark";
   const report = summary.report;
   const names = report.harnesses.map((h) => h.harness);
-  const harnessRows = report.harnesses.map((h) => `<tr${ours(h.harness)}><td>${esc(display(h.harness))}</td><td>${h.correct}/${h.runs}</td><td>${num(h.latency_seconds, 1)}s</td><td>${num(h.model_seconds, 1)}s</td><td>${num(h.tools_seconds, 1)}s</td><td>${num(h.overhead_seconds, 1)}s</td><td>${num(h.input_tokens, 0)}</td><td>${num(h.output_tokens, 0)}</td><td>$${num(h.cost, 4)}</td><td>${num(h.cpu_seconds, 1)}s</td></tr>`).join("");
+  const harnessRows = report.harnesses.map((h) => `<tr${ours(h.harness)}><td>${esc(display(h.harness))}${pill(h.harness)}</td><td>${h.correct}/${h.runs}</td><td>${num(h.latency_seconds, 1)}s</td><td>${num(h.model_seconds, 1)}s</td><td>${num(h.tools_seconds, 1)}s</td><td>${num(h.overhead_seconds, 1)}s</td><td>${num(h.input_tokens, 0)}</td><td>${num(h.output_tokens, 0)}</td><td>$${num(h.cost, 4)}</td><td>${num(h.cpu_seconds, 1)}s</td></tr>`).join("");
   const failed = rows().filter((row) => row.allCodingFailed);
   const failedRows = failed.map((row) => `<tr><td><a href="#${encodeURIComponent(row.plugin)}">${esc(row.plugin)}</a> · ${esc(row.task)}</td><td class="reason">${Object.values(row.runs).filter((run) => run.harness !== PLUGIN_HARNESS).map((run) => esc(`${display(run.harness)}: ${run.verdict}`)).join("<br>")}</td></tr>`).join("");
   const bugRows = summary.bugs.map((bug) => `<tr><td>${esc(bug.plugin)} · ${esc(bug.task)}</td><td class="reason">${esc(bug.reason)}</td></tr>`).join("");
@@ -162,7 +167,7 @@ function card(run) {
     ["steps", r.steps], ["tool calls", r.tool_calls], ["stop", esc(r.stop_reason)],
   ].map(([k, v]) => `<div><span>${k}</span>${v}</div>`).join("");
   return `<div class="card${r.harness === PLUGIN_HARNESS ? " ours" : ""}">
-<h3>${esc(display(r.harness))} · ${word(r.correct)}</h3>
+<h3>${esc(display(r.harness))}${pill(r.harness)} · ${word(r.correct)}</h3>
 <p>${esc(r.model)}</p>
 <div class="label">verifier</div>${block(r.verdict)}
 <div class="figures">${figures}</div>
