@@ -1,0 +1,25 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "lsh-ast-canonicalizer",
+  "task": "canonicalize-snippet",
+  "context": "Canonicalize the Python snippet's identifiers by its syntax tree (Python's own ast module reads it).\nVariables, function parameters, exception names and pattern names become var_<n>; a name that is ever defined with def becomes func_<n>. Numbers start at 0 for each kind and follow the position of each name's first appearance in the source. Classes, imports, attributes, keyword names, builtins and dunder names keep their names.\nThe canonical code is the output of ast.unparse on the renamed tree, without an appended newline. The syntax tree must have the same node types before and after.\nA snippet that is not valid Python cannot be canonicalized.",
+  "answer": [
+    {"source": "def add(a, b):\n    total = a + b\n    return total\n"},
+    {"source": "x = 1\ny = x + 2\nprint(y)\n"},
+    {"source": "for i in range(10):\n    if i % 2:\n        continue\n    print(i)\n"},
+    {"source": "def f(n):\n    return n if n < 2 else f(n - 1) + f(n - 2)\n"},
+    {"source": "import math\nr = 2.0\narea = math.pi * r ** 2\n"},
+    {"source": "text = '5'\ntry:\n    value = int(text)\nexcept ValueError as err:\n    print(err)\n"},
+    {"source": "class Counter:\n    def __init__(self):\n        self.count = 0\n\n    def bump(self):\n        self.count += 1\n        return self.count\n"},
+    {"source": "def outer(x):\n    def inner(y):\n        return x + y\n    return inner\n"},
+    {"source": "squares = [n * n for n in range(5)]\ntotal = sum(squares)\n"},
+    {"source": "def g(a, *rest, key=None, **kw):\n    return a, rest, key, kw\n"},
+    {"source": "point = (1, 2)\nmatch point:\n    case (x, y):\n        print(x + y)\n"},
+    {"source": "import os\nname = os.getcwd()\nname = name.upper()\nprint(name)\n"}
+  ],
+  "refuse": [
+    {"source": "def broken(:\n    pass\n"},
+    {"source": "x = = 1\n"},
+    {"source": "if True print(1)\n"}
+  ]
+}
