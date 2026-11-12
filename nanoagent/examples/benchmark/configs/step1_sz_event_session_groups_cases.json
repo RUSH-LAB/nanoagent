@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "sz-event-session-groups",
   "task": "group-sessions",
   "context": "All data is in the input; no external source is needed. For each user separately, sort that user's events by (minute, event_id), where event_id order is ordinary lexicographic string order. Walk the sorted events and keep the current session open when the next event's minute minus the current session's last event's minute is at most gap; start a new session when the difference is greater than gap. A session's start is its first event's minute and its end is its last event's minute, inclusive, and event_ids are the session's events in sorted (minute, event_id) order. Then order the session rows by user, then start, then, for equal starts, the first event_id. total is the number of session rows. Write the artifact to the given destination in the workspace: UTF-8 JSON of an object with a records array and a total integer, with object keys sorted, compact separators (',' and ':'), ASCII escaping, and one final newline. Return the same records, total, and destination path as the result. Do not overwrite an existing file; the destination is new and must be a canonical relative .json path with identifier-style directory and file names.",

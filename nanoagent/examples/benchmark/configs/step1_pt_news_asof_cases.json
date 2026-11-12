@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "pt-news-asof",
   "task": "screen-news",
   "context": "The articles in the input are the complete frozen news snapshot; screen them as of the inclusive cutoff. Keep an article only if its published_at is within [cutoff - lookback_hours, cutoff] and its available_at is at or before cutoff; any article whose available_at is after cutoff is future leakage and must be excluded even if its publication time is in range. Relevance is exact case-sensitive ticker matching: the article's symbols list must contain at least one of the query symbols. Then collapse syndication duplicates: for each canonical_id that has at least one qualifying article, keep the qualifying article with the earliest available_at, breaking ties by id in lexicographic order. Return the kept article ids sorted by available_at, then id. Timestamps are canonical UTC in YYYY-MM-DDTHH:MM:SSZ.",

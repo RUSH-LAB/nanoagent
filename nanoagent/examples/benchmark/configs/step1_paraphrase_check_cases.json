@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "paraphrase-check",
   "task": "judge-pairs",
   "context": "You are given a batch of 4 sentence pairs from the PAWS dataset (test split). Each pair shares most of its words, and you must decide whether the two sentences mean the same thing: the same people, places, things, numbers and dates, each in the same role. Moving a phrase or rewording it keeps the meaning; swapping who did what to whom, which name goes with which title, place or date, or which word a modifier belongs to changes it. For each pair, you will see the two sentences and hints about where they differ (whether they use the same words and the differing stretches). The hints only show what moved, not whether the meaning changed, so judge from what each sentence actually says. Every batch contains 1 to 3 pairs that mean the same, so both kinds appear. For each pair p1 to p4, output a verdict of 'same' or 'different'.",

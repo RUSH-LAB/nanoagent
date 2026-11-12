@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "vc-yc-extractor",
   "task": "extract-companies",
   "context": "The directory snapshot bundled with this task holds 40 company cards, each with a slug, name, location, tagline, and a list of pills: the batch pill first (e.g. 'Summer 2013'), then industry pills. The record's industry is the second pill; its sub_industry is the third pill (empty when absent). In this snapshot, no card has 'Analytics' as its second pill: 'Analytics' appears only as a later industry pill (a sub-industry) on some cards. The filter keeps a card when the requested industry is empty or equals the card's industry ignoring case (the sub_industry is never considered), when the requested season is 'any' or equals the card's batch season, and when the card's batch year is within the inclusive year range. With the requested industry 'Analytics', no card in the snapshot satisfies the industry condition.",

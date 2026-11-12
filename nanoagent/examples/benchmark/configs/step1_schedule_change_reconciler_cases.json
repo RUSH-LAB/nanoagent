@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "schedule-change-reconciler",
   "task": "reconcile-schedule",
   "context": "The schedule is a small synthetic one-day conference on 2026-10-15, with all instants already in the past. Event, room, speaker and message IDs are case-sensitive labels; process messages strictly in list order, never sorted by ID. Each message text is exactly one sentence: Cancel EVENT, Reinstate EVENT, Move EVENT to room ROOM, Swap rooms of EVENT and OTHER, or Reschedule EVENT to START through END, with an optional exact prefix 'Correction: ' that does not change how the command applies. Rescheduling replaces both endpoints. Cancellation keeps the event's fields; later moves, swaps and reschedules may still update a cancelled event, and reinstatement restores it with its latest fields. Convert all timestamps to UTC using the explicit offsets (never infer a time zone); the end must be strictly after the start. Two active events conflict exactly when max(start) < min(end) in UTC and they share a room or at least one speaker; report each conflicting pair once with the common room (or null), sorted shared speakers, and the exact UTC intersection. Output final active events sorted by event_id with sorted speakers and canonical YYYY-MM-DDTHH:MM:SSZ times, and all cancelled IDs sorted.",

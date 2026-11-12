@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "complementary-or-contrastive",
   "task": "classify-distribution",
   "context": "Use the frozen invented-language dataset lang-07. Its two target sounds are \u0283 and s. The shown words are: gu\u0294ho, mel\u014bahqu, geh\u0283e, \u014basre\u014b, \u014be\u0294i\u0294osos, himsa, hu\u0283i, lesul, soso\u014ba, \u0283isor, hun\u014bim, \u0294urasas\u0294a, su\u014bo\u014bgalqer, \u014ba\u0283enos, nehosheh\u0294o, \u0294i\u0294o\u0294a, \u0294es\u014bigso, la\u014b\u014be\u0294ras, soguhru, sosqe\u014bo, higalsah, hegasamnu, sarallir, soruqu, riqomoma, qunra\u0283igos, munnehi\u014b, roraru, lir\u0283is, \u014biqmuq. The held-out words, each with one _ where \u0283 or s belongs, are: b1 _imna\u014be\u014b, b2 qo\u0294ahha_e\u0294, b3 _u\u0294he, b4 \u014belhe_e, b5 qih_u, b6 nanumu_\u0294a, b7 _e\u014bun\u014bagmo, b8 _equri. Glosses are irrelevant. Syllable breaks follow the conventions in the task description and can be computed from these forms. Variant spellings are read as the plain symbols: \u0161 as \u0283, \u0261 as g, \u02bc and \u02c0 as \u0294.",

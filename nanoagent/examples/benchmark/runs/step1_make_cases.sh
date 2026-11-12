@@ -11,10 +11,10 @@ set -a
 source "$root/.env"
 set +a
 cd "$root/nanoagent"
-home="examples/benchmark_cases/outputs/step1_make_cases"
+home="examples/benchmark/outputs/step1_make_cases"
 rm -rf "$home"
 .venv/bin/python \
-    examples/benchmark_cases/step1_make_cases.py \
-    config=examples/benchmark_cases/configs/step1_make_cases.yaml \
+    examples/benchmark/step1_make_cases.py \
+    config=examples/benchmark/configs/step1_make_cases.yaml \
     home="$home" \
     -- "$@"

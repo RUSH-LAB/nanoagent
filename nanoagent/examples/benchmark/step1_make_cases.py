@@ -5,10 +5,10 @@ yet, a model proposes one input to answer and the `context` a coding agent witho
 needs; code decides whether it is kept. Plugins with no such task are listed, not worked.
 
 The plugin is unpacked from its package in the local RUSH database and readied as the benchmark's
-step 1 does (its `unpack`, `prepared_plugin`). The model sees the task's manifest entry, schemas,
+step 2 does (its `unpack`, `prepared_plugin`). The model sees the task's manifest entry, schemas,
 instructions, README and the plugin's source. Its proposal is kept only when the input builds as the
 task's input type and, for a task a tool pins (`reference_tool`), that tool answers it, pinned exactly
-as the benchmark's step 1 pins it (its `pin`). For an agent task no tool pins, the model also proposes
+as the benchmark's step 2 pins it (its `pin`). For an agent task no tool pins, the model also proposes
 an answer, and the case is kept only when the plugin's verifier accepts that answer and rejects a copy
 of it code made wrong. Otherwise the error goes back to the model, up to `attempts` proposals; a task
 with none kept, or a plugin that cannot be readied, is marked as having a bug in the bugs file
@@ -22,7 +22,6 @@ import json
 import os
 import re
 import subprocess
-import sys
 import tempfile
 import threading
 from collections.abc import Iterator
@@ -35,13 +34,11 @@ from omegaconf import MISSING
 from openai import OpenAI
 from slimconfig import Config, Layout, Output, Run, build_output, load_output, output_schema, write_output
 
-# The benchmark's step 1, whose cases this step makes and whose plugin handling it reuses.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmark"))
-from step1_single_run import Cases, isolate, logged, pin, prepared_plugin, reference_tool, unpack  # noqa: E402
+from step2_single_run import Cases, isolate, logged, pin, prepared_plugin, reference_tool, unpack
 
-from nanoagent.plugin import load_manifest  # noqa: E402
-from nanoagent.plugin.python import PluginPython  # noqa: E402
-from nanoagent.plugin.verifier import verify_task  # noqa: E402
+from nanoagent.plugin import load_manifest
+from nanoagent.plugin.python import PluginPython
+from nanoagent.plugin.verifier import verify_task
 
 # Every plugin's latest version, one tab-separated line: the plugin, the task it is benchmarked by
 # (empty when it has none: the first agent task whose reference is set, else its first decide task,
@@ -179,7 +176,10 @@ def source_text(root: Path, config: MakeCasesConfig) -> str:
     rest = sorted(
         path
         for path in root.rglob("*")
-        if path.is_file() and path not in first and path.suffix in SOURCE_SUFFIXES and path.name not in NOT_SOURCE
+        if path.is_file()
+        and path not in first
+        and path.suffix in SOURCE_SUFFIXES
+        and path.name not in NOT_SOURCE
         and not any(part.startswith(".") or part in {"ui", "product"} for part in path.relative_to(root).parts[:-1])
     )
     # Tests come last: they show rules, but the tools and their data matter more.
@@ -380,9 +380,7 @@ class CaseMaker(Run):
             flush=True,
         )
         python = isolate()
-        client = OpenAI(
-            base_url="https://openrouter.ai/api/v1", api_key=os.environ["OPENROUTER_API_KEY"], timeout=config.read_timeout, max_retries=2
-        )
+        client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ["OPENROUTER_API_KEY"], timeout=config.read_timeout, max_retries=2)
         spend = Spend()
         with ThreadPoolExecutor(max_workers=config.workers) as pool:
             records = list(pool.map(lambda item: make_case(config, python, client, spend, bugs, *item, paths[item]), todo))

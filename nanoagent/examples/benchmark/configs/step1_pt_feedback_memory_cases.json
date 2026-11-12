@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "pt-feedback-memory",
   "task": "retrieve-memory",
   "context": "All data is in the input's memories array; no external data source is used. Timestamps are canonical UTC strings and must be compared as UTC instants. A memory is a hit only if resolved_at is nonempty, its resolution timestamp is <= cutoff, and its resolution timestamp is >= cutoff - ttl_days*86400 seconds (both bounds inclusive). Its score is 4 if profile equals the requested profile, plus 2 if symbol equals the requested symbol, plus 1 if regime equals the requested regime; exact string comparisons. If score is 0, or resolved_at is empty, it is not returned. Sort all candidates by score descending, then utility descending, then resolution timestamp descending, then id ascending, and take the first top_k. If there are fewer, return all. If top_k is 0, hits is empty. observed_at is validated but plays no role in retrieval or ranking.",

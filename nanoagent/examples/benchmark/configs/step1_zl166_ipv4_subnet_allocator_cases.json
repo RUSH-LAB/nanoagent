@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "zl166-ipv4-subnet-allocator",
   "task": "allocate-ipv4-subnets",
   "context": "The allocator's data is the base IPv4 CIDR block and the requested host counts. For each request, the allocated subnet is the smallest power-of-two block whose usable address count (block size minus 2) is at least the requested hosts, so the mapping is: 1-2 hosts -> /30, 3-6 -> /29, 7-14 -> /28, 15-30 -> /27, 31-62 -> /26, 63-126 -> /25, 127-254 -> /24, 255-510 -> /23, 511-1000 -> /22. Process requests in decreasing block size, breaking ties by request id in ascending lexicographic order. Place each block at the first address inside the base network aligned to the block size, starting from the base network address. If a block would extend past the end of the base network, the result is infeasible with an empty allocations list. Otherwise report each allocation with its canonical CIDR and usable hosts, with the allocations sorted by request id ascending.",

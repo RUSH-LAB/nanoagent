@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "zl166-balanced-batch-planner",
   "task": "balance-batches",
   "context": "Split the items into exactly batch_count non-empty batches so that the greatest batch load (the sum of its items' weights) is as small as it can be.\nSeveral partitions can reach that smallest greatest load. Answer with the one whose canonical form is smallest: write each batch as its item ids sorted ascending, sort the batches by those id lists (compared element by element), and take the partition whose list of batches is smallest in that order.\nbatches is that canonical form, loads holds each batch's total weight in the same order, max_load is the greatest of them, and status is \"solved\".",

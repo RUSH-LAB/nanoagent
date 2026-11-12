@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "pt-purged-walkforward",
   "task": "build-folds",
   "context": "Given the supplied chronological exchange sessions, build rolling train/validation/test folds with label-maturity purging and embargo. Let gap = label_horizon + embargo. A complete fold starting at 0-based index start requires start + train_size + validation_size + test_size + 2*gap <= len(sessions). Generate folds for start = 0, test_size, 2*test_size, ... while that condition holds, preserving this order and omitting any incomplete tail. For each start, train = sessions[start:start+train_size], validation = sessions[start+train_size+gap:start+train_size+gap+validation_size], test = sessions[start+train_size+validation_size+2*gap:start+train_size+validation_size+test_size+2*gap]. The gap sessions are omitted between train and validation and between validation and test. Sessions are date strings in chronological order; keep exact strings and order.",

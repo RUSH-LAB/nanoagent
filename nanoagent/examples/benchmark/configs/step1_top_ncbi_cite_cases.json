@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "top-ncbi-cite",
   "task": "top-cited-paper",
   "context": "Fetch data from the public PubMed and NIH iCite APIs. Call E-utilities esearch at https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi with db=pubmed, term=\"human genome\"[Title], datetype=pdat, mindate=2001/02/15, maxdate=2001/02/16, retmode=json, retmax=1000, retstart=0, and tool=top-ncbi-cite. Use esearchresult.count as the number of papers considered and esearchresult.idlist as the ordered PMIDs. Then call iCite at https://icite.od.nih.gov/api/pubs in batches of up to 200 PMIDs, with parameters pmids=<comma-separated PMIDs>&fl=pmid,citation_count. A PMID absent from the returned data list has citation_count 0. Rank all PMIDs by citation_count descending; when counts tie, the numerically smaller PMID wins, so for example \"100\" beats \"250\". papers_considered is the total number of PMIDs from esearchresult.idlist. Return the winning pmid as a string, its citation_count as an integer, and papers_considered as an integer, without rounding or altering the values.",

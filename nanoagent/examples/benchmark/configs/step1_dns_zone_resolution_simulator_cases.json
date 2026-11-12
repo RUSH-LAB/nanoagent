@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "dns-zone-resolution-simulator",
   "task": "simulate-dns-resolution",
   "context": "The authoritative zone is exactly the records in the input, rooted at example.test.; every name in the input is lowercase, absolute, and inside that origin. There are no other records, no delegation, and no network access. Resolve the queries in their input order. At a name, first use the requested address RRset (A for an A query, AAAA for an AAAA query) if one exists; that is an ANSWER and its address records form the final trace step. If not, and the owner has a CNAME, append a trace step for that CNAME and continue at its target. If neither the requested type nor a CNAME is present, report NODATA when the owner name exists in the zone, and NXDOMAIN when the name does not exist. If traversal revisits a name, report CNAME_LOOP with that repeated name as canonical_name. Addresses in answers and in address trace steps are sorted by numeric IP value; CNAME steps keep their single target. Failed outcomes have empty answers but keep any CNAME trace. Each step's ttl is the shared TTL of the selected RRset. The output has exactly one resolution per query in query order, copying query_name and query_type from each query.",

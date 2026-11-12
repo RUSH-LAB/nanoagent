@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "argument-validity",
   "task": "argument-validity",
   "context": "The argument to evaluate is given in full by the input JSON: each proposition has an identifier and meaning, and each premise and the conclusion have the original English text plus a formula. No external data source is needed; evaluate the exact displayed formulas under classical propositional logic. The conclusion follows iff every truth assignment that makes every premise formula true also makes the conclusion formula true. Premise consistency is a separate question: if no assignment satisfies all premises, entailment is vacuously valid and the contradiction must be flagged rather than presented as a sound argument. When the argument is invalid, a complete counterexample must make all premises true and the conclusion false. Use the formulas exactly as written; do not add missing premises, replace a conditional by its converse, or treat factual truth as logical entailment. Formula precedence is not > and > xor > or > -> > <->, with implication right-associative.",

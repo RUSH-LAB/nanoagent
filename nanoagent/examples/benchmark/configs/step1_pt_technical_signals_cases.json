@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "pt-technical-signals",
   "task": "derive-signals",
   "context": "All needed data is in the input's bars. Compute indicators using only bars whose date is on or before cutoff; the cutoff is inclusive, so any later bar is ignored. Bars are strictly chronological and unique, and every close is positive. sma_short is the arithmetic mean of the last short_window closes at or before cutoff, and sma_long is the arithmetic mean of the last long_window closes at or before cutoff. RSI is the simple RSI over the last rsi_period price changes: take the last rsi_period+1 closes, form consecutive differences, sum positive differences as gains and absolute values of negative differences as losses, then rsi = 100 * gains / (gains + losses); if gains + losses is zero, rsi = 50. Signal is buy if latest close > sma_short > sma_long; sell if latest close < sma_short < sma_long; otherwise hold. Return all four output fields; decimals are allowed and numeric results are compared with tolerance 1e-9.",
