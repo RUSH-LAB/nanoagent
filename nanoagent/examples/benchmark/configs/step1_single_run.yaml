@@ -28,8 +28,10 @@ prompt: |-
   The input's JSON Schema:
   {input_schema}
 
-  Write your answer to answer.json in the current folder: one JSON object following this JSON Schema.
+  Write your answer to {workspace}/answer.json: one JSON object following this JSON Schema.
   {output_schema}
+
+  Keep temporary files in the workspace or the directory named by TMPDIR.
 
   If the input cannot be answered (the day or window has not ended, the market was closed, or no data covers it), write {{"refused": "<why>"}} to answer.json instead.
 
@@ -63,7 +65,8 @@ harnesses > dict[step1_single_run.Harness, step1_single_run.HarnessConfig]:
   codex:
     command: [.venv/bin/nanoagent-codex-runner]
     # The Codex release npx runs, pinned so every run profiles the same harness.
-    options: {package: "@openai/codex@0.167.0"}
+    # The benchmark's outer sandbox isolates evidence and allows the task's network access.
+    options: {package: "@openai/codex@0.167.0", sandbox: danger-full-access}
     routes > dict[step1_single_run.Provider, step1_single_run.Route]:
       # OpenRouter's Responses API, the only one Codex speaks.
       openrouter:
@@ -77,7 +80,8 @@ harnesses > dict[step1_single_run.Harness, step1_single_run.HarnessConfig]:
       openrouter:
         options: {provider: openrouter}
         env: {}
-        env_from: {}
+        # Pass the OpenRouter API key into the sandbox so Hermes can read it.
+        env_from: {OPENROUTER_API_KEY: OPENROUTER_API_KEY}
   # js/pi-runner, built with `npm ci && npm run build` there; with PI's coding tools.
   pi:
     command: [node, js/pi-runner/dist/index.js]
@@ -90,7 +94,8 @@ harnesses > dict[step1_single_run.Harness, step1_single_run.HarnessConfig]:
   dsh:
     command: [.venv/bin/nanoagent-dsh-runner]
     # The dsh release npx runs, pinned so every run profiles the same harness.
-    options: {package: "@deepseek-ai/dsh@0.2.2-rc.1"}
+    # Use the benchmark's outer sandbox so dsh does not try to start a second one.
+    options: {package: "@deepseek-ai/dsh@0.2.2-rc.1", sandbox: danger-full-access}
     routes > dict[step1_single_run.Provider, step1_single_run.Route]:
       # pi-ai's OpenRouter route (dsh's DeepSeek route sends x-api-key, which OpenRouter refuses).
       openrouter:

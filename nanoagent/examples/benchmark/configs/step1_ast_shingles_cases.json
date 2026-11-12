@@ -1,0 +1,25 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "lsh-ast-shingler",
+  "task": "count-ast-shingles",
+  "context": "Parse the Python snippet with Python's own ast module and list the syntax tree's node class names (Module, Assign, Name, ...) in depth-first preorder: a parent before its children, children in the order of the node's fields. Leave out the Load, Store and Del contexts.\nA shingle is k consecutive entries of that list, so a list of n types has n - k + 1 of them, or none when it is shorter than k. List each distinct shingle once, in order of first occurrence, with its count.\ntotal is how many shingles the list has and distinct how many different ones.\nA snippet that is not valid Python cannot be answered. k is between 1 and 50.",
+  "answer": [
+    {"source": "x = 1\n", "k": 2},
+    {"source": "def f(a):\n    return a + 1\n", "k": 3},
+    {"source": "for i in range(3):\n    print(i)\n", "k": 2},
+    {"source": "a = [1, 2, 3]\nb = [x * 2 for x in a]\n", "k": 3},
+    {"source": "if x > 0:\n    y = 1\nelse:\n    y = -1\n", "k": 2},
+    {"source": "import os\nprint(os.getcwd())\n", "k": 1},
+    {"source": "class A:\n    def m(self):\n        return 1\n", "k": 4},
+    {"source": "x = 1\n", "k": 20},
+    {"source": "try:\n    f()\nexcept Exception as e:\n    raise\n", "k": 2},
+    {"source": "lambda a, b: a + b\n", "k": 3},
+    {"source": "while True:\n    break\n", "k": 2},
+    {"source": "d = {'a': 1, 'b': 2}\nprint(d['a'])\n", "k": 3}
+  ],
+  "refuse": [
+    {"source": "def broken(:\n    pass\n", "k": 2},
+    {"source": "x = = 1\n", "k": 2},
+    {"source": "print('unterminated)\n", "k": 3}
+  ]
+}

@@ -40,6 +40,8 @@ import json
 import logging
 import os
 import resource
+import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -47,6 +49,7 @@ import tempfile
 import time
 import traceback
 import uuid
+from collections.abc import Iterator
 from contextlib import AsyncExitStack, contextmanager, redirect_stderr
 from dataclasses import dataclass, field
 from enum import Enum
@@ -54,23 +57,27 @@ from pathlib import Path
 from typing import Any
 
 from omegaconf import MISSING
-from slimconfig import Config, Layout, Output, Run, Workspace, output_schema
+from slimconfig import Config, Layout, Output, Run, Workspace, build_output, output_schema
+
+from step1_coding_environment import coding_environment, fetch_npm, npm_package_cache
 
 from nanoagent import __version__
+from nanoagent.core.agent import AgentResult, StopReason
 from nanoagent.harness import Conversation, HarnessProfile
 from nanoagent.harness.base import ProgressSink, Runner, RunnerRequest, RunnerResult
 from nanoagent.harness.nanoagent import NanoAgentConfig
 from nanoagent.harness.subprocess import SubprocessRunner
 from nanoagent.llm.openrouter import OpenRouterConfig
-from nanoagent.plugin import load_manifest
-from nanoagent.plugin.manifest import SUBMIT
+from nanoagent.plugin import load_manifest, sandbox
+from nanoagent.plugin.install import INSTALL_HOSTS, SYNC, SYNC_TIMEOUT
+from nanoagent.plugin.python import PluginPython, plugin_python
 from nanoagent.plugin.runtime import call_tool_async
-from nanoagent.plugin.tasks import run_task
-from nanoagent.plugin.verifier import verify_task
-from nanoagent.profiler import RunProfile, normalize_usage
+from nanoagent.plugin.tasks import PinnedReference, TaskNotSubmitted, run_task
+from nanoagent.plugin.verifier import Verification, verify_task
+from nanoagent.profiler import normalize_usage
 from nanoagent.runtime.build import build_agent
 from nanoagent.runtime.config import AgentDefinitionConfig
-from nanoagent.trajectory.atif import ATIF_VERSION, AtifTrajectory, to_atif
+from nanoagent.trajectory.atif import AtifTrajectory, to_atif
 
 # The marketplace's package of a plugin, one tab-separated line: version, SHA-256, package (base64,
 # which Postgres breaks into lines of 76 characters, joined back here).
@@ -98,6 +105,7 @@ class Variable(Enum):
     ANTHROPIC_BASE_URL = "ANTHROPIC_BASE_URL"
     ANTHROPIC_AUTH_TOKEN = "ANTHROPIC_AUTH_TOKEN"
     ANTHROPIC_API_KEY = "ANTHROPIC_API_KEY"
+    OPENROUTER_API_KEY = "OPENROUTER_API_KEY"
 
 
 class Option(Enum):
@@ -109,6 +117,7 @@ class Option(Enum):
     TOOLS = "tools"
     BASE_URL = "base_url"
     LOCAL_PROVIDER = "local_provider"
+    SANDBOX = "sandbox"
 
 
 @dataclass
@@ -124,12 +133,11 @@ class Route(Config):
 
 @dataclass
 class HarnessConfig(Config):
-    """A harness other than NanoAgent: its runner, run from nanoagent/, and its routes."""
+    """A coding harness's runner command, relative to nanoagent/, and its routes."""
 
     command: list[str] = MISSING
     options: dict[Option, str] = MISSING
-    # A provider without a route here is one the harness does not run on; provider null is its own
-    # login, with no route.
+    # API-key routes by provider. DSH's direct DeepSeek route is built into its adapter.
     routes: dict[Provider, Route] = MISSING
 
 
@@ -169,7 +177,7 @@ class SingleRunConfig(Config):
     case: str = MISSING
     harness: Harness = MISSING
     model: str = MISSING
-    # openrouter, or null for the harness's own login (NanoAgent runs on openrouter only).
+    # OpenRouter, or null for DSH's direct DeepSeek API-key route.
     provider: Provider | None = MISSING
     # USD per million tokens: input, input read from the provider's cache, and output. The run's cost
     # is its tokens at these prices, the same for every harness (input written to the cache is
@@ -178,12 +186,14 @@ class SingleRunConfig(Config):
     cached_input_price: float = MISSING
     output_price: float = MISSING
     # The coding agent's prompt, with {description}, {context}, {arguments}, {input_schema} and
-    # {output_schema} filled in for the case.
+    # {output_schema} and {workspace} filled in for the case.
     prompt: str = MISSING
     # Seconds the harness, and the reference tool, may take before the run fails.
     timeout: float = MISSING
     nanoagent: NanoAgentLoopConfig = field(default_factory=NanoAgentLoopConfig)
     harnesses: dict[Harness, HarnessConfig] = MISSING
+    # Where Step 2 warmed the pinned npm packages, if it started this attempt.
+    batch_runs: str | None = None
 
 
 @dataclass
@@ -224,7 +234,7 @@ class SingleRun(Output):
     cache_write_tokens: int
     reasoning_tokens: int
     ttft_seconds: float | None
-    generation_seconds: float
+    generation_seconds: float | None
     # RUSH's own work around NanoAgent's agent: pinning the reference before it, checking the output
     # after it (null for other harnesses, and for a part that did not run).
     reference_seconds: float | None
@@ -266,6 +276,7 @@ class Work:
     """What a harness did with the case, before it is put in the standard's terms."""
 
     seconds: float
+    cpu_seconds: float
     profile: dict[str, Any]
     timeline: list[dict[str, Any]]
     stop_reason: str
@@ -276,6 +287,7 @@ class Work:
     messages: AtifTrajectory
     reference_seconds: float | None = None
     check_seconds: float | None = None
+    verification: Verification | None = None
 
 
 class Timed:
@@ -287,10 +299,12 @@ class Timed:
         self.capabilities = runner.capabilities
         self.result: RunnerResult | None = None
         self.seconds = 0.0
+        self.cpu_seconds = 0.0
         self.timeline: list[dict[str, Any]] = []
 
     async def run(self, request: RunnerRequest, emit: ProgressSink) -> RunnerResult:
         started = time.monotonic()
+        used = cpu()
 
         def stamped(event: dict[str, Any]) -> None:
             if event["type"] != "delta":
@@ -299,6 +313,7 @@ class Timed:
 
         self.result = await self.runner.run(request, stamped)
         self.seconds = time.monotonic() - started
+        self.cpu_seconds = cpu() - used
         return self.result
 
     async def aclose(self) -> None:
@@ -308,22 +323,9 @@ class Timed:
         return self.runner.availability()
 
 
-@contextmanager
-def environment(values: dict[str, str]):
-    """``os.environ`` with ``values`` set, as it was again afterwards."""
-    saved = {name: os.environ.get(name) for name in values}
-    os.environ.update(values)
-    try:
-        yield
-    finally:
-        for name, value in saved.items():
-            if value is None:
-                del os.environ[name]
-            else:
-                os.environ[name] = value
-
-
-async def nanoagent_work(config: SingleRunConfig, case: Case, workspace: Path) -> Work:
+async def nanoagent_work(
+    config: SingleRunConfig, case: Case, workspace: Path, reference: PinnedReference, reference_seconds: float
+) -> Work:
     """NanoAgent working the case's plugin task as RUSH Lab does."""
     if config.provider is not Provider.OPENROUTER:
         raise ValueError(f"NanoAgent runs here on OpenRouter only: provider is {config.provider}")
@@ -339,14 +341,14 @@ async def nanoagent_work(config: SingleRunConfig, case: Case, workspace: Path) -
         input_price=config.input_price,
         output_price=config.output_price,
     )
-    started = time.monotonic()
     marks: dict[str, float] = {}
-    runs: list[Any] = []
+    result: AgentResult | None = None
     timeline: list[dict[str, Any]] = []
 
     def make_agent(system_prompt: str):
         # The reference is pinned: the agent's run starts.
         marks["agent"] = time.monotonic()
+        marks["agent_cpu"] = cpu()
         definition = AgentDefinitionConfig(
             model=llm.runtime(), agent=loop.harness.runtime(system_prompt=system_prompt), tools=[], tools_dir=None, allowed_tools=None
         )
@@ -355,8 +357,9 @@ async def nanoagent_work(config: SingleRunConfig, case: Case, workspace: Path) -
 
         async def kept(*args: Any, **kwargs: Any):
             # The agent's result, kept even when the task then fails for want of a submission.
-            runs.append(await run(*args, **kwargs))
-            return runs[-1]
+            nonlocal result
+            result = await run(*args, **kwargs)
+            return result
 
         agent.run = kept
         return agent
@@ -365,10 +368,11 @@ async def nanoagent_work(config: SingleRunConfig, case: Case, workspace: Path) -
         now = time.monotonic()
         if kind == "task.answer":
             marks["answer"] = now
+            marks["answer_cpu"] = cpu()
         if kind in {"task.tool", "task.answer", "task.result", "task.verdict"} and "agent" in marks:
             timeline.append({"t": now - marks["agent"], "type": kind, **({"name": data["name"]} if "name" in data else {})})
 
-    output = refused = None
+    output = refused = error = verification = None
     try:
         outcome = await run_task(
             manifest,
@@ -380,95 +384,122 @@ async def nanoagent_work(config: SingleRunConfig, case: Case, workspace: Path) -
             timeout=config.timeout,
             on_event=on_event,
             stage=lambda _folder: None,
+            pinned_reference=reference,
         )
         output = outcome.output
-    except RuntimeError as error:
-        # NanoAgent refuses a case when its reference tool does, before its agent starts, or when its
-        # agent ends without submitting.
-        refusals = (f"{manifest.id} {task.reference} failed:", f"the agent ended task {task.id!r} without calling {SUBMIT}")
-        if not any(refusal in str(error) for refusal in refusals):
+        verification = outcome.verdict
+    except TaskNotSubmitted as failure:
+        if result is None:
             raise
-        refused = str(error)
+        if result.stop_reason is StopReason.ANSWER:
+            refused = result.answer.strip() or str(failure)
+        elif result.stop_reason is StopReason.ERROR:
+            error = result.error or str(failure)
     ended = time.monotonic()
-    if not runs:
-        # Refused at the reference: the agent never ran, so it has no steps.
-        result_profile, answer = RunProfile(duration_s=0.0, usage={}, cost=0.0).to_dict(), ""
-        agent = {"name": "nanoagent", "version": __version__, "model_name": config.model}
-        metrics = {
-            "total_prompt_tokens": 0,
-            "total_completion_tokens": 0,
-            "total_cached_tokens": 0,
-            "total_steps": 0,
-            "extra": {"cost": 0.0, "stop_reason": "refused"},
-        }
-        messages = AtifTrajectory(schema_version=ATIF_VERSION, session_id=str(uuid.uuid4()), agent=agent, steps=[], final_metrics=metrics)
-    else:
-        result = runs[-1]
-        result_profile, answer = result.profile.to_dict(), result.answer
-        messages = AtifTrajectory.from_dict(
-            to_atif(result, session_id=str(uuid.uuid4()), harness="nanoagent", harness_version=__version__, model=config.model)
-        )
-    agent_started = marks.get("agent", ended)
-    answered = marks.get("answer", ended)
+    assert result is not None
+    messages = AtifTrajectory.from_dict(
+        to_atif(result, session_id=str(uuid.uuid4()), harness="nanoagent", harness_version=__version__, model=config.model)
+    )
     return Work(
-        seconds=answered - agent_started,
-        profile=result_profile,
+        seconds=marks["answer"] - marks["agent"],
+        cpu_seconds=marks["answer_cpu"] - marks["agent_cpu"],
+        profile=result.profile.to_dict(),
         timeline=timeline,
-        stop_reason="refused" if refused else "answer",
-        answer=answer,
+        stop_reason="refused" if refused else result.stop_reason.value,
+        answer=result.answer,
         output=output,
         refused=refused,
-        error=None,
+        error=error,
         messages=messages,
-        reference_seconds=agent_started - started,
-        check_seconds=ended - answered if "answer" in marks else None,
+        reference_seconds=reference_seconds,
+        check_seconds=ended - marks["answer"] if verification is not None else None,
+        verification=verification,
     )
 
 
-def other_runner(config: SingleRunConfig) -> tuple[SubprocessRunner, dict[str, str]]:
-    """The harness with only its own tools, and the environment it runs in."""
-    if config.harness not in config.harnesses:
-        raise ValueError(f"the config's harnesses table has no {config.harness.value}")
-    harness = config.harnesses[config.harness]
-    options: dict[str, Any] = {"model": config.model} | {option.value: value for option, value in harness.options.items()}
-    route: dict[str, str] = {}
-    if config.provider is not None:
-        if config.provider not in harness.routes:
-            raise ValueError(f"{config.harness.value} has no route to {config.provider.value} in the config")
-        way = harness.routes[config.provider]
-        options |= {option.value: value for option, value in way.options.items()}
-        for variable, source in way.env_from.items():
-            if source not in os.environ:
-                raise ValueError(f"{config.harness.value} on {config.provider.value} needs {source} set")
-        route = {variable.value: value for variable, value in way.env.items()}
-        route |= {variable.value: os.environ[source] for variable, source in way.env_from.items()}
-    runner = SubprocessRunner(config.harness.value, tuple(harness.command), options=options)
-    available, reason = runner.availability()
-    if not available:
-        raise RuntimeError(reason)
-    return runner, route
+@contextmanager
+def other_runner(config: SingleRunConfig, workspace: Path) -> Iterator[SubprocessRunner]:
+    """Launch the coding harness inside the benchmark's workspace sandbox."""
+    harness = config.harness
+    if harness not in config.harnesses:
+        raise ValueError(f"the config's harnesses table has no {harness.value}")
+    settings = config.harnesses[harness]
+    options: dict[str, Any] = {"model": config.model}
+    options |= {option.value: value for option, value in settings.options.items()}
+    route = None
+    credentials: set[str] = set()
+    if config.provider is None:
+        if Option.PROVIDER in settings.options:
+            raise ValueError(f"{harness.value} has a provider option set with provider: null")
+        if harness is not Harness.DSH:
+            raise ValueError(f"{harness.value} requires a configured API-key provider")
+        credentials.add("DEEPSEEK_API_KEY")
+        provider = "DeepSeek"
+    else:
+        provider = config.provider.value
+        route = settings.routes.get(config.provider)
+        if route is None:
+            raise ValueError(f"{harness.value} has no route to {provider} in the config")
+        options |= {option.value: value for option, value in route.options.items()}
+        if Option.API_KEY_ENV.value in options:
+            credentials.add(options[Option.API_KEY_ENV.value])
+
+    required = credentials | (set(route.env_from.values()) if route is not None else set())
+    if not required:
+        raise ValueError(f"{harness.value} on {provider} requires an API key in its route config")
+    missing = sorted(name for name in required if not os.environ.get(name))
+    if missing:
+        raise ValueError(f"{harness.value} on {provider} needs {', '.join(missing)} set")
+    package = options.get(Option.PACKAGE.value)
+    cache = npm_package_cache(Path(config.batch_runs), package) if package and config.batch_runs is not None else None
+    with coding_environment(workspace, credential_names=credentials, npm_cache=cache) as (prefix, env):
+        if package and cache is None:
+            fetch_npm(package, prefix, {name: value for name, value in env.items() if name not in credentials}, cwd=workspace)
+        if harness is Harness.DSH and Option.SANDBOX.value in options:
+            env["DSH_PERMISSION_MODE"] = options.pop(Option.SANDBOX.value)
+        if route is not None:
+            env |= {variable.value: value for variable, value in route.env.items()}
+            env |= {variable.value: os.environ[source] for variable, source in route.env_from.items()}
+        command = []
+        for part in settings.command:
+            path = Path(part)
+            command.append(str(path.absolute()) if path.parent != Path(".") and path.is_file() else part)
+        runner = SubprocessRunner(harness.value, command, cwd=workspace, options=options, launch_prefix=prefix, env=env)
+        available, reason = runner.availability()
+        if not available:
+            raise RuntimeError(reason)
+        yield runner
 
 
 def read_answer(workspace: Path) -> tuple[dict[str, Any] | None, str | None, str | None]:
     """The output, refusal or failure a coding agent's answer.json gives."""
-    answer = workspace / "answer.json"
-    if not answer.is_file():
-        return None, None, "wrote no answer.json"
     try:
-        value = json.loads(answer.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as error:
-        return None, None, f"answer.json is not JSON: {error}"
+        fd = os.open(workspace / "answer.json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return None, None, "wrote no answer.json"
+    except OSError as error:
+        return None, None, f"cannot open answer.json: {error.strerror}"
+    try:
+        with os.fdopen(fd, encoding="utf-8") as answer:
+            if not stat.S_ISREG(os.fstat(answer.fileno()).st_mode):
+                return None, None, "answer.json is not a regular file"
+            value = json.load(answer)
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        return None, None, f"answer.json is not UTF-8 JSON: {error}"
     if not isinstance(value, dict):
         return None, None, "answer.json is not a JSON object"
     if set(value) == {"refused"}:
-        return None, str(value["refused"]), None
+        reason = value["refused"]
+        if not isinstance(reason, str) or not reason.strip():
+            return None, None, 'answer.json needs a nonempty refusal reason'
+        return None, reason, None
     return value, None, None
 
 
 async def other_work(config: SingleRunConfig, case: Case, workspace: Path) -> Work:
     """A coding harness given the case's prompt, answering in answer.json."""
-    runner, route = other_runner(config)
     async with AsyncExitStack() as stack:
+        runner = stack.enter_context(other_runner(config, workspace))
         timed = Timed(runner)
         stack.push_async_callback(timed.aclose)
         chat = Conversation.start(
@@ -478,14 +509,14 @@ async def other_work(config: SingleRunConfig, case: Case, workspace: Path) -> Wo
             workspace=workspace,
             render=False,
         )
-        with environment(route):
-            await asyncio.wait_for(chat.run_task(case.prompt), config.timeout)
+        await asyncio.wait_for(chat.run_task(case.prompt), config.timeout)
     result = timed.result
     if result.profile is None:
         raise RuntimeError(f"{config.harness.value}'s runner reports no profile, so the run cannot be profiled")
     output, refused, failure = read_answer(workspace) if result.error is None else (None, None, None)
     return Work(
         seconds=timed.seconds,
+        cpu_seconds=timed.cpu_seconds,
         profile=dict(result.profile),
         timeline=timed.timeline,
         stop_reason=result.stop_reason,
@@ -498,8 +529,7 @@ async def other_work(config: SingleRunConfig, case: Case, workspace: Path) -> Wo
 
 
 def unpack(config: SingleRunConfig, folder: Path) -> str:
-    """Unpack the plugin from the marketplace's package into ``folder``, checked against its SHA-256,
-    and ready its Python environment; returns its version."""
+    """Unpack the marketplace package into ``folder`` after checking its SHA-256."""
     plugin = config.cases.plugin
     found = subprocess.run(
         [config.psql, config.database, "--no-psqlrc", "-At", "-F", "\t", "-v", "ON_ERROR_STOP=1", "-v", f"id={plugin}"],
@@ -521,9 +551,19 @@ def unpack(config: SingleRunConfig, folder: Path) -> str:
         if tops != {plugin}:
             raise RuntimeError(f"{plugin}'s package holds {sorted(tops)}, not the one folder {plugin}")
         archive.extractall(folder, filter="data")
-    # The plugin's runtime is `uv run --frozen`: its environment is made here, not on the clock.
-    subprocess.run(["uv", "sync", "--frozen", "--quiet"], cwd=folder / plugin, check=True)
     return version
+
+
+@contextmanager
+def prepared_plugin(source: Path, python: PluginPython) -> Iterator[Path]:
+    """Install outside the checkout so uv cannot discover the benchmark's parent project."""
+    with tempfile.TemporaryDirectory(prefix="nanoagent-benchmark-plugin-") as directory:
+        root = Path(directory).resolve() / source.name
+        shutil.copytree(source, root, symlinks=True)
+        sync = [*SYNC, "--python", str(python.executable), "--quiet"]
+        with sandbox.launch(sync, root=root, env={}, writable=[root], hosts=INSTALL_HOSTS) as (argv, env):
+            subprocess.run(argv, cwd=root, env=env, check=True, timeout=SYNC_TIMEOUT)
+        yield root
 
 
 async def pin(manifest, task, arguments: dict[str, Any], refuse: bool, timeout: float) -> dict[str, Any] | None:
@@ -540,14 +580,23 @@ async def pin(manifest, task, arguments: dict[str, Any], refuse: bool, timeout: 
     return output
 
 
-def judge(manifest, case: Case, work: Work, reference: dict[str, Any] | None, refuse: bool) -> tuple[bool, str]:
+def judge(manifest, task, case: Case, work: Work, reference: dict[str, Any] | None, refuse: bool, workspace: Path) -> tuple[bool, str]:
     """Whether the harness's outcome was right, and why."""
+    if work.error is not None:
+        return False, work.error
     if refuse:
-        return work.refused is not None, work.error or (f"refused: {work.refused}" if work.refused else "answered a case to refuse")
+        return (True, f"refused: {work.refused}") if work.refused else (False, "did not refuse a case to refuse")
+    if work.refused:
+        return False, f"refused a case to answer: {work.refused}"
     if work.output is None:
-        return False, work.error or f"refused a case to answer: {work.refused}"
-    with tempfile.TemporaryDirectory() as scratch:
-        verdict = verify_task(manifest, case.task, case.arguments, work.output, reference, Path(scratch))
+        return False, "did not submit an answer"
+    verdict = work.verification
+    if verdict is None:
+        try:
+            build_output(work.output, task.output_type)
+        except (TypeError, ValueError) as error:
+            return False, f"invalid answer: {error}"
+        verdict = verify_task(manifest, task.id, case.arguments, work.output, reference, workspace)
     return verdict.valid, verdict.message
 
 
@@ -588,11 +637,28 @@ class SingleRunner(Run):
     def work(self) -> int:
         config = self.config
         arguments, refuse = config.cases.case(config.case)
+        kind = {"darwin": "seatbelt", "linux": "bwrap"}.get(sys.platform)
+        if kind is None:
+            raise RuntimeError(f"benchmark isolation is unsupported on {sys.platform}")
+        python = plugin_python(sys.executable)
+        if kind == "bwrap" and Path(sys._base_executable).parent.parent.is_symlink() and "UV_PYTHON_INSTALL_DIR" not in os.environ:
+            # uv-managed venvs may use a version alias as well as the resolved runtime prefix.
+            managed = Path(subprocess.check_output(["uv", "python", "dir"], text=True).strip())
+            if python.prefix.is_relative_to(managed):
+                os.environ["UV_PYTHON_INSTALL_DIR"] = str(managed)
+        sandbox.configure(kind, python)
         version = unpack(config, Path(self.layout.plugin))
-        folder = Path(self.layout.plugin, config.cases.plugin).resolve()
+        with prepared_plugin(Path(self.layout.plugin, config.cases.plugin), python) as folder:
+            return self.run_case(folder, version, arguments, refuse)
+
+    def run_case(self, folder: Path, version: str, arguments: dict[str, Any], refuse: bool) -> int:
+        config = self.config
         manifest = load_manifest(folder)
         task = manifest.task(config.cases.task)
+        pin_started = time.monotonic()
         reference = asyncio.run(pin(manifest, task, arguments, refuse, config.timeout))
+        reference_seconds = time.monotonic() - pin_started
+        workspace = Path(self.layout.workspace).resolve()
         case = Case(
             id=config.case,
             plugin=str(folder),
@@ -604,13 +670,14 @@ class SingleRunner(Run):
                 arguments=json.dumps(arguments, indent=2),
                 input_schema=json.dumps(output_schema(task.input_type), indent=2),
                 output_schema=json.dumps(output_schema(task.output_type), indent=2),
+                workspace=workspace,
             ),
         )
-        workspace = Path(self.layout.workspace)
-        used = cpu()
-        work = asyncio.run(nanoagent_work(config, case, workspace) if config.harness is Harness.NANOAGENT else other_work(config, case, workspace))
-        used = cpu() - used
-        correct, verdict = judge(manifest, case, work, reference, refuse)
+        if config.harness is Harness.NANOAGENT:
+            work = asyncio.run(nanoagent_work(config, case, workspace, PinnedReference(reference), reference_seconds))
+        else:
+            work = asyncio.run(other_work(config, case, workspace))
+        correct, verdict = judge(manifest, task, case, work, reference, refuse, workspace)
         own = dict(work.profile)
         reported = own.pop("reported", None)
         usage = normalize_usage(own["usage"])
@@ -648,7 +715,7 @@ class SingleRunner(Run):
             generation_seconds=own["generation_s"],
             reference_seconds=work.reference_seconds,
             check_seconds=work.check_seconds,
-            cpu_seconds=used,
+            cpu_seconds=work.cpu_seconds,
             steps=len(steps),
             model_calls=sum(len(step["model_calls"]) for step in steps),
             tool_calls=sum(len(step["tool_calls"]) for step in steps),

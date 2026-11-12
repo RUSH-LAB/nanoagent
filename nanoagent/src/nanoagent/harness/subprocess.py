@@ -40,6 +40,8 @@ class SubprocessRunner:
         options: dict[str, Any] | None = None,
         capabilities: RunnerCapabilities | None = None,
         shutdown_grace: float = 2.0,
+        launch_prefix: Sequence[str] = (),
+        env: dict[str, str] | None = None,
     ) -> None:
         if not command or any(not isinstance(part, str) or not part for part in command):
             raise ValueError("runner command must contain non-empty strings")
@@ -49,16 +51,19 @@ class SubprocessRunner:
         self.options = dict(options or {})
         self.capabilities = capabilities or RunnerCapabilities()
         self.shutdown_grace = shutdown_grace
+        self.launch_prefix = tuple(launch_prefix)
+        self.env = None if env is None else dict(env)
 
     async def run(self, request: RunnerRequest, emit: ProgressSink) -> RunnerResult:
         try:
             process = await asyncio.create_subprocess_exec(
+                *self.launch_prefix,
                 *self.command,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.cwd,
-                env=os.environ.copy(),
+                env=os.environ.copy() if self.env is None else self.env,
                 limit=_STREAM_LIMIT,
             )
         except FileNotFoundError as error:

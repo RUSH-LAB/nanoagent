@@ -108,7 +108,7 @@ class _Relay:
             self.thread = event["thread_id"]
         elif kind == "turn.completed":
             self.usage = event["usage"]
-        elif kind in {"turn.failed", "error"}:
+        elif kind == "turn.failed":
             self.failure = json.dumps(event.get("error") or event.get("message"))
         elif kind in {"item.started", "item.completed"}:
             item = event["item"]
@@ -181,15 +181,17 @@ def _profile(session: Path, started: float, total: dict[str, int] | None) -> tup
         kind = payload.get("type") if record["type"] in {"event_msg", "response_item"} else record["type"]
         now = _seconds(record["timestamp"])
         responding = kind in TOOL_CALLS or kind == "reasoning" or (kind == "message" and payload.get("role") == "assistant")
-        if (responding or kind == "token_usage_record") and not calling:
+        if (responding or kind == "token_usage_record") and not calling and not profiler.tools_running:
             now, at = asked, now
             profiler.model_start()
             now, calling = at, True
         if kind == "task_started":
             asked = now
         elif kind in TOOL_CALLS:
+            if calling:
+                profiler.model_end()
             profiler.tool_start(payload["call_id"], payload.get("name") or kind)
-        elif kind == "token_usage_record":
+        elif kind == "token_usage_record" and calling:
             profiler.model_end()
             calling, asked = False, now
         elif kind == "token_count" and payload.get("info"):
@@ -201,6 +203,8 @@ def _profile(session: Path, started: float, total: dict[str, int] | None) -> tup
         elif kind == "task_complete":
             ttft = payload.get("time_to_first_token_ms")
             reported = {"duration_s": payload["duration_ms"] / 1000, "ttft_s": None if ttft is None else ttft / 1000}
+    # The rollout holds no streamed tokens, so the profile has no first token of its own; Codex's own
+    # figure counts from its turn's start, not the harness's, and stays in what it reported.
     return profiler.finish(None if total is None else _usage(total)), reported
 
 

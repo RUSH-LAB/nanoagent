@@ -69,7 +69,7 @@ def test_profiles_each_model_call_and_tool_and_counts_every_token(tmp_path: Path
     assert profile["steps"][0]["model_calls"][0]["ttft_s"] is not None
     assert done["usage"]["prompt_tokens"] == 1244
     assert done["usage"]["completion_tokens"] == 20
-    assert profile["reported"] == {"duration_s": 3.547, "model_s": 3.494, "ttft_s": 0.9, "cost": 0.01, "turns": 2}
+    assert profile["reported"] == {"duration_s": 3.547, "model_s": 3.494, "ttft_s": 0.9, "cost": 0.01, "turns": 2, "usage_by_model": {"m": done["usage"]}}
     assert done["stop_reason"] == "answer"
 
 
@@ -77,3 +77,38 @@ def test_a_run_claude_code_reports_failed_fails(tmp_path: Path) -> None:
     done = _run(tmp_path, [{"type": "system", "subtype": "init"}, RESULT | {"is_error": True, "result": "limit reached"}])
     assert done["stop_reason"] == "error"
     assert "limit reached" in done["error"]
+
+
+def test_partial_usage_and_no_phantom_call(tmp_path: Path) -> None:
+    tool = {"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}
+    events = _call(tool)
+    events[0]["event"]["message"] = {"usage": {"input_tokens": 2, "cache_read_input_tokens": 100, "cache_creation_input_tokens": 20}}
+    events[-2]["event"]["usage"] = {"output_tokens": 10}
+    done = _run(tmp_path, [{"type": "system", "subtype": "init"}, *events,
+        {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}}, RESULT])
+    assert len(done["metrics"]["steps"]) == 1
+    assert done["metrics"]["steps"][0]["usage"]["prompt_tokens"] == 122
+
+
+def test_a_call_after_tools_runs_from_their_last_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    now = [0.0]
+    monkeypatch.setattr(claude.time, "perf_counter", lambda: now[0])
+    relay = claude._Relay()
+
+    def at(seconds: float, event: dict) -> None:
+        now[0] = seconds
+        relay(event)
+
+    tool = {"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}
+    first, second = _call(tool), _call()
+    at(0.0, {"type": "system", "subtype": "init"})
+    at(1.0, first[0])
+    at(2.0, first[2])  # the tool call: the model call ends, the tool starts
+    at(2.5, first[3])
+    at(2.5, first[4])
+    at(4.0, {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}})
+    at(7.0, second[0])  # the next call's stream starts; it was asked for at 4.0
+    at(8.0, second[4])
+    one, two = relay.profiler.finish().steps
+    assert (one.duration_s, one.model_s, one.tools_s) == (4.0, 2.0, 2.0)
+    assert two.model_calls[0].duration_s == 4.0

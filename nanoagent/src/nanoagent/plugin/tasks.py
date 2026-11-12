@@ -47,6 +47,17 @@ class TaskOutcome:
     verdict: Verification
 
 
+@dataclass(frozen=True)
+class PinnedReference:
+    """A reference prepared by the caller. A missing output represents a verified refusal."""
+
+    output: dict[str, Any] | None
+
+
+class TaskNotSubmitted(RuntimeError):
+    """The agent ended without a valid submission."""
+
+
 class SubmitTool(Tool):
     """Submit the task's result. Call it once the task is done; if you call it again, the last
     submission is the result."""
@@ -164,6 +175,7 @@ async def run_task(
     timeout: float,
     on_event: TaskEvents,
     stage: Callable[[Path], None],
+    pinned_reference: PinnedReference | None = None,
 ) -> TaskOutcome:
     """Run ``task`` in ``workspace`` and judge it.
 
@@ -180,7 +192,7 @@ async def run_task(
     # Its provenance graph, each change a task.graph event as it is made.
     graph = Provenance(lambda patch: on_event("task.graph", patch))
     graph.value("input", NodeType.TASK_INPUT, PARTS[NodeType.TASK_INPUT].label, arguments)
-    return await _run(manifest, task, arguments, workspace, make_agent, make_decider, timeout, on_event, stage, graph)
+    return await _run(manifest, task, arguments, workspace, make_agent, make_decider, timeout, on_event, stage, graph, pinned_reference)
 
 
 async def _run(
@@ -194,6 +206,7 @@ async def _run(
     on_event: TaskEvents,
     stage: Callable[[Path], None],
     graph: Provenance,
+    pinned_reference: PinnedReference | None,
 ) -> TaskOutcome:
     stage(workspace)
     match task.runner:
@@ -207,7 +220,7 @@ async def _run(
         case "agent":
             if make_agent is None:
                 raise ValueError(f"task {task.id!r} is an agent task: it needs an agent")
-            reference = await _pin_reference(manifest, task, arguments, timeout, on_event, stage, graph)
+            reference = await _pin_reference(manifest, task, arguments, timeout, on_event, stage, graph, pinned_reference)
             system, user = task_prompt(manifest, task, arguments)
             graph.value("system", NodeType.SYSTEM_PROMPT, PARTS[NodeType.SYSTEM_PROMPT].label, system)
             agent = make_agent(system)
@@ -246,17 +259,17 @@ async def _run(
                 result = await agent.run(user, on_step=on_step, on_delta=on_delta, on_tool=on_tool)
             on_event("task.answer", {"text": result.answer})
             if submit.output is None:
-                raise RuntimeError(f"the agent ended task {task.id!r} without calling {SUBMIT}")
+                raise TaskNotSubmitted(f"the agent ended task {task.id!r} without calling {SUBMIT}")
             # The last submission is the output.
             output = loop.arguments[SUBMIT]
             graph.retype(output, NodeType.TASK_OUTPUT, "Task output (submitted)")
             on_event("task.result", {"response": submit.output})
-            verdict = await _verdict(manifest, task, arguments, submit.output, reference, workspace, on_event, graph, output)
+            verdict = await _verdict(manifest, task, arguments, submit.output, reference, workspace, on_event, graph, output, pinned_reference)
             return TaskOutcome(reference=reference, output=submit.output, agent=result, verdict=verdict)
         case "decide":
             if make_decider is None:
                 raise ValueError(f"task {task.id!r} is a decide task: it needs a decider")
-            reference = await _pin_reference(manifest, task, arguments, timeout, on_event, stage, graph)
+            reference = await _pin_reference(manifest, task, arguments, timeout, on_event, stage, graph, pinned_reference)
             decider = make_decider(decide_prompt(manifest, task))
             state: dict[str, Any] = {"task": task.id, "input": arguments, "calls": []}
             asked: list[Answers] = []  # each batch's answers, the last the "next" one once it is asked
@@ -307,7 +320,7 @@ async def _run(
                     on_event("task.tool", {"name": chosen, "arguments": tool_input, "output": tool_output, "isError": False})
             build_output(output, task.output_type)
             on_event("task.result", {"response": output})
-            verdict = await _verdict(manifest, task, arguments, output, reference, workspace, on_event, graph, "output")
+            verdict = await _verdict(manifest, task, arguments, output, reference, workspace, on_event, graph, "output", pinned_reference)
             return TaskOutcome(reference=reference, output=output, agent=decider.record(), verdict=verdict)
         case runner:
             raise ValueError(f"task {task.id!r}: unknown runner {runner!r}")
@@ -321,14 +334,20 @@ async def _pin_reference(
     on_event: TaskEvents,
     stage: Callable[[Path], None],
     graph: Provenance,
+    pinned_reference: PinnedReference | None,
 ) -> dict[str, Any] | None:
     """The reference tool's output, from a scratch workspace the task never sees; None without one."""
     if task.reference is None:
         return None
     on_event("task.reference", {"tool": task.reference})
-    with tempfile.TemporaryDirectory(prefix=f"nanoagent-{manifest.id}-reference-") as scratch:
-        stage(Path(scratch))
-        reference = await call_tool_async(manifest, task.reference, arguments, workspace=Path(scratch), timeout=timeout)
+    if pinned_reference is None:
+        with tempfile.TemporaryDirectory(prefix=f"nanoagent-{manifest.id}-reference-") as scratch:
+            stage(Path(scratch))
+            reference = await call_tool_async(manifest, task.reference, arguments, workspace=Path(scratch), timeout=timeout)
+    else:
+        reference = pinned_reference.output
+        if reference is None:
+            return None
     graph.ran("reference", NodeType.REFERENCE, task.reference, "input", ("reference.output", NodeType.REFERENCE_OUTPUT, PARTS[NodeType.REFERENCE_OUTPUT].label, reference))
     return reference
 
@@ -343,9 +362,13 @@ async def _verdict(
     on_event: TaskEvents,
     graph: Provenance,
     output_node: str,
+    pinned_reference: PinnedReference | None = None,
 ) -> Verification:
     """The verifier's verdict on ``output``, the value ``output_node`` of ``graph``."""
-    verdict = await asyncio.to_thread(verify_task, manifest, task.id, arguments, output, reference, workspace)
+    if pinned_reference is not None and pinned_reference.output is None:
+        verdict = Verification(False, 0.0, "submitted an answer to a refusal case", {})
+    else:
+        verdict = await asyncio.to_thread(verify_task, manifest, task.id, arguments, output, reference, workspace)
     graph.call("verify", NodeType.OUTPUT_CHECK, PARTS[NodeType.OUTPUT_CHECK].label)
     for used in ("input", output_node, *(("reference.output",) if reference is not None else ())):
         graph.edge(used, "verify", "used")
