@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "memory-pressure-planner",
   "task": "free-memory",
   "context": "The snapshot is complete in the input: used_mb is os_mb plus the sum of every app's memory_mb, and the apps listed are the only ones open. For this input, os_mb is 1500 and the apps total 17200 MB, so used_mb is 18700; target_mb 12000 therefore needs at least 6700 MB freed. An app is protected, and may not be closed, exactly when it is the foreground app or has unsaved: true. Pick any set of closable apps whose total memory_mb is at least the amount that must be freed and whose total reopen_s is the smallest possible; if several sets tie, any one is acceptable, and the order of names in close does not matter. reopen_s in the output must be the sum of the closed apps' reopen_s. If nothing must be freed, close nothing with possible true. If even closing every closable app frees too little, set possible false, close empty, and reopen_s 0.",

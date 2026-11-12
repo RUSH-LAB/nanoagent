@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "lsh-ast-canonicalizer",
   "task": "canonicalize-snippet",
   "context": "Canonicalize the Python snippet's identifiers by its syntax tree (Python's own ast module reads it).\nVariables, function parameters, exception names and pattern names become var_<n>; a name that is ever defined with def becomes func_<n>. Numbers start at 0 for each kind and follow the position of each name's first appearance in the source. Classes, imports, attributes, keyword names, builtins and dunder names keep their names.\nThe canonical code is the output of ast.unparse on the renamed tree, without an appended newline. The syntax tree must have the same node types before and after.\nA snippet that is not valid Python cannot be canonicalized.",

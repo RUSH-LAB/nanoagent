@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "cipher-crack",
   "task": "crack-cipher",
   "context": "The intercepted ciphertext for the telegram case is: CUUJ JXU WHUO REQJ QJ JXU EBT IJEDU FYUH. It was made from an English message by a Caesar shift over the 26 uppercase letters: the key letter gives the shift as A=0, B=1, ..., Z=25, and encryption moves each letter forward that many places, wrapping from Z to A; spaces were left alone and are not shifted. Exactly one key letter A-Z turns this ciphertext into English; all other keys produce nonsense. Work out that key and the message it yields. Submit the case exactly as given ('telegram'), the key as one uppercase letter, and the plaintext as uppercase letters and spaces exactly as deciphered.",

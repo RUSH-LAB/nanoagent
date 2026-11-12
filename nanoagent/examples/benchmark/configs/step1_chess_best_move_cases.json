@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "chess-best-move",
   "task": "best-move",
   "context": "Board 1's position (from the bundled board images; a Lichess mate-in-1 puzzle): FEN 6k1/R7/6K1/7P/8/8/6p1/7r w - - 0 59. White is to move. Reading the board gives White: Kg6, Ra7, Ph5; Black: Kg8, Rh1, Pg2. There is exactly one legal white move that delivers checkmate immediately. Submit that move in UCI notation (from square + to square). No castling or en passant is available.",

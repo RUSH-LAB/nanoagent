@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "log-triage",
   "task": "triage-log",
   "context": "Use the following incident log, one entry per line and in the order they were written. Choose one of the six faults\u2014disk-full, auth-rejected, timeout, bad-config, rate-limited, out-of-memory\u2014and cite the one line that is the cause: if that line had not happened, the remaining lines would be unexplained. Most lines are consequences, and the loudest line is not necessarily the first. Copy the cited line exactly as given, including its timestamp and level. The incident log is:\n2026-03-14 16:45:00 INFO  edge: reloading configuration\n2026-03-14 16:45:00 ERROR edge: unknown directive \"proxy_pas\" in /etc/edge/proxy.conf:42\n2026-03-14 16:45:00 ERROR edge: configuration reload failed, keeping previous generation\n2026-03-14 16:45:09 WARN  edge: no upstream defined for route /v2/orders, refusing connection\n2026-03-14 16:45:10 WARN  edge: connection to 10.2.0.14:8080 refused\n2026-03-14 16:45:12 WARN  edge: connection to 10.2.0.14:8080 refused\n2026-03-14 16:45:30 WARN  edge: health probe for /v2/orders timed out after 10s\n2026-03-14 16:46:00 ERROR edge: 418 requests to /v2/orders failed since reload",

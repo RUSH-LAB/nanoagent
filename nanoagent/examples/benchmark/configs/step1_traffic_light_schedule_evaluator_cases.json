@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "traffic-light-schedule-evaluator",
   "task": "evaluate-traffic-schedule",
   "context": "The complete traffic data is the input below: two intersections with repeating green-yellow-red cycles and twelve vehicle arrivals. For an intersection, cycle_length = green_seconds + yellow_seconds + red_seconds, and the zero-based cycle position of an arrival is (arrival_time - cycle_start) modulo cycle_length. Green occupies positions 0 through green_seconds - 1; yellow occupies green_seconds through green_seconds + yellow_seconds - 1; red occupies the rest. A timestamp exactly on a boundary belongs to the phase that starts there. A vehicle may cross only during green: then next_crossing_time equals arrival_time and wait_seconds is 0. For yellow or red, next_crossing_time = arrival_time + cycle_length - cycle_position and wait_seconds = next_crossing_time - arrival_time. Report one evaluation per arrival in the exact arrival order, copying arrival_id, intersection_id, and arrival_time exactly. signal_color is only green, yellow, or red; may_cross is true exactly when wait_seconds is 0.",

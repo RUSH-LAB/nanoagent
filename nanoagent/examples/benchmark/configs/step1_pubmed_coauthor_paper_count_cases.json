@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "pubmed-coauthor-paper-count",
   "task": "pubmed-coauthor-paper-count",
   "context": "Use PubMed's E-utilities ESummary JSON endpoint (https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi) with db=pubmed, id=13054692, retmode=json, and version=2.0. This is Watson and Crick's 1953 Nature letter, 'Molecular structure of nucleic acids; a structure for deoxyribose nucleic acid.' The result['result']['13054692']['authors'] array is the paper's byline; each entry has a name and an authtype. Count personal authors: every entry whose authtype is exactly 'Author' counts, including the first author, and a repeated personal name counts once per row. Entries whose authtype is 'CollectiveName' do not count. Return that count as coauthor_count.",

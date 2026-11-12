@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "ce52-pixel-layer-compositor",
   "task": "compose-canvas",
   "context": "Use the fixed 'clipping' scene: a 5-column by 4-row canvas with (0,0) at the top left, x increasing right and y increasing down. Its original layers in fixture order are: left: x=-2, y=1, width=4, height=3, color G; top: x=1, y=-1, width=3, height=3, color B; right: x=4, y=0, width=3, height=5, color Y; outside: x=7, y=2, width=2, height=2, color R. The requested order is 'reverse', so the paint order is the reverse of that list (and must not be reversed again). Before painting, clip each rectangle to the canvas: its x range becomes max(0, min(5, x)) to max(0, min(5, x+width)), and its y range is clipped against height 4 the same way; an empty clipped range paints nothing. A layer paints every cell with x0 <= x < x1 and y0 <= y < y1. Paint layers in paint order, later layers overwriting earlier ones; cells never painted keep the background color. All colors are opaque single characters from ., R, G, B, Y, and '.' is an opaque blank, not transparency. Produce the grid as exactly 4 rows, each exactly 5 color strings, row 0 at the top and left to right within each row.",

@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "invoice-reconciliation",
   "task": "reconcile-invoices",
   "context": "The 'mixed' batch contains four invoices: INV-A has charge 10000 cents; INV-B 5000; INV-C 0; INV-D 3000. Payments are signed amounts in cents keyed by invoice: INV-A +4000 and +1000, INV-B +5000, INV-D +4200; INV-C has no payments. For each invoice, balance_cents = charge_cents minus the sum of that invoice's signed payment amount_cents; a negative signed payment is a refund and a negative resulting balance (overpayment) is valid. The result must contain exactly one balance entry per invoice, including INV-C's zero balance, with no omitted, duplicated, added or relabeled invoice IDs. Order of the balance entries is irrelevant. Use integer cents only, never floating-point dollars. The report count must equal the number of balance entries.",

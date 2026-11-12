@@ -1,12 +1,13 @@
-"""Step 2: a batch of step 1's single runs, every harness on every case of every plugin task, side by side.
+"""Step 3: a batch of step 2's single runs, every harness on every case of every plugin task, side by side.
 
 The cases are every cases file (step1_<name>_cases.json) in the `cases` folder, one plugin task each.
-Each run is step 1 in a process of its own, started from step 1's config with its cases file, case
+Each run is step 2 in a process of its own, started from step 2's config with its cases file, case
 and harness (and any overrides) set, in its own folder, <plugin>/<task>/<case>/<harness>, its output
 in <plugin>/<task>/<case>/<harness>.log. The runs share the machine fairly: each gets `cpus_per_run`
 cores, and as many run at once as the machine has cores for, up to `max_parallel` (so the plugins'
-data sources are not asked too much at once); the rest wait for a free place. Where the OS pins
-processes to cores (Linux), each run is held to its own. Each run records the CPU time it used (step 1's cpu_seconds),
+data sources are not asked too much at once); the rest wait for a free place. The runs go round-robin
+by plugin, so those going at once are of different plugins. `plugins` limits the batch to some plugins. Where the OS pins
+processes to cores (Linux), each run is held to its own. Each run records the CPU time it used (step 2's cpu_seconds),
 which shows whether runs still competed. The npx packages the runs start are fetched once before
 them, so no run times a download and no two runs download one package at once.
 
@@ -27,15 +28,15 @@ from pathlib import Path
 from omegaconf import MISSING
 from slimconfig import Config, Layout, Output, Run, Workspace, load_output
 
-from step1_coding_environment import coding_environment, fetch_npm, npm_package_cache
-from step1_single_run import Cases, Harness, logged
+from step2_coding_environment import coding_environment, fetch_npm, npm_package_cache
+from step2_single_run import Cases, Harness, logged
 
-SINGLE_RUN = Path(__file__).with_name("step1_single_run.py")
+SINGLE_RUN = Path(__file__).with_name("step2_single_run.py")
 
 
 @dataclass
 class BatchConfig(Config):
-    # Step 1's config, which every run starts from, and overrides of it for every run (e.g. model=...).
+    # Step 2's config, which every run starts from, and overrides of it for every run (e.g. model=...).
     single_run: str = MISSING
     overrides: list[str] = MISSING
     # The folder of cases files: every step1_<name>_cases.json in it is one plugin task of the batch.
@@ -44,6 +45,8 @@ class BatchConfig(Config):
     answer: int = MISSING
     refuse: int = MISSING
     harnesses: list[Harness] = MISSING
+    # The plugins to run, each with a cases file in `cases` (for a trial); empty runs every plugin.
+    plugins: list[str] = MISSING
     # Cores each run gets.
     cpus_per_run: int = MISSING
     # The most runs that go at once.
@@ -58,7 +61,7 @@ class BatchRun(Output):
     task: str
     case: str
     harness: str
-    # Step 1's exit status (0 when the harness neither failed nor erred), and the run's seconds.
+    # Step 2's exit status (0 when the harness neither failed nor erred), and the run's seconds.
     status: int
     seconds: float
 
@@ -87,6 +90,16 @@ def case_ids(config: BatchConfig, cases: Cases) -> list[str]:
     return [f"{cases.plugin}-{number:02d}" for number in numbers]
 
 
+def interleaved(jobs: list[tuple[Path, Cases, str, Harness]]) -> list[tuple[Path, Cases, str, Harness]]:
+    """The jobs round-robin by plugin, so the runs going at once are of different plugins and no
+    plugin's data source is asked by all its runs together."""
+    by_plugin: dict[str, list] = {}
+    for job in jobs:
+        by_plugin.setdefault(job[1].plugin, []).append(job)
+    rounds = max((len(own) for own in by_plugin.values()), default=0)
+    return [own[i] for i in range(rounds) for own in by_plugin.values() if i < len(own)]
+
+
 class BatchRuns(Run):
     """Run every harness on every case, side by side."""
 
@@ -110,15 +123,20 @@ class BatchRuns(Run):
         jobs = []
         for path in sorted(Path(config.cases).glob("step1_*_cases.json")):
             cases = load_output(str(path), Cases)
+            if config.plugins and cases.plugin not in config.plugins:
+                continue
             if (cases.plugin, cases.task) in tasks:
                 raise ValueError(f"{path} and {tasks[cases.plugin, cases.task]} are both {cases.plugin}'s task {cases.task}")
             tasks[cases.plugin, cases.task] = path
             jobs += [(path, cases, case, harness) for case in case_ids(config, cases) for harness in config.harnesses]
+        unknown = set(config.plugins) - {plugin for plugin, _ in tasks}
+        if unknown:
+            raise ValueError(f"no cases file in {config.cases} for {', '.join(sorted(unknown))}")
         if not jobs:
             raise ValueError(f"the batch has no runs: no cases files in {config.cases}, no cases or no harnesses")
         folder = Path(self.layout.runs).resolve()
         left = [job for job in jobs if not (folder / job[1].plugin / job[1].task / job[2] / job[3].value / "result.json").is_file()]
-        skipped, jobs = len(jobs) - len(left), left
+        skipped, jobs = len(jobs) - len(left), interleaved(left)
         for package in config.packages:
             cache = npm_package_cache(folder, package)
             cache.mkdir(parents=True, exist_ok=True)

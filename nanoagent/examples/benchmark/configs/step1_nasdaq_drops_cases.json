@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "nasdaq-drops",
   "task": "find-drops",
   "context": "Use Nasdaq's public quote API (api.nasdaq.com) with a browser-like User-Agent header. The universe is today's Nasdaq-100 membership: GET https://api.nasdaq.com/api/quote/list-type/nasdaq100, whose data.data.rows give each member's symbol and companyName. For each member, GET https://api.nasdaq.com/api/quote/{symbol}/historical?assetclass=stocks&fromdate=2026-08-01&todate=2026-11-12&limit=9999; the closes are data.tradesTable.rows, with date in MM/DD/YYYY and close as a string like $123.45. Keep only rows on or before 2026-10-30 and sort by date. A stock's start_date is the fifth trading session before 2026-10-30 (2026-10-23); start_close is the close on that date and end_close is the close on 2026-10-30. change_percent is ((end_close / start_close) - 1) * 100, rounded to 2 decimals with half-even. A stock counts when change_percent <= -2.0 (a fall of 2.0% or more, inclusive). List the qualifying stocks in order of ascending change_percent (largest drop first), breaking ties by ascending symbol. Echo as_of, days, and min_drop_percent exactly as given: as_of=2026-10-30, days=5, min_drop_percent=2.0. 2026-10-30 is a Friday and has closed. If no stock qualifies, drops is an empty list.",

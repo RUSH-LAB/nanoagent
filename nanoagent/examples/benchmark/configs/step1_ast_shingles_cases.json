@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "lsh-ast-shingler",
   "task": "count-ast-shingles",
   "context": "Parse the Python snippet with Python's own ast module and list the syntax tree's node class names (Module, Assign, Name, ...) in depth-first preorder: a parent before its children, children in the order of the node's fields. Leave out the Load, Store and Del contexts.\nA shingle is k consecutive entries of that list, so a list of n types has n - k + 1 of them, or none when it is shorter than k. List each distinct shingle once, in order of first occurrence, with its count.\ntotal is how many shingles the list has and distinct how many different ones.\nA snippet that is not valid Python cannot be answered. k is between 1 and 50.",

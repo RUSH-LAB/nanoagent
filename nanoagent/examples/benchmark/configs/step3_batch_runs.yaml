@@ -1,0 +1,20 @@
+_ > step3_batch_runs.BatchConfig:
+
+# Step 2's config, which every run starts from, and overrides of it for every run.
+single_run: examples/benchmark/configs/step2_single_run.yaml
+overrides: []
+# Every step1_<name>_cases.json in this folder is one plugin task of the batch.
+cases: examples/benchmark/configs
+# How many of each task's cases to answer, and of those to refuse, from the first.
+answer: 1
+refuse: 0
+harnesses: [nanoagent, claude, codex, hermes, pi, dsh]
+# The plugins to run (e.g. [city-weather, mate-in-n] for a trial); empty runs every plugin.
+plugins: []
+# Cores each run gets, and the most runs at once. The runs go round-robin by plugin, so the ones at
+# once are of different plugins (Open-Meteo answered city-weather's reference with HTTP 429 when all
+# its runs started together).
+cpus_per_run: 1
+max_parallel: 16
+# The npx packages step 2's harnesses table starts, fetched once before the runs.
+packages: ["@openai/codex@0.167.0", "@deepseek-ai/dsh@0.2.2-rc.1"]

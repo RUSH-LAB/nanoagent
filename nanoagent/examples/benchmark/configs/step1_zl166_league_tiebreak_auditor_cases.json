@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "zl166-league-tiebreak-auditor",
   "task": "audit-league-standings",
   "context": "Compute the league table from these completed matches. Award 3 points for a win, 1 point for a draw, and 0 points for a loss. For each team, count matches played, total points, goals for, goals against, and goal difference (goals for minus goals against). Rank every team in the teams list by points descending, then goal difference descending, then goals for descending, then team id ascending (lexicographic order). Ranks are one-based and are assigned after all tie-breaks, so tied teams occupy distinct ranks in that sorted order. The match list is the complete set of completed matches; there are no other matches.",

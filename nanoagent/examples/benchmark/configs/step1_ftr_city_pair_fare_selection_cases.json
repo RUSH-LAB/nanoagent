@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "ftr-city-pair-fare-selection",
   "task": "book-federal-fare",
   "context": "The trip is a real FY2027 federal booking task. The traveler is a federal civilian (eligible for contract fares). Origin is LAX (Los Angeles, US, CONUS); destination is DEN (Denver, US, CONUS). Because both endpoints are in the US, the City Pair is keyed by the airport codes LAX and DEN. Travel date is 2027-03-02, requested cabin is economy, scheduled journey is 145 minutes, and _CA seats are available. The GSA FY2027 City Pair snapshot has one award row for route DEN-LAX: carrier UA, YCA fare 11700 cents, _CA fare null, _CP fare null, business fare null, effective 2026-10-01 through 2027-09-30 inclusive. The trip request also carries a public fare offer from SG (Sagebrush Air, fictional): fare 9600 cents, not restricted to government, added trip costs 2099 cents. Per diem facts: M&IE rate at Denver/Aurora is 9200 cents/day, travel status is 8070 minutes, and the trip touches 6 calendar days. Apply the handbook's C1\u2013C10 rules exactly.",

@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "pt-policy-revision",
   "task": "revise-policy",
   "context": "Revise a signal-confidence threshold from frozen forecast feedback. A feedback row counts as mature calibration evidence only if its split is 'calibration' and its resolved_at timestamp is on or before the cutoff timestamp (both are UTC; the cutoff is inclusive). Ignore holdout rows and rows that resolve after the cutoff. For a candidate threshold t, each mature row contributes 1 to the cost if its strength is below t; otherwise it contributes 3 if correct is false and 0 if correct is true. The total cost for t is the sum over all mature rows. Choose the candidate with the smallest total cost; if several candidates tie, choose the one with the smallest absolute difference from current_threshold, and if still tied, the smallest threshold. Threshold 101 always abstains, so every mature row has strength below 101 and contributes 1. The output must contain chosen_threshold, losses (one entry per candidate in ascending threshold order, with its total cost), and evidence_ids (the ids of the mature calibration rows, sorted lexicographically). The input includes some holdout and future rows that must not affect the result. All data needed is in the input; no external calls are required.",

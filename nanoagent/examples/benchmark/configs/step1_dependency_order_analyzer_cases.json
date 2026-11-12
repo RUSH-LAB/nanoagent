@@ -1,5 +1,5 @@
 {
-  "_": "step1_single_run.Cases",
+  "_": "step2_single_run.Cases",
   "plugin": "dependency-order-analyzer",
   "task": "plan-installation",
   "context": "The graph is fixed and supplied entirely in the input; no external data is needed. Each dependency is a directed edge prerequisite -> dependent, so the prerequisite must be installed before the dependent. Component IDs are case-sensitive and must be copied exactly, with no normalization; the order of the components and dependencies arrays is irrelevant. If the graph is acyclic, submit kind=order with every declared component exactly once, every prerequisite before its dependent, and cycle=[]; any valid order is accepted, including [] for an empty graph. If the graph contains a directed cycle, submit kind=cycle with order=[] and one simple directed cycle from the actual graph, closing by repeating the first ID last; every consecutive pair must be an actual edge, and any rotation of any actual cycle is accepted. A cycle in any disconnected part of the graph is sufficient; blocked downstream components alone are not a cycle.",
