@@ -91,14 +91,6 @@ class Harness(Enum):
     DSH = "dsh"
 
 
-# Login files relative to the user's home. Claude Code can also use the macOS Keychain.
-LOGIN_FILES = {
-    Harness.CLAUDE: ".claude/.credentials.json",
-    Harness.CODEX: ".codex/auth.json",
-    Harness.HERMES: ".hermes/auth.json",
-}
-
-
 class Provider(Enum):
     OPENROUTER = "openrouter"
 
@@ -141,8 +133,7 @@ class HarnessConfig(Config):
 
     command: list[str] = MISSING
     options: dict[Option, str] = MISSING
-    # A provider without a route here is one the harness does not run on; provider null is its own
-    # login, with no route.
+    # API-key routes by provider. DSH's direct DeepSeek route is built into its adapter.
     routes: dict[Provider, Route] = MISSING
 
 
@@ -182,7 +173,7 @@ class SingleRunConfig(Config):
     case: str = MISSING
     harness: Harness = MISSING
     model: str = MISSING
-    # openrouter, or null for the harness's own login (NanoAgent runs on openrouter only).
+    # OpenRouter, or null for DSH's direct DeepSeek API-key route.
     provider: Provider | None = MISSING
     # USD per million tokens: input, input read from the provider's cache, and output. The run's cost
     # is its tokens at these prices, the same for every harness (input written to the cache is
@@ -426,19 +417,13 @@ def other_runner(config: SingleRunConfig, workspace: Path) -> Iterator[Subproces
     options |= {option.value: value for option, value in settings.options.items()}
     route = None
     credentials: set[str] = set()
-    login_file = None
     if config.provider is None:
         if Option.PROVIDER in settings.options:
             raise ValueError(f"{harness.value} has a provider option set with provider: null")
-        if harness is Harness.DSH:
-            credentials.add("DEEPSEEK_API_KEY")
-        elif harness in LOGIN_FILES:
-            login_file = LOGIN_FILES[harness]
-            if harness is Harness.CLAUDE and not (Path.home() / login_file).is_file():
-                login_file = None  # Claude Code can read its login from the macOS Keychain.
-        else:
-            raise ValueError(f"{harness.value} does not support provider: null")
-        provider = "its own login"
+        if harness is not Harness.DSH:
+            raise ValueError(f"{harness.value} requires a configured API-key provider")
+        credentials.add("DEEPSEEK_API_KEY")
+        provider = "DeepSeek"
     else:
         provider = config.provider.value
         route = settings.routes.get(config.provider)
@@ -449,11 +434,13 @@ def other_runner(config: SingleRunConfig, workspace: Path) -> Iterator[Subproces
             credentials.add(options[Option.API_KEY_ENV.value])
 
     required = credentials | (set(route.env_from.values()) if route is not None else set())
+    if not required:
+        raise ValueError(f"{harness.value} on {provider} requires an API key in its route config")
     missing = sorted(name for name in required if not os.environ.get(name))
     if missing:
         raise ValueError(f"{harness.value} on {provider} needs {', '.join(missing)} set")
     protected = [] if config.batch_runs is None else [Path(config.batch_runs)]
-    with coding_environment(workspace, credential_names=credentials, login_file=login_file, protected=protected) as (prefix, env):
+    with coding_environment(workspace, credential_names=credentials, protected=protected) as (prefix, env):
         if route is not None:
             env |= {variable.value: value for variable, value in route.env.items()}
             env |= {variable.value: os.environ[source] for variable, source in route.env_from.items()}

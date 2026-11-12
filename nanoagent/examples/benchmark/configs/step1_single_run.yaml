@@ -78,6 +78,7 @@ harnesses > dict[step1_single_run.Harness, step1_single_run.HarnessConfig]:
       openrouter:
         options: {provider: openrouter}
         env: {}
+        # Pass the OpenRouter API key into the sandbox so Hermes can read it.
         env_from: {OPENROUTER_API_KEY: OPENROUTER_API_KEY}
   # js/pi-runner, built with `npm ci && npm run build` there; with PI's coding tools.
   pi:

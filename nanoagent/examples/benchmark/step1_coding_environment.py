@@ -11,12 +11,12 @@ from pathlib import Path
 
 @contextmanager
 def coding_environment(
-    workspace: Path, *, credential_names: set[str], login_file: str | None = None, protected: Sequence[Path] = ()
+    workspace: Path, *, credential_names: set[str], protected: Sequence[Path] = ()
 ) -> Iterator[tuple[list[str], dict[str, str]]]:
     """Yield a sandbox command prefix and an environment for one coding harness.
 
     The benchmark outputs tree is hidden except for this attempt's workspace. The caller passes only
-    the variables its route needs and the path of its harness's login file relative to the user's home.
+    the credential variables its API-key route needs.
     """
     workspace = workspace.resolve(strict=True)
     outputs = Path(__file__).resolve().parent / "outputs"
@@ -36,14 +36,6 @@ def coding_environment(
         temp = private / "tmp"
         home.mkdir()
         temp.mkdir()
-        if login_file is not None:
-            source = user_home / login_file
-            if not source.is_file():
-                raise FileNotFoundError(f"native login file is missing: {source}")
-            target = home / login_file
-            target.parent.mkdir(parents=True)
-            shutil.copyfile(source, target)
-            target.chmod(0o600)
         env = {name: os.environ[name] for name in credential_names}
         # Claude Code keeps its temporary files under CLAUDE_CODE_TMPDIR, not TMPDIR.
         env.update(
