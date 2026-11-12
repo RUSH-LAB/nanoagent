@@ -1,0 +1,21 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "financial-covenant-screener",
+  "task": "screen-covenants",
+  "context": "Company covenant facts come from a fixed closed corpus of 26 fictional USD facts, all for fiscal year FY2024.\nEach fact value is its number times its unit scale (million = 1,000,000; thousand = 1,000). For each requested company use only FY2024 facts.\nCorpus:\nEquality Holdings: EH-DEBT Debt 200 million; EH-EBITDA EBITDA 100 million; EH-EBIT EBIT 50 million; EH-INT Interest expense 10 million.\nHigh Leverage Co: HL-DEBT Debt 200010 thousand; HL-EBITDA EBITDA 100 million; HL-EBIT EBIT 60 million; HL-INT Interest expense 10 million.\nLow Coverage Co: LC-DEBT Debt 100 million; LC-EBITDA EBITDA 100 million; LC-EBIT EBIT 49999 thousand; LC-INT Interest expense 10 million.\nMissing Metrics Co: MM-DEBT Debt 100 million; MM-EBITDA EBITDA 50 million; MM-EBIT EBIT 30 million; no interest expense fact.\nNonpositive Co: NP-DEBT Debt 100 million; NP-EBITDA EBITDA 0 million; NP-EBIT EBIT 20 million; NP-INT Interest expense -1 million.\nKnown Fail Missing Co: KF-DEBT Debt 300 million; KF-EBITDA EBITDA 100 million; KF-EBIT EBIT 50 million; no interest expense fact.\nJust Under Co: JU-DEBT Debt 199990 thousand; JU-EBITDA EBITDA 100 million; JU-EBIT EBIT 50001 thousand; JU-INT Interest expense 10 million.\nRules: leverage = Debt / EBITDA and passes iff the exact ratio is <= maximum_leverage. Interest coverage = EBIT / Interest expense and passes iff the exact ratio is >= minimum_interest_coverage. Compare exact Decimal ratios before display rounding; display ratios to two decimal places with ROUND_HALF_UP. Unevaluable covenants display an empty ratio string.\nIf Debt is missing, leverage is unevaluable with reason missing_debt; if EBITDA is missing, reason missing_ebitda; if EBITDA is nonpositive, reason nonpositive_ebitda. If EBIT is missing, coverage is unevaluable with reason missing_ebit; if Interest expense is missing, reason missing_interest_expense; if Interest expense is nonpositive, reason nonpositive_interest_expense. An evaluable covenant that fails adds reason leverage_exceeds_maximum or coverage_below_minimum.\nleverage_source_ids lists available Debt then EBITDA source IDs; coverage_source_ids lists available EBIT then Interest expense source IDs. Reasons are listed leverage first, then coverage.\nA company is fail if any evaluable covenant fails; otherwise insufficient_data if either covenant is unevaluable; otherwise pass. Overall is fail if any company fails, else insufficient_data if any company is insufficient, else pass. Preserve input company order without duplicates.",
+  "answer": [
+    {
+      "companies": [
+        "Nonpositive Co",
+        "Equality Holdings",
+        "High Leverage Co",
+        "Missing Metrics Co",
+        "Low Coverage Co"
+      ],
+      "fiscal_year": "FY2024",
+      "maximum_leverage": "2",
+      "minimum_interest_coverage": "5"
+    }
+  ],
+  "refuse": []
+}

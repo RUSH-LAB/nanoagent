@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "container-stow-planner",
+  "task": "plan-stowage",
+  "context": "The case data is generated deterministically from the seed by an offline SHA-256-based generator; no external data source is needed, and the same seed always yields the same six containers (ids C1..C6, each with a weight in tonnes, a kind dry/reefer/hazmat, and a discharge port 1..4), the plug slots, the stack limit, the balance limit, and a complete draft plan that breaks at least one rule. The draft is guaranteed to be repairable by swapping exactly two containers. Any complete plan that places every container once in a real slot and satisfies all seven stowage rules (no-floating, no-restow, no-crush, reefer-plug, hazmat-separation, stack-weight, balance) for that seed's data is accepted; exactly-at-limit values are allowed.",
+  "answer": [
+    {
+      "seed": 12345
+    }
+  ],
+  "refuse": []
+}

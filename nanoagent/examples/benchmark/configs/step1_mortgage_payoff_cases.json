@@ -1,0 +1,15 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "mortgage-payoff",
+  "task": "simulate-payoff",
+  "context": "Simulate a fixed-rate mortgage payoff month by month in integer cents. The only data are the four inputs; there is no external data source. Use the given outstanding balance, the fixed nominal annual interest rate in basis points (100 bps = 1%), the monthly principal-and-interest payment, and a recurring extra principal payment. A null extra payment means zero extra; an explicit 0 is the same effective value but is not treated as a default. There are no lump-sum payments.\n\nEach month: compute interest on the opening balance as balance * annual_interest_bps / 120000, round to the nearest cent with half-cent ties rounding up, then apply the regular payment plus the extra payment. If the total payment would exceed the balance plus that month's interest, apply only balance plus interest (cap the final payment). If a positive opening balance's first rounded interest charge is greater than or equal to the planned total monthly payment, the plan cannot amortize: report non_amortizing with zero months simulated and no payment applied. Otherwise simulate until payoff or 1200 months (100 years); if unpaid after 1200 months, report search_limit. Interest and payment totals cover only the months actually simulated. A zero starting balance is already paid off with 0 months and 0 interest.\n\nThe main plan uses the regular payment plus the extra payment. Separately compute a baseline using only the regular payment. If both the plan and baseline pay off, months_saved is baseline payoff months minus plan payoff months and interest_saved_cents is baseline total interest minus plan total interest; otherwise both are null. payoff_years is the whole number of years in payoff_months and payoff_additional_months is the remainder. Report all effective assumptions and the fixed 1200-month limit.",
+  "answer": [
+    {
+      "balance_cents": 20000000,
+      "annual_interest_bps": 550,
+      "monthly_payment_cents": 150000,
+      "extra_monthly_payment_cents": 25000
+    }
+  ],
+  "refuse": []
+}

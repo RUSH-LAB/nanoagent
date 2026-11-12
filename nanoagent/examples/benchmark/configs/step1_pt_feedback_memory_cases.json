@@ -1,0 +1,145 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "pt-feedback-memory",
+  "task": "retrieve-memory",
+  "context": "All data is in the input's memories array; no external data source is used. Timestamps are canonical UTC strings and must be compared as UTC instants. A memory is a hit only if resolved_at is nonempty, its resolution timestamp is <= cutoff, and its resolution timestamp is >= cutoff - ttl_days*86400 seconds (both bounds inclusive). Its score is 4 if profile equals the requested profile, plus 2 if symbol equals the requested symbol, plus 1 if regime equals the requested regime; exact string comparisons. If score is 0, or resolved_at is empty, it is not returned. Sort all candidates by score descending, then utility descending, then resolution timestamp descending, then id ascending, and take the first top_k. If there are fewer, return all. If top_k is 0, hits is empty. observed_at is validated but plays no role in retrieval or ranking.",
+  "answer": [
+    {
+      "memories": [
+        {
+          "id": "m-a",
+          "profile": "growth",
+          "symbol": "AAPL",
+          "regime": "bull",
+          "observed_at": "2026-10-01T00:00:00Z",
+          "resolved_at": "2026-10-07T00:00:00Z",
+          "utility": 3
+        },
+        {
+          "id": "m-b",
+          "profile": "growth",
+          "symbol": "AAPL",
+          "regime": "bull",
+          "observed_at": "2026-10-01T00:00:00Z",
+          "resolved_at": "2026-10-08T00:00:00Z",
+          "utility": 3
+        },
+        {
+          "id": "m-c",
+          "profile": "growth",
+          "symbol": "AAPL",
+          "regime": "bull",
+          "observed_at": "2026-10-01T00:00:00Z",
+          "resolved_at": "2026-10-08T00:00:00Z",
+          "utility": 4
+        },
+        {
+          "id": "m-d",
+          "profile": "growth",
+          "symbol": "AAPL",
+          "regime": "bull",
+          "observed_at": "2026-10-01T00:00:00Z",
+          "resolved_at": "2026-10-08T00:00:00Z",
+          "utility": 4
+        },
+        {
+          "id": "m-e",
+          "profile": "growth",
+          "symbol": "AAPL",
+          "regime": "bull",
+          "observed_at": "2026-10-01T00:00:00Z",
+          "resolved_at": "2026-10-09T00:00:00Z",
+          "utility": 4
+        },
+        {
+          "id": "m-f",
+          "profile": "growth",
+          "symbol": "AAPL",
+          "regime": "bear",
+          "observed_at": "2026-10-02T00:00:00Z",
+          "resolved_at": "2026-10-10T00:00:00Z",
+          "utility": 100
+        },
+        {
+          "id": "m-g",
+          "profile": "growth",
+          "symbol": "MSFT",
+          "regime": "bull",
+          "observed_at": "2026-10-02T00:00:00Z",
+          "resolved_at": "2026-10-10T00:00:00Z",
+          "utility": 20
+        },
+        {
+          "id": "m-h",
+          "profile": "growth",
+          "symbol": "MSFT",
+          "regime": "bear",
+          "observed_at": "2026-10-03T00:00:00Z",
+          "resolved_at": "2026-10-11T00:00:00Z",
+          "utility": 50
+        },
+        {
+          "id": "m-i",
+          "profile": "conservative",
+          "symbol": "AAPL",
+          "regime": "bull",
+          "observed_at": "2026-10-03T00:00:00Z",
+          "resolved_at": "2026-10-11T00:00:00Z",
+          "utility": 0
+        },
+        {
+          "id": "m-j",
+          "profile": "conservative",
+          "symbol": "AAPL",
+          "regime": "bear",
+          "observed_at": "2026-10-04T00:00:00Z",
+          "resolved_at": "2026-10-12T00:00:00Z",
+          "utility": -50
+        },
+        {
+          "id": "m-k",
+          "profile": "conservative",
+          "symbol": "MSFT",
+          "regime": "bear",
+          "observed_at": "2026-10-04T00:00:00Z",
+          "resolved_at": "2026-10-13T00:00:00Z",
+          "utility": 100
+        },
+        {
+          "id": "m-l",
+          "profile": "growth",
+          "symbol": "AAPL",
+          "regime": "bull",
+          "observed_at": "2026-10-01T00:00:00Z",
+          "resolved_at": "2026-10-04T00:00:00Z",
+          "utility": 100
+        },
+        {
+          "id": "m-m",
+          "profile": "growth",
+          "symbol": "AAPL",
+          "regime": "bull",
+          "observed_at": "2026-10-10T00:00:00Z",
+          "resolved_at": "2026-10-21T00:00:00Z",
+          "utility": 100
+        },
+        {
+          "id": "m-n",
+          "profile": "growth",
+          "symbol": "AAPL",
+          "regime": "bull",
+          "observed_at": "2026-10-11T00:00:00Z",
+          "resolved_at": "",
+          "utility": 100
+        }
+      ],
+      "profile": "growth",
+      "symbol": "AAPL",
+      "regime": "bull",
+      "cutoff": "2026-10-20T00:00:00Z",
+      "ttl_days": 14,
+      "top_k": 7
+    }
+  ],
+  "refuse": []
+}

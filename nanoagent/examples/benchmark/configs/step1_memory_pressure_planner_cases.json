@@ -1,0 +1,96 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "memory-pressure-planner",
+  "task": "free-memory",
+  "context": "The snapshot is complete in the input: used_mb is os_mb plus the sum of every app's memory_mb, and the apps listed are the only ones open. For this input, os_mb is 1500 and the apps total 17200 MB, so used_mb is 18700; target_mb 12000 therefore needs at least 6700 MB freed. An app is protected, and may not be closed, exactly when it is the foreground app or has unsaved: true. Pick any set of closable apps whose total memory_mb is at least the amount that must be freed and whose total reopen_s is the smallest possible; if several sets tie, any one is acceptable, and the order of names in close does not matter. reopen_s in the output must be the sum of the closed apps' reopen_s. If nothing must be freed, close nothing with possible true. If even closing every closable app frees too little, set possible false, close empty, and reopen_s 0.",
+  "answer": [
+    {
+      "total_mb": 16384,
+      "os_mb": 1500,
+      "apps": [
+        {
+          "name": "Editor",
+          "memory_mb": 4000,
+          "app_class": "foreground",
+          "idle_s": 0,
+          "unsaved": false,
+          "reopen_s": 10
+        },
+        {
+          "name": "Music",
+          "memory_mb": 800,
+          "app_class": "service",
+          "idle_s": 30,
+          "unsaved": false,
+          "reopen_s": 5
+        },
+        {
+          "name": "Chat",
+          "memory_mb": 1200,
+          "app_class": "background",
+          "idle_s": 600,
+          "unsaved": false,
+          "reopen_s": 8
+        },
+        {
+          "name": "Browser",
+          "memory_mb": 2600,
+          "app_class": "cached",
+          "idle_s": 120,
+          "unsaved": false,
+          "reopen_s": 15
+        },
+        {
+          "name": "Mail",
+          "memory_mb": 900,
+          "app_class": "background",
+          "idle_s": 900,
+          "unsaved": false,
+          "reopen_s": 6
+        },
+        {
+          "name": "Sheets",
+          "memory_mb": 1500,
+          "app_class": "visible",
+          "idle_s": 60,
+          "unsaved": true,
+          "reopen_s": 12
+        },
+        {
+          "name": "Photos",
+          "memory_mb": 3000,
+          "app_class": "background",
+          "idle_s": 1800,
+          "unsaved": false,
+          "reopen_s": 20
+        },
+        {
+          "name": "Notes",
+          "memory_mb": 400,
+          "app_class": "cached",
+          "idle_s": 7200,
+          "unsaved": false,
+          "reopen_s": 2
+        },
+        {
+          "name": "Docker",
+          "memory_mb": 2200,
+          "app_class": "service",
+          "idle_s": 300,
+          "unsaved": false,
+          "reopen_s": 25
+        },
+        {
+          "name": "Maps",
+          "memory_mb": 600,
+          "app_class": "cached",
+          "idle_s": 3600,
+          "unsaved": false,
+          "reopen_s": 4
+        }
+      ],
+      "target_mb": 12000
+    }
+  ],
+  "refuse": []
+}

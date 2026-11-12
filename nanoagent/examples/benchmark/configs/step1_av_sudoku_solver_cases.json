@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "av-sudoku-solver",
+  "task": "solve-sudoku",
+  "context": "The puzzle is one of five fixed 9x9 sudoku puzzles stored locally (no network is used). sudoku-01 is the 40-given puzzle and has exactly one solution. A correct submission is solvable: true with a complete nine-row grid that keeps every given digit and has digits 1-9 exactly once in every row, column, and 3x3 box; any solution meeting those rules is accepted. Empty cells are '.', rows are listed top to bottom, and you may ask for each empty cell's remaining candidate digits and for any rows, columns, or boxes that repeat a digit on grids you construct before submitting. For this id, solvable: false is incorrect.",
+  "answer": [
+    {
+      "puzzle_id": "sudoku-01"
+    }
+  ],
+  "refuse": []
+}

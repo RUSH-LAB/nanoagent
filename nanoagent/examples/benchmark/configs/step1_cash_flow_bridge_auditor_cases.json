@@ -1,0 +1,19 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "cash-flow-bridge-auditor",
+  "task": "audit-cash-bridge",
+  "context": "Audit against the authoritative fictional cash-flow records for Aurora Media, FY2024. The records are available from list_cash_records (filter company='Aurora Media') and read_cash_record with these source IDs; the six authorities are: AM24-OPEN opening_cash 100 USD million; AM24-OP operating 50; AM24-INV investing -20; AM24-FIN financing 10; AM24-FX fx_effect -5; AM24-CLOSE closing_cash 135. All amounts are exact ASCII decimal strings in USD million. Compare every proposed field exactly against these values; a Decimal-equal value with different formatting is not a mismatch and authoritative_value must be the source string. Report each mismatch once in bridge field order (opening_cash, operating, investing, financing, fx_effect, closing_cash) with proposed_value as given, authoritative_value from the record, and source_id. corrected_closing_cash is the AM24-CLOSE amount. proposed_residual = Decimal(proposed closing_cash) - (Decimal(opening)+operating+investing+financing+fx_effect), formatted in plain notation without exponent notation.",
+  "answer": [
+    {
+      "company": "Aurora Media",
+      "fiscal_year": "FY2024",
+      "opening_cash": "100",
+      "operating": "45",
+      "investing": "-20",
+      "financing": "12",
+      "fx_effect": "-5",
+      "closing_cash": "135"
+    }
+  ],
+  "refuse": []
+}

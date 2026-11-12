@@ -1,0 +1,19 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "shipping-company-flight-booking",
+  "task": "shipping-company-flight-booking",
+  "context": "Today is 2026-11-12 (UTC), and that is the booking date. The simulated flight world has no commercial airline itineraries on the FCO to BCN route on 2026-12-03: neither FCO nor BCN is a hub of any airline in the world, and no airline's hub lies close enough to connect the two airports within the 35% detour limit the world uses for connections. The only offers that can exist on that route and date are private-jet charters with operator CHARTER, which the policy forbids. The trip is FIXED because date_from equals date_to, so the seven-day advance-booking rule does not restrict the departure day.",
+  "answer": [
+    {
+      "traveller_name": "Giulia Romano",
+      "traveller_type": "EMPLOYEE",
+      "origin": "FCO",
+      "destination": "BCN",
+      "date_from": "2026-12-03",
+      "date_to": "2026-12-03",
+      "wants_business": false,
+      "wants_checked_bag": false
+    }
+  ],
+  "refuse": []
+}

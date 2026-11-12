@@ -1,0 +1,60 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "zl166-protocol-trace-repairer",
+  "task": "repair-protocol-trace",
+  "context": "Replay the deterministic finite-state machine in the input: begin in `initial`, follow `transitions` for each event in `trace` in order; transitions are unique by source and event, so at most one target exists. If a needed transition is absent, that replay is rejected. A trace is accepted when it consumes all events and ends in one of `accepting`. If the original trace is accepted, the canonical repair is kind `none`, index -1, event '', the original trace, and that final state. Otherwise consider every one-edit repair: delete the event at zero-based index i; insert an event before position i (i from 0 through len(trace), inclusive); or replace the event at index i with a different event. Inserted/replacement events may only be event names that occur somewhere in `transitions`. Among all repairs whose edited trace is accepted, choose the smallest index i; break ties by kind order delete, then insert, then replace; break remaining ties by the lexicographically smallest event name. Report the winning repair with its kind, index, event (empty for delete), the accepted repaired trace, and its final state. If no zero- or one-edit repair exists, output kind `unrepairable`, index -1, event '', repaired_trace [], final_state ''.",
+  "answer": [
+    {
+      "states": [
+        "start",
+        "ready",
+        "done",
+        "mid",
+        "after"
+      ],
+      "initial": "start",
+      "accepting": [
+        "done"
+      ],
+      "transitions": [
+        {
+          "source": "start",
+          "event": "open",
+          "target": "ready"
+        },
+        {
+          "source": "ready",
+          "event": "close",
+          "target": "done"
+        },
+        {
+          "source": "done",
+          "event": "save",
+          "target": "done"
+        },
+        {
+          "source": "ready",
+          "event": "retry",
+          "target": "mid"
+        },
+        {
+          "source": "mid",
+          "event": "cancel",
+          "target": "after"
+        },
+        {
+          "source": "after",
+          "event": "close",
+          "target": "done"
+        }
+      ],
+      "trace": [
+        "open",
+        "cancel",
+        "close",
+        "save"
+      ]
+    }
+  ],
+  "refuse": []
+}

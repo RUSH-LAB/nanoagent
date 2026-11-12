@@ -1,0 +1,26 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "commit-semver-bump",
+  "task": "next-release",
+  "context": "Given a MAJOR.MINOR.PATCH current_version and the commit messages since the last release, oldest first, compute the next release and changelog groups. There is no external data source: the input's commit messages are the complete data. Use the first line of each message as its header; any further lines are its body. A header is conventional exactly when it matches type(scope)!: description, where type is one or more lowercase letters, scope is optional and is one or more lowercase letters, digits or hyphens inside parentheses, ! is optional and appears after the type or scope (before the colon and space), and after ': ' the description starts with a non-space character and may contain anything. Any other header (wrong case, missing space after the colon, empty description, bad scope, etc.) is not conventional and contributes nothing. A conventional commit is breaking if its header has the ! or if any body line starts with exactly 'BREAKING CHANGE: ' or 'BREAKING-CHANGE: '; breaking wins over every other classification. Otherwise a conventional commit of type feat is a feature, type fix or perf is a fix, and any other type is other. Other and not-conventional commits are ignored for both the version and the groups. The release level is the highest any commit needs: breaking=major, feature=minor, fix=patch, none otherwise, except that when current_version's major part is 0 a breaking commit needs only minor. Bump by that level: major increments major and sets minor and patch to 0; minor increments minor and sets patch to 0; patch increments patch; none leaves the version unchanged. Versions are exactly three plain numbers without leading zeros, no v prefix, pre-release or build part. The changelog groups list descriptions exactly as they appear after ': ' (not including the ': '), oldest first: all breaking commits' descriptions in breaking, all non-breaking feat commits' descriptions in features, all non-breaking fix/perf commits' descriptions in fixes; a breaking commit is only in breaking, and other/not-conventional commits are nowhere. The output's level, next_version, breaking, features and fixes must follow these rules.",
+  "answer": [
+    {
+      "current_version": "0.9.3",
+      "commits": [
+        "feat(api): add export endpoint",
+        "fix: handle empty input",
+        "perf(db): cache lookups",
+        "docs: update README",
+        "Update stuff",
+        "feat!: drop python 3.8",
+        "refactor: split config module\n\nBREAKING CHANGE: settings moved to config.toml",
+        "chore: bump dependencies",
+        "fix(core): retry on timeout\n\nBREAKING-CHANGE: retries now async",
+        "feat(ui)!: new theme",
+        "perf: cache auth tokens",
+        "feat:missing space"
+      ]
+    }
+  ],
+  "refuse": []
+}

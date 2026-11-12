@@ -1,0 +1,15 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "quake-finder",
+  "task": "find-quakes",
+  "context": "Query the USGS Earthquake Catalog's FDSN event service (https://earthquake.usgs.gov/fdsnws/event/1/query, format=geojson; parameters latitude, longitude, maxradiuskm, starttime, endtime, minmagnitude, orderby=time-asc) for all earthquakes around Lima, Peru. Lima's coordinates are latitude -12.0464, longitude -77.0428, and it uses UTC-05:00 all year (no daylight saving time). The question is for Lima's own calendar year 2007, so the UTC window is 2007-01-01T05:00:00Z inclusive to 2008-01-01T05:00:00Z exclusive. A quake qualifies when it is in that window, its magnitude is at least 6.0 (exact decimal comparison; 6.0 counts), and its great-circle distance from Lima (haversine on a 6371.0 km sphere, rounded to 3 decimals) is at most 400 km. Give every qualifying event's id oldest first. Largest means highest magnitude, ties to the earliest; closest means smallest distance, ties to the earliest; if there are none, event_ids is [], count 0, and largest_id and closest_id are ''.",
+  "answer": [
+    {
+      "city": "Lima",
+      "year": 2007,
+      "min_magnitude": "6.0",
+      "radius_km": 400
+    }
+  ],
+  "refuse": []
+}

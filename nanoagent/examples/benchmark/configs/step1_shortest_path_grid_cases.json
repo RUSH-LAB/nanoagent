@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "shortest-path-grid",
+  "task": "shortest-path",
+  "context": "The puzzle's grid is fixed and given here in full; no other data source is needed. For puzzle_id 'toll-gate', the grid has 3 rows and 7 columns. Its rows, top to bottom, are: row 0: 2222222; row 1: #9####0; row 2: 2222222. A cell is {row, col}, 0-indexed with row 0 at the top and col 0 at the left; the character at row r, column c is grid[r][c]. A digit 0-9 is the cost of entering that open cell, and # is a wall. The start is {row: 0, col: 0} and the target is {row: 2, col: 0}. A path moves one cell up, down, left or right per step, never diagonally, never onto a wall, never off the grid, and never visits a cell twice; its cost is the sum of the digits of every cell on it, the start and target included. Find the path of minimum cost from start to target; a cheaper longer path beats a shorter costly one. Any minimum-cost path is accepted. If the target cannot be reached, answer reachable false, cost null and path []; otherwise give reachable true, the minimum cost, and such a path in order from start to target inclusive.",
+  "answer": [
+    {
+      "puzzle_id": "toll-gate"
+    }
+  ],
+  "refuse": []
+}

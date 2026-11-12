@@ -1,0 +1,25 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "minesweeper-verifier",
+  "task": "play-game",
+  "context": "Play a fixed 5\u00d75 Minesweeper board. Cells are numbered 0 to 24 in row-major order (row = index // 5, column = index % 5). The opening at cell (0,0) is revealed first, and the standard flood-fill through zero-adjacent cells leaves exactly these cells covered: 3, 4, 8, 9, 13, 14, 17, 18, 19, 22, 23, 24. There are exactly four mines, all among those covered cells. The visible clues around the opening imply that each of these sets of covered neighbours contains exactly one mine: [3,8], [3,8,13], [8,13,17,18], [17], [17,22]. The supplied order is a permutation of the 12 covered indices; play the game by revealing cells in that order. Any cell already revealed by flood-fill is skipped. The game stops as soon as a mine is revealed (status 'lost') or as soon as all 21 non-mine cells are revealed (status 'won'). The returned history lists only the explicit reveals as {row, col} pairs in the order they were made, stopping at the terminal reveal. The game_id is an arbitrary identifier chosen for the game.",
+  "answer": [
+    {
+      "order": [
+        8,
+        13,
+        18,
+        22,
+        4,
+        14,
+        19,
+        23,
+        3,
+        9,
+        17,
+        24
+      ]
+    }
+  ],
+  "refuse": []
+}

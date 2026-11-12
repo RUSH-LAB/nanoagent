@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "llm-trace-auditor",
+  "task": "audit-trace",
+  "context": "The audit input is one trace id from a bundled set of LangChain-style run traces of a retrieval-augmented code-explanation agent (retrieve, prompt, chat model, parse; some traces add tools, parallel branches, a judge model, retries, or failures). The record for a trace gives its runs, each with id, parent_id, run_type, start_ms, end_ms, status, error, model, prompt_tokens and completion_tokens, plus a price table in USD per million tokens; parent_id links the runs into a tree with one root (parent_id null), and the runs are listed by id rather than in tree order. Durations are end_ms minus start_ms, in milliseconds from the trace start. Count llm runs including failed ones; sum prompt and completion tokens over all llm runs; cost is the sum over llm runs of prompt_tokens * input_per_million / 1000000 + completion_tokens * output_per_million / 1000000 for that run's model, rounded to 6 decimals. Failed ids are all runs with status error, sorted. The slowest llm run is the one with the longest duration, ties going to the smallest id. The critical path goes from the root to whichever child has the largest end_ms (ties going to the smallest id), repeated until a leaf. Max depth counts the root as 0. Everything must be computed exactly from that trace's own records.",
+  "answer": [
+    {
+      "trace_id": "trace-08-tie"
+    }
+  ],
+  "refuse": []
+}

@@ -1,0 +1,30 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "ce52-grid-game-replay-validator",
+  "task": "replay-grid",
+  "context": "The level data is bundled and fixed; the three original grids, rows top to bottom and one string per row, are: tutorial = ####### / #SKDCE# / #..#..# / #C....# / #######; doors = ######## / #S.DD.E# / #K.#K.C# / #..C...# / ########; boundary = S.K / .D. / C#E. The case_id selects which grid is used. Coordinates are zero-based with x increasing right and y increasing down; the player starts on the single S with keys=0, coins=0, escaped=false. Replay the actions in order using zero-based indices: U moves one cell up, D down, L left, R right, and W waits in place. Moving outside the grid or into a # wall is invalid. A D tile is a locked door, distinct from a D action; entering it requires and consumes one key and permanently changes that tile to '.', and entering without a key is invalid. K and C tiles are collected automatically on entry, giving one key or one coin respectively, then become '.'; revisiting gives nothing. E sets escaped=true and remains E. Once escaped, every later action, including W, is invalid. Invalid actions leave all state unchanged; record their zero-based indices in ascending order. In the final grid, replace S with '.', and consumed K/C and opened D tiles with '.', while keeping all walls, E and untouched tiles unchanged; do not draw the player. The final report must use the same run token and exactly the same case_id and actions as the input, unchanged. No other rounding, ordering or tie-break rules apply.",
+  "answer": [
+    {
+      "case_id": "boundary",
+      "actions": [
+        "U",
+        "L",
+        "R",
+        "R",
+        "D",
+        "L",
+        "L",
+        "D",
+        "R",
+        "U",
+        "R",
+        "R",
+        "R",
+        "W",
+        "L",
+        "U"
+      ]
+    }
+  ],
+  "refuse": []
+}

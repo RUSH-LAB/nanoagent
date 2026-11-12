@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "git-bisect-forensics",
+  "task": "bisect",
+  "context": "The data is a fixed, deterministic history for the `slugify` project, bundled with the task: a linear chain of 48 commits with no branches or merges. Each commit has a position from 1 (the oldest) to 48 (the newest) and a 10-character lowercase hex id. Position 1's tests pass, position 48's tests fail, and exactly one commit in between first makes the tests fail; from then on every later commit fails as well. Skip commits, whose tests cannot be run at all, may appear anywhere in the chain and are neither good nor bad. A commit's status is decided only by running that commit's own test suite (the tests/ directory, with only that commit's files present) in an isolated interpreter: `python -I -B`, unittest discovery, 10-second timeout. Every test passing is good; any test failing or erroring is bad; a commit whose test module does not load (syntax or import error), has no tests, times out, or otherwise cannot be run is skip. Commit messages, titles and diffs are never evidence of status. Commits are presented oldest first with their position, id, date, author and first message line, and test results use the same positions and ids; ids must be copied exactly as they appear in the test results. The answer must name the oldest bad commit, the newest good commit before it, and every skip commit between them, oldest first, and is accepted only if the test runs actually show the oldest bad as bad, the newest good as good, and every commit between them as skip.",
+  "answer": [
+    {
+      "repo": "slugify"
+    }
+  ],
+  "refuse": []
+}

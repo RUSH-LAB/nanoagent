@@ -1,0 +1,24 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "shape-scene-qa",
+  "task": "scene-question",
+  "context": "The scene's picture is 480x320 pixels; x grows to the right and y grows downward, so a smaller y is higher. The scene's objects, as read from the image, are:\n1: small red square, center (137, 26)\n2: small red circle, center (333, 48)\n3: small green circle, center (255, 58)\n4: small blue circle, center (441, 61)\n5: large green circle, center (114, 104)\n6: small green circle, center (219, 120)\n7: small green circle, center (355, 183)\n8: large purple square, center (352, 268)\n\nRules: the anchor is the one object matching every attribute the anchor names ('any' matches everything). The targets are the objects matching every attribute the target names, never the anchor itself. For nearest_to, the relation picks the single target whose center is closest to the anchor's center by squared distance (dx^2 + dy^2); if no target, none is picked; if two targets tie for closest, the question has no one answer. For left_of/right_of/above/below, comparison is strict: an object with the same x is neither left nor right, and the same y is neither above nor below. Answer: for ask 'count' answer the number in digits; for 'exists' answer 'yes' or 'no'; for 'color', 'shape' or 'size' answer that attribute of the single picked object in lowercase. Report the picked objects' ids in ascending order, and the scene name in the output.",
+  "answer": [
+    {
+      "scene": "scene-05",
+      "ask": "shape",
+      "target": {
+        "color": "any",
+        "shape": "any",
+        "size": "any"
+      },
+      "relation": "nearest_to",
+      "anchor": {
+        "color": "purple",
+        "shape": "any",
+        "size": "any"
+      }
+    }
+  ],
+  "refuse": []
+}

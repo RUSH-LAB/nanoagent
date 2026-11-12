@@ -1,0 +1,18 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "pharma-distributor-flight-booking",
+  "task": "pharma-distributor-flight-booking",
+  "context": "Book a one-way flight for a traveller under a pharmaceutical distributor's corporate travel policy. The booking date is today, 2026-11-12 (UTC); the policy is based on a real corporate travel policy. The trip request gives the traveller, origin and destination airport codes (from a list of 68 major airports), the arrival date, and a desired arrival window as two HH:MM times in local standard time at the destination. The agent's tools: get_trip begins a run and returns the trip (including days ahead, the arrival window widened by 90 minutes on each side expressed in UTC, and the departure days to search), search_flights returns the simulated one-way offers on the route for those days (each offer shows its last arrival time in UTC and local, its fare in US cents, cabin, refundability and change fee), and submit records the booking. The rules, in order: (1) if the arrival date is fewer than 7 days after booking (exactly 7 is not), Senior VP approval is required; if it is required and not held, do not book and submit refusal NO_SVP_APPROVAL (no search is needed). (2) Otherwise, consider every offer from the search whose last segment arrives from the window earliest to the window latest, both ends included, in UTC, whatever day it leaves. (3) Book the offer with the lowest fare among those, regardless of cabin, refundability or change fee; if none, refuse with NO_FLIGHT_IN_WINDOW. Submit the run_id from get_trip, booked, refusal (NONE when booked), offer_id (empty when not booked), and svp_approval_required. The flight data is simulated but deterministic per route and departure day; the agent will see exactly what search_flights returns.",
+  "answer": [
+    {
+      "traveller_name": "Maya Chen",
+      "origin": "ORD",
+      "destination": "BOS",
+      "arrival_date": "2026-11-16",
+      "arrive_from": "13:00",
+      "arrive_to": "17:00",
+      "svp_approval": false
+    }
+  ],
+  "refuse": []
+}
