@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "browsing-retry-auditor",
+  "task": "audit-retries",
+  "context": "A deterministic browsing log is generated from the seed alone: it holds 90 to 140 attempts, and the same seed always builds the same log. Your helper returns every (canonical page state, action) pair with that pair's outcomes in step order. For each pair, find its first fail; retry_count is the number of outcomes that come after that first fail. Pairs with no fail, or whose only fail is the last outcome, have no retry and must be left out. Examples: [ok, fail, fail, ok] gives retry_count 2; [fail] and [ok, ok, fail] give none; [fail, ok] gives 1. Submit one entry per retried pair, with state and action exactly as the helper returned them and retry_count of 1 or more; each pair once, and an empty list when nothing was retried. The order of the list does not matter.",
+  "answer": [
+    {
+      "seed": 12345
+    }
+  ],
+  "refuse": []
+}

@@ -1,0 +1,27 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "caption-writer",
+  "task": "caption-the-difference",
+  "context": "Each picture is a 6-by-6 grid of colored pixels, given as six strings of six color letters; the first string is row 1 (top) and the last is row 6 (bottom), and within a string the first character is column 1 (left). The letters are K black, W white, R red, G green, B blue, Y yellow, O orange, P purple. A caption is 1 to 3 facts joined by 'and' or commas. A fact is either '<color> in <region>', true when at least one pixel of that color lies in the region, or 'no <color> in <region>', true when no pixel of that color lies in the region. 'Anywhere' can be used as the region ('<color> anywhere' or 'no <color> anywhere'). Colors are written as words (black, white, red, green, blue, yellow, orange, purple); a color letter such as G also works. Regions are top-left, top-right, bottom-left, bottom-right (the four 3x3 quarters); top half and bottom half (rows 1-3 and 4-6); left half and right half (columns 1-3 and 4-6); row 1 through row 6; column 1 through column 6; and middle (the center 2x2, rows 3-4 and columns 3-4). Case, an optional 'the', and extra spaces are ignored. The caption must be true of the first picture and false of the second: every fact must hold in the first picture, and at least one fact must fail in the second picture. The input is guaranteed to be two valid pictures for which at least one single-fact caption works. No external data is needed; all information is in the two pictures. Submit a JSON object with a caption field.",
+  "answer": [
+    {
+      "first": [
+        "WWGGWW",
+        "WWGWWW",
+        "WWGWWW",
+        "WWGWWW",
+        "WWGWWW",
+        "WWGWWW"
+      ],
+      "second": [
+        "WWGGWW",
+        "WWWGWW",
+        "WWWGWW",
+        "WWWGWW",
+        "WWWGWW",
+        "WWWGWW"
+      ]
+    }
+  ],
+  "refuse": []
+}

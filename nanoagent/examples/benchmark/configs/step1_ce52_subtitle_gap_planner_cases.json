@@ -1,0 +1,15 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "ce52-subtitle-gap-planner",
+  "task": "repair-timeline",
+  "context": "The data source is the built-in 'edges' fixture, whose cues in processing order are:\n- first: start_ms -2000, end_ms -100, text \"Before.\"\n- touch: start_ms -100, end_ms 0, text \"At zero.\"\n- cross: start_ms -50, end_ms 300, text \"Across zero.\"\n- unicode: start_ms 300, end_ms 900, text \"\u3053\u3093\u306b\u3061\u306f \u2014 hello!\"\n- out: start_ms 10000, end_ms 14000, text \"Beyond.\"\n- late: start_ms 100, end_ms 200, text \"Out of order.\"\n\nThe repair algorithm: add offset_ms to each cue's start and end, then clip each endpoint to [0, duration_ms] (max with 0, then min with duration). Process the resulting candidates in the original order above without sorting. Maintain previous_end only from retained cues (initially none). For each candidate, take its clipped start and end; if a previous cue was retained, raise start to max(start, previous_end + gap_ms); leave end unchanged and do not re-clip the adjusted start. Retain the cue exactly when adjusted start < end, recording its id, adjusted start, unchanged end, and exact text, then set previous_end to that end. Otherwise add the id to dropped_ids and leave previous_end unchanged. The first retained cue has no leading gap. Both output lists preserve original order; use [] when empty. All times are integer milliseconds. The result's run field is the run token from the read step, copied unchanged, and the task field must equal the input task exactly.",
+  "answer": [
+    {
+      "case_id": "edges",
+      "offset_ms": -100,
+      "duration_ms": 1000,
+      "gap_ms": 100
+    }
+  ],
+  "refuse": []
+}

@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "av-maze-path",
+  "task": "solve-maze",
+  "context": "The maze is a fixed grid known by the id maze-03, 15 rows tall and 15 columns wide. Rows are given top row first:\n###############\n#S....#...#...#\n#####.#.#.#.#.#\n#...#.#.#...#.#\n#.#.#.#.###.###\n#.#...#.......#\n#.#######.#.#.#\n#.#.....#.#...#\n#.###.#.###.#.#\n#.....#.....#.#\n###########.#.#\n#.#...#.......#\n#.#.#.#.###.###\n#...#........G#\n###############\n\nIn the grid, # is a wall, . is open floor, S is the start and G is the goal. You move one cell at a time up (U), down (D), left (L) or right (R), and you may not move into a wall or outside the grid. Find whether G can be reached and, if it can, the moves of a shortest path from S to G. Submit reachable true and a moves string of exactly one shortest path, or reachable false with an empty moves string if G cannot be reached. The moves string may contain only the letters U, D, L and R. Any shortest path is accepted; there is no tie-break among different shortest paths. A path is judged by replaying it from S: it must never enter a wall, must stay inside the grid, and must end on G.",
+  "answer": [
+    {
+      "puzzle_id": "maze-03"
+    }
+  ],
+  "refuse": []
+}

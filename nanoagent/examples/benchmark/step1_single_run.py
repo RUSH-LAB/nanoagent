@@ -528,17 +528,16 @@ async def other_work(config: SingleRunConfig, case: Case, workspace: Path) -> Wo
     )
 
 
-def unpack(config: SingleRunConfig, folder: Path) -> str:
-    """Unpack the marketplace package into ``folder`` after checking its SHA-256."""
-    plugin = config.cases.plugin
+def unpack(database: str, psql: str, plugin: str, folder: Path) -> str:
+    """Unpack the marketplace package of ``plugin`` into ``folder`` after checking its SHA-256."""
     found = subprocess.run(
-        [config.psql, config.database, "--no-psqlrc", "-At", "-F", "\t", "-v", "ON_ERROR_STOP=1", "-v", f"id={plugin}"],
+        [psql, database, "--no-psqlrc", "-At", "-F", "\t", "-v", "ON_ERROR_STOP=1", "-v", f"id={plugin}"],
         input=PACKAGE_QUERY,
         capture_output=True,
         text=True,
     )
     if found.returncode != 0:
-        raise RuntimeError(f"psql could not read {plugin} from {config.database}: {found.stderr.strip()}")
+        raise RuntimeError(f"psql could not read {plugin} from {database}: {found.stderr.strip()}")
     rows = [line for line in found.stdout.splitlines() if line]
     if len(rows) != 1:
         raise RuntimeError(f"the marketplace has {len(rows)} packages of {plugin}, not one")
@@ -552,6 +551,21 @@ def unpack(config: SingleRunConfig, folder: Path) -> str:
             raise RuntimeError(f"{plugin}'s package holds {sorted(tops)}, not the one folder {plugin}")
         archive.extractall(folder, filter="data")
     return version
+
+
+def isolate() -> PluginPython:
+    """Configure the sandbox plugin tools run in, on this platform; the Python they run on."""
+    kind = {"darwin": "seatbelt", "linux": "bwrap"}.get(sys.platform)
+    if kind is None:
+        raise RuntimeError(f"benchmark isolation is unsupported on {sys.platform}")
+    python = plugin_python(sys.executable)
+    if kind == "bwrap" and Path(sys._base_executable).parent.parent.is_symlink() and "UV_PYTHON_INSTALL_DIR" not in os.environ:
+        # uv-managed venvs may use a version alias as well as the resolved runtime prefix.
+        managed = Path(subprocess.check_output(["uv", "python", "dir"], text=True).strip())
+        if python.prefix.is_relative_to(managed):
+            os.environ["UV_PYTHON_INSTALL_DIR"] = str(managed)
+    sandbox.configure(kind, python)
+    return python
 
 
 @contextmanager
@@ -637,17 +651,8 @@ class SingleRunner(Run):
     def work(self) -> int:
         config = self.config
         arguments, refuse = config.cases.case(config.case)
-        kind = {"darwin": "seatbelt", "linux": "bwrap"}.get(sys.platform)
-        if kind is None:
-            raise RuntimeError(f"benchmark isolation is unsupported on {sys.platform}")
-        python = plugin_python(sys.executable)
-        if kind == "bwrap" and Path(sys._base_executable).parent.parent.is_symlink() and "UV_PYTHON_INSTALL_DIR" not in os.environ:
-            # uv-managed venvs may use a version alias as well as the resolved runtime prefix.
-            managed = Path(subprocess.check_output(["uv", "python", "dir"], text=True).strip())
-            if python.prefix.is_relative_to(managed):
-                os.environ["UV_PYTHON_INSTALL_DIR"] = str(managed)
-        sandbox.configure(kind, python)
-        version = unpack(config, Path(self.layout.plugin))
+        python = isolate()
+        version = unpack(config.database, config.psql, config.cases.plugin, Path(self.layout.plugin))
         with prepared_plugin(Path(self.layout.plugin, config.cases.plugin), python) as folder:
             return self.run_case(folder, version, arguments, refuse)
 

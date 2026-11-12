@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "av-coin-change",
+  "task": "make-change",
+  "context": "The coin problem is fixed: coin values are 9, 14 and 20, each usable any number of times, and the amount to make exactly is 101. Find the fewest coins whose values sum to exactly 101, or determine that no combination does. Coins may be listed in any order, and any equally short correct set is accepted; the number of coins is judged by dynamic programming over all amounts up to 101. Greedy change (always take the largest coin that still fits) is not guaranteed to give the fewest coins and is not guaranteed to finish, so reason about combinations. If the amount cannot be made, report possible false with an empty coins list; otherwise report possible true with the fewest coins and gave_up false.",
+  "answer": [
+    {
+      "puzzle_id": "coins-04"
+    }
+  ],
+  "refuse": []
+}

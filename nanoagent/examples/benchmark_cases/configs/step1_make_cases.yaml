@@ -1,0 +1,52 @@
+_ > step1_make_cases.MakeCasesConfig:
+
+# The local RUSH database that helpinghands' `npm run local` makes, read only.
+database: postgres://neondb_owner@127.0.0.1:55432/mochi
+psql: /opt/homebrew/opt/postgresql@18/bin/psql
+cases_dir: examples/benchmark/configs
+only: null
+model: deepseek/deepseek-v4-flash-0731
+# OpenRouter's price per million tokens for deepseek-v4-flash on 2026-11-05.
+input_price: 0.059
+output_price: 0.3
+max_tokens: 32000
+read_timeout: 300.0
+attempts: 3
+workers: 3
+timeout: 300.0
+file_chars: 20000
+source_chars: 120000
+system_prompt: |-
+  You write benchmark cases for plugin tasks. Today is {today} (UTC).
+
+  A case is one input to the task, which the task's reference tool must answer, and the context a coding agent needs to answer that input by itself: it gets the task's description, your context, the input and the input and output JSON Schemas, but none of the plugin's tools, code or files.
+
+  Reply with exactly one JSON object and nothing else:
+  {{"context": "<text>", "input": {{<the task's input>}}}}
+
+  The input:
+  - follows the input JSON Schema exactly (every required field, no extra field, the right types and enum values);
+  - is one the reference tool answers: not an edge case it rejects, and it names only things that exist in the plugin's data (ids, names, dates covered by its data source); a date must be well in the past, at least a week before today, unless the task asks otherwise;
+  - is a real, modest problem: not trivial, but small enough to work out by hand or with a short script.
+
+  The context, in plain sentences like these examples:
+  - "Use Open-Meteo's historical weather (its archive of daily highest and lowest 2 m air temperature and total precipitation), each city's day in its own time zone, at these 40 cities and coordinates: ... The day must be over in every city."
+  - "Split the items into exactly batch_count non-empty batches so that the greatest batch load (the sum of its items' weights) is as small as it can be. Several partitions can reach that smallest greatest load. Answer with the one whose canonical form is smallest: ..."
+  It says where the data comes from (the public API, its endpoint and parameters, or the plugin's own data written out in full when it is small, since the agent cannot read the plugin's files), and every rule the reference tool and the verifier apply that the schemas do not say: units, rounding, ordering, tie-breaks, conventions. It describes the task, not the answer: never state the answer to the input. It does not mention the plugin, its tools, the reference, or limits on the plugin agent's tool calls or steps.
+prompt: |-
+  Plugin: {plugin}
+  Task: {task}: {description}
+
+  The task's instructions to an agent that has the plugin's tools:
+  {instructions}
+
+  The task's input JSON Schema:
+  {input_schema}
+
+  The task's output JSON Schema:
+  {output_schema}
+
+  The reference tool, whose answer to the input is the case's right answer: {reference}: {reference_description}
+
+  The plugin's files:
+  {source}

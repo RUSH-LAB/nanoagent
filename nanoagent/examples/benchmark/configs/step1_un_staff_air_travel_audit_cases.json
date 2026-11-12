@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "un-staff-air-travel-audit",
+  "task": "audit-un-travel",
+  "context": "Audit this proposed UN official trip under the toy ST/AI/2013/3/Rev.1 handbook. The case facts are: traveller Ingrid Solberg (UNHCR, Division of International Protection, duty station Geneva), traveler_category staff_below_asg, trip_purpose official_business. Origin GVA, destination AMM, departure_date 2027-05-24, request_date 2027-04-24, booking_date 2027-05-04. Proposed itinerary I137 in economy. Her request text notes she chose a cheaper connection through Istanbul and asks whether the nonstop is required. The candidates from GVA to AMM on 2027-05-24 are exactly these seven itineraries, each offering both economy and business (fares in USD cents): I137, two flights of 190 and 180 in-air minutes with a 139-minute connection, total elapsed 509, fares 44800/142000; I139, nonstop, total elapsed 270, fares 61200/188000; I162, total in-air 320 with a 140-minute connection, total elapsed 460, fares 47100/141000; I249, total in-air 335 with a 200-minute connection, total elapsed 535, fares 41300/131000; I273, total in-air 280 with a 120-minute connection, total elapsed 400, fares 64900/191000; I294, total in-air 315 with a 150-minute connection, total elapsed 465, fares 56900/175000; I381, total in-air 300 with a 110-minute connection, total elapsed 410, fares 61700/182000. The most direct route is the least total_elapsed_minutes; a route passes the time rule when its extra minutes over the most direct route are less than 240; the cost rule compares fares in the entitled cabin among the routes that pass the time rule. Dates count calendar days, and 'days before departure' counts from the earlier date to the departure date. The violations list must list each broken rule once in the canonical order CABIN_ABOVE_ENTITLEMENT, ROUTE_EXCEEDS_TIME_LIMIT, ROUTE_NOT_LEAST_COSTLY, LATE_ARRANGEMENT, LATE_REQUEST_ABOVE_ECONOMY, and compliant must be true exactly when the list is empty.",
+  "answer": [
+    {
+      "scenario": "amman-refugee-briefing"
+    }
+  ],
+  "refuse": []
+}

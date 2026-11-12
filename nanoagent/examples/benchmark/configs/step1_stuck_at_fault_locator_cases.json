@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "stuck-at-fault-locator",
+  "task": "locate-fault",
+  "context": "The circuit and its fixed test log are generated deterministically from the seed integer, so the same seed always gives the same circuit; the seed is the only input. The circuit has four primary inputs a,b,c,d; two primary outputs y0,y1; internal nets n1..n6; and eight gates. Each log entry lists the input bits in the inputs order and, in the outputs order, the fault-free expected bits and the observed bits from the faulty device. An entry fails when expected and observed differ; an output is failing if its bit differs in any failing entry. For every net, the trace gives its fault-free value on each log entry (character i is for entry i) and the list of primary outputs it can influence (reaches). Gates: AND, OR, NAND, NOR and XOR read two nets, NOT reads one; XOR is 1 when its inputs differ; each gate drives its own net. Exactly one net is stuck at 0 or 1 on every vector: its driver is ignored and every gate reading it sees the stuck value; any net may be the stuck net, primary inputs included. A candidate fault is a net that reaches every failing output and has the same fault-free trace value on every failing entry; its stuck_value is the opposite of that trace value. This filter yields 2 to 6 candidates. Test each candidate fault against all 6 log entries and count how many entries it reproduces exactly; a correct fault reproduces all 6, and several faults may do so (they behave identically on every input vector), so any one of them is the right answer. A fault that reproduces fewer than 6 is wrong, however close. Save the chosen fault, and submit seed, the saved report path faults/<seed>.json, net and stuck_value exactly as returned when saving.",
+  "answer": [
+    {
+      "seed": 7
+    }
+  ],
+  "refuse": []
+}

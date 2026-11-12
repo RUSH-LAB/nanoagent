@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "sportsbrief-factcheck",
+  "task": "check-claims",
+  "context": "The game 'otters-wolves' is one of the bundled fictional-league games; its full box score is: home team Delta Otters (home score 101), away team Ridge Wolves (away score 95), and these ten player lines, home team first (player, team, minutes, points, rebounds, assists): Rosa Quintero, Delta Otters, 34, 22, 4, 7; Priya Castellanos, Delta Otters, 31, 18, 6, 3; Dario Lenz, Delta Otters, 29, 21, 8, 2; Amara Ekwueme, Delta Otters, 27, 16, 12, 1; Hugo Bastien, Delta Otters, 30, 24, 5, 4; Dmitri Achebe, Ridge Wolves, 33, 20, 13, 1; Tomas Ilunga, Ridge Wolves, 35, 23, 4, 6; Beatriz Faria, Ridge Wolves, 28, 17, 6, 5; Kwame Asante, Ridge Wolves, 26, 19, 7, 2; Lior Haddad, Ridge Wolves, 24, 16, 9, 3. The ten claims, in id order: c01 'Hugo Bastien scored at least 24 points.'; c02 'Dmitri Achebe grabbed more than 12 rebounds.'; c03 'Rosa Quintero handed out at most 6 assists.'; c04 'Amara Ekwueme grabbed exactly 12 rebounds.'; c05 'The Ridge Wolves scored fewer than 95 points.'; c06 'Tomas Ilunga played more than 34 minutes.'; c07 'Teo Lindqvist scored more than 20 points.'; c08 'Priya Castellanos scored exactly 18 points.'; c09 'The Delta Otters scored at most 100 points.'; c10 'Lior Haddad handed out at least 4 assists.'. Judge every claim from this box score alone: a player's number is that player's line's stat; a team's number is its points (101 for Delta Otters, 95 for Ridge Wolves) and no other stat exists for a team. supported when the number satisfies the comparison; contradicted when the box score gives a number but it does not satisfy it (equal to N fails 'more than' and 'fewer than' but satisfies 'at least', 'exactly', 'at most'); not_found with observed null when the player has no line in this game, the team did not play, or the claim asks for a team's rebounds/assists/minutes. Submit ten verdicts in c01..c10 order with observed equal to the looked-up stat value (null exactly for not_found).",
+  "answer": [
+    {
+      "game": "otters-wolves"
+    }
+  ],
+  "refuse": []
+}

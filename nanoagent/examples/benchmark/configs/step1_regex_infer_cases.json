@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "regex-infer",
+  "task": "infer-pattern",
+  "context": "The case is widget-code. Its labelled examples are: accepted: AB-123, ZZ-000, QT-456-R, MN-789, XY-001-R; rejected: A-123, ABC-123, AB-12, AB-1234, ab-123, AB-123-X, AB123, AB-123-R-R. The hidden rule is an invented format; each rejected string is a near miss that breaks one part of it. Write a Python regular expression for the rule. It is matched with re.fullmatch, so it must cover the whole string and needs no anchors. It will be judged on a separate held-out set of similar strings, so it must express the rule, not enumerate the accepted examples shown above. The verifier also refuses a blank, padded, or over-120-character pattern, an invalid regular expression, or a pattern that quantifies a group containing another quantifier.",
+  "answer": [
+    {
+      "case": "widget-code"
+    }
+  ],
+  "refuse": []
+}

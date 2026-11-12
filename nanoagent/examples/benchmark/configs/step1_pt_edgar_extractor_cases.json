@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "pt-edgar-extractor",
+  "task": "extract-fields",
+  "context": "The filing's full text, taken verbatim from the fixed local dataset, is:\nCobalt Ridge Logistics\nFORM 10-Q (excerpt)\nFor the quarterly period ended September 30, 2025\n\nCONDENSED STATEMENTS OF OPERATIONS (in thousands)\n                                3M Sep 2025    3M Sep 2024    9M Sep 2025    9M Sep 2024\nTotal revenues                    1,503,220      1,388,940      4,509,667      4,166,825\nNet income (loss)                   (8,915)         61,330       (26,756)        183,993\n\nCONDENSED BALANCE SHEETS (in thousands)\n                               Sep 30, 2025   Dec 31, 2024\nTotal assets                      5,640,110      5,702,385\n\nExtract exactly three lines: Total revenues (revenue_usd), Net income (loss) (net_income_usd), and Total assets (total_assets_usd); ignore other lines such as cost of revenues, total liabilities and the discussion text. For a 10-K, use the fiscal year ended December 31, 2025 and read the column headers because the Fiscal 2025 / Fiscal 2024 column order can change; use the Fiscal 2025 column, and for Total assets the Dec 31, 2025 balance-sheet column. For a 10-Q, use the three-month column of the latest quarter (3M Sep 2025), never a nine-month column or a prior-year column, and the balance sheet at Sep 30, 2025. The statement heading names the unit: 'in thousands' means multiply by 1,000, 'in millions' by 1,000,000, 'in dollars' by 1; report full US dollars as an integer. A number in parentheses is negative, e.g. (54,307) is -54307 before the unit is applied. If the excerpt does not contain a field, report null for it; never guess and never report 0. Copy the input's filing value exactly into the output.",
+  "answer": [
+    {
+      "filing": "f6"
+    }
+  ],
+  "refuse": []
+}

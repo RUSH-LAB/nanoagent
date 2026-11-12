@@ -1,0 +1,12 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "receipt-top-item",
+  "task": "find-top-item",
+  "context": "The receipt is generated deterministically from a seed integer 0\u2013999,999; each seed yields one fixed grocery receipt. The OCR output lists every word with a bounding box [x0,y0,x1,y1] in pixels, y growing downward, and the words are in shuffled order. Printed lines are 24 pixels apart vertically; OCR jitters each word's y by at most \u00b11 pixel, so words on the same printed line have nearly equal y and never reach a neighbouring line. To reconstruct a line, group words whose y values are within a pixel or two of each other and read them left to right by x. A receipt has a store name line, 3\u20135 item lines, a blank line, then SUBTOTAL, TAX 8.25%, and TOTAL lines. Each item line reads: the item's name (one to three words), an integer quantity, the literal \"x\", a unit price in dollars with two decimals, and, right-aligned at the line's end, the line total in dollars with two decimals (quantity \u00d7 unit price, already printed\u2014do not compute it). Prices and totals are printed with exactly two decimals. The answer is the full item name, exactly as printed and in the right word order, of the single item whose printed line total is highest. That item is guaranteed unique; it is never the item with the highest unit price, and it is not the first or last item line. Submit only that name, for example \"Oat Milk\". The item names come from this fixed list of grocery products: Oat Milk, Whole Milk, Almond Milk, Greek Yogurt, Vanilla Yogurt, Sourdough Bread, Wheat Bread, Cheddar Cheese, Swiss Cheese, Ground Coffee, Coffee Beans, Orange Juice, Apple Juice, Large Eggs, Brown Rice, Basmati Rice, Penne Pasta, Salted Butter, Peanut Butter, Green Tea, Black Tea, Dark Chocolate Bar, Milk Chocolate Bar, Bagels, Bananas, Avocados, Paper Towels, Dish Soap, Olive Oil, Tomato Sauce.",
+  "answer": [
+    {
+      "seed": 42
+    }
+  ],
+  "refuse": []
+}

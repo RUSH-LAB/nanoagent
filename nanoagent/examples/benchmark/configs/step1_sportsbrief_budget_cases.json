@@ -1,0 +1,13 @@
+{
+  "_": "step1_single_run.Cases",
+  "plugin": "sportsbrief-budget",
+  "task": "pack-briefing",
+  "context": "The candidate snippets are the bundled 'morning-brief' set, an invented Gulf Coast Basketball League update. list_snippets with briefing 'morning-brief' returns these 9 snippets with their id, importance (1\u201310) and tokens (whitespace-separated word count): s01: importance 10, 31 tokens; s02: importance 7, 19 tokens; s03: importance 7, 19 tokens; s04: importance 4, 11 tokens; s05: importance 6, 21 tokens; s06: importance 3, 15 tokens; s07: importance 5, 18 tokens; s08: importance 2, 14 tokens; s09: importance 8, 21 tokens. The packing problem is a 0/1 knapsack: choose any subset whose token sum is at most the budget, maximizing total importance. Any subset that reaches the maximum possible importance within the budget is accepted; tie-breaking (fewest tokens, then id order) is only used by the reference to name one selection and is not required of the submission. Report the chosen ids in id order, each once, and compute total_tokens and total_importance as the sums of the chosen snippets' tokens and importances; the verifier expects those sums.",
+  "answer": [
+    {
+      "briefing": "morning-brief",
+      "budget_tokens": 80
+    }
+  ],
+  "refuse": []
+}
