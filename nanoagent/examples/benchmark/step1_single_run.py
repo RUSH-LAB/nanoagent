@@ -54,23 +54,23 @@ from pathlib import Path
 from typing import Any
 
 from omegaconf import MISSING
-from slimconfig import Config, Layout, Output, Run, Workspace, output_schema
+from slimconfig import Config, Layout, Output, Run, Workspace, build_output, output_schema
 
 from nanoagent import __version__
+from nanoagent.core.agent import AgentResult, StopReason
 from nanoagent.harness import Conversation, HarnessProfile
 from nanoagent.harness.base import ProgressSink, Runner, RunnerRequest, RunnerResult
 from nanoagent.harness.nanoagent import NanoAgentConfig
 from nanoagent.harness.subprocess import SubprocessRunner
 from nanoagent.llm.openrouter import OpenRouterConfig
 from nanoagent.plugin import load_manifest
-from nanoagent.plugin.manifest import SUBMIT
 from nanoagent.plugin.runtime import call_tool_async
-from nanoagent.plugin.tasks import run_task
-from nanoagent.plugin.verifier import verify_task
-from nanoagent.profiler import RunProfile, normalize_usage
+from nanoagent.plugin.tasks import PinnedReference, TaskNotSubmitted, run_task
+from nanoagent.plugin.verifier import Verification, verify_task
+from nanoagent.profiler import normalize_usage
 from nanoagent.runtime.build import build_agent
 from nanoagent.runtime.config import AgentDefinitionConfig
-from nanoagent.trajectory.atif import ATIF_VERSION, AtifTrajectory, to_atif
+from nanoagent.trajectory.atif import AtifTrajectory, to_atif
 
 # The marketplace's package of a plugin, one tab-separated line: version, SHA-256, package (base64,
 # which Postgres breaks into lines of 76 characters, joined back here).
@@ -224,7 +224,7 @@ class SingleRun(Output):
     cache_write_tokens: int
     reasoning_tokens: int
     ttft_seconds: float | None
-    generation_seconds: float
+    generation_seconds: float | None
     # RUSH's own work around NanoAgent's agent: pinning the reference before it, checking the output
     # after it (null for other harnesses, and for a part that did not run).
     reference_seconds: float | None
@@ -276,6 +276,7 @@ class Work:
     messages: AtifTrajectory
     reference_seconds: float | None = None
     check_seconds: float | None = None
+    verification: Verification | None = None
 
 
 class Timed:
@@ -323,7 +324,9 @@ def environment(values: dict[str, str]):
                 os.environ[name] = value
 
 
-async def nanoagent_work(config: SingleRunConfig, case: Case, workspace: Path) -> Work:
+async def nanoagent_work(
+    config: SingleRunConfig, case: Case, workspace: Path, reference: PinnedReference, reference_seconds: float
+) -> Work:
     """NanoAgent working the case's plugin task as RUSH Lab does."""
     if config.provider is not Provider.OPENROUTER:
         raise ValueError(f"NanoAgent runs here on OpenRouter only: provider is {config.provider}")
@@ -339,9 +342,8 @@ async def nanoagent_work(config: SingleRunConfig, case: Case, workspace: Path) -
         input_price=config.input_price,
         output_price=config.output_price,
     )
-    started = time.monotonic()
     marks: dict[str, float] = {}
-    runs: list[Any] = []
+    result: AgentResult | None = None
     timeline: list[dict[str, Any]] = []
 
     def make_agent(system_prompt: str):
@@ -355,8 +357,9 @@ async def nanoagent_work(config: SingleRunConfig, case: Case, workspace: Path) -
 
         async def kept(*args: Any, **kwargs: Any):
             # The agent's result, kept even when the task then fails for want of a submission.
-            runs.append(await run(*args, **kwargs))
-            return runs[-1]
+            nonlocal result
+            result = await run(*args, **kwargs)
+            return result
 
         agent.run = kept
         return agent
@@ -368,7 +371,7 @@ async def nanoagent_work(config: SingleRunConfig, case: Case, workspace: Path) -
         if kind in {"task.tool", "task.answer", "task.result", "task.verdict"} and "agent" in marks:
             timeline.append({"t": now - marks["agent"], "type": kind, **({"name": data["name"]} if "name" in data else {})})
 
-    output = refused = None
+    output = refused = error = verification = None
     try:
         outcome = await run_task(
             manifest,
@@ -380,48 +383,35 @@ async def nanoagent_work(config: SingleRunConfig, case: Case, workspace: Path) -
             timeout=config.timeout,
             on_event=on_event,
             stage=lambda _folder: None,
+            pinned_reference=reference,
         )
         output = outcome.output
-    except RuntimeError as error:
-        # NanoAgent refuses a case when its reference tool does, before its agent starts, or when its
-        # agent ends without submitting.
-        refusals = (f"{manifest.id} {task.reference} failed:", f"the agent ended task {task.id!r} without calling {SUBMIT}")
-        if not any(refusal in str(error) for refusal in refusals):
+        verification = outcome.verdict
+    except TaskNotSubmitted as failure:
+        if result is None:
             raise
-        refused = str(error)
+        if result.stop_reason is StopReason.ANSWER:
+            refused = result.answer.strip() or str(failure)
+        elif result.stop_reason is StopReason.ERROR:
+            error = result.error or str(failure)
     ended = time.monotonic()
-    if not runs:
-        # Refused at the reference: the agent never ran, so it has no steps.
-        result_profile, answer = RunProfile(duration_s=0.0, usage={}, cost=0.0).to_dict(), ""
-        agent = {"name": "nanoagent", "version": __version__, "model_name": config.model}
-        metrics = {
-            "total_prompt_tokens": 0,
-            "total_completion_tokens": 0,
-            "total_cached_tokens": 0,
-            "total_steps": 0,
-            "extra": {"cost": 0.0, "stop_reason": "refused"},
-        }
-        messages = AtifTrajectory(schema_version=ATIF_VERSION, session_id=str(uuid.uuid4()), agent=agent, steps=[], final_metrics=metrics)
-    else:
-        result = runs[-1]
-        result_profile, answer = result.profile.to_dict(), result.answer
-        messages = AtifTrajectory.from_dict(
-            to_atif(result, session_id=str(uuid.uuid4()), harness="nanoagent", harness_version=__version__, model=config.model)
-        )
-    agent_started = marks.get("agent", ended)
-    answered = marks.get("answer", ended)
+    assert result is not None
+    messages = AtifTrajectory.from_dict(
+        to_atif(result, session_id=str(uuid.uuid4()), harness="nanoagent", harness_version=__version__, model=config.model)
+    )
     return Work(
-        seconds=answered - agent_started,
-        profile=result_profile,
+        seconds=marks["answer"] - marks["agent"],
+        profile=result.profile.to_dict(),
         timeline=timeline,
-        stop_reason="refused" if refused else "answer",
-        answer=answer,
+        stop_reason="refused" if refused else result.stop_reason.value,
+        answer=result.answer,
         output=output,
         refused=refused,
-        error=None,
+        error=error,
         messages=messages,
-        reference_seconds=agent_started - started,
-        check_seconds=ended - answered if "answer" in marks else None,
+        reference_seconds=reference_seconds,
+        check_seconds=ended - marks["answer"] if verification is not None else None,
+        verification=verification,
     )
 
 
@@ -461,7 +451,10 @@ def read_answer(workspace: Path) -> tuple[dict[str, Any] | None, str | None, str
     if not isinstance(value, dict):
         return None, None, "answer.json is not a JSON object"
     if set(value) == {"refused"}:
-        return None, str(value["refused"]), None
+        reason = value["refused"]
+        if not isinstance(reason, str) or not reason.strip():
+            return None, None, 'answer.json needs a nonempty refusal reason'
+        return None, reason, None
     return value, None, None
 
 
@@ -540,14 +533,23 @@ async def pin(manifest, task, arguments: dict[str, Any], refuse: bool, timeout: 
     return output
 
 
-def judge(manifest, case: Case, work: Work, reference: dict[str, Any] | None, refuse: bool) -> tuple[bool, str]:
+def judge(manifest, task, case: Case, work: Work, reference: dict[str, Any] | None, refuse: bool, workspace: Path) -> tuple[bool, str]:
     """Whether the harness's outcome was right, and why."""
+    if work.error is not None:
+        return False, work.error
     if refuse:
-        return work.refused is not None, work.error or (f"refused: {work.refused}" if work.refused else "answered a case to refuse")
+        return (True, f"refused: {work.refused}") if work.refused else (False, "did not refuse a case to refuse")
+    if work.refused:
+        return False, f"refused a case to answer: {work.refused}"
     if work.output is None:
-        return False, work.error or f"refused a case to answer: {work.refused}"
-    with tempfile.TemporaryDirectory() as scratch:
-        verdict = verify_task(manifest, case.task, case.arguments, work.output, reference, Path(scratch))
+        return False, "did not submit an answer"
+    verdict = work.verification
+    if verdict is None:
+        try:
+            build_output(work.output, task.output_type)
+        except (TypeError, ValueError) as error:
+            return False, f"invalid answer: {error}"
+        verdict = verify_task(manifest, task.id, case.arguments, work.output, reference, workspace)
     return verdict.valid, verdict.message
 
 
@@ -592,7 +594,9 @@ class SingleRunner(Run):
         folder = Path(self.layout.plugin, config.cases.plugin).resolve()
         manifest = load_manifest(folder)
         task = manifest.task(config.cases.task)
+        pin_started = time.monotonic()
         reference = asyncio.run(pin(manifest, task, arguments, refuse, config.timeout))
+        reference_seconds = time.monotonic() - pin_started
         case = Case(
             id=config.case,
             plugin=str(folder),
@@ -608,9 +612,12 @@ class SingleRunner(Run):
         )
         workspace = Path(self.layout.workspace)
         used = cpu()
-        work = asyncio.run(nanoagent_work(config, case, workspace) if config.harness is Harness.NANOAGENT else other_work(config, case, workspace))
+        if config.harness is Harness.NANOAGENT:
+            work = asyncio.run(nanoagent_work(config, case, workspace, PinnedReference(reference), reference_seconds))
+        else:
+            work = asyncio.run(other_work(config, case, workspace))
         used = cpu() - used
-        correct, verdict = judge(manifest, case, work, reference, refuse)
+        correct, verdict = judge(manifest, task, case, work, reference, refuse, workspace)
         own = dict(work.profile)
         reported = own.pop("reported", None)
         usage = normalize_usage(own["usage"])

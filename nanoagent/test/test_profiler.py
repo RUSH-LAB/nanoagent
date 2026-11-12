@@ -42,7 +42,7 @@ def test_an_unstreamed_run_has_no_first_token() -> None:
     step.finish_model_call(step.start_model_call())
     step.finish()
     profile = profiler.snapshot()
-    assert profile.ttft_s is None and profile.generation_s == 0.0
+    assert profile.ttft_s is None and profile.generation_s is None
 
 
 def test_stream_profile_counts_tools_running_together_once() -> None:

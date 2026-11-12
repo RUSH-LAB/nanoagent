@@ -197,9 +197,13 @@ class RunProfile:
         return max(0.0, self.duration_s - self.model_s - self.tools_s)
 
     @property
-    def generation_s(self) -> float:
-        """Time spent streaming tokens: each model call's first token to its last, summed."""
-        return sum(call.generation_s or 0.0 for step in self.steps for call in step.model_calls if call.kind != "tool")
+    def generation_s(self) -> float | None:
+        """Time spent streaming tokens: each model call's first token to its last, summed; None when
+        no call was seen streaming (e.g. Codex's rollout), so an unmeasured run doesn't read as 0."""
+        calls = [call for step in self.steps for call in step.model_calls if call.kind != "tool"]
+        if calls and all(call.generation_s is None for call in calls):
+            return None
+        return sum(call.generation_s or 0.0 for call in calls)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -442,15 +446,18 @@ class StreamProfiler:
         self._running: dict[str, tuple[str, float]] = {}
         self._phase: float | None = None
 
-    def model_start(self) -> StepProfile | None:
+    def model_start(self, at: float | None = None) -> StepProfile | None:
         """A model call starts, opening a step; returns the step this closed, if one was open. A call
-        right after a failed one, with no tools between, retries it: it joins that call's step."""
-        now = self._clock()
+        right after a failed one, with no tools between, retries it: it joins that call's step.
+
+        ``at`` is when the call was asked for, on this profiler's clock, when the harness only shows
+        later that it was (e.g. by the start of its stream); the previous step closes then too."""
+        now = self._clock() if at is None else at
         step = self._step
         if step is not None and step.calls[-1].error is not None and not step.tools:
             step.calls.append(_StreamCall(now))
             return None
-        closed = self.close()
+        closed = self.close(at=now)
         self._step = _StreamStep(now, [_StreamCall(now)], [])
         return closed
 
@@ -493,14 +500,14 @@ class StreamProfiler:
     def tools_running(self) -> bool:
         return bool(self._running)
 
-    def close(self) -> StepProfile | None:
-        """Close the open step, if any, and return it."""
+    def close(self, at: float | None = None) -> StepProfile | None:
+        """Close the open step, if any, now or ``at``, and return it."""
         step, self._step = self._step, None
         if step is None:
             return None
         if self._running:
             raise RuntimeError(f"step {len(self._steps) + 1} closed with tools still running: {sorted(self._running)}")
-        ended = self._clock()
+        ended = self._clock() if at is None else at
         calls = tuple(
             ModelCallProfile(
                 kind="agent",

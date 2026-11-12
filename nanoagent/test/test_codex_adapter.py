@@ -45,7 +45,7 @@ def test_profiles_codexs_session_with_each_calls_usage(tmp_path: Path) -> None:
     profile, reported = codex._profile(session, started, _usage(300))
     first, second = profile.steps
     assert first.model_calls[0].usage["prompt_tokens"] == 100
-    assert first.model_calls[0].duration_s == 2.5  # the turn's start to Codex's record of the response
+    assert first.model_calls[0].duration_s == 2.0  # inferred end at the first tool call
     assert [(tool.name, tool.duration_s, tool.is_error) for tool in first.tool_calls] == [("exec_command", 1.0, True)]
     assert second.model_calls[0].usage == {
         "prompt_tokens": 200,
@@ -58,6 +58,8 @@ def test_profiles_codexs_session_with_each_calls_usage(tmp_path: Path) -> None:
     assert second.model_calls[0].duration_s == 2.5  # asked for at the tool's output, recorded at 6.5
     assert profile.usage["prompt_tokens"] == 300
     assert reported == {"duration_s": 6.0, "ttft_s": 1.5}
+    assert profile.ttft_s is None and profile.generation_s is None
+    assert first.model_s + first.tools_s <= first.duration_s
 
 
 def test_a_provider_with_a_base_url_speaks_the_responses_api() -> None:
@@ -65,3 +67,10 @@ def test_a_provider_with_a_base_url_speaks_the_responses_api() -> None:
     assert flags[1] == 'model_provider="openrouter"'
     assert 'wire_api="responses"' in flags[3] and 'env_key="OPENROUTER_API_KEY"' in flags[3]
     assert codex._provider({"provider": "oss", "local_provider": "ollama"}) == ["--oss", "--local-provider", "ollama"]
+
+
+def test_reconnect_diagnostic_is_not_terminal_failure() -> None:
+    relay = codex._Relay()
+    relay({"type": "error", "message": "Reconnecting"})
+    relay({"type": "turn.completed", "usage": _usage(1)})
+    assert relay.failure is None and relay.usage is not None
