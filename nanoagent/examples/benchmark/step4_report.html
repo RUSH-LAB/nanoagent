@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Harness benchmark</title>
 <style>
-:root { color-scheme: light dark; --bg: #fff; --fg: #1d1d1f; --muted: #6e6e73; --line: #e3e3e6; --soft: #f5f5f7; --accent: #0a66c2; --right: #1a7f37; --wrong: #c62828; }
-@media (prefers-color-scheme: dark) { :root { --bg: #161618; --fg: #ececee; --muted: #9a9aa0; --line: #2e2e33; --soft: #1f1f23; --accent: #6cb0ff; --right: #4ac26b; --wrong: #ff7b72; } }
+:root { color-scheme: light dark; --bg: #fff; --fg: #1d1d1f; --muted: #6e6e73; --line: #e3e3e6; --soft: #f5f5f7; --accent: #0a66c2; --right: #1a7f37; --wrong: #c62828; --ours: rgba(10, 102, 194, 0.07); }
+@media (prefers-color-scheme: dark) { :root { --bg: #161618; --fg: #ececee; --muted: #9a9aa0; --line: #2e2e33; --soft: #1f1f23; --accent: #6cb0ff; --right: #4ac26b; --wrong: #ff7b72; --ours: rgba(108, 176, 255, 0.1); } }
 * { box-sizing: border-box; }
 body { background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
 h1 { font-size: 1.5rem; margin: 0 0 4px; }
@@ -30,6 +30,8 @@ dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margi
 dt { color: var(--muted); } dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .runs { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
 .card { border: 1px solid var(--line); border-radius: 8px; padding: 12px; min-width: 0; }
+.ours { background: var(--ours); }
+.card.ours { border: 2px solid var(--accent); }
 .figures { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 4px 12px; font-size: 13px; margin: 8px 0; font-variant-numeric: tabular-nums; }
 .figures span { color: var(--muted); display: block; font-size: 12px; }
 .label { color: var(--muted); font-size: 12px; margin-top: 8px; }
@@ -46,6 +48,10 @@ button.more { font: inherit; font-size: 12px; border: 0; background: none; color
 "use strict";
 const app = document.getElementById("app");
 const PLUGIN_HARNESS = "nanoagent";
+// How a harness is named on the page; data keys keep the harness's own name.
+const DISPLAY = { nanoagent: "RUSH" };
+const display = (harness) => DISPLAY[harness] ?? harness;
+const ours = (harness) => (harness === PLUGIN_HARNESS ? ' class="ours"' : "");
 const SHORT = 600;
 let summary, state = { query: "", allCodingFailed: false, disagree: false, sort: "plugin", dir: 1 };
 
@@ -95,9 +101,9 @@ function home() {
   document.title = "Harness benchmark";
   const report = summary.report;
   const names = report.harnesses.map((h) => h.harness);
-  const harnessRows = report.harnesses.map((h) => `<tr><td>${esc(h.harness)}</td><td>${h.correct}/${h.runs}</td><td>${num(h.latency_seconds, 1)}s</td><td>${num(h.model_seconds, 1)}s</td><td>${num(h.tools_seconds, 1)}s</td><td>${num(h.overhead_seconds, 1)}s</td><td>${num(h.input_tokens, 0)}</td><td>${num(h.output_tokens, 0)}</td><td>$${num(h.cost, 4)}</td><td>${num(h.cpu_seconds, 1)}s</td></tr>`).join("");
+  const harnessRows = report.harnesses.map((h) => `<tr${ours(h.harness)}><td>${esc(display(h.harness))}</td><td>${h.correct}/${h.runs}</td><td>${num(h.latency_seconds, 1)}s</td><td>${num(h.model_seconds, 1)}s</td><td>${num(h.tools_seconds, 1)}s</td><td>${num(h.overhead_seconds, 1)}s</td><td>${num(h.input_tokens, 0)}</td><td>${num(h.output_tokens, 0)}</td><td>$${num(h.cost, 4)}</td><td>${num(h.cpu_seconds, 1)}s</td></tr>`).join("");
   const failed = rows().filter((row) => row.allCodingFailed);
-  const failedRows = failed.map((row) => `<tr><td><a href="#${encodeURIComponent(row.plugin)}">${esc(row.plugin)}</a> · ${esc(row.task)}</td><td class="reason">${Object.values(row.runs).filter((run) => run.harness !== PLUGIN_HARNESS).map((run) => esc(`${run.harness}: ${run.verdict}`)).join("<br>")}</td></tr>`).join("");
+  const failedRows = failed.map((row) => `<tr><td><a href="#${encodeURIComponent(row.plugin)}">${esc(row.plugin)}</a> · ${esc(row.task)}</td><td class="reason">${Object.values(row.runs).filter((run) => run.harness !== PLUGIN_HARNESS).map((run) => esc(`${display(run.harness)}: ${run.verdict}`)).join("<br>")}</td></tr>`).join("");
   const bugRows = summary.bugs.map((bug) => `<tr><td>${esc(bug.plugin)} · ${esc(bug.task)}</td><td class="reason">${esc(bug.reason)}</td></tr>`).join("");
   app.innerHTML = `
 <h1>Harness benchmark</h1>
@@ -111,7 +117,7 @@ function home() {
   <label><input type="checkbox" id="disagree" ${state.disagree ? "checked" : ""}> harnesses disagree</label>
 </div>
 <p id="count"></p>
-<div class="scroll"><table id="plugins"><thead><tr><th class="sort" data-sort="plugin">Plugin · task</th><th class="sort" data-sort="right">Right</th>${names.map((n) => `<th class="sort" data-sort="${esc(n)}">${esc(n)}</th>`).join("")}</tr></thead><tbody></tbody></table></div>
+<div class="scroll"><table id="plugins"><thead><tr><th class="sort" data-sort="plugin">Plugin · task</th><th class="sort" data-sort="right">Right</th>${names.map((n) => `<th class="sort${n === PLUGIN_HARNESS ? " ours" : ""}" data-sort="${esc(n)}">${esc(display(n))}</th>`).join("")}</tr></thead><tbody></tbody></table></div>
 <h2>Every coding harness failed (${failed.length})</h2>
 <p>For review: plugin tasks every coding harness that ran got wrong, maybe as they need the plugin's tools.</p>
 <div class="scroll"><table><tr><th>Plugin · task</th><th style="text-align:left">Verdicts</th></tr>${failedRows}</table></div>
@@ -127,7 +133,7 @@ function home() {
       .filter((row) => !state.disagree || row.disagree)
       .sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0) * state.dir);
     document.getElementById("count").textContent = `${shown.length} of ${all.length} cases`;
-    document.querySelector("#plugins tbody").innerHTML = shown.map((row) => `<tr><td><a href="#${encodeURIComponent(row.plugin)}">${esc(row.plugin)}</a> · ${esc(row.task)}</td><td>${row.right}/${Object.keys(row.runs).length}</td>${names.map((n) => `<td title="${row.runs[n] ? esc(row.runs[n].verdict) : ""}">${row.runs[n] ? word(row.runs[n].correct) : ""}</td>`).join("")}</tr>`).join("");
+    document.querySelector("#plugins tbody").innerHTML = shown.map((row) => `<tr><td><a href="#${encodeURIComponent(row.plugin)}">${esc(row.plugin)}</a> · ${esc(row.task)}</td><td>${row.right}/${Object.keys(row.runs).length}</td>${names.map((n) => `<td${ours(n)} title="${row.runs[n] ? esc(row.runs[n].verdict) : ""}">${row.runs[n] ? word(row.runs[n].correct) : ""}</td>`).join("")}</tr>`).join("");
     document.querySelectorAll("th.sort").forEach((th) => (th.textContent = th.textContent.replace(/ [▲▼]$/, "") + (th.dataset.sort === state.sort ? (state.dir > 0 ? " ▲" : " ▼") : "")));
   };
   document.getElementById("query").addEventListener("input", (e) => { state.query = e.target.value; draw(); });
@@ -155,8 +161,8 @@ function card(run) {
     ["input tokens", num(r.input_tokens, 0)], ["output tokens", num(r.output_tokens, 0)], ["cost", `$${num(r.cost, 4)}`],
     ["steps", r.steps], ["tool calls", r.tool_calls], ["stop", esc(r.stop_reason)],
   ].map(([k, v]) => `<div><span>${k}</span>${v}</div>`).join("");
-  return `<div class="card">
-<h3>${esc(r.harness)} · ${word(r.correct)}</h3>
+  return `<div class="card${r.harness === PLUGIN_HARNESS ? " ours" : ""}">
+<h3>${esc(display(r.harness))} · ${word(r.correct)}</h3>
 <p>${esc(r.model)}</p>
 <div class="label">verifier</div>${block(r.verdict)}
 <div class="figures">${figures}</div>
@@ -186,7 +192,7 @@ async function detail(plugin) {
 <div class="label">input arguments</div>${block(first.arguments)}
 <div class="label">prompt</div>${block(user ? user.message : "")}
 <div class="label">pinned reference</div>${first.reference == null ? "<p>none (a case to refuse)</p>" : block(first.reference)}
-<h2>Runs</h2><div class="runs">${runs.sort((a, b) => a.result.harness.localeCompare(b.result.harness)).map(card).join("")}</div>`;
+<h2>Runs</h2><div class="runs">${runs.sort((a, b) => (b.result.harness === PLUGIN_HARNESS) - (a.result.harness === PLUGIN_HARNESS) || a.result.harness.localeCompare(b.result.harness)).map(card).join("")}</div>`;
   }).join("");
   window.scrollTo(0, 0);
 }
