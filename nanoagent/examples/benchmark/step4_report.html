@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harness benchmark</title>
+<style>
+:root { color-scheme: light dark; --bg: #fff; --fg: #1d1d1f; --muted: #6e6e73; --line: #e3e3e6; --soft: #f5f5f7; --accent: #0a66c2; --right: #1a7f37; --wrong: #c62828; }
+@media (prefers-color-scheme: dark) { :root { --bg: #161618; --fg: #ececee; --muted: #9a9aa0; --line: #2e2e33; --soft: #1f1f23; --accent: #6cb0ff; --right: #4ac26b; --wrong: #ff7b72; } }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+h1 { font-size: 1.5rem; margin: 0 0 4px; }
+h2 { font-size: 1.15rem; margin: 32px 0 8px; }
+h3 { font-size: 1rem; margin: 0 0 8px; }
+p { color: var(--muted); margin: 0 0 8px; }
+a { color: var(--accent); text-decoration: none; cursor: pointer; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 600; }
+th.sort { cursor: pointer; user-select: none; }
+td.reason { text-align: left; white-space: normal; color: var(--muted); }
+.right { color: var(--right); } .wrong { color: var(--wrong); }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 8px 0; }
+input[type=search] { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); min-width: 0; flex: 1 1 220px; }
+label { color: var(--muted); white-space: nowrap; }
+pre { background: var(--soft); border-radius: 6px; padding: 8px 10px; margin: 4px 0; white-space: pre-wrap; word-break: break-word; font: 12.5px/1.45 ui-monospace, Menlo, monospace; max-height: 480px; overflow: auto; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0 0 8px; }
+dt { color: var(--muted); } dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.runs { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+.card { border: 1px solid var(--line); border-radius: 8px; padding: 12px; min-width: 0; }
+.figures { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 4px 12px; font-size: 13px; margin: 8px 0; font-variant-numeric: tabular-nums; }
+.figures span { color: var(--muted); display: block; font-size: 12px; }
+.label { color: var(--muted); font-size: 12px; margin-top: 8px; }
+details > summary { cursor: pointer; color: var(--accent); margin-top: 8px; }
+.step { border-top: 1px solid var(--line); padding: 6px 0; }
+.role { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; }
+button.more { font: inherit; font-size: 12px; border: 0; background: none; color: var(--accent); cursor: pointer; padding: 0; }
+@media (max-width: 420px) { .runs { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div id="app"><p>Loading…</p></div>
+<script>
+"use strict";
+const app = document.getElementById("app");
+const PLUGIN_HARNESS = "nanoagent";
+const SHORT = 600;
+let summary, state = { query: "", allCodingFailed: false, disagree: false, sort: "plugin", dir: 1 };
+
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const num = (x, d) => (x == null ? "–" : x.toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d }));
+const word = (ok) => `<span class="${ok ? "right" : "wrong"}">${ok ? "right" : "wrong"}</span>`;
+
+// A long text as a <pre> cut to SHORT characters, with a button that shows the rest.
+function block(text) {
+  if (text == null || text === "") return "";
+  const s = typeof text === "string" ? text : JSON.stringify(text, null, 2);
+  if (s.length <= SHORT) return `<pre>${esc(s)}</pre>`;
+  return `<pre data-full="${esc(s)}">${esc(s.slice(0, SHORT))}…</pre><button class="more">show more (${(s.length - SHORT).toLocaleString()} characters)</button>`;
+}
+document.addEventListener("click", (e) => {
+  if (!e.target.matches("button.more")) return;
+  const pre = e.target.previousElementSibling;
+  pre.textContent = pre.dataset.full;
+  e.target.remove();
+});
+
+async function load(path) {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
+  return response.json();
+}
+
+// Rows of the plugin table: one per (plugin, task, case), with each harness's run.
+function rows() {
+  const byKey = new Map();
+  for (const run of summary.report.runs) {
+    const key = `${run.plugin}\u0000${run.task}\u0000${run.case}`;
+    if (!byKey.has(key)) byKey.set(key, { plugin: run.plugin, task: run.task, case: run.case, runs: {} });
+    byKey.get(key).runs[run.harness] = run;
+  }
+  return [...byKey.values()].map((row) => {
+    const own = Object.values(row.runs);
+    const coding = own.filter((run) => run.harness !== PLUGIN_HARNESS);
+    row.right = own.filter((run) => run.correct).length;
+    row.allCodingFailed = coding.length > 0 && coding.every((run) => !run.correct);
+    row.disagree = row.right > 0 && row.right < own.length;
+    return row;
+  });
+}
+
+function home() {
+  document.title = "Harness benchmark";
+  const report = summary.report;
+  const names = report.harnesses.map((h) => h.harness);
+  const harnessRows = report.harnesses.map((h) => `<tr><td>${esc(h.harness)}</td><td>${h.correct}/${h.runs}</td><td>${num(h.latency_seconds, 1)}s</td><td>${num(h.model_seconds, 1)}s</td><td>${num(h.tools_seconds, 1)}s</td><td>${num(h.overhead_seconds, 1)}s</td><td>${num(h.input_tokens, 0)}</td><td>${num(h.output_tokens, 0)}</td><td>$${num(h.cost, 4)}</td><td>${num(h.cpu_seconds, 1)}s</td></tr>`).join("");
+  const failed = rows().filter((row) => row.allCodingFailed);
+  const failedRows = failed.map((row) => `<tr><td><a href="#${encodeURIComponent(row.plugin)}">${esc(row.plugin)}</a> · ${esc(row.task)}</td><td class="reason">${Object.values(row.runs).filter((run) => run.harness !== PLUGIN_HARNESS).map((run) => esc(`${run.harness}: ${run.verdict}`)).join("<br>")}</td></tr>`).join("");
+  const bugRows = summary.bugs.map((bug) => `<tr><td>${esc(bug.plugin)} · ${esc(bug.task)}</td><td class="reason">${esc(bug.reason)}</td></tr>`).join("");
+  app.innerHTML = `
+<h1>Harness benchmark</h1>
+<p>${report.runs.length} runs over ${report.tasks.length} plugin tasks. Figures are means per run.</p>
+<h2>By harness</h2>
+<div class="scroll"><table><tr><th>Harness</th><th>Right</th><th>Latency</th><th>Model</th><th>Tools</th><th>Overhead</th><th>Input tokens</th><th>Output tokens</th><th>Cost</th><th>CPU</th></tr>${harnessRows}</table></div>
+<h2>By plugin</h2>
+<div class="controls">
+  <input type="search" id="query" placeholder="Search plugin, task or case" value="${esc(state.query)}">
+  <label><input type="checkbox" id="allCodingFailed" ${state.allCodingFailed ? "checked" : ""}> every coding harness failed</label>
+  <label><input type="checkbox" id="disagree" ${state.disagree ? "checked" : ""}> harnesses disagree</label>
+</div>
+<p id="count"></p>
+<div class="scroll"><table id="plugins"><thead><tr><th class="sort" data-sort="plugin">Plugin · task</th><th class="sort" data-sort="right">Right</th>${names.map((n) => `<th class="sort" data-sort="${esc(n)}">${esc(n)}</th>`).join("")}</tr></thead><tbody></tbody></table></div>
+<h2>Every coding harness failed (${failed.length})</h2>
+<p>For review: plugin tasks every coding harness that ran got wrong, maybe as they need the plugin's tools.</p>
+<div class="scroll"><table><tr><th>Plugin · task</th><th style="text-align:left">Verdicts</th></tr>${failedRows}</table></div>
+<h2>Plugins with a bug (${summary.bugs.length})</h2>
+<div class="scroll"><table><tr><th>Plugin · task</th><th style="text-align:left">Reason</th></tr>${bugRows}</table></div>`;
+  const all = rows();
+  const draw = () => {
+    const q = state.query.toLowerCase();
+    const key = (row) => (state.sort === "plugin" ? `${row.plugin} ${row.task} ${row.case}` : state.sort === "right" ? row.right : row.runs[state.sort] ? Number(row.runs[state.sort].correct) : -1);
+    const shown = all
+      .filter((row) => `${row.plugin} ${row.task} ${row.case}`.toLowerCase().includes(q))
+      .filter((row) => !state.allCodingFailed || row.allCodingFailed)
+      .filter((row) => !state.disagree || row.disagree)
+      .sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0) * state.dir);
+    document.getElementById("count").textContent = `${shown.length} of ${all.length} cases`;
+    document.querySelector("#plugins tbody").innerHTML = shown.map((row) => `<tr><td><a href="#${encodeURIComponent(row.plugin)}">${esc(row.plugin)}</a> · ${esc(row.task)}</td><td>${row.right}/${Object.keys(row.runs).length}</td>${names.map((n) => `<td title="${row.runs[n] ? esc(row.runs[n].verdict) : ""}">${row.runs[n] ? word(row.runs[n].correct) : ""}</td>`).join("")}</tr>`).join("");
+    document.querySelectorAll("th.sort").forEach((th) => (th.textContent = th.textContent.replace(/ [▲▼]$/, "") + (th.dataset.sort === state.sort ? (state.dir > 0 ? " ▲" : " ▼") : "")));
+  };
+  document.getElementById("query").addEventListener("input", (e) => { state.query = e.target.value; draw(); });
+  for (const id of ["allCodingFailed", "disagree"]) document.getElementById(id).addEventListener("change", (e) => { state[id] = e.target.checked; draw(); });
+  document.querySelectorAll("th.sort").forEach((th) => th.addEventListener("click", () => {
+    state.dir = state.sort === th.dataset.sort ? -state.dir : 1;
+    state.sort = th.dataset.sort;
+    draw();
+  }));
+  draw();
+}
+
+function trajectory(messages) {
+  return messages.steps.map((step) => {
+    const calls = (step.tool_calls || []).map((call) => `<div class="label">call · ${esc(call.function_name)}</div>${block(call.arguments)}`).join("");
+    const results = ((step.observation && step.observation.results) || []).map((r) => `<div class="label">result</div>${block(r.content)}`).join("");
+    return `<div class="step"><div class="role">${step.step_id} · ${esc(step.source)}</div>${step.reasoning_content ? `<div class="label">reasoning</div>${block(step.reasoning_content)}` : ""}${block(step.message)}${calls}${results}</div>`;
+  }).join("");
+}
+
+function card(run) {
+  const r = run.result;
+  const figures = [
+    ["latency", `${num(r.latency_seconds, 1)}s`], ["model", `${num(r.model_seconds, 1)}s`], ["tools", `${num(r.tools_seconds, 1)}s`],
+    ["input tokens", num(r.input_tokens, 0)], ["output tokens", num(r.output_tokens, 0)], ["cost", `$${num(r.cost, 4)}`],
+    ["steps", r.steps], ["tool calls", r.tool_calls], ["stop", esc(r.stop_reason)],
+  ].map(([k, v]) => `<div><span>${k}</span>${v}</div>`).join("");
+  return `<div class="card">
+<h3>${esc(r.harness)} · ${word(r.correct)}</h3>
+<p>${esc(r.model)}</p>
+<div class="label">verifier</div>${block(r.verdict)}
+<div class="figures">${figures}</div>
+${r.refused != null ? `<div class="label">refused</div>${block(r.refused)}` : ""}
+${r.error != null ? `<div class="label">error</div>${block(r.error)}` : ""}
+${r.output != null ? `<div class="label">output</div>${block(r.output)}` : ""}
+<div class="label">last reply</div>${block(r.answer)}
+<details><summary>Trajectory (${run.messages.steps.length} steps)</summary>${trajectory(run.messages)}</details>
+</div>`;
+}
+
+async function detail(plugin) {
+  document.title = `${plugin} · Harness benchmark`;
+  app.innerHTML = `<p><a href="#">← All plugins</a></p><h1>${esc(plugin)}</h1><p>Loading…</p>`;
+  const file = await load(`data/plugins/${encodeURIComponent(plugin)}.json`);
+  const cases = new Map();
+  for (const run of file.runs) {
+    const key = `${run.result.task}\u0000${run.result.case}`;
+    if (!cases.has(key)) cases.set(key, []);
+    cases.get(key).push(run);
+  }
+  app.innerHTML = `<p><a href="#">← All plugins</a></p><h1>${esc(plugin)}</h1>` + [...cases.values()].map((runs) => {
+    const first = runs[0].result;
+    const user = runs[0].messages.steps.find((step) => step.source === "user");
+    return `<h2>${esc(first.task)} · ${esc(first.case)}</h2>
+<dl><dt>Plugin</dt><dd>${esc(first.plugin)} ${esc(first.plugin_version)}</dd><dt>Task</dt><dd>${esc(first.task)}</dd><dt>Kind</dt><dd>${esc(first.expected)}</dd><dt>Right</dt><dd>${runs.filter((run) => run.result.correct).length}/${runs.length}</dd></dl>
+<div class="label">input arguments</div>${block(first.arguments)}
+<div class="label">prompt</div>${block(user ? user.message : "")}
+<div class="label">pinned reference</div>${first.reference == null ? "<p>none (a case to refuse)</p>" : block(first.reference)}
+<h2>Runs</h2><div class="runs">${runs.sort((a, b) => a.result.harness.localeCompare(b.result.harness)).map(card).join("")}</div>`;
+  }).join("");
+  window.scrollTo(0, 0);
+}
+
+function route() {
+  const plugin = decodeURIComponent(location.hash.slice(1));
+  (plugin ? detail(plugin) : Promise.resolve(home())).catch((e) => { app.innerHTML = `<p><a href="#">← All plugins</a></p><p class="wrong">${esc(e.message)}</p>`; });
+}
+
+load("data/summary.json").then((s) => { summary = s; window.addEventListener("hashchange", route); route(); })
+  .catch((e) => { app.innerHTML = `<p class="wrong">${esc(e.message)}</p>`; });
+</script>
+</body>
+</html>

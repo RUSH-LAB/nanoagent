@@ -1,22 +1,32 @@
 """Step 4: the report, from the run folders step 3 wrote (each <plugin>/<task>/<case>/<harness>, step
 2's layout): by harness, how many cases it got right and RUSH's dashboard figures averaged over its
 runs; the same for every plugin task; and every run's own line. Runs of a plugin step 1 marked as having
-a bug are left out. It writes them to report.json, and to page/report.html, one static page that also
-lists, for review, every plugin task each coding harness that ran got wrong (with their verdicts), and
-the plugins step 1 marked as having a bug."""
+a bug are left out. It writes them to report.json, and to page/, a static web app (index.html, its data in data/)
+that browses every run: the tables, filterable and sortable, and for each plugin its case and each
+harness's answer, verdict, figures and trajectory; it also lists, for review, every plugin task each
+coding harness that ran got wrong, and the plugins step 1 marked as having a bug."""
 
-import html
-from dataclasses import dataclass
+import os
+import shutil
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
 from omegaconf import MISSING
-from slimconfig import Config, Folder, Layout, Output, Run, load_layout, load_output
+from slimconfig import Config, Folder, Layout, Output, Run, load_layout, load_output, plain_output, write_output
 
 from step1_make_cases import PluginBugs
 from step2_single_run import SingleRunLayout, logged
 
 # The harness with the plugin's tools; every other harness is a coding harness.
 PLUGIN_HARNESS = "nanoagent"
+# The web app's page, copied into the run's page folder.
+APP = Path(__file__).with_name("step4_report.html")
+# A plugin file's strings are cut to this many characters, and the file must stay under MOST_BYTES.
+LONGEST = 20_000
+MOST_BYTES = 2_000_000
+# What a plugin file leaves out of each result.json.
+DROPPED = ("profile", "timeline")
 FIGURES = ("latency_seconds", "model_seconds", "tools_seconds", "overhead_seconds", "input_tokens", "output_tokens", "cost", "cpu_seconds")
 
 
@@ -78,9 +88,31 @@ class Report(Output):
 
 
 @dataclass
+class Summary(Output):
+    # page/data/summary.json: the report with each verdict cut to 300 characters, and step 1's bugs.
+    report: Report
+    bugs: list[Any]
+
+
+@dataclass
+class PluginRun(Output):
+    # One run: its result.json but its profile and timeline (the trajectory shows those steps), and its
+    # messages.json, as JSON, long strings cut (see clipped).
+    result: Any
+    messages: Any
+
+
+@dataclass
+class PluginFile(Output):
+    # page/data/plugins/<plugin>.json: every run of the plugin, opened by the app when it shows the plugin.
+    plugin: str
+    runs: list[PluginRun]
+
+
+@dataclass
 class ReportLayout(Layout):
     report: Report
-    # report.html, the report as one static page.
+    # The web app: index.html, which reads data/summary.json and data/plugins/<plugin>.json.
     page: Folder
 
 
@@ -93,58 +125,6 @@ def by_harness(runs: list[RunLine]) -> list[HarnessLine]:
     return lines
 
 
-PAGE = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Harness benchmark</title>
-<style>
-:root {{ color-scheme: light dark; --bg: #fff; --fg: #1d1d1f; --muted: #6e6e73; --line: #e3e3e6; --right: #1a7f37; --wrong: #c62828; }}
-@media (prefers-color-scheme: dark) {{ :root {{ --bg: #161618; --fg: #ececee; --muted: #9a9aa0; --line: #2e2e33; --right: #4ac26b; --wrong: #ff7b72; }} }}
-body {{ background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; max-width: 1100px; margin: 0 auto; padding: 24px 16px; }}
-h1 {{ font-size: 1.5rem; margin: 0 0 4px; }}
-h2 {{ font-size: 1.15rem; margin: 32px 0 8px; }}
-p {{ color: var(--muted); margin: 0 0 8px; }}
-.scroll {{ overflow-x: auto; }}
-table {{ border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }}
-th, td {{ padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }}
-th:first-child, td:first-child {{ text-align: left; }}
-th {{ color: var(--muted); font-weight: 600; }}
-td.reason {{ text-align: left; white-space: normal; color: var(--muted); }}
-.right {{ color: var(--right); }}
-.wrong {{ color: var(--wrong); }}
-</style>
-</head>
-<body>
-<h1>Harness benchmark</h1>
-<p>{runs} runs over {tasks} plugin tasks. Figures are means per run.</p>
-<h2>By harness</h2>
-<div class="scroll"><table>
-<tr><th>Harness</th><th>Right</th><th>Latency</th><th>Model</th><th>Tools</th><th>Overhead</th><th>Input tokens</th><th>Output tokens</th><th>Cost</th><th>CPU</th></tr>
-{harness_rows}
-</table></div>
-<h2>By plugin</h2>
-<div class="scroll"><table>
-<tr><th>Plugin · task</th>{harness_heads}</tr>
-{task_rows}
-</table></div>
-<h2>Every coding harness failed ({failed_count})</h2>
-<p>For review: plugin tasks every coding harness that ran got wrong, maybe as they need the plugin's tools.</p>
-<div class="scroll"><table>
-<tr><th>Plugin · task</th><th style="text-align:left">Verdicts</th></tr>
-{failed_rows}
-</table></div>
-<h2>Plugins with a bug ({bug_count})</h2>
-<div class="scroll"><table>
-<tr><th>Plugin · task</th><th style="text-align:left">Reason</th></tr>
-{bug_rows}
-</table></div>
-</body>
-</html>
-"""
-
-
 def coding_failed(runs: list[RunLine]) -> dict[tuple[str, str], list[RunLine]]:
     """Each plugin task that coding harnesses ran and every such run got wrong, with those runs."""
     coding: dict[tuple[str, str], list[RunLine]] = {}
@@ -154,47 +134,15 @@ def coding_failed(runs: list[RunLine]) -> dict[tuple[str, str], list[RunLine]]:
     return {key: own for key, own in sorted(coding.items()) if not any(run.correct for run in own)}
 
 
-def page(report: Report, bugs: PluginBugs) -> str:
-    names = [line.harness for line in report.harnesses]
-    harness_rows = "\n".join(
-        f"<tr><td>{html.escape(line.harness)}</td><td>{line.correct}/{line.runs}</td><td>{line.latency_seconds:.1f}s</td>"
-        f"<td>{line.model_seconds:.1f}s</td><td>{line.tools_seconds:.1f}s</td><td>{line.overhead_seconds:.1f}s</td>"
-        f"<td>{line.input_tokens:,.0f}</td><td>{line.output_tokens:,.0f}</td><td>${line.cost:.4f}</td><td>{line.cpu_seconds:.1f}s</td></tr>"
-        for line in report.harnesses
-    )
-
-    def cell(task: TaskLine, name: str) -> str:
-        own = next((line for line in task.harnesses if line.harness == name), None)
-        if own is None:
-            return "<td></td>"
-        word = "right" if own.correct == own.runs else "wrong"
-        return f'<td class="{word}">{word if own.runs == 1 else f"{own.correct}/{own.runs}"}</td>'
-
-    task_rows = "\n".join(
-        f"<tr><td>{html.escape(f'{task.plugin} · {task.task}')}</td>{''.join(cell(task, name) for name in names)}</tr>" for task in report.tasks
-    )
-    failed = coding_failed(report.runs)
-    failed_rows = "\n".join(
-        f'<tr><td>{html.escape(f"{plugin} · {task}")}</td><td class="reason">'
-        + "<br>".join(html.escape(f"{run.harness}: {run.verdict}") for run in own)
-        + "</td></tr>"
-        for (plugin, task), own in failed.items()
-    )
-    bug_rows = "\n".join(
-        f'<tr><td>{html.escape(f"{bug['plugin']} · {bug['task']}")}</td><td class="reason">{html.escape(bug["reason"])}</td></tr>'
-        for bug in bugs.plugins
-    )
-    return PAGE.format(
-        runs=len(report.runs),
-        tasks=len(report.tasks),
-        harness_rows=harness_rows,
-        harness_heads="".join(f"<th>{html.escape(name)}</th>" for name in names),
-        task_rows=task_rows,
-        failed_count=len(failed),
-        failed_rows=failed_rows,
-        bug_count=len(bugs.plugins),
-        bug_rows=bug_rows,
-    )
+def clipped(value: Any) -> Any:
+    """A JSON value with every string longer than LONGEST cut short, marked with how much was cut."""
+    if isinstance(value, str) and len(value) > LONGEST:
+        return f"{value[:LONGEST]}… [{len(value) - LONGEST:,} more characters cut]"
+    if isinstance(value, dict):
+        return {key: clipped(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [clipped(item) for item in value]
+    return value
 
 
 class GetReport(Run):
@@ -214,10 +162,18 @@ class GetReport(Run):
         bugs = load_output(self.config.bugs, PluginBugs)
         buggy = {bug["plugin"] for bug in bugs.plugins}
         runs = []
+        plugin_runs: dict[str, list[PluginRun]] = {}
         for folder in folders:
-            result = load_layout(folder, SingleRunLayout).result
+            run_layout = load_layout(folder, SingleRunLayout)
+            result = run_layout.result
             if result.plugin in buggy:
                 continue
+            plugin_runs.setdefault(result.plugin, []).append(
+                PluginRun(
+                    result=clipped({key: value for key, value in plain_output(result).items() if key not in DROPPED}),
+                    messages=clipped(plain_output(run_layout.messages)),
+                )
+            )
             runs.append(
                 RunLine(
                     plugin=result.plugin,
@@ -235,8 +191,17 @@ class GetReport(Run):
             for plugin, task in sorted({(run.plugin, run.task) for run in runs})
         ]
         self.layout.report = Report(harnesses=harnesses, tasks=tasks, runs=runs)
-        report_page = Path(self.layout.page) / "report.html"
-        report_page.write_text(page(self.layout.report, bugs), encoding="utf-8")
+        data = Path(self.layout.page) / "data"
+        (data / "plugins").mkdir(parents=True)
+        shown = [replace(run, verdict=run.verdict[:300]) for run in runs]
+        write_output(str(data / "summary.json"), Summary(report=replace(self.layout.report, runs=shown), bugs=bugs.plugins))
+        for plugin, own in plugin_runs.items():
+            path = data / "plugins" / f"{plugin}.json"
+            write_output(str(path), PluginFile(plugin=plugin, runs=own))
+            if os.path.getsize(path) >= MOST_BYTES:
+                raise RuntimeError(f"{path} is {os.path.getsize(path):,} bytes, over the {MOST_BYTES:,} a plugin file may hold")
+        index = Path(self.layout.page) / "index.html"
+        shutil.copyfile(APP, index)
         print(
             f"{'harness':<10} {'right':>6} {'latency':>8} {'model':>7} {'tools':>7} {'overhead':>8} {'input':>9} {'output':>7} {'cost':>8} {'cpu':>6}"
         )
@@ -253,7 +218,7 @@ class GetReport(Run):
                 print(f"{run.harness} · {run.task} · {run.case}: wrong · {run.verdict}")
         for (plugin, task), own in coding_failed(runs).items():
             print(f"every coding harness failed · {plugin} · {task}: " + "; ".join(f"{run.harness}: {run.verdict[:200]}" for run in own))
-        print(f"report.html: {report_page.resolve()}")
+        print(f"{len(plugin_runs)} plugin files; the app: {index.resolve()}")
 
 
 if __name__ == "__main__":
