@@ -70,8 +70,9 @@ export function startLocal() {
   const status = spawnSync(pgBin('pg_ctl'), ['-D', DATA, 'status'], {stdio: 'ignore'});
   if (status.status === 0) return;
   // No pipes: the server inherits them and, on Windows, keeps them open, so spawnSync would never return.
+  // No Unix socket: every client connects over TCP, and a socket path in a deep checkout passes macOS's 103-byte limit.
   const started = spawnSync(pgBin('pg_ctl'), ['-D', DATA, '-l', path.join(LOCAL_DIR, 'server.log'), '-w',
-    '-o', `-p ${PORT} -c listen_addresses=127.0.0.1 -k ${DATA}`, 'start'], {stdio: 'ignore'});
+    '-o', `-p ${PORT} -c listen_addresses=127.0.0.1 -c unix_socket_directories=`, 'start'], {stdio: 'ignore'});
   if (started.error) throw started.error;
   if (started.status !== 0) throw new Error(`pg_ctl exited with status ${started.status}: see ${path.join(LOCAL_DIR, 'server.log')}`);
 }
