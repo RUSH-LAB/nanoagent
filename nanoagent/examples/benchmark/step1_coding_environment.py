@@ -33,7 +33,9 @@ MACOS_SYSTEM = (
     "/opt/homebrew/Cellar",
     "/opt/homebrew/bin",
     "/opt/homebrew/etc/ca-certificates",
+    # Node reads the openssl.cnf of the OpenSSL it links: @3, or @4 since Homebrew moved node to it.
     "/opt/homebrew/etc/openssl@3",
+    "/opt/homebrew/etc/openssl@4",
     "/opt/homebrew/lib",
     "/opt/homebrew/opt",
     "/opt/homebrew/share",
