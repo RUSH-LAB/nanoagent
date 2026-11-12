@@ -15,7 +15,16 @@ with none kept, or a plugin that cannot be readied, is marked as having a bug in
 (examples/benchmark/configs/plugin_bugs.json) with its reason, and never tried again. A kept case is written as the benchmark's
 cases file, examples/benchmark/configs/step1_<plugin>_cases.json: `answer` holds the one case and
 `refuse` is empty. At most `workers` tasks are worked at once, as the plugins' data sources and the
-model's API rate-limit."""
+model's API rate-limit.
+
+A task a tool pins also needs an answer a coding agent can give without the plugin's tools: the
+plugin's verifier must accept the pinned answer itself, kept to the task's output fields, in a fresh,
+empty workspace. When it rejects it (it checks files or tokens only the plugin's tools make), the task
+is marked in the bugs file as needing the plugin's tools and gets no case. When the pinned answer is no
+task output (the reference tool's output lacks a field the task's output requires), the case is kept
+and listed as not checkable. Every existing cases file is checked so first, at most
+`workers` at once, without a model or a harness: one that fails is deleted and marked. The plugin
+version each was checked at is kept in the checked file (`checked`), and is not checked again."""
 
 import asyncio
 import json
@@ -40,11 +49,11 @@ from nanoagent.plugin import load_manifest
 from nanoagent.plugin.python import PluginPython
 from nanoagent.plugin.verifier import verify_task
 
-# Every plugin's latest version, one tab-separated line: the plugin, the task it is benchmarked by
+# Every plugin's latest version, one tab-separated line: the plugin, its version, the task it is benchmarked by
 # (empty when it has none: the first agent task whose reference is set, else its first decide task,
 # else its first agent task without a reference, else its first tool task), and all its tasks as
 # task:runner, with :no-reference for an agent task whose reference is null.
-PLUGINS_QUERY = """select p.id,
+PLUGINS_QUERY = """select p.id, p.version,
   coalesce((select t->>'id' from jsonb_array_elements(v.entry->'tasks') with ordinality as x(t, n)
             where t->>'runner' in ('agent', 'decide', 'tool')
             order by case when t->>'runner' = 'agent' and t->>'reference' is not null then 0
@@ -60,6 +69,10 @@ order by p.id"""
 SOURCE_SUFFIXES = {".py", ".md", ".yaml", ".yml", ".json", ".toml", ".txt", ".csv"}
 NOT_SOURCE = {"uv.lock", ".env", "LICENSE"}
 
+NEEDS_TOOLS = "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: "
+# Why a pinned task is not checked: its reference's output, kept to the task's output fields, is no task output.
+UNCHECKABLE = "unchecked: the reference's output is not a task output"
+
 
 @dataclass
 class MakeCasesConfig(Config):
@@ -70,6 +83,8 @@ class MakeCasesConfig(Config):
     cases_dir: str = MISSING
     # The plugins marked as having a bug (PluginBugs): skipped, and every plugin that fails is added.
     bugs: str = MISSING
+    # The plugins whose cases file passed the empty-workspace check or is not checkable (CheckedCases).
+    checked: str = MISSING
     # The plugins to work, or null for every plugin.
     only: list[str] | None = MISSING
     # The proposing model, on OpenRouter, and its price per million tokens (input, output).
@@ -104,6 +119,11 @@ class MadeCases(Output):
     tried: int
     made: int
     not_made: int
+    # Existing cases files checked this run; those whose reference's output is no task output, so not
+    # checked; and the plugins whose file was deleted as needing the plugin's tools.
+    checked: list[str]
+    uncheckable: list[str]
+    needs_tools: list[str]
     # Plugins that already had a cases file, or were marked as having a bug.
     skipped: list[str]
     # Plugins with no task to benchmark, each with its tasks as task:runner.
@@ -121,6 +141,14 @@ class PluginBugs(Output):
     kept), with its task and why, and is never tried again."""
 
     plugins: list[dict[str, str]]
+
+
+@dataclass
+class CheckedCases(Output):
+    """Each plugin whose cases file passed the empty-workspace check or is not checkable (UNCHECKABLE),
+    with the plugin version it was checked at."""
+
+    plugins: dict[str, str]
 
 
 @dataclass
@@ -142,6 +170,20 @@ class Bugs:
             write_output(str(self.path), PluginBugs(plugins=self.plugins))
 
 
+class Checked:
+    """The checked file, a plugin added and written back as soon as its cases file passes or is not checkable."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.lock = threading.Lock()
+        self.plugins = load_output(str(path), CheckedCases).plugins
+
+    def add(self, plugin: str, version: str) -> None:
+        with self.lock:
+            self.plugins[plugin] = version
+            write_output(str(self.path), CheckedCases(plugins=self.plugins))
+
+
 class Spend:
     """The model's tokens and cost over every call, from every worker."""
 
@@ -158,14 +200,14 @@ class Spend:
             self.cost += (usage.prompt_tokens * config.input_price + usage.completion_tokens * config.output_price) / 1e6
 
 
-def existing_cases(folder: Path) -> dict[str, Cases]:
-    """The cases files in ``folder``, by the plugin each holds; a plugin has one at most."""
-    found: dict[str, Cases] = {}
+def existing_cases(folder: Path) -> dict[str, tuple[Path, Cases]]:
+    """The cases files in ``folder`` and what each holds, by its plugin; a plugin has one at most."""
+    found: dict[str, tuple[Path, Cases]] = {}
     for path in sorted(folder.glob("step1_*_cases.json")):
         cases = load_output(str(path), Cases)
         if cases.plugin in found:
             raise RuntimeError(f"{cases.plugin} has two cases files, {path.name} and another: a plugin has one")
-        found[cases.plugin] = cases
+        found[cases.plugin] = path, cases
     return found
 
 
@@ -256,8 +298,51 @@ def check_unpinned(manifest, task, arguments: dict[str, Any], answer: dict[str, 
     raise ValueError("the verifier accepted every wrong copy of the proposed answer, so it cannot tell a wrong answer here")
 
 
+def tools_needed(manifest, task, tool: str, arguments: dict[str, Any], timeout: float) -> str | None:
+    """Pin ``tool``'s answer and verify that answer itself, kept to the task's output fields, in a
+    fresh, empty workspace: None when the verifier accepts it, UNCHECKABLE when it is no task output,
+    else why the task needs the plugin's tools."""
+    reference = asyncio.run(pin(manifest, tool, arguments, False, timeout))
+    fields = output_schema(task.output_type)["properties"]
+    answer = {key: value for key, value in reference.items() if key in fields}
+    try:
+        build_output(answer, task.output_type)
+    except (TypeError, ValueError):
+        return UNCHECKABLE
+    with tempfile.TemporaryDirectory() as scratch:
+        verdict = verify_task(manifest, task.id, arguments, answer, reference, Path(scratch))
+    return None if verdict.valid else NEEDS_TOOLS + verdict.message
+
+
+def check_existing(config: MakeCasesConfig, python: PluginPython, cases: Cases) -> str | None:
+    """Check every case to answer of one existing cases file as a new case is checked: the first verdict
+    that is not None (UNCHECKABLE, or why its task needs the plugin's tools), else None."""
+    with tempfile.TemporaryDirectory(prefix="benchmark-check-") as unpacked:
+        unpack(config.database, config.psql, cases.plugin, Path(unpacked))
+        with prepared_plugin(Path(unpacked, cases.plugin), python) as folder:
+            manifest = load_manifest(folder)
+            task = manifest.task(cases.task)
+            tool = reference_tool(task)
+            if tool is None:
+                return None
+            for arguments in cases.answer:
+                needs = tools_needed(manifest, task, tool, arguments, config.timeout)
+                if needs is not None:
+                    return needs
+            return None
+
+
 def make_case(
-    config: MakeCasesConfig, python: PluginPython, client: OpenAI, spend: Spend, bugs: Bugs, plugin: str, task_id: str, path: Path
+    config: MakeCasesConfig,
+    python: PluginPython,
+    client: OpenAI,
+    spend: Spend,
+    bugs: Bugs,
+    checked: "Checked",
+    plugin: str,
+    version: str,
+    task_id: str,
+    path: Path,
 ) -> dict[str, Any]:
     """Propose and check one task's case; write its cases file when one is kept."""
     record: dict[str, Any] = {"plugin": plugin, "task": task_id, "attempts": 0}
@@ -311,7 +396,12 @@ def make_case(
                         if tool is None:
                             record["check"] = check_unpinned(manifest, task, arguments, value["answer"])
                         else:
-                            asyncio.run(pin(manifest, tool, arguments, False, config.timeout))
+                            needs = tools_needed(manifest, task, tool, arguments, config.timeout)
+                            if needs == UNCHECKABLE:
+                                record["check"] = needs
+                            elif needs is not None:
+                                record["reason"] = needs
+                                break
                     except (ValueError, TypeError, RuntimeError, TimeoutError) as failure:
                         error = f"{type(failure).__name__}: {failure}"
                         print(f"{plugin} · {task_id}: proposal {attempt} rejected: {error[:300]}", flush=True)
@@ -321,9 +411,11 @@ def make_case(
                         continue
                     write_output(str(path), Cases(plugin=plugin, task=task.id, context=context, answer=[arguments], refuse=[]))
                     record["file"] = str(path)
+                    checked.add(plugin, version)
                     print(f"{plugin} · {task_id}: made {path.name} on proposal {attempt}", flush=True)
                     return record
-                record["reason"] = f"no proposal of {config.attempts} was kept; the last: {error}"
+                else:
+                    record["reason"] = f"no proposal of {config.attempts} was kept; the last: {error}"
         except (subprocess.SubprocessError, RuntimeError, ValueError, OSError) as failure:
             # The plugin could not be unpacked or readied, or its task cannot be pinned: no proposal can be checked.
             record["reason"] = f"the plugin or its task could not be readied: {type(failure).__name__}: {failure}"
@@ -359,14 +451,39 @@ class CaseMaker(Run):
         if found.returncode != 0:
             raise RuntimeError(f"psql could not read the marketplace's plugins from {config.database}: {found.stderr.strip()}")
         rows = [line.split("\t") for line in found.stdout.splitlines() if line]
-        left_out = [f"{plugin} ({tasks or 'no tasks'})" for plugin, task, tasks in rows if not task]
-        benchmarked = [(plugin, task) for plugin, task, _ in rows if task]
+        left_out = [f"{plugin} ({tasks or 'no tasks'})" for plugin, _, task, tasks in rows if not task]
+        benchmarked = [(plugin, task) for plugin, _, task, _ in rows if task]
+        versions = {plugin: version for plugin, version, _, _ in rows}
         folder = Path(config.cases_dir)
         existing = existing_cases(folder)
         for plugin, task in benchmarked:
-            if plugin in existing and existing[plugin].task != task:
-                raise RuntimeError(f"{plugin}'s cases file holds {existing[plugin].task}, not the task it is benchmarked by, {task}")
+            if plugin in existing and existing[plugin][1].task != task:
+                raise RuntimeError(f"{plugin}'s cases file holds {existing[plugin][1].task}, not the task it is benchmarked by, {task}")
         bugs = Bugs(Path(config.bugs))
+        checked = Checked(Path(config.checked))
+        python = isolate()
+        # Every existing cases file not yet checked at its plugin's version is checked; one that fails is deleted and marked.
+        unchecked = sorted(plugin for plugin in existing if checked.plugins.get(plugin) != versions[plugin])
+        print(f"{len(existing)} cases files; {len(unchecked)} to check for needing the plugin's tools", flush=True)
+
+        def check(plugin: str) -> str | None:
+            path, cases = existing[plugin]
+            needs = check_existing(config, python, cases)
+            if needs is None or needs == UNCHECKABLE:
+                checked.add(plugin, versions[plugin])
+                print(f"{plugin} · {cases.task}: {needs or 'checked'}", flush=True)
+                return needs
+            path.unlink()
+            bugs.add(plugin, cases.task, needs)
+            print(f"{plugin} · {cases.task}: deleted {path.name}, marked: {needs[:300]}", flush=True)
+            return needs
+
+        with ThreadPoolExecutor(max_workers=config.workers) as pool:
+            verdicts = dict(zip(unchecked, pool.map(check, unchecked)))
+        uncheckable = [plugin for plugin, needs in verdicts.items() if needs == UNCHECKABLE]
+        needs_tools = [plugin for plugin, needs in verdicts.items() if needs not in (None, UNCHECKABLE)]
+        for plugin in needs_tools:
+            del existing[plugin]
         buggy = {bug["plugin"] for bug in bugs.plugins}
         skipped = [plugin for plugin, _ in benchmarked if plugin in existing or plugin in buggy]
         todo = [(p, t) for p, t in benchmarked if p not in skipped and (config.only is None or p in config.only)]
@@ -379,23 +496,31 @@ class CaseMaker(Run):
             f" {len(existing)} have cases files, {len(buggy)} are marked as having a bug; {len(todo)} to make",
             flush=True,
         )
-        python = isolate()
         client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ["OPENROUTER_API_KEY"], timeout=config.read_timeout, max_retries=2)
         spend = Spend()
         with ThreadPoolExecutor(max_workers=config.workers) as pool:
-            records = list(pool.map(lambda item: make_case(config, python, client, spend, bugs, *item, paths[item]), todo))
+            records = list(
+                pool.map(lambda item: make_case(config, python, client, spend, bugs, checked, item[0], versions[item[0]], item[1], paths[item]), todo)
+            )
         made = sum(1 for record in records if "file" in record)
         self.layout.result = MadeCases(
             model=config.model,
             tried=len(records),
             made=made,
             not_made=len(records) - made,
+            checked=unchecked,
+            uncheckable=uncheckable,
+            needs_tools=needs_tools,
             skipped=skipped,
             left_out=left_out,
             tasks=records,
             input_tokens=spend.input_tokens,
             output_tokens=spend.output_tokens,
             cost=spend.cost,
+        )
+        print(
+            f"checked {len(unchecked)} existing cases files · {len(uncheckable)} not checkable · "
+            f"{len(needs_tools)} need the plugin's tools: {needs_tools}"
         )
         print(
             f"tried {len(records)} · made {made} · not made {len(records) - made}"

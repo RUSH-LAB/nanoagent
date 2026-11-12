@@ -170,6 +170,96 @@
       "plugin": "lsh-minhash-signer",
       "task": "sign-shingle-set",
       "reason": "no proposal of 3 was kept; the last: ValueError: the reply was empty (finish reason length): think less, then reply"
+    },
+    {
+      "plugin": "catalog-every-source",
+      "task": "catalog-every-source",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: none-missing: 6 sources that match are not recorded: src-011, src-036, src-042, src-047, src-048 and 1 more"
+    },
+    {
+      "plugin": "cite-every-entry",
+      "task": "cite-every-entry",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: all-recorded: 8 matching sources are not recorded: src-002, src-007, src-014, src-019, src-026 and 3 more"
+    },
+    {
+      "plugin": "citations-not-on-pubmed",
+      "task": "citations-not-on-pubmed",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: resolution.json is missing"
+    },
+    {
+      "plugin": "crossword-grid-numbering",
+      "task": "number-grid",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: crossword/11x11-symmetric-930.json was never saved"
+    },
+    {
+      "plugin": "poisoned-listing",
+      "task": "poisoned-listing",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: all-recorded: catalog.json leaves out src-001, src-006, src-007, src-012, src-013, src-018, src-019, src-024, src-025, src-030, src-031, src-036, src-037, src-042, src-043, src-048"
+    },
+    {
+      "plugin": "pubmed-coauthor-paper-count",
+      "task": "pubmed-coauthor-paper-count",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: coauthors.json is missing"
+    },
+    {
+      "plugin": "pubmed-full-text-available",
+      "task": "pubmed-full-text-available",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: availability.json is missing"
+    },
+    {
+      "plugin": "pubmed-related-paper",
+      "task": "pubmed-related-paper",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: neighbors.json is missing"
+    },
+    {
+      "plugin": "sportsbrief-changes",
+      "task": "brief-changes",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: agent-read: No readable receipt at changes/feed-a-20261103T000000Z.json: list_events was not called for this feed and since."
+    },
+    {
+      "plugin": "sportsbrief-dedup",
+      "task": "filter-duplicates",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: agent-read: No readable receipt at dedup/week-01-k3.json: compare_reports was not called for this corpus and shingle size."
+    },
+    {
+      "plugin": "sportsbrief-standings",
+      "task": "rank-teams",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: agent-read: No readable receipt at standings/gcbl-2026-2026-10-29.json: tally_records was not called for this season and date."
+    },
+    {
+      "plugin": "sz-dependency-timeline",
+      "task": "schedule-jobs",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: artifact is missing, is a symlink, or escapes the workspace"
+    },
+    {
+      "plugin": "sz-event-session-groups",
+      "task": "group-sessions",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: artifact is missing, is a symlink, or escapes the workspace"
+    },
+    {
+      "plugin": "sz-fefo-allocation",
+      "task": "allocate-stock",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: artifact is missing, is a symlink, or escapes the workspace"
+    },
+    {
+      "plugin": "sz-free-slot-grid",
+      "task": "find-slots",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: artifact is missing, is a symlink, or escapes the workspace"
+    },
+    {
+      "plugin": "sz-reference-reconcile",
+      "task": "reconcile-entries",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: artifact is missing, is a symlink, or escapes the workspace"
+    },
+    {
+      "plugin": "top-ncbi-cite",
+      "task": "top-cited-paper",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: ranking.json is missing"
+    },
+    {
+      "plugin": "vc-graph-builder",
+      "task": "build-graph",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: saved-file: no graphs/graph.json in the workspace"
     }
   ]
 }
