@@ -750,7 +750,7 @@ timeout: 60.0
         encoding="utf-8",
     )
     (tmp_path / "given.txt").write_text("a file the task reads", encoding="utf-8")
-    (tmp_path / "arguments.json").write_text('{"value": "hello"}', encoding="utf-8")
+    (tmp_path / "arguments.json").write_text('{"_": "contract.EchoInput", "value": "hello"}', encoding="utf-8")
     home = tmp_path / "run"
     monkeypatch.setattr(sys, "argv", ["nanoagent", "plugin", "run"])
     with pytest.raises(SystemExit) as exit_:
@@ -826,7 +826,7 @@ timeout: 60.0
 """,
         encoding="utf-8",
     )
-    (tmp_path / "arguments.json").write_text('{"value": "hello"}', encoding="utf-8")
+    (tmp_path / "arguments.json").write_text('{"_": "contract.EchoInput", "value": "hello"}', encoding="utf-8")
     home = tmp_path / "run"
     monkeypatch.setattr(sys, "argv", ["nanoagent", "plugin", "agent"])
     with pytest.raises(SystemExit) as exit_:
