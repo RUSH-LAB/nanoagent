@@ -105,3 +105,25 @@ def test_coding_answer_cannot_point_outside_workspace(tmp_path: Path) -> None:
     answer.unlink()
     answer.write_text('{"answer": true}')
     assert read_answer(workspace) == ({"answer": True}, None, None)
+
+
+def test_the_manifest_decides_what_pins_a_case() -> None:
+    import asyncio
+    from types import SimpleNamespace
+
+    from step1_single_run import pin, reference_tool
+
+    def task(runner: str, reference: str | None) -> SimpleNamespace:
+        return SimpleNamespace(id="t", runner=runner, reference=reference, tools=("work",))
+
+    assert reference_tool(task("agent", "solve")) == "solve"
+    assert reference_tool(task("decide", "solve")) == "solve"
+    assert reference_tool(task("tool", "solve")) == "solve"
+    # RUSH gives a tool task's one tool's output; an agent task with no reference is judged without one.
+    assert reference_tool(task("tool", None)) == "work"
+    assert reference_tool(task("agent", None)) is None
+    assert asyncio.run(pin(None, None, {"x": 1}, False, 1.0)) is None
+    with pytest.raises(ValueError, match="cannot pin a decide task"):
+        reference_tool(task("decide", None))
+    with pytest.raises(ValueError, match="cannot pin a review task"):
+        reference_tool(task("review", None))
