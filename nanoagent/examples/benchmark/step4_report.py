@@ -1,7 +1,9 @@
 """Step 4: the report, from the run folders step 3 wrote (each <plugin>/<task>/<case>/<harness>, step
 2's layout): by harness, how many cases it got right and RUSH's dashboard figures averaged over its
-runs; the same for every plugin task; and every run's own line. It writes them to report.json, and to
-page/report.html, one static page that also lists the plugins step 1 marked as having a bug."""
+runs; the same for every plugin task; and every run's own line. Runs of a plugin step 1 marked as having
+a bug are left out. It writes them to report.json, and to page/report.html, one static page that also
+lists, for review, every plugin task each coding harness that ran got wrong (with their verdicts), and
+the plugins step 1 marked as having a bug."""
 
 import html
 from dataclasses import dataclass
@@ -13,6 +15,8 @@ from slimconfig import Config, Folder, Layout, Output, Run, load_layout, load_ou
 from step1_make_cases import PluginBugs
 from step2_single_run import SingleRunLayout, logged
 
+# The harness with the plugin's tools; every other harness is a coding harness.
+PLUGIN_HARNESS = "nanoagent"
 FIGURES = ("latency_seconds", "model_seconds", "tools_seconds", "overhead_seconds", "input_tokens", "output_tokens", "cost", "cpu_seconds")
 
 
@@ -125,6 +129,12 @@ td.reason {{ text-align: left; white-space: normal; color: var(--muted); }}
 <tr><th>Plugin · task</th>{harness_heads}</tr>
 {task_rows}
 </table></div>
+<h2>Every coding harness failed ({failed_count})</h2>
+<p>For review: plugin tasks every coding harness that ran got wrong, maybe as they need the plugin's tools.</p>
+<div class="scroll"><table>
+<tr><th>Plugin · task</th><th style="text-align:left">Verdicts</th></tr>
+{failed_rows}
+</table></div>
 <h2>Plugins with a bug ({bug_count})</h2>
 <div class="scroll"><table>
 <tr><th>Plugin · task</th><th style="text-align:left">Reason</th></tr>
@@ -133,6 +143,15 @@ td.reason {{ text-align: left; white-space: normal; color: var(--muted); }}
 </body>
 </html>
 """
+
+
+def coding_failed(runs: list[RunLine]) -> dict[tuple[str, str], list[RunLine]]:
+    """Each plugin task that coding harnesses ran and every such run got wrong, with those runs."""
+    coding: dict[tuple[str, str], list[RunLine]] = {}
+    for run in runs:
+        if run.harness != PLUGIN_HARNESS:
+            coding.setdefault((run.plugin, run.task), []).append(run)
+    return {key: own for key, own in sorted(coding.items()) if not any(run.correct for run in own)}
 
 
 def page(report: Report, bugs: PluginBugs) -> str:
@@ -154,6 +173,13 @@ def page(report: Report, bugs: PluginBugs) -> str:
     task_rows = "\n".join(
         f"<tr><td>{html.escape(f'{task.plugin} · {task.task}')}</td>{''.join(cell(task, name) for name in names)}</tr>" for task in report.tasks
     )
+    failed = coding_failed(report.runs)
+    failed_rows = "\n".join(
+        f'<tr><td>{html.escape(f"{plugin} · {task}")}</td><td class="reason">'
+        + "<br>".join(html.escape(f"{run.harness}: {run.verdict}") for run in own)
+        + "</td></tr>"
+        for (plugin, task), own in failed.items()
+    )
     bug_rows = "\n".join(
         f'<tr><td>{html.escape(f"{bug['plugin']} · {bug['task']}")}</td><td class="reason">{html.escape(bug["reason"])}</td></tr>'
         for bug in bugs.plugins
@@ -164,6 +190,8 @@ def page(report: Report, bugs: PluginBugs) -> str:
         harness_rows=harness_rows,
         harness_heads="".join(f"<th>{html.escape(name)}</th>" for name in names),
         task_rows=task_rows,
+        failed_count=len(failed),
+        failed_rows=failed_rows,
         bug_count=len(bugs.plugins),
         bug_rows=bug_rows,
     )
@@ -183,9 +211,13 @@ class GetReport(Run):
         folders = sorted(path.parent for path in Path(self.config.runs).glob("*/*/*/*/result.json"))
         if not folders:
             raise RuntimeError(f"{self.config.runs} holds no runs of step 2")
+        bugs = load_output(self.config.bugs, PluginBugs)
+        buggy = {bug["plugin"] for bug in bugs.plugins}
         runs = []
         for folder in folders:
             result = load_layout(folder, SingleRunLayout).result
+            if result.plugin in buggy:
+                continue
             runs.append(
                 RunLine(
                     plugin=result.plugin,
@@ -204,7 +236,7 @@ class GetReport(Run):
         ]
         self.layout.report = Report(harnesses=harnesses, tasks=tasks, runs=runs)
         report_page = Path(self.layout.page) / "report.html"
-        report_page.write_text(page(self.layout.report, load_output(self.config.bugs, PluginBugs)), encoding="utf-8")
+        report_page.write_text(page(self.layout.report, bugs), encoding="utf-8")
         print(
             f"{'harness':<10} {'right':>6} {'latency':>8} {'model':>7} {'tools':>7} {'overhead':>8} {'input':>9} {'output':>7} {'cost':>8} {'cpu':>6}"
         )
@@ -219,6 +251,8 @@ class GetReport(Run):
         for run in runs:
             if not run.correct:
                 print(f"{run.harness} · {run.task} · {run.case}: wrong · {run.verdict}")
+        for (plugin, task), own in coding_failed(runs).items():
+            print(f"every coding harness failed · {plugin} · {task}: " + "; ".join(f"{run.harness}: {run.verdict[:200]}" for run in own))
         print(f"report.html: {report_page.resolve()}")
 
 

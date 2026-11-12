@@ -5,6 +5,8 @@ database: postgres://neondb_owner@127.0.0.1:55432/mochi
 psql: /opt/homebrew/opt/postgresql@18/bin/psql
 cases_dir: examples/benchmark/configs
 bugs: examples/benchmark/configs/plugin_bugs.json
+# The cases files already checked for needing the plugin's tools (passed, or not checkable), by plugin version.
+checked: examples/benchmark/configs/checked_cases.json
 only: null
 model: deepseek/deepseek-v4-flash-0731
 # OpenRouter's price per million tokens for deepseek-v4-flash on 2026-11-05.
