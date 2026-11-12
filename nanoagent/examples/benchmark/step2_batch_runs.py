@@ -130,6 +130,7 @@ class BatchRuns(Run):
                             f"case={case}",
                             f"harness={harness.value}",
                             *config.overrides,
+                            f"batch_runs={folder.resolve()}",
                         ],
                         stdout=log,
                         stderr=subprocess.STDOUT,

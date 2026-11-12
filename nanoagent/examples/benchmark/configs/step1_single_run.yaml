@@ -63,7 +63,8 @@ harnesses > dict[step1_single_run.Harness, step1_single_run.HarnessConfig]:
   codex:
     command: [.venv/bin/nanoagent-codex-runner]
     # The Codex release npx runs, pinned so every run profiles the same harness.
-    options: {package: "@openai/codex@0.167.0"}
+    # The benchmark's outer sandbox isolates evidence and allows the task's network access.
+    options: {package: "@openai/codex@0.167.0", sandbox: danger-full-access}
     routes > dict[step1_single_run.Provider, step1_single_run.Route]:
       # OpenRouter's Responses API, the only one Codex speaks.
       openrouter:
@@ -77,7 +78,7 @@ harnesses > dict[step1_single_run.Harness, step1_single_run.HarnessConfig]:
       openrouter:
         options: {provider: openrouter}
         env: {}
-        env_from: {}
+        env_from: {OPENROUTER_API_KEY: OPENROUTER_API_KEY}
   # js/pi-runner, built with `npm ci && npm run build` there; with PI's coding tools.
   pi:
     command: [node, js/pi-runner/dist/index.js]

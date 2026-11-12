@@ -47,6 +47,7 @@ import tempfile
 import time
 import traceback
 import uuid
+from collections.abc import Iterator
 from contextlib import AsyncExitStack, contextmanager, redirect_stderr
 from dataclasses import dataclass, field
 from enum import Enum
@@ -55,6 +56,8 @@ from typing import Any
 
 from omegaconf import MISSING
 from slimconfig import Config, Layout, Output, Run, Workspace, build_output, output_schema
+
+from step1_coding_environment import coding_environment
 
 from nanoagent import __version__
 from nanoagent.core.agent import AgentResult, StopReason
@@ -88,6 +91,14 @@ class Harness(Enum):
     DSH = "dsh"
 
 
+# Login files relative to the user's home. Claude Code can also use the macOS Keychain.
+LOGIN_FILES = {
+    Harness.CLAUDE: ".claude/.credentials.json",
+    Harness.CODEX: ".codex/auth.json",
+    Harness.HERMES: ".hermes/auth.json",
+}
+
+
 class Provider(Enum):
     OPENROUTER = "openrouter"
 
@@ -98,6 +109,7 @@ class Variable(Enum):
     ANTHROPIC_BASE_URL = "ANTHROPIC_BASE_URL"
     ANTHROPIC_AUTH_TOKEN = "ANTHROPIC_AUTH_TOKEN"
     ANTHROPIC_API_KEY = "ANTHROPIC_API_KEY"
+    OPENROUTER_API_KEY = "OPENROUTER_API_KEY"
 
 
 class Option(Enum):
@@ -109,6 +121,7 @@ class Option(Enum):
     TOOLS = "tools"
     BASE_URL = "base_url"
     LOCAL_PROVIDER = "local_provider"
+    SANDBOX = "sandbox"
 
 
 @dataclass
@@ -184,6 +197,8 @@ class SingleRunConfig(Config):
     timeout: float = MISSING
     nanoagent: NanoAgentLoopConfig = field(default_factory=NanoAgentLoopConfig)
     harnesses: dict[Harness, HarnessConfig] = MISSING
+    # Hide the entire batch's outputs, including when Step 2 uses a custom run folder.
+    batch_runs: str | None = None
 
 
 @dataclass
@@ -309,21 +324,6 @@ class Timed:
         return self.runner.availability()
 
 
-@contextmanager
-def environment(values: dict[str, str]):
-    """``os.environ`` with ``values`` set, as it was again afterwards."""
-    saved = {name: os.environ.get(name) for name in values}
-    os.environ.update(values)
-    try:
-        yield
-    finally:
-        for name, value in saved.items():
-            if value is None:
-                del os.environ[name]
-            else:
-                os.environ[name] = value
-
-
 async def nanoagent_work(
     config: SingleRunConfig, case: Case, workspace: Path, reference: PinnedReference, reference_seconds: float
 ) -> Work:
@@ -415,28 +415,53 @@ async def nanoagent_work(
     )
 
 
-def other_runner(config: SingleRunConfig) -> tuple[SubprocessRunner, dict[str, str]]:
-    """The harness with only its own tools, and the environment it runs in."""
-    if config.harness not in config.harnesses:
-        raise ValueError(f"the config's harnesses table has no {config.harness.value}")
-    harness = config.harnesses[config.harness]
-    options: dict[str, Any] = {"model": config.model} | {option.value: value for option, value in harness.options.items()}
-    route: dict[str, str] = {}
-    if config.provider is not None:
-        if config.provider not in harness.routes:
-            raise ValueError(f"{config.harness.value} has no route to {config.provider.value} in the config")
-        way = harness.routes[config.provider]
-        options |= {option.value: value for option, value in way.options.items()}
-        for variable, source in way.env_from.items():
-            if source not in os.environ:
-                raise ValueError(f"{config.harness.value} on {config.provider.value} needs {source} set")
-        route = {variable.value: value for variable, value in way.env.items()}
-        route |= {variable.value: os.environ[source] for variable, source in way.env_from.items()}
-    runner = SubprocessRunner(config.harness.value, tuple(harness.command), options=options)
-    available, reason = runner.availability()
-    if not available:
-        raise RuntimeError(reason)
-    return runner, route
+@contextmanager
+def other_runner(config: SingleRunConfig, workspace: Path) -> Iterator[SubprocessRunner]:
+    """Launch the coding harness inside the benchmark's workspace sandbox."""
+    harness = config.harness
+    if harness not in config.harnesses:
+        raise ValueError(f"the config's harnesses table has no {harness.value}")
+    settings = config.harnesses[harness]
+    options: dict[str, Any] = {"model": config.model}
+    options |= {option.value: value for option, value in settings.options.items()}
+    route = None
+    credentials: set[str] = set()
+    login_file = None
+    if config.provider is None:
+        if Option.PROVIDER in settings.options:
+            raise ValueError(f"{harness.value} has a provider option set with provider: null")
+        if harness is Harness.DSH:
+            credentials.add("DEEPSEEK_API_KEY")
+        elif harness in LOGIN_FILES:
+            login_file = LOGIN_FILES[harness]
+            if harness is Harness.CLAUDE and not (Path.home() / login_file).is_file():
+                login_file = None  # Claude Code can read its login from the macOS Keychain.
+        else:
+            raise ValueError(f"{harness.value} does not support provider: null")
+        provider = "its own login"
+    else:
+        provider = config.provider.value
+        route = settings.routes.get(config.provider)
+        if route is None:
+            raise ValueError(f"{harness.value} has no route to {provider} in the config")
+        options |= {option.value: value for option, value in route.options.items()}
+        if Option.API_KEY_ENV.value in options:
+            credentials.add(options[Option.API_KEY_ENV.value])
+
+    required = credentials | (set(route.env_from.values()) if route is not None else set())
+    missing = sorted(name for name in required if not os.environ.get(name))
+    if missing:
+        raise ValueError(f"{harness.value} on {provider} needs {', '.join(missing)} set")
+    protected = [] if config.batch_runs is None else [Path(config.batch_runs)]
+    with coding_environment(workspace, credential_names=credentials, login_file=login_file, protected=protected) as (prefix, env):
+        if route is not None:
+            env |= {variable.value: value for variable, value in route.env.items()}
+            env |= {variable.value: os.environ[source] for variable, source in route.env_from.items()}
+        runner = SubprocessRunner(harness.value, settings.command, options=options, launch_prefix=prefix, env=env)
+        available, reason = runner.availability()
+        if not available:
+            raise RuntimeError(reason)
+        yield runner
 
 
 def read_answer(workspace: Path) -> tuple[dict[str, Any] | None, str | None, str | None]:
@@ -460,8 +485,8 @@ def read_answer(workspace: Path) -> tuple[dict[str, Any] | None, str | None, str
 
 async def other_work(config: SingleRunConfig, case: Case, workspace: Path) -> Work:
     """A coding harness given the case's prompt, answering in answer.json."""
-    runner, route = other_runner(config)
     async with AsyncExitStack() as stack:
+        runner = stack.enter_context(other_runner(config, workspace))
         timed = Timed(runner)
         stack.push_async_callback(timed.aclose)
         chat = Conversation.start(
@@ -471,8 +496,7 @@ async def other_work(config: SingleRunConfig, case: Case, workspace: Path) -> Wo
             workspace=workspace,
             render=False,
         )
-        with environment(route):
-            await asyncio.wait_for(chat.run_task(case.prompt), config.timeout)
+        await asyncio.wait_for(chat.run_task(case.prompt), config.timeout)
     result = timed.result
     if result.profile is None:
         raise RuntimeError(f"{config.harness.value}'s runner reports no profile, so the run cannot be profiled")
