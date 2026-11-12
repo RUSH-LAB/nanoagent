@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # One run: one harness on one case. Name the case and the harness, then override any field of the
 # config:
-#   step1_single_run.sh city-weather-01 claude model=deepseek/deepseek-v4-flash-0731
-# Its folder is outputs/step1_single_run/<case>/<harness>, replaced when run again.
+#   step2_single_run.sh city-weather-01 claude model=deepseek/deepseek-v4-flash-0731
+# Its folder is outputs/step2_single_run/<case>/<harness>, replaced when run again.
 
 set -euo pipefail
 
@@ -16,10 +16,10 @@ set -a
 source "$root/.env"
 set +a
 cd "$root/nanoagent"
-home="examples/benchmark/outputs/step1_single_run/$case/$harness"
+home="examples/benchmark/outputs/step2_single_run/$case/$harness"
 rm -rf "$home"
 .venv/bin/python \
-    examples/benchmark/step1_single_run.py \
-    config=examples/benchmark/configs/step1_single_run.yaml \
+    examples/benchmark/step2_single_run.py \
+    config=examples/benchmark/configs/step2_single_run.yaml \
     home="$home" \
     -- case="$case" harness="$harness" "$@"

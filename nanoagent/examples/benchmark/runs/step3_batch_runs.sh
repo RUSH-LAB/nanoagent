@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Every harness on every case of every plugin task, side by side (step 1 once per run), each run in its
+# Every harness on every case of every plugin task, side by side (step 2 once per run), each run in its
 # own folder. Run again, it resumes: runs that hold a result are skipped, the rest run again. Delete
-# outputs/step2_batch_runs to start a batch afresh.
+# outputs/step3_batch_runs to start a batch afresh.
 
 set -euo pipefail
 
@@ -12,7 +12,7 @@ source "$root/.env"
 set +a
 cd "$root/nanoagent"
 .venv/bin/python \
-    examples/benchmark/step2_batch_runs.py \
-    config=examples/benchmark/configs/step2_batch_runs.yaml \
-    home=examples/benchmark/outputs/step2_batch_runs \
+    examples/benchmark/step3_batch_runs.py \
+    config=examples/benchmark/configs/step3_batch_runs.yaml \
+    home=examples/benchmark/outputs/step3_batch_runs \
     -- "$@"

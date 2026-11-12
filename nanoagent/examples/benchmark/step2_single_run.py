@@ -1,4 +1,4 @@
-"""Step 1: one run. One harness, on one model, works one case of a plugin's task once; the run pins
+"""Step 2: one run. One harness, on one model, works one case of a plugin's task once; the run pins
 the case's right answer, profiles the harness to one standard, and checks its answer with the
 plugin's verifier.
 
@@ -38,7 +38,7 @@ The profile is RUSH's dashboard figures, measured alike for every harness:
   * Cost: those tokens at the config's prices, alike for every harness; the harness's own figures
     (its cost, and its own clock where it has one) are kept as `reported`.
   * CPU seconds: the CPU time the run's processes used while the harness worked, which shows when
-    runs side by side (step 2) competed for the machine."""
+    runs side by side (step 3) competed for the machine."""
 
 import asyncio
 import base64
@@ -67,7 +67,7 @@ from typing import Any
 from omegaconf import MISSING
 from slimconfig import Config, Layout, Output, Run, Workspace, build_output, output_schema
 
-from step1_coding_environment import coding_environment, fetch_npm, npm_package_cache
+from step2_coding_environment import coding_environment, fetch_npm, npm_package_cache
 
 from nanoagent import __version__
 from nanoagent.core.agent import AgentResult, StopReason
@@ -201,7 +201,7 @@ class SingleRunConfig(Config):
     timeout: float = MISSING
     nanoagent: NanoAgentLoopConfig = field(default_factory=NanoAgentLoopConfig)
     harnesses: dict[Harness, HarnessConfig] = MISSING
-    # Where Step 2 warmed the pinned npm packages, if it started this attempt.
+    # Where Step 3 warmed the pinned npm packages, if it started this attempt.
     batch_runs: str | None = None
 
 

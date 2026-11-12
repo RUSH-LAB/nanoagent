@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples" / "benchmark"))
 
-from step1_coding_environment import coding_environment  # noqa: E402
+from step2_coding_environment import coding_environment  # noqa: E402
 
 
 def test_coding_harness_can_write_its_workspace_but_cannot_read_other_runs(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -90,7 +90,7 @@ while time.process_time() - started < 0.1:
 
 @pytest.mark.skipif(sys.platform not in {"darwin", "linux"}, reason="the benchmark requires a Unix sandbox")
 def test_coding_answer_cannot_point_outside_workspace(tmp_path: Path) -> None:
-    from step1_single_run import read_answer
+    from step2_single_run import read_answer
 
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -111,7 +111,7 @@ def test_the_manifest_decides_what_pins_a_case() -> None:
     import asyncio
     from types import SimpleNamespace
 
-    from step1_single_run import pin, reference_tool
+    from step2_single_run import pin, reference_tool
 
     def task(runner: str, reference: str | None) -> SimpleNamespace:
         return SimpleNamespace(id="t", runner=runner, reference=reference, tools=("work",))
