@@ -40,6 +40,8 @@ import json
 import logging
 import os
 import resource
+import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -57,7 +59,7 @@ from typing import Any
 from omegaconf import MISSING
 from slimconfig import Config, Layout, Output, Run, Workspace, build_output, output_schema
 
-from step1_coding_environment import coding_environment
+from step1_coding_environment import coding_environment, fetch_npm, npm_package_cache
 
 from nanoagent import __version__
 from nanoagent.core.agent import AgentResult, StopReason
@@ -66,7 +68,9 @@ from nanoagent.harness.base import ProgressSink, Runner, RunnerRequest, RunnerRe
 from nanoagent.harness.nanoagent import NanoAgentConfig
 from nanoagent.harness.subprocess import SubprocessRunner
 from nanoagent.llm.openrouter import OpenRouterConfig
-from nanoagent.plugin import load_manifest
+from nanoagent.plugin import load_manifest, sandbox
+from nanoagent.plugin.install import INSTALL_HOSTS, SYNC, SYNC_TIMEOUT
+from nanoagent.plugin.python import PluginPython, plugin_python
 from nanoagent.plugin.runtime import call_tool_async
 from nanoagent.plugin.tasks import PinnedReference, TaskNotSubmitted, run_task
 from nanoagent.plugin.verifier import Verification, verify_task
@@ -129,7 +133,7 @@ class Route(Config):
 
 @dataclass
 class HarnessConfig(Config):
-    """A harness other than NanoAgent: its runner, run from nanoagent/, and its routes."""
+    """A coding harness's runner command, relative to nanoagent/, and its routes."""
 
     command: list[str] = MISSING
     options: dict[Option, str] = MISSING
@@ -182,13 +186,13 @@ class SingleRunConfig(Config):
     cached_input_price: float = MISSING
     output_price: float = MISSING
     # The coding agent's prompt, with {description}, {context}, {arguments}, {input_schema} and
-    # {output_schema} filled in for the case.
+    # {output_schema} and {workspace} filled in for the case.
     prompt: str = MISSING
     # Seconds the harness, and the reference tool, may take before the run fails.
     timeout: float = MISSING
     nanoagent: NanoAgentLoopConfig = field(default_factory=NanoAgentLoopConfig)
     harnesses: dict[Harness, HarnessConfig] = MISSING
-    # Hide the entire batch's outputs, including when Step 2 uses a custom run folder.
+    # Where Step 2 warmed the pinned npm packages, if it started this attempt.
     batch_runs: str | None = None
 
 
@@ -272,6 +276,7 @@ class Work:
     """What a harness did with the case, before it is put in the standard's terms."""
 
     seconds: float
+    cpu_seconds: float
     profile: dict[str, Any]
     timeline: list[dict[str, Any]]
     stop_reason: str
@@ -294,10 +299,12 @@ class Timed:
         self.capabilities = runner.capabilities
         self.result: RunnerResult | None = None
         self.seconds = 0.0
+        self.cpu_seconds = 0.0
         self.timeline: list[dict[str, Any]] = []
 
     async def run(self, request: RunnerRequest, emit: ProgressSink) -> RunnerResult:
         started = time.monotonic()
+        used = cpu()
 
         def stamped(event: dict[str, Any]) -> None:
             if event["type"] != "delta":
@@ -306,6 +313,7 @@ class Timed:
 
         self.result = await self.runner.run(request, stamped)
         self.seconds = time.monotonic() - started
+        self.cpu_seconds = cpu() - used
         return self.result
 
     async def aclose(self) -> None:
@@ -340,6 +348,7 @@ async def nanoagent_work(
     def make_agent(system_prompt: str):
         # The reference is pinned: the agent's run starts.
         marks["agent"] = time.monotonic()
+        marks["agent_cpu"] = cpu()
         definition = AgentDefinitionConfig(
             model=llm.runtime(), agent=loop.harness.runtime(system_prompt=system_prompt), tools=[], tools_dir=None, allowed_tools=None
         )
@@ -359,6 +368,7 @@ async def nanoagent_work(
         now = time.monotonic()
         if kind == "task.answer":
             marks["answer"] = now
+            marks["answer_cpu"] = cpu()
         if kind in {"task.tool", "task.answer", "task.result", "task.verdict"} and "agent" in marks:
             timeline.append({"t": now - marks["agent"], "type": kind, **({"name": data["name"]} if "name" in data else {})})
 
@@ -392,6 +402,7 @@ async def nanoagent_work(
     )
     return Work(
         seconds=marks["answer"] - marks["agent"],
+        cpu_seconds=marks["answer_cpu"] - marks["agent_cpu"],
         profile=result.profile.to_dict(),
         timeline=timeline,
         stop_reason="refused" if refused else result.stop_reason.value,
@@ -439,12 +450,21 @@ def other_runner(config: SingleRunConfig, workspace: Path) -> Iterator[Subproces
     missing = sorted(name for name in required if not os.environ.get(name))
     if missing:
         raise ValueError(f"{harness.value} on {provider} needs {', '.join(missing)} set")
-    protected = [] if config.batch_runs is None else [Path(config.batch_runs)]
-    with coding_environment(workspace, credential_names=credentials, protected=protected) as (prefix, env):
+    package = options.get(Option.PACKAGE.value)
+    cache = npm_package_cache(Path(config.batch_runs), package) if package and config.batch_runs is not None else None
+    with coding_environment(workspace, credential_names=credentials, npm_cache=cache) as (prefix, env):
+        if package and cache is None:
+            fetch_npm(package, prefix, {name: value for name, value in env.items() if name not in credentials}, cwd=workspace)
+        if harness is Harness.DSH and Option.SANDBOX.value in options:
+            env["DSH_PERMISSION_MODE"] = options.pop(Option.SANDBOX.value)
         if route is not None:
             env |= {variable.value: value for variable, value in route.env.items()}
             env |= {variable.value: os.environ[source] for variable, source in route.env_from.items()}
-        runner = SubprocessRunner(harness.value, settings.command, options=options, launch_prefix=prefix, env=env)
+        command = []
+        for part in settings.command:
+            path = Path(part)
+            command.append(str(path.absolute()) if path.parent != Path(".") and path.is_file() else part)
+        runner = SubprocessRunner(harness.value, command, cwd=workspace, options=options, launch_prefix=prefix, env=env)
         available, reason = runner.availability()
         if not available:
             raise RuntimeError(reason)
@@ -453,13 +473,19 @@ def other_runner(config: SingleRunConfig, workspace: Path) -> Iterator[Subproces
 
 def read_answer(workspace: Path) -> tuple[dict[str, Any] | None, str | None, str | None]:
     """The output, refusal or failure a coding agent's answer.json gives."""
-    answer = workspace / "answer.json"
-    if not answer.is_file():
-        return None, None, "wrote no answer.json"
     try:
-        value = json.loads(answer.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as error:
-        return None, None, f"answer.json is not JSON: {error}"
+        fd = os.open(workspace / "answer.json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return None, None, "wrote no answer.json"
+    except OSError as error:
+        return None, None, f"cannot open answer.json: {error.strerror}"
+    try:
+        with os.fdopen(fd, encoding="utf-8") as answer:
+            if not stat.S_ISREG(os.fstat(answer.fileno()).st_mode):
+                return None, None, "answer.json is not a regular file"
+            value = json.load(answer)
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        return None, None, f"answer.json is not UTF-8 JSON: {error}"
     if not isinstance(value, dict):
         return None, None, "answer.json is not a JSON object"
     if set(value) == {"refused"}:
@@ -490,6 +516,7 @@ async def other_work(config: SingleRunConfig, case: Case, workspace: Path) -> Wo
     output, refused, failure = read_answer(workspace) if result.error is None else (None, None, None)
     return Work(
         seconds=timed.seconds,
+        cpu_seconds=timed.cpu_seconds,
         profile=dict(result.profile),
         timeline=timed.timeline,
         stop_reason=result.stop_reason,
@@ -502,8 +529,7 @@ async def other_work(config: SingleRunConfig, case: Case, workspace: Path) -> Wo
 
 
 def unpack(config: SingleRunConfig, folder: Path) -> str:
-    """Unpack the plugin from the marketplace's package into ``folder``, checked against its SHA-256,
-    and ready its Python environment; returns its version."""
+    """Unpack the marketplace package into ``folder`` after checking its SHA-256."""
     plugin = config.cases.plugin
     found = subprocess.run(
         [config.psql, config.database, "--no-psqlrc", "-At", "-F", "\t", "-v", "ON_ERROR_STOP=1", "-v", f"id={plugin}"],
@@ -525,9 +551,19 @@ def unpack(config: SingleRunConfig, folder: Path) -> str:
         if tops != {plugin}:
             raise RuntimeError(f"{plugin}'s package holds {sorted(tops)}, not the one folder {plugin}")
         archive.extractall(folder, filter="data")
-    # The plugin's runtime is `uv run --frozen`: its environment is made here, not on the clock.
-    subprocess.run(["uv", "sync", "--frozen", "--quiet"], cwd=folder / plugin, check=True)
     return version
+
+
+@contextmanager
+def prepared_plugin(source: Path, python: PluginPython) -> Iterator[Path]:
+    """Install outside the checkout so uv cannot discover the benchmark's parent project."""
+    with tempfile.TemporaryDirectory(prefix="nanoagent-benchmark-plugin-") as directory:
+        root = Path(directory).resolve() / source.name
+        shutil.copytree(source, root, symlinks=True)
+        sync = [*SYNC, "--python", str(python.executable), "--quiet"]
+        with sandbox.launch(sync, root=root, env={}, writable=[root], hosts=INSTALL_HOSTS) as (argv, env):
+            subprocess.run(argv, cwd=root, env=env, check=True, timeout=SYNC_TIMEOUT)
+        yield root
 
 
 async def pin(manifest, task, arguments: dict[str, Any], refuse: bool, timeout: float) -> dict[str, Any] | None:
@@ -601,13 +637,28 @@ class SingleRunner(Run):
     def work(self) -> int:
         config = self.config
         arguments, refuse = config.cases.case(config.case)
+        kind = {"darwin": "seatbelt", "linux": "bwrap"}.get(sys.platform)
+        if kind is None:
+            raise RuntimeError(f"benchmark isolation is unsupported on {sys.platform}")
+        python = plugin_python(sys.executable)
+        if kind == "bwrap" and Path(sys._base_executable).parent.parent.is_symlink() and "UV_PYTHON_INSTALL_DIR" not in os.environ:
+            # uv-managed venvs may use a version alias as well as the resolved runtime prefix.
+            managed = Path(subprocess.check_output(["uv", "python", "dir"], text=True).strip())
+            if python.prefix.is_relative_to(managed):
+                os.environ["UV_PYTHON_INSTALL_DIR"] = str(managed)
+        sandbox.configure(kind, python)
         version = unpack(config, Path(self.layout.plugin))
-        folder = Path(self.layout.plugin, config.cases.plugin).resolve()
+        with prepared_plugin(Path(self.layout.plugin, config.cases.plugin), python) as folder:
+            return self.run_case(folder, version, arguments, refuse)
+
+    def run_case(self, folder: Path, version: str, arguments: dict[str, Any], refuse: bool) -> int:
+        config = self.config
         manifest = load_manifest(folder)
         task = manifest.task(config.cases.task)
         pin_started = time.monotonic()
         reference = asyncio.run(pin(manifest, task, arguments, refuse, config.timeout))
         reference_seconds = time.monotonic() - pin_started
+        workspace = Path(self.layout.workspace).resolve()
         case = Case(
             id=config.case,
             plugin=str(folder),
@@ -619,15 +670,13 @@ class SingleRunner(Run):
                 arguments=json.dumps(arguments, indent=2),
                 input_schema=json.dumps(output_schema(task.input_type), indent=2),
                 output_schema=json.dumps(output_schema(task.output_type), indent=2),
+                workspace=workspace,
             ),
         )
-        workspace = Path(self.layout.workspace)
-        used = cpu()
         if config.harness is Harness.NANOAGENT:
             work = asyncio.run(nanoagent_work(config, case, workspace, PinnedReference(reference), reference_seconds))
         else:
             work = asyncio.run(other_work(config, case, workspace))
-        used = cpu() - used
         correct, verdict = judge(manifest, task, case, work, reference, refuse, workspace)
         own = dict(work.profile)
         reported = own.pop("reported", None)
@@ -666,7 +715,7 @@ class SingleRunner(Run):
             generation_seconds=own["generation_s"],
             reference_seconds=work.reference_seconds,
             check_seconds=work.check_seconds,
-            cpu_seconds=used,
+            cpu_seconds=work.cpu_seconds,
             steps=len(steps),
             model_calls=sum(len(step["model_calls"]) for step in steps),
             tool_calls=sum(len(step["tool_calls"]) for step in steps),

@@ -22,6 +22,7 @@ from pathlib import Path
 from omegaconf import MISSING
 from slimconfig import Config, Layout, Output, Run, Workspace
 
+from step1_coding_environment import coding_environment, fetch_npm, npm_package_cache
 from step1_single_run import Cases, Harness, logged
 
 SINGLE_RUN = Path(__file__).with_name("step1_single_run.py")
@@ -75,12 +76,6 @@ def case_ids(config: BatchConfig) -> list[str]:
     return [f"{cases.plugin}-{number:02d}" for number in numbers]
 
 
-def fetch(package: str) -> None:
-    """Have npx hold ``package``, so no run downloads it."""
-    print(f"fetching {package}")
-    subprocess.run(["npx", "-y", package, "--version"], check=True, capture_output=True)
-
-
 class BatchRuns(Run):
     """Run every harness on every case, side by side."""
 
@@ -93,21 +88,27 @@ class BatchRuns(Run):
 
     def work(self) -> None:
         config = self.config
-        cores = os.cpu_count() or 1
+        pinned = hasattr(os, "sched_getaffinity") and hasattr(os, "sched_setaffinity")
+        allowed_cpus = sorted(os.sched_getaffinity(0)) if pinned else list(range(os.cpu_count() or 1))
+        cores = len(allowed_cpus)
         if not 1 <= config.cpus_per_run <= cores:
             raise ValueError(f"cpus_per_run must be 1 to this machine's {cores} cores, not {config.cpus_per_run}")
         jobs = [(case, harness) for case in case_ids(config) for harness in config.harnesses]
         if not jobs:
             raise ValueError("the batch has no runs: no cases or no harnesses")
+        folder = Path(self.layout.runs).resolve()
         for package in config.packages:
-            fetch(package)
+            cache = npm_package_cache(folder, package)
+            cache.mkdir(parents=True)
+            with coding_environment(cache, credential_names=set()) as (prefix, env):
+                env["npm_config_cache"] = str(cache)
+                fetch_npm(package, prefix, env, cwd=cache)
         side_by_side = min(len(jobs), cores // config.cpus_per_run)
         # Each place a run can take: its cores.
         places: queue.Queue[set[int]] = queue.Queue()
         for place in range(side_by_side):
-            places.put(set(range(place * config.cpus_per_run, (place + 1) * config.cpus_per_run)))
-        folder = Path(self.layout.runs)
-        pinned = hasattr(os, "sched_setaffinity")
+            start = place * config.cpus_per_run
+            places.put(set(allowed_cpus[start : start + config.cpus_per_run]))
         print(
             f"{len(jobs)} runs, {side_by_side} at once, {config.cpus_per_run} cores each{'' if pinned else ' (this OS does not pin processes to cores)'}"
         )

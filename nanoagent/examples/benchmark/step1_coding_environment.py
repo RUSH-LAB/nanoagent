@@ -1,45 +1,133 @@
-"""Isolate a coding harness from other benchmark attempts and ambient credentials."""
+"""Give a coding harness its own workspace, home, and route credentials."""
 
+import hashlib
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+
+PROJECT = Path(__file__).resolve().parents[2]
+SYSTEM = ("/usr", "/bin", "/sbin", "/lib", "/lib64")
+LINUX_CONFIG = (
+    "/etc/alternatives",
+    "/etc/ca-certificates",
+    "/etc/group",
+    "/etc/hosts",
+    "/etc/ld.so.cache",
+    "/etc/localtime",
+    "/etc/nsswitch.conf",
+    "/etc/passwd",
+    "/etc/resolv.conf",
+    "/etc/ssl",
+)
+MACOS_SYSTEM = (
+    "/System",
+    "/Library",
+    "/private/etc",
+    "/private/var/db/timezone",
+    "/dev",
+    "/opt/homebrew/Cellar",
+    "/opt/homebrew/bin",
+    "/opt/homebrew/etc/ca-certificates",
+    "/opt/homebrew/etc/openssl@3",
+    "/opt/homebrew/lib",
+    "/opt/homebrew/opt",
+    "/opt/homebrew/share",
+)
+
+
+def _runtime(bin_folder: Path) -> tuple[list[Path], str]:
+    """The benchmark checkout's runners and their installed runtimes."""
+    paths = {
+        Path(sys.base_prefix),
+        Path(sys.prefix),
+        Path(sys._base_executable).parent.parent,
+        PROJECT / "src",
+        PROJECT / "js/pi-runner/dist",
+        PROJECT / "js/pi-runner/node_modules",
+        PROJECT / "js/pi-runner/package.json",
+    }
+    search = [bin_folder, Path(sys.executable).parent, Path(sys.base_prefix) / "bin"]
+    node = shutil.which("node")
+    if node:
+        executable = Path(node).resolve(strict=True)
+        node_bin = executable.parent
+        search.insert(1, node_bin)
+        # A user-installed Node distribution (e.g. nvm) carries npm alongside Node.
+        if node_bin.name == "bin" and (node_bin.parent / "lib/node_modules/npm").is_dir():
+            paths.add(node_bin.parent)
+        else:
+            paths.add(executable)
+    claude = shutil.which("claude")
+    if claude:
+        executable = Path(claude).resolve(strict=True)
+        paths.add(executable)
+        (bin_folder / "claude").symlink_to(executable)
+    search.extend(map(Path, ("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin")))
+    return sorted(path for path in paths if path.exists()), os.pathsep.join(map(str, dict.fromkeys(search)))
+
+
+def _quoted(path: Path) -> str:
+    return '"' + str(path).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _seatbelt(executable: str, readable: list[Path], writable: list[Path]) -> list[str]:
+    reads = sorted({path.resolve() for path in [*readable, *writable, *map(Path, (*SYSTEM, *MACOS_SYSTEM))]})
+    profile = [
+        "(version 1)",
+        "(allow default)",
+        "(deny file-read-data file-write* process-info* signal)",
+        "(allow process-info* (target self))",
+        "(allow signal (target same-sandbox))",
+        '(allow file-read-data (literal "/") ' + " ".join(f"(subpath {_quoted(path)})" for path in reads) + ")",
+        '(allow file-write* (literal "/dev/null") ' + " ".join(f"(subpath {_quoted(path)})" for path in writable) + ")",
+    ]
+    return [executable, "-p", "\n".join(profile)]
+
+
+def _bwrap(executable: str, readable: list[Path], writable: list[Path]) -> list[str]:
+    args = [
+        # Keep the runner as the namespace's main process so wait() accounts for its CPU time.
+        executable, "--unshare-all", "--share-net", "--as-pid-1", "--die-with-parent", "--new-session",
+        "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
+    ]
+    # Mount system aliases in place so absolute interpreter paths and symlinks still work.
+    for path in (*SYSTEM, *LINUX_CONFIG):
+        args += ["--ro-bind-try", path, path]
+    # Ubuntu may link resolv.conf to a generated file under /run.
+    for path in sorted({*readable, *(Path(path).resolve() for path in LINUX_CONFIG if Path(path).is_symlink())}):
+        if not any(path.is_relative_to(root) for root in map(Path, SYSTEM)):
+            args += ["--ro-bind", str(path.resolve()), str(path)]
+    for path in writable:
+        args += ["--bind", str(path), str(path)]
+    return [*args, "--"]
 
 
 @contextmanager
 def coding_environment(
-    workspace: Path, *, credential_names: set[str], protected: Sequence[Path] = ()
+    workspace: Path, *, credential_names: set[str], npm_cache: Path | None = None
 ) -> Iterator[tuple[list[str], dict[str, str]]]:
-    """Yield a sandbox command prefix and an environment for one coding harness.
-
-    The benchmark outputs tree is hidden except for this attempt's workspace. The caller passes only
-    the credential variables its API-key route needs.
-    """
+    """Expose the workspace and runtimes, with no access to other runs or the caller's home."""
     workspace = workspace.resolve(strict=True)
-    outputs = Path(__file__).resolve().parent / "outputs"
-    outputs = outputs.resolve()
-    paths = {path.resolve(strict=True) for path in (workspace.parent, *protected)}
-    if outputs.is_dir():
-        paths.add(outputs)
-    paths.update((Path(tempfile.gettempdir()).resolve(), Path("/tmp").resolve()))
-    # An ancestor masks its descendants, so mount only the outermost protected paths.
-    paths = {path for path in paths if not any(path != other and path.is_relative_to(other) for other in paths)}
-    if workspace in paths:
-        raise ValueError("the workspace itself cannot be protected")
-    user_home = Path.home().resolve()
-    with tempfile.TemporaryDirectory(prefix="nanoagent-benchmark-") as directory:
+    with (
+        tempfile.TemporaryDirectory(prefix="nanoagent-benchmark-") as directory,
+        tempfile.TemporaryDirectory(prefix=".npm-", dir=workspace.parent) as cache_directory,
+    ):
         private = Path(directory).resolve()
-        home = private / "home"
-        temp = private / "tmp"
-        home.mkdir()
-        temp.mkdir()
+        home, temp, bin_folder = (private / name for name in ("home", "tmp", "bin"))
+        for folder in (home, temp, bin_folder):
+            folder.mkdir()
+        readable, search = _runtime(bin_folder)
+        cache = Path(cache_directory).resolve() / "npm"
+        if npm_cache is not None:
+            shutil.copytree(npm_cache, cache, symlinks=True)
         env = {name: os.environ[name] for name in credential_names}
-        # Claude Code keeps its temporary files under CLAUDE_CODE_TMPDIR, not TMPDIR.
         env.update(
-            PATH=os.environ["PATH"],
+            PATH=search,
             HOME=str(home),
             TMPDIR=str(temp),
             TMP=str(temp),
@@ -48,66 +136,35 @@ def coding_environment(
             CLAUDE_CODE_TMPDIR=str(temp),
             XDG_CONFIG_HOME=str(home / ".config"),
             XDG_CACHE_HOME=str(home / ".cache"),
+            npm_config_audit="false",
+            npm_config_cache=str(cache),
+            npm_config_fund="false",
+            npm_config_update_notifier="false",
         )
-        # Packages are fetched before the batch, under this cache, rather than during timing.
-        npm_cache = Path(os.environ.get("npm_config_cache", str(user_home / ".npm"))).resolve()
-        env["npm_config_cache"] = str(npm_cache)
-        project = Path(__file__).resolve().parents[2]
-        private_files = [project.parent / ".env", project / ".env", user_home / ".netrc", user_home / ".npmrc", user_home / ".claude.json"]
-        private_dirs = [user_home / name for name in (".ssh", ".aws", ".config", ".claude", ".codex", ".hermes")]
+        writable = [workspace, private, cache.parent]
         if sys.platform == "darwin":
             executable = shutil.which("sandbox-exec")
             if executable is None:
                 raise RuntimeError("sandbox-exec is required for coding benchmark isolation")
-
-            def quoted(path: Path) -> str:
-                return '"' + str(path).replace("\\", "\\\\").replace('"', '\\"') + '"'
-
-            profile = "(version 1) (allow default) (deny file-write*)"
-            for path in paths:
-                profile += f" (deny file-read* file-write* (subpath {quoted(path)}))"
-            for path in (workspace, private, npm_cache):
-                profile += f" (allow file-write* (subpath {quoted(path)}))"
-            profile += f" (allow file-read* (subpath {quoted(workspace)}))"
-            profile += f" (allow file-read* (subpath {quoted(private)}))"
-            # realpath needs metadata for protected ancestors of the two visible directories.
-            for path in sorted(set(workspace.parents) | set(private.parents)):
-                profile += f" (allow file-read-metadata (literal {quoted(path)}))"
-            profile += ' (allow file-write* (literal "/dev/null"))'
-            for path in private_files:
-                profile += f" (deny file-read* file-write* (literal {quoted(path)}))"
-            for path in private_dirs:
-                profile += f" (deny file-read* file-write* (subpath {quoted(path)}))"
-            prefix = [executable, "-p", profile]
+            yield _seatbelt(executable, readable, writable), env
         elif sys.platform.startswith("linux"):
             executable = shutil.which("bwrap")
             if executable is None:
                 raise RuntimeError("bwrap is required for coding benchmark isolation on Linux")
-            prefix = [executable, "--die-with-parent", "--unshare-pid", "--ro-bind", "/", "/", "--proc", "/proc"]
-            for path in sorted(paths):
-                prefix += ["--tmpfs", str(path)]
-                directories = set()
-                for target in (workspace, private):
-                    if target.is_relative_to(path):
-                        current = path
-                        for part in target.relative_to(path).parts[:-1]:
-                            current /= part
-                            directories.add(current)
-                for directory in sorted(directories, key=lambda item: len(item.parts)):
-                    prefix += ["--dir", str(directory)]
-            for target in (private, workspace):
-                if any(target.is_relative_to(path) for path in paths):
-                    prefix += ["--dir", str(target)]
-                prefix += ["--bind", str(target), str(target)]
-            for path in private_dirs:
-                if path.is_dir():
-                    prefix += ["--tmpfs", str(path)]
-            for path in private_files:
-                if path.is_file():
-                    prefix += ["--ro-bind", "/dev/null", str(path)]
-            if npm_cache.is_dir():
-                prefix += ["--bind", str(npm_cache), str(npm_cache)]
-            prefix += ["--"]
+            yield _bwrap(executable, readable, writable), env
         else:
             raise RuntimeError(f"coding benchmark isolation is unsupported on {sys.platform}")
-        yield prefix, env
+
+
+def npm_package_cache(root: Path, package: str) -> Path:
+    return root / ".npm-cache" / hashlib.sha256(package.encode()).hexdigest()
+
+
+def fetch_npm(package: str, prefix: list[str], env: dict[str, str], *, cwd: Path) -> None:
+    """Warm the pinned package before the harness's clock starts."""
+    print(f"fetching {package}")
+    completed = subprocess.run(
+        [*prefix, "npx", "-y", package, "--version"], cwd=cwd, env=env, capture_output=True, text=True, timeout=120
+    )
+    if completed.returncode:
+        raise RuntimeError(f"fetching {package} exited with status {completed.returncode}: {completed.stderr.strip()}")
