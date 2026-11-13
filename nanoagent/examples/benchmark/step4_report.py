@@ -46,6 +46,8 @@ class RunLine(Output):
     harness: str
     correct: bool
     verdict: str
+    # Whether the harness failed to finish (timed out or erred) rather than answered.
+    failed: bool
     latency_seconds: float
     model_seconds: float
     tools_seconds: float
@@ -61,6 +63,8 @@ class HarnessLine(Output):
     harness: str
     runs: int
     correct: int
+    # The runs the harness failed to finish (timed out or erred), all wrong.
+    errors: int
     # Each figure averaged over the harness's runs.
     latency_seconds: float
     model_seconds: float
@@ -121,7 +125,7 @@ def by_harness(runs: list[RunLine]) -> list[HarnessLine]:
     for harness in sorted({run.harness for run in runs}):
         own = [run for run in runs if run.harness == harness]
         means = {name: sum(getattr(run, name) for run in own) / len(own) for name in FIGURES}
-        lines.append(HarnessLine(harness=harness, runs=len(own), correct=sum(run.correct for run in own), **means))
+        lines.append(HarnessLine(harness=harness, runs=len(own), correct=sum(run.correct for run in own), errors=sum(run.failed for run in own), **means))
     return lines
 
 
@@ -182,6 +186,7 @@ class GetReport(Run):
                     harness=result.harness,
                     correct=result.correct,
                     verdict=result.verdict,
+                    failed=result.stop_reason in {"timeout", "error"},
                     **{name: getattr(result, name) for name in FIGURES},
                 )
             )
@@ -203,11 +208,11 @@ class GetReport(Run):
         index = Path(self.layout.page) / "index.html"
         shutil.copyfile(APP, index)
         print(
-            f"{'harness':<10} {'right':>6} {'latency':>8} {'model':>7} {'tools':>7} {'overhead':>8} {'input':>9} {'output':>7} {'cost':>8} {'cpu':>6}"
+            f"{'harness':<10} {'right':>6} {'errors':>6} {'latency':>8} {'model':>7} {'tools':>7} {'overhead':>8} {'input':>9} {'output':>7} {'cost':>8} {'cpu':>6}"
         )
         for line in harnesses:
             print(
-                f"{line.harness:<10} {f'{line.correct}/{line.runs}':>6} {line.latency_seconds:>7.1f}s {line.model_seconds:>6.1f}s"
+                f"{line.harness:<10} {f'{line.correct}/{line.runs}':>6} {line.errors:>6} {line.latency_seconds:>7.1f}s {line.model_seconds:>6.1f}s"
                 f" {line.tools_seconds:>6.1f}s {line.overhead_seconds:>7.1f}s {line.input_tokens:>9,.0f} {line.output_tokens:>7,.0f}"
                 f" ${line.cost:>7.4f} {line.cpu_seconds:>5.1f}s"
             )

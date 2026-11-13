@@ -106,7 +106,7 @@ function home() {
   document.title = "Harness benchmark";
   const report = summary.report;
   const names = report.harnesses.map((h) => h.harness);
-  const harnessRows = report.harnesses.map((h) => `<tr${ours(h.harness)}><td>${esc(display(h.harness))}${pill(h.harness)}</td><td>${h.correct}/${h.runs}</td><td>${num(h.latency_seconds, 1)}s</td><td>${num(h.model_seconds, 1)}s</td><td>${num(h.tools_seconds, 1)}s</td><td>${num(h.overhead_seconds, 1)}s</td><td>${num(h.input_tokens, 0)}</td><td>${num(h.output_tokens, 0)}</td><td>$${num(h.cost, 4)}</td><td>${num(h.cpu_seconds, 1)}s</td></tr>`).join("");
+  const harnessRows = report.harnesses.map((h) => `<tr${ours(h.harness)}><td>${esc(display(h.harness))}${pill(h.harness)}</td><td>${h.correct}/${h.runs}</td><td>${h.errors}</td><td>${num(h.latency_seconds, 1)}s</td><td>${num(h.model_seconds, 1)}s</td><td>${num(h.tools_seconds, 1)}s</td><td>${num(h.overhead_seconds, 1)}s</td><td>${num(h.input_tokens, 0)}</td><td>${num(h.output_tokens, 0)}</td><td>$${num(h.cost, 4)}</td><td>${num(h.cpu_seconds, 1)}s</td></tr>`).join("");
   const failed = rows().filter((row) => row.allCodingFailed);
   const failedRows = failed.map((row) => `<tr><td><a href="#${encodeURIComponent(row.plugin)}">${esc(row.plugin)}</a> · ${esc(row.task)}</td><td class="reason">${Object.values(row.runs).filter((run) => run.harness !== PLUGIN_HARNESS).map((run) => esc(`${display(run.harness)}: ${run.verdict}`)).join("<br>")}</td></tr>`).join("");
   const bugRows = summary.bugs.map((bug) => `<tr><td>${esc(bug.plugin)} · ${esc(bug.task)}</td><td class="reason">${esc(bug.reason)}</td></tr>`).join("");
@@ -114,7 +114,7 @@ function home() {
 <h1>Harness benchmark</h1>
 <p>${report.runs.length} runs over ${report.tasks.length} plugin tasks. Figures are means per run.</p>
 <h2>By harness</h2>
-<div class="scroll"><table><tr><th>Harness</th><th>Right</th><th>Latency</th><th>Model</th><th>Tools</th><th>Overhead</th><th>Input tokens</th><th>Output tokens</th><th>Cost</th><th>CPU</th></tr>${harnessRows}</table></div>
+<div class="scroll"><table><tr><th>Harness</th><th>Right</th><th title="Runs the harness failed to finish: timed out or erred">Errors</th><th>Latency</th><th>Model</th><th>Tools</th><th>Overhead</th><th>Input tokens</th><th>Output tokens</th><th>Cost</th><th>CPU</th></tr>${harnessRows}</table></div>
 <h2>By plugin</h2>
 <div class="controls">
   <input type="search" id="query" placeholder="Search plugin, task or case" value="${esc(state.query)}">

@@ -72,7 +72,7 @@ from step2_coding_environment import coding_environment, fetch_npm, npm_package_
 from nanoagent import __version__
 from nanoagent.core.agent import AgentResult, StopReason
 from nanoagent.harness import Conversation, HarnessProfile
-from nanoagent.harness.base import ProgressSink, Runner, RunnerRequest, RunnerResult
+from nanoagent.harness.base import ProgressSink, Runner, RunnerError, RunnerRequest, RunnerResult
 from nanoagent.harness.nanoagent import NanoAgentConfig
 from nanoagent.harness.subprocess import SubprocessRunner
 from nanoagent.llm.openrouter import OpenRouterConfig
@@ -127,14 +127,13 @@ class Option(Enum):
     BASE_URL = "base_url"
     LOCAL_PROVIDER = "local_provider"
     SANDBOX = "sandbox"
-    MAX_TOKENS = "max_tokens"
 
 
 @dataclass
 class Route(Config):
     """How a harness reaches one provider."""
 
-    options: dict[Option, str | int] = MISSING
+    options: dict[Option, str] = MISSING
     # Variables set to these values, and variables copied from this process's environment by the name
     # given, so a key never lands in the run's config.yaml.
     env: dict[Variable, str] = MISSING
@@ -552,22 +551,24 @@ async def other_work(config: SingleRunConfig, case: Case, workspace: Path) -> Wo
             workspace=workspace,
             render=False,
         )
-        used = cpu()
+        started, used = time.monotonic(), cpu()
         try:
             await asyncio.wait_for(chat.run_task(case.prompt), config.timeout)
-        except TimeoutError:
-            # The harness's own failure: it fails with what it did in the time it had, the runner's
-            # profile unreported, so only the timeline and the conversation so far.
+        except (TimeoutError, RunnerError) as failure:
+            # The harness's own failure: it fails with what it did until then, the runner's profile
+            # unreported, so only the timeline and the conversation so far.
+            timeout = isinstance(failure, TimeoutError)
+            seconds = config.timeout if timeout else time.monotonic() - started
             return Work(
-                seconds=config.timeout,
+                seconds=seconds,
                 cpu_seconds=cpu() - used,
-                profile=RunProfile(duration_s=config.timeout, usage={}, cost=0.0).to_dict(),
+                profile=RunProfile(duration_s=seconds, usage={}, cost=0.0).to_dict(),
                 timeline=timed.timeline,
-                stop_reason="timeout",
+                stop_reason="timeout" if timeout else "error",
                 answer="",
                 output=None,
                 refused=None,
-                error=f"timed out after {config.timeout:g} s",
+                error=f"timed out after {config.timeout:g} s" if timeout else str(failure),
                 messages=chat.trajectory(),
             )
     result = timed.result

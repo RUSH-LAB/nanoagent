@@ -87,11 +87,8 @@ harnesses > dict[step2_single_run.Harness, step2_single_run.HarnessConfig]:
     command: [node, js/pi-runner/dist/index.js]
     options: {tools: coding}
     routes > dict[step2_single_run.Provider, step2_single_run.Route]:
-      # pi-ai sends its model metadata's max_tokens, the highest endpoint's cap (943718 for
-      # deepseek-v4-flash-0731), which OpenRouter's endpoints with lower caps reject: so the lowest
-      # cap of its endpoints (OpenRouter's /models/<model>/endpoints on 2026-11-13).
       openrouter:
-        options: {provider: openrouter, api_key_env: OPENROUTER_API_KEY, max_tokens: 65536}
+        options: {provider: openrouter, api_key_env: OPENROUTER_API_KEY}
         env: {}
         env_from: {}
   dsh:
