@@ -1,0 +1,131 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "grocery-basket-optimizer",
+  "task": "optimize-grocery-basket",
+  "context": "This is the complete synthetic catalog; there are no other products, prices, or shops. Work entirely in the input's currency and integer cents. Convert liters to milliliters and kilograms to grams exactly (1 l = 1000 ml, 1 kg = 1000 g) before comparing amounts, and report coverage in the canonical unit count, ml, or g. Packages are indivisible and are available only up to their stock. A selected package must belong to a requested item and carry every tag required for that item; extra tags are allowed. Cover at least each requested amount; overbuying is allowed. Minimize total cost in cents. List selections with positive quantities only, unique package IDs in lexicographic order; list coverage for every requirement in item_id order with required_amount, covered_amount, surplus_amount = max(0, covered - required), and satisfied = (covered >= required). If no basket covers every requirement, return feasible false, selections [], total_cost_cents null, and zero covered/surplus with satisfied false for every requirement. Any minimum-cost basket is acceptable.",
+  "answer": [
+    {
+      "currency": "USD",
+      "requirements": [
+        {
+          "item_id": "eggs",
+          "amount": 10,
+          "unit": "count",
+          "required_tags": [
+            "free_range"
+          ]
+        },
+        {
+          "item_id": "milk",
+          "amount": 1500,
+          "unit": "ml",
+          "required_tags": [
+            "lactose_free"
+          ]
+        },
+        {
+          "item_id": "flour",
+          "amount": 2,
+          "unit": "kg",
+          "required_tags": []
+        }
+      ],
+      "catalog": [
+        {
+          "package_id": "eggs-free-4",
+          "item_id": "eggs",
+          "amount": 4,
+          "unit": "count",
+          "price_cents": 150,
+          "stock": 2,
+          "tags": [
+            "free_range"
+          ]
+        },
+        {
+          "package_id": "eggs-free-6",
+          "item_id": "eggs",
+          "amount": 6,
+          "unit": "count",
+          "price_cents": 200,
+          "stock": 2,
+          "tags": [
+            "free_range"
+          ]
+        },
+        {
+          "package_id": "eggs-free-12",
+          "item_id": "eggs",
+          "amount": 12,
+          "unit": "count",
+          "price_cents": 430,
+          "stock": 1,
+          "tags": [
+            "free_range"
+          ]
+        },
+        {
+          "package_id": "milk-lf-1500ml",
+          "item_id": "milk",
+          "amount": 1500,
+          "unit": "ml",
+          "price_cents": 370,
+          "stock": 1,
+          "tags": [
+            "lactose_free"
+          ]
+        },
+        {
+          "package_id": "milk-lf-1l",
+          "item_id": "milk",
+          "amount": 1,
+          "unit": "l",
+          "price_cents": 240,
+          "stock": 2,
+          "tags": [
+            "lactose_free"
+          ]
+        },
+        {
+          "package_id": "milk-lf-500ml",
+          "item_id": "milk",
+          "amount": 500,
+          "unit": "ml",
+          "price_cents": 130,
+          "stock": 2,
+          "tags": [
+            "lactose_free"
+          ]
+        },
+        {
+          "package_id": "flour-1kg",
+          "item_id": "flour",
+          "amount": 1,
+          "unit": "kg",
+          "price_cents": 180,
+          "stock": 2,
+          "tags": []
+        },
+        {
+          "package_id": "flour-2kg",
+          "item_id": "flour",
+          "amount": 2,
+          "unit": "kg",
+          "price_cents": 390,
+          "stock": 1,
+          "tags": []
+        },
+        {
+          "package_id": "flour-500g",
+          "item_id": "flour",
+          "amount": 500,
+          "unit": "g",
+          "price_cents": 100,
+          "stock": 2,
+          "tags": []
+        }
+      ]
+    }
+  ],
+  "refuse": []
+}

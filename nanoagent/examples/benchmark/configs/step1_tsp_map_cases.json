@@ -1,0 +1,12 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "tsp-map",
+  "task": "shortest-tour",
+  "context": "The map is map-38, a 480\u00d7360 pixel image with five cities. read_map reports their centers (x,y) in id order: city 1 (283,47), city 2 (127,98), city 3 (380,180), city 4 (127,262), city 5 (283,313). The whole-number distance table (row i, column j = distance from city i to city j, rounded to the nearest whole number by TSPLIB EUC_2D) is:\n      1    2    3    4    5\n1:    0  164  165  266  266\n2:  164    0  266  164  266\n3:  165  266    0  266  165\n4:  266  164  266    0  164\n5:  266  266  165  164    0\nFind a closed tour visiting every city exactly once and returning to the first city with the smallest total length; any starting city and either direction are acceptable. The tour's length is the sum of the distances between consecutive cities, including the return from the last city to the first. Submit the tour as the list of city ids (do not repeat the first at the end) and its length.",
+  "answer": [
+    {
+      "map": "map-38"
+    }
+  ],
+  "refuse": []
+}

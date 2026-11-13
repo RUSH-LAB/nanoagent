@@ -1,0 +1,12 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "json-schema-migration",
+  "task": "migrate-users",
+  "context": "Use the built-in legacy dataset for batch \"international\"; its complete source records are exactly: {\"id\": 7, \"full_name\": \"  Marie  Curie \", \"email\": \" MARIE@EXAMPLE.PL\", \"active\": \"0\", \"zip\": \" 00-001 \", \"country\": \" pl \"}, {\"id\": 8, \"full_name\": \"Niels  Bohr\", \"email\": \" niels@EXAMPLE.DK \", \"active\": \"TRUE\", \"zip\": \" 0100 \", \"country\": \" dk\"}, {\"id\": 9, \"full_name\": \"\u674e \u96f7\", \"email\": \" LEI@example.cn \", \"active\": \"False\", \"zip\": \"00100\", \"country\": \" cn \"}. Transform each legacy record into one v2 user record with exactly these six fields: user_id (int), display_name (string), email (string), enabled (bool), postal_code (string), country_code (string). user_id equals the legacy id. display_name equals full_name.strip() with every run of internal whitespace collapsed to a single space. email equals email.strip().lower(). enabled is true when active.strip().lower() is 'yes', 'true', or '1', and false when it is 'no', 'false', or '0'. postal_code equals zip.strip() kept as a string, preserving leading zeros and punctuation. country_code equals country.strip().upper(), or 'US' if the stripped country is empty. Preserve all three records and their original ids; the order of records in the candidate is irrelevant.",
+  "answer": [
+    {
+      "batch": "international"
+    }
+  ],
+  "refuse": []
+}

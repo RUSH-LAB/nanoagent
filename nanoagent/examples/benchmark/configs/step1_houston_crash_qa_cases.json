@@ -1,0 +1,12 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "houston-crash-qa",
+  "task": "answer-question",
+  "context": "The data is a fixed synthetic dataset of 400 crashes on Houston freeways, dated 2025-01-01 through 2025-06-30. Each crash has columns: date, weekday, hour (an integer 0-23), road (I-45, I-10, US-59, I-610 or BW-8), severity (none, minor, serious or fatal), vehicles, injuries, weather (clear, rain or fog), and lighting (day or night). In this dataset, 266 crashes have lighting 'day' and 134 have lighting 'night'. The question asks for a percentage: report it on a 0 to 100 scale, as a number alone, unrounded or to at least two decimals.",
+  "answer": [
+    {
+      "question": "What percentage of all crashes happened at night?"
+    }
+  ],
+  "refuse": []
+}

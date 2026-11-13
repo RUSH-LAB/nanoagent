@@ -1,0 +1,21 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "zl166-balanced-batch-planner",
+  "task": "balance-batches",
+  "context": "Split the items into exactly batch_count non-empty batches so that the greatest batch load (the sum of its items' weights) is as small as it can be.\nSeveral partitions can reach that smallest greatest load. Answer with the one whose canonical form is smallest: write each batch as its item ids sorted ascending, sort the batches by those id lists (compared element by element), and take the partition whose list of batches is smallest in that order.\nbatches is that canonical form, loads holds each batch's total weight in the same order, max_load is the greatest of them, and status is \"solved\".",
+  "answer": [
+    {"items": [{"id": "a", "weight": 5}, {"id": "b", "weight": 3}, {"id": "c", "weight": 8}, {"id": "d", "weight": 2}], "batch_count": 2},
+    {"items": [{"id": "a", "weight": 7}, {"id": "b", "weight": 7}, {"id": "c", "weight": 6}, {"id": "d", "weight": 5}, {"id": "e", "weight": 4}, {"id": "f", "weight": 3}], "batch_count": 3},
+    {"items": [{"id": "a", "weight": 12}, {"id": "b", "weight": 9}, {"id": "c", "weight": 15}], "batch_count": 1},
+    {"items": [{"id": "a", "weight": 4}, {"id": "b", "weight": 9}, {"id": "c", "weight": 1}, {"id": "d", "weight": 6}], "batch_count": 4},
+    {"items": [{"id": "a", "weight": 10}, {"id": "b", "weight": 10}, {"id": "c", "weight": 10}, {"id": "d", "weight": 10}, {"id": "e", "weight": 10}, {"id": "f", "weight": 10}], "batch_count": 3},
+    {"items": [{"id": "a", "weight": 0}, {"id": "b", "weight": 0}, {"id": "c", "weight": 5}, {"id": "d", "weight": 5}, {"id": "e", "weight": 0}], "batch_count": 2},
+    {"items": [{"id": "a", "weight": 23}, {"id": "b", "weight": 18}, {"id": "c", "weight": 31}, {"id": "d", "weight": 7}, {"id": "e", "weight": 14}, {"id": "f", "weight": 26}, {"id": "g", "weight": 9}], "batch_count": 3},
+    {"items": [{"id": "a", "weight": 90}, {"id": "b", "weight": 15}, {"id": "c", "weight": 14}, {"id": "d", "weight": 13}, {"id": "e", "weight": 12}, {"id": "f", "weight": 11}, {"id": "g", "weight": 10}], "batch_count": 2},
+    {"items": [{"id": "a", "weight": 41}, {"id": "b", "weight": 17}, {"id": "c", "weight": 29}, {"id": "d", "weight": 53}, {"id": "e", "weight": 8}, {"id": "f", "weight": 36}, {"id": "g", "weight": 22}, {"id": "h", "weight": 11}], "batch_count": 4},
+    {"items": [{"id": "a", "weight": 3}, {"id": "b", "weight": 1}, {"id": "c", "weight": 4}, {"id": "d", "weight": 1}, {"id": "e", "weight": 5}, {"id": "f", "weight": 9}, {"id": "g", "weight": 2}, {"id": "h", "weight": 6}, {"id": "i", "weight": 5}], "batch_count": 3},
+    {"items": [{"id": "a", "weight": 120}, {"id": "b", "weight": 85}, {"id": "c", "weight": 77}, {"id": "d", "weight": 64}, {"id": "e", "weight": 58}, {"id": "f", "weight": 49}, {"id": "g", "weight": 33}, {"id": "h", "weight": 27}, {"id": "i", "weight": 16}, {"id": "j", "weight": 5}], "batch_count": 4},
+    {"items": [{"id": "a", "weight": 15}, {"id": "b", "weight": 15}, {"id": "c", "weight": 15}, {"id": "d", "weight": 15}, {"id": "e", "weight": 15}, {"id": "f", "weight": 15}, {"id": "g", "weight": 15}, {"id": "h", "weight": 15}, {"id": "i", "weight": 15}, {"id": "j", "weight": 15}], "batch_count": 4}
+  ],
+  "refuse": []
+}

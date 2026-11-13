@@ -1,0 +1,12 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "tic-tac-toe-best-move",
+  "task": "best-move",
+  "context": "The data for this case is board number 41, a 4x4 tic-tac-toe position read from its image as text: its rows from top to bottom are 'X...', '.X.X', 'OXOO', 'XO.O', where '.' is an empty cell. Columns are a-d from left to right and rows are 1-4 from bottom to top, so the top row is row 4. It is a legal, unfinished game position and nobody has won. X moves first, so the player to move is X when X and O have the same number of marks, otherwise O. On a 4x4 board a win is four in a row along a row, column, or diagonal. A move is best if it forces the best result the player can force: win immediately if possible; otherwise block the opponent's only immediate winning line; otherwise create two threats at once when possible; otherwise keep the draw. If more than one move is best, any of them is acceptable. Give the player and the chosen cell as one column letter plus one row number, e.g. b2.",
+  "answer": [
+    {
+      "board": 41
+    }
+  ],
+  "refuse": []
+}

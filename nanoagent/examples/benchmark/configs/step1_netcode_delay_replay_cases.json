@@ -1,0 +1,129 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "netcode-delay-replay",
+  "task": "judge-shots",
+  "context": "The data is the input itself: no external data source is used. The history records the target at ticks 0, 100, 200, ..., 1000 ms, with x equal to the tick_ms and y=0, so between ticks the target moves one unit per ms along x and the rewound position at any rewind time from 0 through 1000 ms is (rewind_ms, 0), with linear interpolation rounded half up to whole units when needed.\n\nFor each shot the server rewinds to rewind_ms = received_ms - latency_ms - delay_ms. If latency_ms + delay_ms > max_rewind_ms the shot is too_old and never hits. Otherwise, if rewind_ms is before the first history tick or after the last history tick, the shot is no_history and never hits; a rewind exactly on the last tick is valid. A valid shot hits exactly when (aim_x - target_x)^2 + (aim_y - target_y)^2 <= radius^2.\n\nThe output's hits must be the shot_ids that hit, in the shots' order (the input shots are already in the order the server received them), omitting miss, too_old, and no_history shots. first_hit is the hit with the smallest rewind_ms, with ties broken by earlier position in the shots' order, or null if no shot hits.",
+  "answer": [
+    {
+      "history": [
+        {
+          "tick_ms": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tick_ms": 100,
+          "x": 100,
+          "y": 0
+        },
+        {
+          "tick_ms": 200,
+          "x": 200,
+          "y": 0
+        },
+        {
+          "tick_ms": 300,
+          "x": 300,
+          "y": 0
+        },
+        {
+          "tick_ms": 400,
+          "x": 400,
+          "y": 0
+        },
+        {
+          "tick_ms": 500,
+          "x": 500,
+          "y": 0
+        },
+        {
+          "tick_ms": 600,
+          "x": 600,
+          "y": 0
+        },
+        {
+          "tick_ms": 700,
+          "x": 700,
+          "y": 0
+        },
+        {
+          "tick_ms": 800,
+          "x": 800,
+          "y": 0
+        },
+        {
+          "tick_ms": 900,
+          "x": 900,
+          "y": 0
+        },
+        {
+          "tick_ms": 1000,
+          "x": 1000,
+          "y": 0
+        }
+      ],
+      "shots": [
+        {
+          "shot_id": "N",
+          "received_ms": 50,
+          "latency_ms": 0,
+          "aim_x": 0,
+          "aim_y": 0
+        },
+        {
+          "shot_id": "H",
+          "received_ms": 380,
+          "latency_ms": 130,
+          "aim_x": 150,
+          "aim_y": 0
+        },
+        {
+          "shot_id": "A",
+          "received_ms": 400,
+          "latency_ms": 80,
+          "aim_x": 225,
+          "aim_y": 0
+        },
+        {
+          "shot_id": "B",
+          "received_ms": 410,
+          "latency_ms": 20,
+          "aim_x": 290,
+          "aim_y": 0
+        },
+        {
+          "shot_id": "C",
+          "received_ms": 420,
+          "latency_ms": 150,
+          "aim_x": 180,
+          "aim_y": 0
+        },
+        {
+          "shot_id": "D",
+          "received_ms": 430,
+          "latency_ms": 60,
+          "aim_x": 400,
+          "aim_y": 0
+        },
+        {
+          "shot_id": "E",
+          "received_ms": 440,
+          "latency_ms": 300,
+          "aim_x": 40,
+          "aim_y": 0
+        },
+        {
+          "shot_id": "G",
+          "received_ms": 450,
+          "latency_ms": 200,
+          "aim_x": 150,
+          "aim_y": 0
+        }
+      ],
+      "delay_ms": 100,
+      "max_rewind_ms": 300,
+      "radius": 10
+    }
+  ],
+  "refuse": []
+}

@@ -1,0 +1,12 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "uc-g28-expense-audit",
+  "task": "audit-uc-expense-report",
+  "context": "The expense report data is bundled with the system: for each scenario, get_expense_report returns the trip header (departure_local, return_local, total_trip_minutes, federal_combined_per_diem_cents) and every line with line_id, date, category, amount_cents, receipt_id, incurred_for, merchant, and airfare/lodging detail objects where applicable. The audit rules are the handbook exactly: check each line in order C1 duplicate, C2 personal, C3 missing receipt, then the category rule; a line failing checks 1-3 pays 0 and never counts toward M&IE or supports an overnight stay. M&IE caps are 9200 cents per day for standard trips, a single 9200 cap for trips under 24 hours with an overnight stay, and no M&IE for trips under 24 hours without an overnight stay; on trips of 30 days or more the combined per diem applies to lodging and M&IE. Lodging caps at 33300 per night unless conference hotel or price comparison, taxed paid in full. Non-coach airfare paid only when justification is one of the four listed or chancellor authorization. Host gift capped at 7500. Flags every line not paid in full with the first reason; total is sum of all amounts paid. All amounts in integer cents.",
+  "answer": [
+    {
+      "scenario": "phoenix-admissions-counselor"
+    }
+  ],
+  "refuse": []
+}

@@ -1,0 +1,53 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "puzzle-solver",
+  "task": "find-the-piece",
+  "context": "The puzzle is fully written out in the input: in the picture, '#' is filled and '.' is the hole (one connected region of 5 cells); in each piece, '#' is part of the piece and '.' is empty padding. A piece fills the hole exactly when its '#' cells, moved as a rigid shape (translated, never rotated or flipped), coincide with all and only the '.' cells of the picture. Rows grow downward and columns to the right. The practical check is to normalize each shape by subtracting the smallest row and smallest column of its '#' cells so its top row and left column become 0, then compare the resulting sets. The four candidates are 5-cell bent shapes; several are the same shape turned, so compare normalized cell sets, not the drawn rectangles. Exactly one piece fits; submit that piece's name.",
+  "answer": [
+    {
+      "picture": [
+        "#######",
+        "#######",
+        "###...#",
+        "###.###",
+        "###.###",
+        "#######"
+      ],
+      "pieces": [
+        {
+          "name": "A",
+          "rows": [
+            "#..",
+            "#..",
+            "###"
+          ]
+        },
+        {
+          "name": "B",
+          "rows": [
+            "###",
+            "#..",
+            "#.."
+          ]
+        },
+        {
+          "name": "C",
+          "rows": [
+            "###",
+            "..#",
+            "..#"
+          ]
+        },
+        {
+          "name": "D",
+          "rows": [
+            "..#",
+            "..#",
+            "###"
+          ]
+        }
+      ]
+    }
+  ],
+  "refuse": []
+}

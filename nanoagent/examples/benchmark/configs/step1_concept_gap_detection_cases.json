@@ -1,0 +1,17 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "concept-gap-detection",
+  "task": "find-concept-gaps",
+  "context": "The corpus is acl-small: 2,924 ACL Anthology papers from 2018-2019, plus concepts, each with a 32-dimensional integer embedding and the sorted 0-based indices of the papers that mention it. A concept is frequent when at least min_papers papers mention it. Two concepts are similar when the cosine of their embeddings is at least threshold, decided exactly as dot >= 0 and dot^2 >= threshold^2 * (sum of squared entries of each embedding). Two distinct frequent concepts are related when they are similar and neither name's normalized phrase is contained as whole tokens in the other's; normalize by lowercasing, mapping characters outside a-z and 0-9 to spaces, and dropping a final s from tokens longer than 3 unless they end ss, us or is. A related pair is a gap when its Jaccard similarity |A \u2229 B| / |A \u222a B| is at most max_jaccard, compared as a fraction. This input has 42 related pairs and checking all of them exactly costs 6,750, while the budget is 3,800, so you must choose which pairs to check. MinHash rows estimate Jaccard as the matching-row share (expected value exactly J; standard deviation about sqrt(J(1-J)/r) for r rows; pairs with J=0 never match). Signatures cost rows times P times 0.001 rounded up, charged only for rows beyond the longest already built; an exact check of a pair costs |A|+|B|. Work and spending persist across calls for the same input. In the answer, submit every confirmed gap exactly once, each as the pair of concept names returned, with no non-gaps, and at least min_recall (0.90) of all gaps must be included.",
+  "answer": [
+    {
+      "dataset": "acl-small",
+      "min_papers": 10,
+      "threshold": "0.70",
+      "max_jaccard": "0.01",
+      "cost_budget": 3800,
+      "min_recall": "0.90"
+    }
+  ],
+  "refuse": []
+}

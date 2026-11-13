@@ -1,0 +1,104 @@
+_ > step2_single_run.SingleRunConfig:
+
+# The local RUSH database that helpinghands' `npm run local` makes and fills with production's.
+database: postgres://neondb_owner@127.0.0.1:55432/mochi
+psql: /opt/homebrew/opt/postgresql@18/bin/psql
+# The plugin task's cases, and the one this run works: <plugin>-<n>, the cases to answer first.
+cases: examples/benchmark/configs/step1_city_weather_cases.json
+case: city-weather-01
+# nanoagent (the plugin's task, as RUSH Lab runs it), or claude, codex, hermes, pi or dsh (the prompt).
+harness: nanoagent
+model: deepseek/deepseek-v4-flash-0731
+# openrouter (the harness's route below), or null for the harness's own login (claude, codex, hermes;
+# dsh with DEEPSEEK_API_KEY).
+provider: openrouter
+# OpenRouter's price per million tokens for deepseek-v4-flash on 2026-11-05 (cached input at the
+# full price: no cached price was listed).
+input_price: 0.059
+cached_input_price: 0.059
+output_price: 0.3
+prompt: |-
+  Task: {description}.
+
+  {context}
+
+  The task's input:
+  {arguments}
+
+  The input's JSON Schema:
+  {input_schema}
+
+  Write your answer to {workspace}/answer.json: one JSON object following this JSON Schema.
+  {output_schema}
+
+  Keep temporary files in the workspace or the directory named by TMPDIR.
+
+  If the input cannot be answered (the day or window has not ended, the market was closed, or no data covers it), write {{"refused": "<why>"}} to answer.json instead.
+
+# Seconds the harness, and the reference tool, may take before the run fails.
+timeout: 900.0
+
+nanoagent > step2_single_run.NanoAgentLoopConfig:
+  harness > nanoagent.harness.nanoagent.NanoAgentConfig:
+    max_steps: 10
+    cost_limit: null
+    token_limit: null
+    context_window: null
+    hooks: []
+    skills: null
+    context_files: []
+    events: null
+  max_attempts: 3
+  read_timeout: 120.0
+
+# Every harness but NanoAgent: its runner (run from nanoagent/), and how it reaches each provider.
+harnesses > dict[step2_single_run.Harness, step2_single_run.HarnessConfig]:
+  claude:
+    command: [.venv/bin/nanoagent-claude-runner]
+    options: {}
+    routes > dict[step2_single_run.Provider, step2_single_run.Route]:
+      # OpenRouter's Anthropic-compatible API.
+      openrouter:
+        options: {}
+        env: {ANTHROPIC_BASE_URL: https://openrouter.ai/api, ANTHROPIC_API_KEY: ""}
+        env_from: {ANTHROPIC_AUTH_TOKEN: OPENROUTER_API_KEY}
+  codex:
+    command: [.venv/bin/nanoagent-codex-runner]
+    # The Codex release npx runs, pinned so every run profiles the same harness.
+    # The benchmark's outer sandbox isolates evidence and allows the task's network access.
+    options: {package: "@openai/codex@0.167.0", sandbox: danger-full-access}
+    routes > dict[step2_single_run.Provider, step2_single_run.Route]:
+      # OpenRouter's Responses API, the only one Codex speaks.
+      openrouter:
+        options: {provider: openrouter, base_url: https://openrouter.ai/api/v1, api_key_env: OPENROUTER_API_KEY}
+        env: {}
+        env_from: {}
+  hermes:
+    command: [.venv/bin/nanoagent-hermes-runner]
+    options: {}
+    routes > dict[step2_single_run.Provider, step2_single_run.Route]:
+      openrouter:
+        options: {provider: openrouter}
+        env: {}
+        # Pass the OpenRouter API key into the sandbox so Hermes can read it.
+        env_from: {OPENROUTER_API_KEY: OPENROUTER_API_KEY}
+  # js/pi-runner, built with `npm ci && npm run build` there; with PI's coding tools.
+  pi:
+    command: [node, js/pi-runner/dist/index.js]
+    options: {tools: coding}
+    routes > dict[step2_single_run.Provider, step2_single_run.Route]:
+      openrouter:
+        options: {provider: openrouter, api_key_env: OPENROUTER_API_KEY}
+        env: {}
+        env_from: {}
+  dsh:
+    command: [.venv/bin/nanoagent-dsh-runner]
+    # The dsh release npx runs, pinned so every run profiles the same harness.
+    # Use the benchmark's outer sandbox so dsh does not try to start a second one.
+    options: {package: "@deepseek-ai/dsh@0.2.2-rc.1", sandbox: danger-full-access}
+    routes > dict[step2_single_run.Provider, step2_single_run.Route]:
+      # pi-ai's OpenRouter route (dsh's DeepSeek route sends x-api-key, which OpenRouter refuses).
+      openrouter:
+        options: {provider: openrouter, api_key_env: OPENROUTER_API_KEY}
+        env: {}
+        env_from: {}

@@ -1,0 +1,20 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "oscar-film-finder",
+  "task": "find-films",
+  "context": "Use these Academy Awards records for film years 2000 through 2024, inclusive. A film year is the year whose films a ceremony honored; each year has one ceremony. For each year, the list gives the Best Picture winner and that same film's Best Directing result at the same ceremony: won means one of its nominations won Best Directing, lost means it was nominated for Best Directing but did not win, and not nominated means it had no Best Directing nomination. This query looks only at Best Picture winners. A film matches when it won Best Picture and was nominated for Best Directing but did not win (listed as lost). Report each match once with the title as written below and its film year. 2000 Gladiator lost. 2001 A Beautiful Mind won. 2002 Chicago lost. 2003 The Lord of the Rings: The Return of the King won. 2004 Million Dollar Baby won. 2005 Crash lost. 2006 The Departed won. 2007 No Country for Old Men won. 2008 Slumdog Millionaire won. 2009 The Hurt Locker won. 2010 The King's Speech won. 2011 The Artist won. 2012 Argo not nominated. 2013 12 Years a Slave lost. 2014 Birdman or (The Unexpected Virtue of Ignorance) won. 2015 Spotlight lost. 2016 Moonlight lost. 2017 The Shape of Water won. 2018 Green Book not nominated. 2019 Parasite won. 2020 Nomadland won. 2021 CODA not nominated. 2022 Everything Everywhere All at Once won. 2023 Oppenheimer won. 2024 Anora won.",
+  "answer": [
+    {
+      "first_year": 2000,
+      "last_year": 2024,
+      "won": [
+        "best_picture"
+      ],
+      "not_won": [],
+      "nominated_not_won": [
+        "directing"
+      ]
+    }
+  ],
+  "refuse": []
+}

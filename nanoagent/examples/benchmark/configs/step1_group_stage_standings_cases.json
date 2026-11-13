@@ -1,0 +1,15 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "group-stage-standings",
+  "task": "rank-group",
+  "context": "The tournament data is bundled and fictional; group C of atlantic-cup-2026 has last matchday 3. Its teams with seeds (1 is best) are: Istrena 3, Jorvale 10, Kelmora 16, Lunessa 22. All six of its matches are played, with cards as [yellow, second_yellow, red, yellow_red]:\nmd1 Istrena 1-0 Kelmora, cards Istrena [2,0,0,0], Kelmora [1,0,0,0];\nmd1 Jorvale 1-0 Lunessa, cards Jorvale [1,0,0,0], Lunessa [1,0,0,0];\nmd2 Kelmora 2-1 Jorvale, cards Kelmora [1,0,0,0], Jorvale [0,0,0,0];\nmd2 Lunessa 1-2 Istrena, cards Lunessa [2,0,0,0], Istrena [1,0,0,0];\nmd3 Jorvale 1-0 Istrena, cards Jorvale [1,0,0,0], Istrena [0,1,0,0];\nmd3 Lunessa 0-1 Kelmora, cards Lunessa [0,0,0,1], Kelmora [1,0,0,0].\n\nCount only played matches with md <= through_matchday (here 3, so all six). For each team: played, won, drawn, lost, goals_for, goals_against, goal_difference = goals_for - goals_against, points = 3*won + drawn, fair_play = -(1*yellow + 3*second_yellow + 4*red + 5*yellow_red) from its own cards only. Rank under the uefa tiebreakers exactly as the task defines them: (1) points; teams level on points form a set, ranked by (2) head-to-head points, (3) head-to-head goal difference, (4) head-to-head goals scored among that set; if that separates some but leaves two or more level, reapply (2)-(4) over the matches among only those still level, and repeat; a set that head-to-head cannot split is ranked by (6) overall goal difference, (7) overall goals scored, (8) fair play, (9) seed, where the smaller seed number ranks first. Every other criterion ranks the higher value first. Output rows in rank order with positions 1..4 and qualified as the top two.",
+  "answer": [
+    {
+      "tournament": "atlantic-cup-2026",
+      "group": "C",
+      "through_matchday": 3,
+      "ruleset": "uefa"
+    }
+  ],
+  "refuse": []
+}

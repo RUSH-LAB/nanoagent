@@ -1,0 +1,25 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "nutrition-facts-label",
+  "task": "make-nutrition-label",
+  "context": "Make a per-serving US Nutrition Facts label for the given recipe. The bundled ingredient table (authority) gives each ingredient's nutrients per 100 g; for this recipe both ingredients are measured in grams, so each line's grams is its amount and the recipe's total grams is the sum. The per-serving amount of each nutrient is the whole-recipe total divided by the number of servings. Then declare each value by the FDA rounding rules below, and set each row's dv to the declared amount divided by its Daily Value times 100, rounded to the nearest whole percent (a 'less than' declaration counts as 0); dv is null for trans fat, total sugars and protein. The rows must appear in this order: total_fat_g, saturated_fat_g, trans_fat_g, cholesterol_mg, sodium_mg, total_carbohydrate_g, dietary_fiber_g, total_sugars_g, added_sugars_g, protein_g. The saved file's path is labels/<slug of the name>.json, where the slug is the name's lowercase ASCII words (letters and digits) joined by hyphens; 'Honey milk' becomes 'honey-milk'. Ingredient data: whole_milk per 100 g: calories 61, total fat 3.25 g, saturated fat 1.87 g, trans fat 0 g, cholesterol 10 mg, sodium 43 mg, total carbohydrate 4.8 g, dietary fiber 0 g, total sugars 4.8 g, added sugars 0 g, protein 3.15 g. honey per 100 g: calories 304, total fat 0 g, saturated fat 0 g, trans fat 0 g, cholesterol 0 mg, sodium 4 mg, total carbohydrate 82.4 g, dietary fiber 0.2 g, total sugars 82.12 g, added sugars 82.12 g, protein 0.3 g. Rounding rules: 'Nearest N' rounds the unrounded per-serving amount to a multiple of N, ties going up. - serving_size_g: grams per serving, nearest 1. - calories: under 5 -> 0; 5 to 50 -> nearest 5; above 50 -> nearest 10. - total_fat_g, saturated_fat_g, trans_fat_g: under 0.5 -> 0; 0.5 to under 5 -> nearest 0.5; 5 or more -> nearest 1. - cholesterol_mg: under 2 -> 0; 2 to 5 -> amount 5 with less_than true ('less than 5 mg'); above 5 -> nearest 5. - sodium_mg: under 5 -> 0; 5 to 140 -> nearest 5; above 140 -> nearest 10. - total_carbohydrate_g, dietary_fiber_g, total_sugars_g, added_sugars_g, protein_g: under 0.5 -> 0; 0.5 to under 1 -> amount 1 with less_than true ('less than 1 g'); 1 or more -> nearest 1. less_than is false in every other case. Daily values: total fat 78 g, saturated fat 20 g, cholesterol 300 mg, sodium 2300 mg, total carbohydrate 275 g, dietary fiber 28 g, added sugars 50 g; dv null for trans_fat_g, total_sugars_g, protein_g.",
+  "answer": [
+    {
+      "name": "Honey milk",
+      "servings": 2,
+      "ingredients": [
+        {
+          "ingredient": "whole_milk",
+          "amount": 400,
+          "unit": "g"
+        },
+        {
+          "ingredient": "honey",
+          "amount": 75,
+          "unit": "g"
+        }
+      ]
+    }
+  ],
+  "refuse": []
+}

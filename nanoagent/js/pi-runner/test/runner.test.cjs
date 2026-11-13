@@ -14,8 +14,11 @@ test("PI runner validates server-owned options", async () => {
     awsProfile: undefined,
     temperature: undefined,
     maxTokens: undefined,
+    tools: undefined,
   });
   assert.throws(() => parseOptions({provider: "openrouter"}), /model.*required/);
+  assert.equal(parseOptions({provider: "openrouter", model: "m", tools: "coding"}).tools, "coding");
+  assert.throws(() => parseOptions({provider: "openrouter", model: "m", tools: "all"}), /tools/);
 });
 
 test("PI runner takes a run's temperature and output limit", async () => {

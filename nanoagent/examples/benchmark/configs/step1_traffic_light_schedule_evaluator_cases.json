@@ -1,0 +1,89 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "traffic-light-schedule-evaluator",
+  "task": "evaluate-traffic-schedule",
+  "context": "The complete traffic data is the input below: two intersections with repeating green-yellow-red cycles and twelve vehicle arrivals. For an intersection, cycle_length = green_seconds + yellow_seconds + red_seconds, and the zero-based cycle position of an arrival is (arrival_time - cycle_start) modulo cycle_length. Green occupies positions 0 through green_seconds - 1; yellow occupies green_seconds through green_seconds + yellow_seconds - 1; red occupies the rest. A timestamp exactly on a boundary belongs to the phase that starts there. A vehicle may cross only during green: then next_crossing_time equals arrival_time and wait_seconds is 0. For yellow or red, next_crossing_time = arrival_time + cycle_length - cycle_position and wait_seconds = next_crossing_time - arrival_time. Report one evaluation per arrival in the exact arrival order, copying arrival_id, intersection_id, and arrival_time exactly. signal_color is only green, yellow, or red; may_cross is true exactly when wait_seconds is 0.",
+  "answer": [
+    {
+      "intersections": [
+        {
+          "intersection_id": "main-st",
+          "cycle_start": 0,
+          "green_seconds": 20,
+          "yellow_seconds": 5,
+          "red_seconds": 15
+        },
+        {
+          "intersection_id": "oak-ave",
+          "cycle_start": 7,
+          "green_seconds": 10,
+          "yellow_seconds": 3,
+          "red_seconds": 7
+        }
+      ],
+      "arrivals": [
+        {
+          "arrival_id": "a-01",
+          "intersection_id": "main-st",
+          "arrival_time": 0
+        },
+        {
+          "arrival_id": "a-02",
+          "intersection_id": "oak-ave",
+          "arrival_time": 17
+        },
+        {
+          "arrival_id": "a-03",
+          "intersection_id": "main-st",
+          "arrival_time": 25
+        },
+        {
+          "arrival_id": "a-04",
+          "intersection_id": "oak-ave",
+          "arrival_time": 7
+        },
+        {
+          "arrival_id": "a-05",
+          "intersection_id": "main-st",
+          "arrival_time": 40
+        },
+        {
+          "arrival_id": "a-06",
+          "intersection_id": "oak-ave",
+          "arrival_time": 26
+        },
+        {
+          "arrival_id": "a-07",
+          "intersection_id": "main-st",
+          "arrival_time": 60
+        },
+        {
+          "arrival_id": "a-08",
+          "intersection_id": "oak-ave",
+          "arrival_time": 37
+        },
+        {
+          "arrival_id": "a-09",
+          "intersection_id": "main-st",
+          "arrival_time": 79
+        },
+        {
+          "arrival_id": "a-10",
+          "intersection_id": "oak-ave",
+          "arrival_time": 47
+        },
+        {
+          "arrival_id": "a-11",
+          "intersection_id": "main-st",
+          "arrival_time": 80
+        },
+        {
+          "arrival_id": "a-12",
+          "intersection_id": "oak-ave",
+          "arrival_time": 20
+        }
+      ]
+    }
+  ],
+  "refuse": []
+}

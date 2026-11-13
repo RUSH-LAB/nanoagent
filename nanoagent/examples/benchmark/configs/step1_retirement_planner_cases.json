@@ -1,0 +1,18 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "retirement-planner",
+  "task": "project-retirement",
+  "context": "Project retirement using the fixed 4% rule with only the supplied personal facts; no external data is needed. All money is integer cents in one currency, and rates are integer basis points (100 bps = 1%). At each birthday from the current age through age 100 inclusive, retirement qualifies when investments are at least 25 times that birthday's annual expenses; if that is true at the current age, retirement is immediate. Otherwise one working year is projected: investments = investments + round(investments x investment_return_bps / 10000) + annual_income - annual_expenses, using that year's income and expenses; then income and expenses are each grown for the next year by round(value x rate_bps / 10000). Rounding is to the nearest cent, ties away from zero, applied separately to each growth amount; new savings start earning returns only the following year. If projected investments after a year would be negative, stop at that next age with reason funding_shortfall and report investments as 0; if age 100 is reached without qualifying, reason is search_limit. Unspecified optional rates are null and use defaults: investment_return_bps = 900 (9%), wage_growth_bps = 200 (2%), spending_inflation_bps = 200 (2%). Valid ranges are -10000 to 10000 for return and wage growth and 0 to 10000 for spending inflation. Report the earliest qualifying age, years_until_retirement = retirement_age - current_age, the final projection age, investments, expenses, the 25x required amount, the reason, the effective assumptions including max_search_age = 100 and withdrawal_rate_bps = 400, and defaults_applied, which lists the defaulted nullable fields in this order: investment_return_bps, wage_growth_bps, spending_inflation_bps.",
+  "answer": [
+    {
+      "current_age": 50,
+      "investments_cents": 220000000,
+      "annual_income_cents": 20000000,
+      "annual_expenses_cents": 10000000,
+      "investment_return_bps": null,
+      "wage_growth_bps": null,
+      "spending_inflation_bps": null
+    }
+  ],
+  "refuse": []
+}

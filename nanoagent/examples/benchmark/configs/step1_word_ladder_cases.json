@@ -1,0 +1,13 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "word-ladder",
+  "task": "solve-ladder",
+  "context": "The dictionary is the 4-letter words of the public-domain ENABLE word list (enable1.txt from github.com/dolph/dictionary), 3,903 words, including many uncommon words; membership is determined only by that list. A ladder is a sequence of words from start to end where each consecutive pair differs in exactly one letter, no letters are added, removed, or rearranged, every word including both ends is in the dictionary, and no word repeats. The answer is checked against those rules and against the fewest possible number of words (the shortest distance through the word graph on the same dictionary); any valid shortest ladder is accepted, not one particular path. If no ladder exists the correct output is solvable=false and ladder=[]. Both input words are ordinary 4-letter dictionary words, so determine the ladder from the dictionary rather than guessing.",
+  "answer": [
+    {
+      "start": "love",
+      "end": "hate"
+    }
+  ],
+  "refuse": []
+}

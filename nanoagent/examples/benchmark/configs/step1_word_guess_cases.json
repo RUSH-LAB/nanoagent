@@ -1,0 +1,12 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "word-guess",
+  "task": "score-game",
+  "context": "The input names one bundled game file. Its contents are: answer 'plant', max_attempts 6, guesses ['alarm', 'xqzvy', 'plan', 'slant', 'giant', 'blank', 'plane', 'PLANT', 'plant']. The hidden word is 'plant'. Of these guesses, 'xqzvy' and 'plan' are invalid: 'xqzvy' is five letters but not in the allowed-words list, and 'plan' is only four letters, so it is not five ASCII letters. Every other guess is valid (case-insensitively: the lowercase forms 'alarm', 'slant', 'giant', 'blank', 'plane', 'plant', 'plant' are all in the allowed-words list). Referee under the rules in the task: lowercase each guess before comparing; a valid guess is scored and uses one attempt, an invalid guess has no pattern and uses none; once a scored guess equals the hidden word or six guesses have been scored, all later guesses are unplayed with no pattern, even if invalid; a scored guess's pattern is five marks by the two-pass HIT/NEAR/MISS rule (HIT first for the right letter in the right position, then left to right NEAR only while an unused copy remains among the hidden word's non-HIT positions, else MISS); solved is true when a scored guess equals the hidden word; attempts is the number of scored guesses. Report one feedback entry per guess in the game's order, with each guess copied exactly as written.",
+  "answer": [
+    {
+      "game": "plant.json"
+    }
+  ],
+  "refuse": []
+}

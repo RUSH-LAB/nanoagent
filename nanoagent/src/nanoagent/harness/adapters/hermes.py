@@ -1,16 +1,25 @@
-"""Translate NanoAgent's runner protocol to Hermes Agent's one-shot CLI."""
+"""Translate NanoAgent's runner protocol to Hermes Agent's one-shot run, profiled.
+
+Hermes runs in this process the way ``hermes -z`` runs it (``hermes_cli.oneshot``: its config, its
+provider resolution, its tools, approvals off), with its agent watched as it works: every request to
+the model, timed around Hermes's own request methods with the usage Hermes reads from its response,
+and every tool through Hermes's tool callbacks, failed when Hermes itself would call it failed. Its
+events are relayed as they happen and profiled into NanoAgent's standard profile, the done event's
+``metrics``; the run's tokens are Hermes's own account of them, and its estimated cost is kept as
+``metrics.reported``."""
 
 from __future__ import annotations
 
 import json
-import shutil
-import signal
-import subprocess
-import tempfile
-from pathlib import Path
-from typing import Any
+import logging
+import os
+import sys
+import threading
+from contextlib import redirect_stderr, redirect_stdout
+from typing import Any, TextIO
 
-from nanoagent.harness.adapters._coding_cli import run_main
+from nanoagent.harness.adapters._coding_cli import run_main, workspace
+from nanoagent.profiler import StreamProfiler, messages_usage
 
 
 def _prompt(request: dict[str, Any]) -> str:
@@ -40,46 +49,102 @@ def _prompt(request: dict[str, Any]) -> str:
     return "\n\n".join(sections)
 
 
-def _command(executable: str, prompt: str, usage_path: str, options: dict[str, Any]) -> list[str]:
-    command = [executable, "-z", prompt, "--usage-file", usage_path]
-    for option, flag in (("model", "--model"), ("provider", "--provider")):
-        value = options.get(option)
-        if value is not None:
-            if not isinstance(value, str) or not value:
-                raise ValueError(f"Hermes option {option!r} must be a non-empty string")
-            command.extend([flag, value])
-    toolsets = options.get("toolsets")
-    if toolsets is not None:
-        if not isinstance(toolsets, list) or any(not isinstance(item, str) for item in toolsets):
-            raise ValueError("Hermes option 'toolsets' must be a list of strings")
-        command.extend(["--toolsets", ",".join(toolsets)])
-    return command
+def _option(options: dict[str, Any], name: str) -> str | None:
+    value = options.get(name)
+    if value is not None and (not isinstance(value, str) or not value):
+        raise ValueError(f"Hermes option {name!r} must be a non-empty string")
+    return value
 
 
-def _done(answer: str, usage: dict[str, Any]) -> dict[str, Any]:
-    token_fields = {
-        "prompt_tokens": usage.get("input_tokens"),
-        "completion_tokens": usage.get("output_tokens"),
-        "total_tokens": usage.get("total_tokens"),
-    }
-    tokens = {
-        key: value
-        for key, value in token_fields.items()
-        if isinstance(value, int) and not isinstance(value, bool) and value >= 0
-    }
-    api_calls = usage.get("api_calls")
-    steps = api_calls if isinstance(api_calls, int) and api_calls >= 0 else 0
-    estimated_cost = usage.get("estimated_cost_usd")
-    cost = float(estimated_cost) if isinstance(estimated_cost, (int, float)) else 0.0
-    return {
-        "type": "done",
-        "answer": answer,
-        "stop_reason": "answer",
-        "steps": steps,
-        "usage": tokens,
-        "cost": max(cost, 0.0),
-        "error": None,
-    }
+class _Relay:
+    """Hermes's work passed on as NanoAgent progress and recorded in the run's profile. Hermes may run
+    tools on threads, so each event is handled whole under one lock."""
+
+    def __init__(self, out: TextIO) -> None:
+        self.out = out
+        self.profiler = StreamProfiler()
+        self.lock = threading.Lock()
+        self.depth = 0  # a request method may call the other: only the outer one is the request
+        self.agent: Any = None  # Hermes's agent, once it is built
+
+    def emit(self, event: dict[str, Any]) -> None:
+        self.out.write(json.dumps(event, separators=(",", ":")) + "\n")
+        self.out.flush()
+
+    def request(self, call: Any, *, on_first_delta: Any = None) -> Any:
+        """Run one of Hermes's requests to the model, timed."""
+        with self.lock:
+            self.depth += 1
+            if self.depth == 1:
+                step = self.profiler.model_start()
+                if step is not None:
+                    self.emit({"type": "step", "step": step.step, "cost": 0.0, "usage": step.usage, "metrics": step.to_dict()})
+
+        def first_delta() -> None:
+            with self.lock:
+                self.profiler.first_token()
+            if on_first_delta is not None:
+                on_first_delta()
+
+        try:
+            response = call(first_delta)
+        except BaseException as error:
+            with self.lock:
+                self.depth -= 1
+                if self.depth == 0:
+                    self.profiler.model_end(error=str(error) or type(error).__name__)
+            raise
+        with self.lock:
+            self.depth -= 1
+            if self.depth == 0:
+                self.profiler.model_end(usage=self.response_usage(response))
+        return response
+
+    def response_usage(self, response: Any) -> dict[str, int] | None:
+        from agent.usage_pricing import normalize_usage
+
+        raw = getattr(response, "usage", None)
+        if not raw:
+            return None
+        usage = normalize_usage(raw, provider=self.agent.provider, api_mode=self.agent.api_mode)
+        return messages_usage(usage.input_tokens, usage.output_tokens, usage.cache_read_tokens, usage.cache_write_tokens, usage.reasoning_tokens)
+
+    def tool_start(self, call_id: str, name: str, arguments: Any) -> None:
+        with self.lock:
+            self.profiler.tool_start(call_id, name)
+            self.emit({"type": "tool_start", "id": call_id, "name": name})
+
+    def tool_complete(self, call_id: str, name: str, arguments: Any, result: Any) -> None:
+        from agent.display import _detect_tool_failure
+
+        failed, _ = _detect_tool_failure(name, result if isinstance(result, str) else None)
+        with self.lock:
+            self.profiler.tool_end(call_id, is_error=failed)
+            output = result if isinstance(result, str) else json.dumps(result, default=str)
+            self.emit({"type": "tool", "id": call_id, "name": name, "arguments": arguments, "output": output, "is_error": failed})
+
+
+def _profiled_agent(relay: _Relay) -> type:
+    """Hermes's agent, its requests to the model timed and its tools reported to ``relay``."""
+    from run_agent import AIAgent
+
+    class ProfiledAgent(AIAgent):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            relay.agent = self
+            self.tool_start_callback = relay.tool_start
+            self.tool_complete_callback = relay.tool_complete
+
+        def _interruptible_api_call(self, api_kwargs: dict) -> Any:
+            return relay.request(lambda _first: super(ProfiledAgent, self)._interruptible_api_call(api_kwargs))
+
+        def _interruptible_streaming_api_call(self, api_kwargs: dict, *, on_first_delta: Any = None) -> Any:
+            return relay.request(
+                lambda first: super(ProfiledAgent, self)._interruptible_streaming_api_call(api_kwargs, on_first_delta=first),
+                on_first_delta=on_first_delta,
+            )
+
+    return ProfiledAgent
 
 
 def _run(payload: dict[str, Any]) -> dict[str, Any]:
@@ -89,48 +154,68 @@ def _run(payload: dict[str, Any]) -> dict[str, Any]:
     options = payload.get("options", {})
     if not isinstance(request, dict) or not isinstance(options, dict):
         raise ValueError("request and options must be objects")
-    executable_name = options.get("executable", "hermes")
-    if not isinstance(executable_name, str) or not executable_name:
-        raise ValueError("Hermes option 'executable' must be a non-empty string")
-    executable = shutil.which(executable_name)
-    if executable is None:
-        raise FileNotFoundError(
-            f"Hermes executable {executable_name!r} was not found; install with "
-            '`pip install "nanoagent[hermes]"` or set `executable=...` in the harness `options` list'
-        )
-
-    usage_file = tempfile.NamedTemporaryFile(prefix="nanoagent-hermes-", suffix=".json", delete=False)
-    usage_path = usage_file.name
-    usage_file.close()
-    child: subprocess.Popen[str] | None = None
-    previous_handler = signal.getsignal(signal.SIGTERM)
+    model, provider = _option(options, "model"), _option(options, "provider")
+    if provider is not None and model is None:
+        raise ValueError("Hermes option 'provider' needs a model")
+    toolsets = options.get("toolsets")
+    if toolsets is not None and (not isinstance(toolsets, list) or any(not isinstance(item, str) for item in toolsets)):
+        raise ValueError("Hermes option 'toolsets' must be a list of strings")
+    # The profile's clock starts before Hermes loads, as other harnesses' start before they boot.
+    relay = _Relay(sys.stdout)
     try:
-        child = subprocess.Popen(
-            _command(executable, _prompt(request), usage_path, options),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
+        import run_agent
+        from gateway.session_context import declare_stateless_channel
+        from hermes_cli import oneshot
+    except ImportError as error:
+        raise FileNotFoundError(f'Hermes Agent is not installed: install with `pip install "nanoagent[hermes]"` ({error})') from None
 
-        def terminate_child(_signum: int, _frame: Any) -> None:
-            if child is not None and child.poll() is None:
-                child.terminate()
-            raise SystemExit(143)
-
-        signal.signal(signal.SIGTERM, terminate_child)
-        stdout, stderr = child.communicate()
-        if child.returncode != 0:
-            detail = stderr.strip() or f"Hermes exited with status {child.returncode}"
-            raise RuntimeError(detail)
-        try:
-            usage = json.loads(Path(usage_path).read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            usage = {}
-        return _done(stdout.strip(), usage if isinstance(usage, dict) else {})
+    # Hermes works in the workspace: its shell and file tools start from TERMINAL_CWD.
+    root = workspace(request)
+    os.chdir(root)
+    os.environ["TERMINAL_CWD"] = str(root)
+    # As `hermes -z` sets itself up: no one approves anything, and nothing runs in the background.
+    os.environ["HERMES_YOLO_MODE"] = "1"
+    os.environ["HERMES_ACCEPT_HOOKS"] = "1"
+    declare_stateless_channel()
+    logging.disable(logging.CRITICAL)
+    shipped = run_agent.AIAgent
+    run_agent.AIAgent = _profiled_agent(relay)
+    try:
+        # Hermes prints as it works; the runner protocol owns stdout.
+        with open(os.devnull, "w", encoding="utf-8") as devnull, redirect_stdout(devnull), redirect_stderr(devnull):
+            answer, result = oneshot._run_agent(
+                _prompt(request),
+                model=model,
+                provider=provider,
+                toolsets=toolsets,
+                use_config_toolsets=toolsets is None,
+            )
     finally:
-        signal.signal(signal.SIGTERM, previous_handler)
-        Path(usage_path).unlink(missing_ok=True)
+        run_agent.AIAgent = shipped
+    with relay.lock:
+        step = relay.profiler.close()
+        if step is not None:
+            relay.emit({"type": "step", "step": step.step, "cost": 0.0, "usage": step.usage, "metrics": step.to_dict()})
+    total = messages_usage(
+        result.get("input_tokens") or 0,
+        result.get("output_tokens") or 0,
+        result.get("cache_read_tokens") or 0,
+        result.get("cache_write_tokens") or 0,
+        result.get("reasoning_tokens"),
+    )
+    profile = relay.profiler.finish(total)
+    failed = bool(result.get("failed")) or not answer.strip()
+    cost = result.get("estimated_cost_usd")
+    return {
+        "type": "done",
+        "answer": answer,
+        "stop_reason": "error" if failed else "answer",
+        "steps": len(profile.steps),
+        "usage": profile.usage,
+        "cost": float(cost) if isinstance(cost, (int, float)) and cost > 0 else 0.0,
+        "error": (result.get("error") or "Hermes produced no answer") if failed else None,
+        "metrics": profile.to_dict() | {"reported": {"cost": cost, "cost_status": result.get("cost_status"), "api_calls": result.get("api_calls")}},
+    }
 
 
 def main() -> int:

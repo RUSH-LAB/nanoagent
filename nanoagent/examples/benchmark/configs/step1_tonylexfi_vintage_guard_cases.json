@@ -1,0 +1,12 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "tonylexfi-vintage-guard",
+  "task": "tonylexfi-vintage-guard",
+  "context": "Build a forecast snapshot as of a historical cutoff from a synthetic release ledger. Use only observations that were available at the cutoff. The entire ledger is below; no network access or other data is needed.\n\nEligibility rules:\n- Keep only releases whose series appears in wanted_series.\n- A release is eligible only when published_at <= as_of AND period <= the YYYY-MM part of as_of. All timestamps are UTC in fixed ISO format YYYY-MM-DDTHH:MM:SSZ and periods are YYYY-MM, so compare these strings lexicographically.\n- Group eligible releases by (series, period). For each group select the release with the greatest (published_at, revision, id) tuple, again compared lexicographically. Thus the latest published_at wins; ties go to the highest revision; further ties go to the lexicographically largest id. Never use a later revision that was published after the cutoff.\n- Zero is a real value.\n\nWrite result.json in the workspace as a JSON object with one key rows. rows must be an array sorted lexicographically by (series, period). Each row is an object with keys series, period, observation_id (the selected release id), and value (the selected release value). Then return an object with path exactly result.json and count equal to the number of rows.\n\nCase data for input case standard:\nas_of = 2026-09-30T23:59:59Z\nwanted_series = [jobs, permits]\nreleases:\nR1: series=permits, period=2026-08, value=10, published_at=2026-09-10T00:00:00Z, revision=0\nR2: series=permits, period=2026-08, value=12, published_at=2026-10-05T00:00:00Z, revision=1\nR3: series=permits, period=2026-09, value=7, published_at=2026-09-30T23:59:59Z, revision=0\nR4: series=jobs, period=2026-08, value=100, published_at=2026-09-01T00:00:00Z, revision=0\nR5: series=jobs, period=2026-08, value=98, published_at=2026-09-20T00:00:00Z, revision=1\nR6: series=jobs, period=2026-09, value=0, published_at=2026-09-30T23:59:59Z, revision=0\nR7: series=jobs, period=2026-10, value=200, published_at=2026-09-25T00:00:00Z, revision=0\nR8: series=prices, period=2026-09, value=5, published_at=2026-09-01T00:00:00Z, revision=0\nR9: series=jobs, period=2026-08, value=97, published_at=2026-09-20T00:00:00Z, revision=2",
+  "answer": [
+    {
+      "case": "standard"
+    }
+  ],
+  "refuse": []
+}

@@ -1,0 +1,12 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "duplicate-question-triage",
+  "task": "triage-batch",
+  "context": "The task input names one of the plugin's 150 fixed batches, but the six new questions and their five candidates for that batch live only inside the plugin's bundled snapshot file. That data is not written out here, and the agent has no access to the plugin's files or tools, so there is no way for the agent to determine the correct choices from the information given.",
+  "answer": [
+    {
+      "batch": 0
+    }
+  ],
+  "refuse": []
+}

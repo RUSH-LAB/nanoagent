@@ -1,0 +1,12 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "pt-portfolio-metrics",
+  "task": "compute-metrics",
+  "context": "Use this fixed portfolio NAV series for the input case 'main'. It has 60 trading days from 2025-01-02 to 2025-03-26; the dates strictly increase and every NAV is above 0. The annual risk-free rate is 0.02 and periods_per_year is 252. Daily returns are nav[i]/nav[i-1] - 1. Cumulative return = last NAV / first NAV - 1. Maximum drawdown = minimum over each day of nav / running_peak_nav - 1, where running_peak_nav is the highest NAV seen up to and including that day (so it is 0 or negative). Mean daily return = arithmetic mean of the 59 daily returns. daily_std = sample standard deviation (n-1 denominator) of the daily returns. Annualized volatility = daily_std * sqrt(252), with sqrt(252) = 15.874508. Sharpe ratio = (mean_daily_return * 252 - 0.02) / annualized_volatility. The series is valid, so status is 'ok'; all four metrics are defined (volatility is positive). Round each metric to 6 decimals and report null only when a value is undefined. Series (date, NAV): 2025-01-02 100000.00\n2025-01-03 98519.65\n2025-01-06 99753.68\n2025-01-07 99418.81\n2025-01-08 100879.77\n2025-01-09 99321.50\n2025-01-10 99807.84\n2025-01-13 100665.49\n2025-01-14 100442.49\n2025-01-15 102096.70\n2025-01-16 103205.26\n2025-01-17 103735.98\n2025-01-20 103647.49\n2025-01-21 103661.21\n2025-01-22 104246.82\n2025-01-23 105202.20\n2025-01-24 105077.51\n2025-01-27 105049.17\n2025-01-28 105647.72\n2025-01-29 104437.88\n2025-01-30 105722.39\n2025-01-31 107223.93\n2025-02-03 106541.43\n2025-02-04 105265.81\n2025-02-05 105977.45\n2025-02-06 105595.40\n2025-02-07 104307.61\n2025-02-10 105932.69\n2025-02-11 106899.67\n2025-02-12 106078.05\n2025-02-13 107249.87\n2025-02-14 106019.19\n2025-02-17 106693.71\n2025-02-18 106456.14\n2025-02-19 105792.63\n2025-02-20 106844.30\n2025-02-21 107053.30\n2025-02-24 105957.06\n2025-02-25 107378.47\n2025-02-26 106331.69\n2025-02-27 105694.13\n2025-02-28 106440.03\n2025-03-03 103898.96\n2025-03-04 104281.28\n2025-03-05 104597.00\n2025-03-06 106099.55\n2025-03-07 106830.68\n2025-03-10 107634.27\n2025-03-11 107225.04\n2025-03-12 108620.20\n2025-03-13 109437.09\n2025-03-14 109775.13\n2025-03-17 109679.43\n2025-03-18 111269.31\n2025-03-19 110629.11\n2025-03-20 110017.73\n2025-03-21 110512.63\n2025-03-24 110738.24\n2025-03-25 110156.82\n2025-03-26 107057.99",
+  "answer": [
+    {
+      "case": "main"
+    }
+  ],
+  "refuse": []
+}

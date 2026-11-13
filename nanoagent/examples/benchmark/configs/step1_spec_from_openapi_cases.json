@@ -1,0 +1,13 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "spec-from-openapi",
+  "task": "spec-from-openapi",
+  "context": "The data comes from an in-process mock API that implements exactly the operations declared in the bundled OpenAPI document 'aqua-metrics'. The document lists three servers; only non-deprecated ones are valid base_urls. It declares security schemes including an API key header (X-Api-Key), a bearer partner token, and an API key in a query parameter; the document's default security applies unless an operation declares its own security, and an operation with an empty security list needs none. The spec's auth must be the kind and credential NAME of the goal operation's effective scheme, never a key. The mock API may ignore some query parameters the document declares and may page in ways the document does not describe; you must probe the goal's endpoint (and follow any cursor or vary offset/page) to learn the real paginator and where the records array sits in the response body. The record_selector must be a JSONPath ($, $.key, or $.key.key, optional [*]) that picks the array of records out of at least one successful probe. The paginator.type is offset, page, cursor or none; its param goes in paginator.param, not in params; cursor_path is for cursor only. params lists only fixed query params the document declares and the API honours; send required ones. The spec must contain the goal's endpoint and only declared operations, with path and method exactly as declared. The verifier checks base_url, auth, auth_ref, endpoint declarations, params, paginator, and record_selector against the document and the ledger of your probes.",
+  "answer": [
+    {
+      "document": "aqua-metrics",
+      "goal": "alerts"
+    }
+  ],
+  "refuse": []
+}

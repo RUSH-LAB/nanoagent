@@ -1,0 +1,12 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "customs-manifest-audit",
+  "task": "audit-manifest",
+  "context": "The manifest is generated deterministically from the seed by an offline seeded generator, so the same seed always gives the same 7-line manifest, rule table, license categories, embargoed origins, surcharges and de minimis threshold; read_manifest(seed) returns all of it. Read the manifest first. For every line, find its rule by matching category and material, then check all four violations: WRONG_HS if declared_hs differs from the rule's hs_code; MISSING_LICENSE if the line's category is in license_categories and has_license is false; UNDERVALUED if declared_value_cents is strictly below the line's precomputed floor_value_cents (exactly equal is fine); EMBARGOED_ORIGIN if origin is in embargoed_origins. A line can have several violations, and embargoed lines are still checked for the others. Then call compute_duty exactly once with one entry for every line whose origin is not embargoed, flagged or clean, and no entries for embargoed lines; for each entry use the rule's hs_code, never the declared one, and assessed_value_cents equal to floor_value_cents if the line is undervalued, otherwise declared_value_cents. The tool adds the origin's surcharge to the rate, rounds each line's duty half up to a cent, and returns total_duty_cents as 0 when the declared value of the non-embargoed lines passed is at or below de_minimis_cents. Finally call file_audit with one finding per flagged line listing all of its violations, nothing for clean lines, and compute_duty's total_duty_cents; it saves the audit as audits/<seed>.json. Submit exactly the seed, the path, findings and total_duty_cents that file_audit returned.",
+  "answer": [
+    {
+      "seed": 42
+    }
+  ],
+  "refuse": []
+}

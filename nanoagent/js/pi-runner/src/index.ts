@@ -5,8 +5,10 @@ import type {Api, AssistantMessage, Model, Usage} from "@earendil-works/pi-ai";
 import {setBedrockProviderModule} from "@earendil-works/pi-ai/api/bedrock-converse-stream.lazy";
 import {bedrockProviderModule} from "@earendil-works/pi-ai/bedrock-provider";
 import {builtinModels} from "@earendil-works/pi-ai/providers/all";
+import {createCodingTools} from "@earendil-works/pi-coding-agent";
 import {realpathSync} from "node:fs";
 import {fileURLToPath} from "node:url";
+import {Profiler} from "./profile.js";
 
 interface RunnerRequest {
   input: string;
@@ -32,6 +34,8 @@ export interface PiOptions {
   awsProfile?: string;
   temperature?: number;
   maxTokens?: number;
+  // "coding": PI's own coding tools (read, bash, edit, write) in the request's workspace; else none.
+  tools?: "coding";
 }
 
 // The runner ships as one bundle (build.mjs), so Bedrock's implementation is bundled rather than
@@ -52,6 +56,7 @@ export function parseOptions(value: Record<string, unknown> = {}): PiOptions {
   const awsProfile = value.aws_profile;
   const temperature = value.temperature;
   const maxTokens = value.max_tokens;
+  const tools = value.tools;
   if (typeof provider !== "string" || !provider) throw new Error("PI option 'provider' is required");
   if (typeof model !== "string" || !model) throw new Error("PI option 'model' is required");
   if (apiKeyEnv !== undefined && (typeof apiKeyEnv !== "string" || !apiKeyEnv)) {
@@ -73,6 +78,7 @@ export function parseOptions(value: Record<string, unknown> = {}): PiOptions {
   if (maxTokens !== undefined && (!Number.isInteger(maxTokens) || (maxTokens as number) < 1)) {
     throw new Error("PI option 'max_tokens' must be a positive integer");
   }
+  if (tools !== undefined && tools !== "coding") throw new Error("PI option 'tools' must be 'coding' when set");
   return {
     provider,
     model,
@@ -83,6 +89,7 @@ export function parseOptions(value: Record<string, unknown> = {}): PiOptions {
     awsProfile: awsProfile as string | undefined,
     temperature: temperature as number | undefined,
     maxTokens: maxTokens as number | undefined,
+    tools,
   };
 }
 
@@ -130,6 +137,18 @@ export function promptText(request: RunnerRequest): string {
     : request.input;
 }
 
+/** PI's coding tools in the request's workspace, when the options ask for them. */
+function codingTools(options: PiOptions, request: RunnerRequest) {
+  if (options.tools !== "coding") return [];
+  if (!request.workspace) throw new Error("PI's coding tools need request.workspace");
+  return createCodingTools(request.workspace);
+}
+
+/** The text of a tool's result. */
+function resultText(result: {content?: {type: string; text?: string}[]} | undefined): string {
+  return (result?.content ?? []).filter((part) => part.type === "text").map((part) => part.text ?? "").join("");
+}
+
 function write(event: Record<string, unknown>): void {
   process.stdout.write(`${JSON.stringify(event)}\n`);
 }
@@ -170,7 +189,7 @@ async function main(): Promise<void> {
       ? `${options.systemPrompt.trim()}\n\nApplication instructions:\n${instructions}`
       : options.systemPrompt;
     agent = new Agent({
-      initialState: {systemPrompt, model, thinkingLevel: options.thinkingLevel, tools: []},
+      initialState: {systemPrompt, model, thinkingLevel: options.thinkingLevel, tools: codingTools(options, envelope.request)},
       // The run's sampling settings go with every model call.
       streamFn: (callModel, context, streamOptions) => models.streamSimple(callModel, context, {
         ...streamOptions,
@@ -181,19 +200,46 @@ async function main(): Promise<void> {
     });
     process.once("SIGTERM", () => agent?.abort());
 
-    let steps = 0;
-    let lastUsage: Usage | undefined;
+    const profiler = new Profiler();
+    const passed = (step: Record<string, unknown> | undefined) => {
+      if (step) write({type: "step", step: step.step, cost: 0, usage: step.usage, metrics: step});
+    };
+    const toolArguments = new Map<string, unknown>();
+    let cost = 0;
     agent.subscribe((event: AgentEvent) => {
-      if (event.type === "message_update") {
+      if (event.type === "turn_start") {
+        passed(profiler.modelStart());
+      } else if (event.type === "message_update") {
         const update = event.assistantMessageEvent;
+        if (update.type === "text_delta" || update.type === "thinking_delta" || update.type === "toolcall_delta") {
+          profiler.firstToken();
+        }
         if (update.type === "text_delta") {
           write({type: "delta", kind: "content", text: update.delta});
         } else if (update.type === "thinking_delta") {
           write({type: "delta", kind: "reasoning", text: update.delta});
         }
-      } else if (event.type === "turn_end" && event.message.role === "assistant") {
-        steps += 1;
-        lastUsage = event.message.usage;
+      } else if (event.type === "message_end" && event.message.role === "assistant") {
+        const message = event.message;
+        const failed = message.stopReason === "error" || message.stopReason === "aborted";
+        profiler.modelEnd(usageFields(message.usage).usage, failed ? message.errorMessage ?? message.stopReason : null);
+        cost += message.usage.cost.total;
+      } else if (event.type === "tool_execution_start") {
+        toolArguments.set(event.toolCallId, event.args);
+        profiler.toolStart(event.toolCallId, event.toolName);
+        write({type: "tool_start", id: event.toolCallId, name: event.toolName});
+      } else if (event.type === "tool_execution_end") {
+        profiler.toolEnd(event.toolCallId, event.isError);
+        write({
+          type: "tool",
+          id: event.toolCallId,
+          name: event.toolName,
+          arguments: toolArguments.get(event.toolCallId) ?? {},
+          output: resultText(event.result),
+          is_error: event.isError,
+        });
+      } else if (event.type === "turn_end") {
+        passed(profiler.close());
       }
     });
 
@@ -206,14 +252,16 @@ async function main(): Promise<void> {
       write({type: "error", code: `pi_${final.stopReason}`, error: final.errorMessage ?? final.stopReason});
       return;
     }
-    const normalized = usageFields(lastUsage ?? final.usage);
+    const profile = profiler.finish();
     write({
       type: "done",
       answer: messageText(final),
       stop_reason: final.stopReason === "stop" ? "answer" : final.stopReason,
-      steps,
-      ...normalized,
+      steps: (profile.steps as unknown[]).length,
+      usage: profile.usage,
+      cost,
       error: null,
+      metrics: {...profile, reported: {cost}},
     });
   } catch (error) {
     write({type: "error", code: "pi_error", error: error instanceof Error ? error.message : String(error)});

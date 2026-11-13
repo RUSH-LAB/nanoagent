@@ -1,0 +1,32 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "stoich-yield",
+  "task": "balance-and-yield",
+  "context": "Balance the reaction with the unique smallest positive integer coefficients (gcd 1) that conserve every element and the total charge, one coefficient per species in the order reactants then products. Then, for each given reactant, moles = grams / molar mass and extent = moles / its coefficient; the limiting reagent(s) are the given reactant(s) with the smallest extent, ties listed in the order of reactants, and reactants without a given mass are in excess and never limiting. Treat extents within 1% of each other as a tie. Theoretical yield of the target = smallest extent x target coefficient x target molar mass, in grams; report at least 4 significant figures (accepted within 0.1% of the exact value). Use the IUPAC abridged standard atomic weights (H 1.008, C 12.011, N 14.007, O 15.999, Mn 54.938, Fe 55.845), which give these molar masses in g/mol: MnO4^- 118.934, Fe^2+ 55.845, H^+ 1.008, Mn^2+ 54.938, Fe^3+ 55.845, H2O 18.015. The reaction includes ions, so charge must balance too. Only MnO4^- and Fe^2+ have given masses; H^+ is in excess. The output echoes reactants and products exactly as given, lists limiting reagents spelled as in reactants, and gives the path as worksheets/<target>-from-<reactants>-<10 hex digits of the sha256 of the task input as compact key-sorted JSON>.json, where in the readable part + becomes p, - becomes m, other non-alphanumeric runs become _, and the readable part is truncated to 60 characters. The compact key-sorted JSON is {\"reactants\": [...], \"products\": [...], \"given\": [[formula, grams], ...], \"target\": ...} with keys sorted and no spaces.",
+  "answer": [
+    {
+      "reactants": [
+        "MnO4^-",
+        "Fe^2+",
+        "H^+"
+      ],
+      "products": [
+        "Mn^2+",
+        "Fe^3+",
+        "H2O"
+      ],
+      "given": [
+        {
+          "formula": "MnO4^-",
+          "grams": 1.18934
+        },
+        {
+          "formula": "Fe^2+",
+          "grams": 5.5845
+        }
+      ],
+      "target": "H2O"
+    }
+  ],
+  "refuse": []
+}

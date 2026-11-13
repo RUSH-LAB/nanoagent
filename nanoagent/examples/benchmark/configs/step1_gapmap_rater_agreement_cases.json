@@ -1,0 +1,17 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "gapmap-rater-agreement",
+  "task": "rater-agreement",
+  "context": "The ratings are from a fixed synthetic table bundled with the task; the tool get_ratings(dataset='standard') returns exactly this table. Labels in fixed order: ['novel', 'partly_novel', 'not_novel']. Raters: ['R1','R2','R3','R4']. Gaps sorted by gap_id, each with its ratings map (a missing rater did not rate the gap):\n\nG01: R1=novel, R2=novel, R3=novel, R4=partly_novel\nG02: R1=not_novel, R2=not_novel, R3=not_novel, R4=not_novel\nG03: R1=partly_novel, R2=partly_novel, R3=novel, R4=partly_novel\nG04: R1=novel, R2=novel, R3=novel, R4=novel\nG05: R1=not_novel, R2=partly_novel, R3=not_novel, R4=not_novel\nG06: R1=novel, R2=novel, R3=partly_novel (R4 absent)\nG07: R1=partly_novel, R2=not_novel, R3=partly_novel, R4=partly_novel\nG08: R1=novel, R2=novel, R3=novel, R4=novel\nG09: R1=not_novel, R2=not_novel, R4=not_novel (R3 absent)\nG10: R1=partly_novel, R2=novel, R3=partly_novel, R4=partly_novel\n\nApply the task's rules exactly: only the selected raters' ratings count; a gap is complete if every selected rater rated it, with N the count of complete gaps, n the number of selected raters, M=N*n; over complete gaps only, count each gap's votes per label in the labels order, sum counts squared to get S, label totals (in the labels order, 0 for unused) to get T; kappa=(M*(S-M)-(n-1)*T)/((n-1)*(M*M-T)) reduced to lowest terms with positive denominator and sign on numerator, null if M*M==T; for each gap, majority is the label with strictly more selected votes, null on tie or no votes; unanimous true only if complete and all selected raters gave the same label; output gaps for all table gaps sorted by gap_id. The submitted output must copy dataset='standard' and raters ['R1','R2','R3'] unchanged. Selection: raters = ['R1','R2','R3'].",
+  "answer": [
+    {
+      "dataset": "standard",
+      "raters": [
+        "R1",
+        "R2",
+        "R3"
+      ]
+    }
+  ],
+  "refuse": []
+}

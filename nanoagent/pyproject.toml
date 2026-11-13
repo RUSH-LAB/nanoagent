@@ -111,6 +111,7 @@ mgen = "nanoagent.cli.mgen:main"
 nanoagent-hermes-runner = "nanoagent.harness.adapters.hermes:main"
 nanoagent-codex-runner = "nanoagent.harness.adapters.codex:main"
 nanoagent-claude-runner = "nanoagent.harness.adapters.claude:main"
+nanoagent-dsh-runner = "nanoagent.harness.adapters.dsh:main"
 
 [tool.setuptools.dynamic]
 version = {attr = "nanoagent.__version__"}

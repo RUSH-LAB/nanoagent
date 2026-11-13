@@ -1,0 +1,6 @@
+_ > step4_report.ReportConfig:
+
+# Step 3's folder of runs.
+runs: examples/benchmark/outputs/step3_batch_runs/runs
+# Step 1's bugs file.
+bugs: examples/benchmark/configs/plugin_bugs.json
