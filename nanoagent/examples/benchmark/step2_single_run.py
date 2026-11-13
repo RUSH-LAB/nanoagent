@@ -82,7 +82,7 @@ from nanoagent.plugin.python import PluginPython, plugin_python
 from nanoagent.plugin.runtime import call_tool_async
 from nanoagent.plugin.tasks import ModelDecider, PinnedReference, TaskNotSubmitted, run_task
 from nanoagent.plugin.verifier import Verification, verify_task
-from nanoagent.profiler import normalize_usage
+from nanoagent.profiler import RunProfile, normalize_usage
 from nanoagent.runtime.build import build_agent
 from nanoagent.runtime.config import AgentDefinitionConfig
 from nanoagent.runtime.model import Model
@@ -127,13 +127,14 @@ class Option(Enum):
     BASE_URL = "base_url"
     LOCAL_PROVIDER = "local_provider"
     SANDBOX = "sandbox"
+    MAX_TOKENS = "max_tokens"
 
 
 @dataclass
 class Route(Config):
     """How a harness reaches one provider."""
 
-    options: dict[Option, str] = MISSING
+    options: dict[Option, str | int] = MISSING
     # Variables set to these values, and variables copied from this process's environment by the name
     # given, so a key never lands in the run's config.yaml.
     env: dict[Variable, str] = MISSING
@@ -551,7 +552,24 @@ async def other_work(config: SingleRunConfig, case: Case, workspace: Path) -> Wo
             workspace=workspace,
             render=False,
         )
-        await asyncio.wait_for(chat.run_task(case.prompt), config.timeout)
+        used = cpu()
+        try:
+            await asyncio.wait_for(chat.run_task(case.prompt), config.timeout)
+        except TimeoutError:
+            # The harness's own failure: it fails with what it did in the time it had, the runner's
+            # profile unreported, so only the timeline and the conversation so far.
+            return Work(
+                seconds=config.timeout,
+                cpu_seconds=cpu() - used,
+                profile=RunProfile(duration_s=config.timeout, usage={}, cost=0.0).to_dict(),
+                timeline=timed.timeline,
+                stop_reason="timeout",
+                answer="",
+                output=None,
+                refused=None,
+                error=f"timed out after {config.timeout:g} s",
+                messages=chat.trajectory(),
+            )
     result = timed.result
     if result.profile is None:
         raise RuntimeError(f"{config.harness.value}'s runner reports no profile, so the run cannot be profiled")
