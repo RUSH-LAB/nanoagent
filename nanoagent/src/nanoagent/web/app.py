@@ -20,6 +20,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+from slimconfig import build_output
+
 from nanoagent.harness.catalog import catalog_command, find_model, load_catalog
 from nanoagent.harness.choice import NATIVE_PROVIDERS, RunModel
 from nanoagent.harness.registry import loop_model
@@ -38,6 +40,10 @@ from nanoagent.plugin.package import (
 )
 from nanoagent.plugin.python import plugin_python
 from nanoagent.runtime.config import AgentConfig, load_config_args
+from nanoagent.uploaded.compare_view import compare_attempts
+from nanoagent.uploaded.case_sets import CaseSetSpec, PreparationError, derive_case_set
+from nanoagent.uploaded.reference import NAMES as REFERENCE_HARNESSES
+from nanoagent.uploaded.reference import build_reference
 from nanoagent.web.config import WebConfig
 from nanoagent.web.plugin_agent import PluginModel, plugin_profile
 from nanoagent.web.runtime import (
@@ -49,6 +55,11 @@ from nanoagent.web.runtime import (
     validate_run_request,
 )
 from nanoagent.web.workspaces import Workspaces
+
+# Two attempts' records and payloads, base64: a payload is at most 16 MiB (BENCHMARK_PAYLOAD_MAX_BYTES).
+COMPARE_MAX_BYTES = 256 * 1024 * 1024
+# Seconds a reference tool may take for one case of a case set being published (the CLI step 1 config's `timeout`).
+BENCHMARK_PIN_TIMEOUT = 900.0
 
 
 def _sse(event: dict[str, Any]) -> bytes:
@@ -231,13 +242,14 @@ def create_app(
             request.headers.get("authorization", ""), f"Bearer {cfg.api_token}"
         )
 
-    async def read_json(request: Request) -> tuple[Any, JSONResponse | None]:
-        """The bounded JSON body, or the response rejecting it."""
+    async def read_json(request: Request, limit: int | None = None) -> tuple[Any, JSONResponse | None]:
+        """The JSON body, bounded by ``limit`` (default max_request_bytes), or the response rejecting it."""
+        limit = limit or cfg.max_request_bytes
         length = request.headers.get("content-length")
-        if length and length.isdigit() and int(length) > cfg.max_request_bytes:
+        if length and length.isdigit() and int(length) > limit:
             return None, JSONResponse({"error": "request body is too large"}, status_code=413)
         body = await request.body()
-        if len(body) > cfg.max_request_bytes:
+        if len(body) > limit:
             return None, JSONResponse({"error": "request body is too large"}, status_code=413)
         try:
             return json.loads(body), None
@@ -594,6 +606,54 @@ def create_app(
         inspected[hashlib.sha256(body).hexdigest()] = answer
         return JSONResponse(answer[0], status_code=answer[1])
 
+    async def benchmark_compare(request: Request) -> JSONResponse:
+        """Compare two sealed attempts from the records and payloads posted: ``{a, b}`` as compare_attempts reads them."""
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        body, rejected = await read_json(request, COMPARE_MAX_BYTES)
+        if rejected is not None:
+            return rejected
+        if not isinstance(body, dict):
+            return JSONResponse({"error": "request body must be an object with a and b"}, status_code=400)
+        try:
+            async with plugin_slots:
+                return JSONResponse(await asyncio.to_thread(compare_attempts, body.get("a"), body.get("b")))
+        except ValueError as error:
+            return JSONResponse({"error": str(error)}, status_code=400)
+
+    async def reference_harness(request: Request) -> Any:
+        """The ZIP of the reference harness `name`, built from this NanoAgent: its name is its own and its version its content's."""
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        name = request.path_params["name"]
+        if name not in REFERENCE_HARNESSES:
+            return JSONResponse({"error": f"{name} is not a reference harness"}, status_code=404)
+        return Response(await asyncio.to_thread(build_reference, name), media_type="application/zip")
+
+    async def benchmark_case_set(request: Request) -> JSONResponse:
+        """The POST body of RUSH's `POST /api/benchmark/case-sets` for the installed plugin, derived whole from its package and
+        the case file, every case pinned here by its reference tool."""
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        installed = installs.get(request.path_params["sha256"])
+        if installed is None:
+            return JSONResponse({"error": "not installed"}, status_code=404)
+        body, rejected = await read_json(request)
+        if rejected is not None:
+            return rejected
+        try:
+            spec = build_output(body, CaseSetSpec)
+        except (TypeError, ValueError, KeyError) as error:
+            return JSONResponse({"error": str(error)}, status_code=400)
+        try:
+            async with plugin_slots:
+                publication = await asyncio.to_thread(
+                    derive_case_set, spec.name, spec.cases, installed.manifest, request.path_params["sha256"], BENCHMARK_PIN_TIMEOUT
+                )
+        except PreparationError as error:
+            return JSONResponse({"error": str(error)}, status_code=422)
+        return JSONResponse(publication)
+
     async def inspection(request: Request) -> JSONResponse:
         """How the package with this sha256 was checked, or 404 until one is."""
         if not authorized(request):
@@ -700,6 +760,9 @@ def create_app(
             Route("/v1/runs", start_run, methods=["POST"]),
             Route("/v1/runs/{run_id}", cancel_run, methods=["DELETE"]),
             Route("/v1/plugins", list_plugins, methods=["GET"]),
+            Route("/v1/benchmark/compare", benchmark_compare, methods=["POST"]),
+            Route("/v1/installs/{sha256}/benchmark/case-set", benchmark_case_set, methods=["POST"]),
+            Route("/v1/benchmark/reference-harnesses/{name}", reference_harness, methods=["GET"]),
             Route("/v1/packages", list_packages, methods=["GET"]),
             Route("/v1/packages/inspect", inspect_upload, methods=["POST"]),
             Route("/v1/packages/inspect/{sha256}", inspection, methods=["GET"]),

@@ -43,6 +43,10 @@ const ROUTES = [
   ['GET', '/v1/models'],
   ['GET', '/v1/keys/openrouter/usage'],
   ['POST', '/v1/runs'],
+  // The case set a member publishes, its cases pinned by the plugin installed here (Publish benchmark).
+  ['POST', `/v1/installs/${SEGMENT}/benchmark/case-set`],
+  // The ZIP of a reference harness, built by the NanoAgent here (Benchmark Your Harness).
+  ['GET', `/v1/benchmark/reference-harnesses/${SEGMENT}`],
   ['GET', `/v1/installs/${SEGMENT}`],
   ['PUT', `/v1/installs/${SEGMENT}`],
   ['GET', `/v1/installs/${SEGMENT}/ui/${SEGMENT}/[^?]+`],

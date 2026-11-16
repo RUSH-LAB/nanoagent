@@ -1,0 +1,9 @@
+{
+  "name": "rush-harness-codex",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@openai/codex": "0.167.0"
+  }
+}
