@@ -1,0 +1,4 @@
+repo: https://github.com/google/gvisor
+tag: release-20260914.0
+commit: 95eb5d5930b0e7736826cc2cb949ba9d2c4d5d29
+path: pkg/sentry/seccheck/points

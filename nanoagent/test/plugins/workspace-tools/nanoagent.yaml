@@ -1,0 +1,39 @@
+_ > nanoagent.plugin.v0001.ManifestConfig:
+id: workspace-tools
+name: Workspace Tools
+version: 0.1.0
+status: ready
+spec: nanoagent.plugin/v0001
+
+runtime > nanoagent.plugin.v0001.RuntimeConfig:
+  type: mcp_stdio
+  command: [uv, run, --frozen, python, -m, plugin]
+
+permissions > nanoagent.plugin.v0001.PermissionsConfig:
+  network > nanoagent.plugin.v0001.NetworkConfig:
+    hosts: []
+  filesystem > nanoagent.plugin.v0001.FilesystemConfig:
+    write: [workspace]
+
+# One entry per contract.Tool; its input and output classes are contract.TOOLS's.
+tools > dict[contract.Tool, nanoagent.plugin.v0001.ToolConfig]:
+  write_note:
+    description: Write a note file into the workspace
+  read_fixture:
+    description: Read a read-only fixture file
+  copy_fixture:
+    description: Copy a read-only fixture file into the workspace
+  inspect_sandbox:
+    description: Report which private attempt files and variables this tool can see
+  expected_note:
+    description: The note a case must end with (the task's private reference)
+
+# One entry per contract.Task; its input and output classes are contract.TASKS's.
+tasks > dict[contract.Task, nanoagent.plugin.v0001.TaskConfig]:
+  note:
+    description: Write a note into the workspace
+    runner: tool
+    tools: [write_note]
+    reference: expected_note
+    instructions: |-
+      Write the note.
