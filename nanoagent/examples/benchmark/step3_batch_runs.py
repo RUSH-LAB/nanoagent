@@ -8,30 +8,57 @@ cores, and as many run at once as the machine has cores for, up to `max_parallel
 data sources are not asked too much at once); the rest wait for a free place. The runs go round-robin
 by plugin, so those going at once are of different plugins. `plugins` limits the batch to some plugins. Where the OS pins
 processes to cores (Linux), each run is held to its own. Each run records the CPU time it used (step 2's cpu_seconds),
-which shows whether runs still competed. The npx packages the runs start are fetched once before
-them, so no run times a download and no two runs download one package at once.
+which shows whether runs still competed. The npx packages the runs start (step 2's harnesses table
+pins them) are fetched once before them, so no run times a download and no two runs download one
+package at once.
+
+Before any run starts, each case is pinned once, by the plugin's own tool as step 2 pins it, into
+<plugin>/<task>/<case>/pinned.json, and every harness on the case is judged against that one answer;
+a case the tool disagrees with stops the batch. Each run goes in a process group of its own, killed
+whole once it ends (so nothing a harness started outlives its run) or once it passes its deadline:
+its setup's and harness's timeouts, the verifier's, and SLACK.
 
 A batch resumes: run again into the same folder, it skips every run whose folder holds a result and
-starts again, from an empty folder, every run that has none. A run that fails keeps its result and
-counts as wrong; a run that writes no result fails the batch, once every other run has ended."""
+starts again, from an empty folder, every run that has none, on the case as it was pinned. A run that
+fails keeps its result and counts as wrong; a run that writes no result fails the batch, once every
+other run has ended."""
 
+import asyncio
 import os
 import queue
 import shutil
+import signal
 import subprocess
 import sys
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
 from omegaconf import MISSING
-from slimconfig import Config, Layout, Output, Run, Workspace, load_output
+from slimconfig import Config, Layout, Output, Run, Workspace, load_config, load_output, write_output
 
+from nanoagent.plugin import load_manifest
+from nanoagent.plugin.verifier import TIMEOUT as VERIFIER_TIMEOUT
 from step2_coding_environment import coding_environment, fetch_npm, npm_package_cache
-from step2_single_run import Cases, Harness, logged
+from step2_single_run import (
+    Cases,
+    Harness,
+    Option,
+    Pinned,
+    SingleRunConfig,
+    isolate,
+    logged,
+    pin,
+    prepared_plugin,
+    reference_tool,
+    unpack,
+)
 
 SINGLE_RUN = Path(__file__).with_name("step2_single_run.py")
+# What a run may take beyond its timeouts: starting Python and writing its result.
+SLACK = 60.0
 
 
 @dataclass
@@ -51,8 +78,6 @@ class BatchConfig(Config):
     cpus_per_run: int = MISSING
     # The most runs that go at once.
     max_parallel: int = MISSING
-    # npx packages the runs start (as the harnesses table names them), fetched once before the runs.
-    packages: list[str] = MISSING
 
 
 @dataclass
@@ -100,6 +125,43 @@ def interleaved(jobs: list[tuple[Path, Cases, str, Harness]]) -> list[tuple[Path
     return [own[i] for i in range(rounds) for own in by_plugin.values() if i < len(own)]
 
 
+def pin_cases(single: SingleRunConfig, jobs: list[tuple[Path, Cases, str, Harness]], folder: Path) -> None:
+    """Pin every case the jobs run that is not pinned yet, once, each plugin unpacked once for it."""
+    todo: dict[str, tuple[Cases, list[str]]] = {}
+    for _, cases, case, _ in jobs:
+        if not (folder / cases.plugin / cases.task / case / "pinned.json").is_file():
+            own = todo.setdefault(f"{cases.plugin}/{cases.task}", (cases, []))[1]
+            if case not in own:
+                own.append(case)
+    if not todo:
+        return
+    python = isolate()
+    for cases, ids in todo.values():
+        with tempfile.TemporaryDirectory(prefix="nanoagent-benchmark-pin-") as unpacked:
+            unpack(single.database, single.psql, cases.plugin, Path(unpacked))
+            with prepared_plugin(Path(unpacked, cases.plugin), python, single.sync_timeout) as root:
+                manifest = load_manifest(root)
+                tool = reference_tool(manifest.task(cases.task))
+                for case in ids:
+                    arguments, refusal = cases.case(case)
+                    started = time.monotonic()
+                    reference, rejection = asyncio.run(pin(manifest, tool, arguments, refusal, single.timeout))
+                    path = folder / cases.plugin / cases.task / case / "pinned.json"
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    seconds = None if tool is None else time.monotonic() - started
+                    write_output(str(path), Pinned(case=case, reference=reference, reference_error=rejection, reference_seconds=seconds))
+                    print(f"pinned {case}")
+
+
+def stop_group(process: subprocess.Popen) -> int:
+    """Kill ``process``'s whole group, descendants that outlived it included; its exit status."""
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    return process.wait()
+
+
 class BatchRuns(Run):
     """Run every harness on every case, side by side."""
 
@@ -137,12 +199,22 @@ class BatchRuns(Run):
         folder = Path(self.layout.runs).resolve()
         left = [job for job in jobs if not (folder / job[1].plugin / job[1].task / job[2] / job[3].value / "result.json").is_file()]
         skipped, jobs = len(jobs) - len(left), interleaved(left)
-        for package in config.packages:
+        # Step 2's config as every run gets it, and the npx packages the batch's harnesses start, as
+        # its harnesses table pins them.
+        single = load_config(SingleRunConfig, [config.single_run, *config.overrides])
+        packages = {
+            single.harnesses[harness].options[Option.PACKAGE]
+            for harness in config.harnesses
+            if harness is not Harness.NANOAGENT and Option.PACKAGE in single.harnesses[harness].options
+        }
+        for package in sorted(packages):
             cache = npm_package_cache(folder, package)
             cache.mkdir(parents=True, exist_ok=True)
             with coding_environment(cache, credential_names=set()) as (prefix, env):
                 env["npm_config_cache"] = str(cache)
-                fetch_npm(package, prefix, env, cwd=cache)
+                fetch_npm(package, prefix, env, cwd=cache, timeout=single.npm_timeout)
+        pin_cases(single, jobs, folder)
+        deadline = single.npm_timeout + single.sync_timeout + single.timeout + VERIFIER_TIMEOUT + SLACK
         side_by_side = max(1, min(len(jobs), cores // config.cpus_per_run, config.max_parallel))
         # Each place a run can take: its cores.
         places: queue.Queue[set[int]] = queue.Queue()
@@ -163,7 +235,7 @@ class BatchRuns(Run):
             started = time.monotonic()
             try:
                 with open(home.parent / f"{harness.value}.log", "w", encoding="utf-8") as log:
-                    done = subprocess.run(
+                    process = subprocess.Popen(
                         [
                             sys.executable,
                             str(SINGLE_RUN),
@@ -175,16 +247,26 @@ class BatchRuns(Run):
                             f"harness={harness.value}",
                             *config.overrides,
                             f"batch_runs={folder.resolve()}",
+                            f"pinned={home.parent / 'pinned.json'}",
+                            "inherit_process_group=true",
                         ],
                         stdout=log,
                         stderr=subprocess.STDOUT,
+                        start_new_session=True,
                         preexec_fn=(lambda: os.sched_setaffinity(0, place)) if pinned else None,
                     )
+                    try:
+                        process.wait(timeout=deadline)
+                    except subprocess.TimeoutExpired:
+                        print(f"{harness.value} · {cases.task} · {case}: ran past its {deadline:g}s deadline", file=log, flush=True)
+                    finally:
+                        # Descendants may outlive the run, even when it exits on its own.
+                        status = stop_group(process)
             finally:
                 places.put(place)
             seconds = time.monotonic() - started
-            print(f"{harness.value} · {cases.task} · {case}: {'done' if done.returncode == 0 else f'status {done.returncode}'} in {seconds:.0f}s")
-            return BatchRun(plugin=cases.plugin, task=cases.task, case=case, harness=harness.value, status=done.returncode, seconds=seconds)
+            print(f"{harness.value} · {cases.task} · {case}: {'done' if status == 0 else f'status {status}'} in {seconds:.0f}s")
+            return BatchRun(plugin=cases.plugin, task=cases.task, case=case, harness=harness.value, status=status, seconds=seconds)
 
         with ThreadPoolExecutor(side_by_side) as pool:
             runs = list(pool.map(run, jobs))

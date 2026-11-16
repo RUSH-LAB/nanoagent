@@ -1,4 +1,4 @@
-"""Give a coding harness its own workspace, home, and route credentials."""
+"""Give a coding harness its own workspace, home, and OpenRouter key."""
 
 import hashlib
 import os
@@ -162,11 +162,11 @@ def npm_package_cache(root: Path, package: str) -> Path:
     return root / ".npm-cache" / hashlib.sha256(package.encode()).hexdigest()
 
 
-def fetch_npm(package: str, prefix: list[str], env: dict[str, str], *, cwd: Path) -> None:
+def fetch_npm(package: str, prefix: list[str], env: dict[str, str], *, cwd: Path, timeout: float) -> None:
     """Warm the pinned package before the harness's clock starts."""
     print(f"fetching {package}")
     completed = subprocess.run(
-        [*prefix, "npx", "-y", package, "--version"], cwd=cwd, env=env, capture_output=True, text=True, timeout=120
+        [*prefix, "npx", "-y", package, "--version"], cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout
     )
     if completed.returncode:
         raise RuntimeError(f"fetching {package} exited with status {completed.returncode}: {completed.stderr.strip()}")

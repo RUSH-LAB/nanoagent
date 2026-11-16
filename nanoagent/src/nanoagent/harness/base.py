@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from nanoagent import __version__
 from nanoagent.core.agent import AgentResult
 
 ProgressSink = Callable[[dict[str, Any]], None]
@@ -55,6 +56,8 @@ class RunnerRequest:
 class RunnerResult:
     answer: str
     stop_reason: str
+    # The version of the harness that ran, as it reports it: NanoAgent's own, or the release a runner launched.
+    version: str
     steps: int = 0
     usage: dict[str, int] = field(default_factory=dict)
     cost: float = 0.0
@@ -68,6 +71,7 @@ class RunnerResult:
         return cls(
             answer=result.answer,
             stop_reason=result.stop_reason.value,
+            version=__version__,
             steps=result.steps,
             usage=dict(result.usage),
             cost=result.cost,
@@ -85,6 +89,9 @@ class RunnerResult:
             raise RunnerProtocolError(f"done event is missing {error.args[0]!r}") from error
         if not isinstance(answer, str) or not isinstance(stop_reason, str):
             raise RunnerProtocolError("done event answer and stop_reason must be strings")
+        version = event.get("version")
+        if not isinstance(version, str) or not version:
+            raise RunnerProtocolError("done event is missing its harness version")
         usage = event.get("usage", {})
         if not isinstance(usage, dict) or any(
             not isinstance(key, str) or not isinstance(value, int)
@@ -94,6 +101,7 @@ class RunnerResult:
         return cls(
             answer=answer,
             stop_reason=stop_reason,
+            version=version,
             steps=_non_negative_int(event.get("steps", 0), "steps"),
             usage=dict(usage),
             cost=_non_negative_number(event.get("cost", 0.0), "cost"),
@@ -105,9 +113,11 @@ class RunnerResult:
 class RunnerError(RuntimeError):
     """A harness failure safe to project onto the public run stream."""
 
-    def __init__(self, message: str, *, code: str = "runner_error") -> None:
+    def __init__(self, message: str, *, code: str = "runner_error", version: str | None = None) -> None:
         super().__init__(message)
         self.code = code
+        # The harness's version, when the runner reported it before failing.
+        self.version = version
 
 
 class RunnerUnavailableError(RunnerError):

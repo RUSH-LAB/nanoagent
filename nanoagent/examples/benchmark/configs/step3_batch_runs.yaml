@@ -8,6 +8,7 @@ cases: examples/benchmark/configs
 # How many of each task's cases to answer, and of those to refuse, from the first.
 answer: 1
 refuse: 0
+# The npx packages these start, as step 2's harnesses table pins them, are fetched once before the runs.
 harnesses: [nanoagent, claude, codex, hermes, pi, dsh]
 # The plugins to run (e.g. [city-weather, mate-in-n] for a trial); empty runs every plugin.
 plugins: []
@@ -16,5 +17,3 @@ plugins: []
 # its runs started together).
 cpus_per_run: 1
 max_parallel: 16
-# The npx packages step 2's harnesses table starts, fetched once before the runs.
-packages: ["@openai/codex@0.167.0", "@deepseek-ai/dsh@0.2.2-rc.1"]

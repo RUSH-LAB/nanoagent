@@ -122,7 +122,7 @@ def test_the_manifest_decides_what_pins_a_case() -> None:
     # RUSH gives a tool task's one tool's output; an agent task with no reference is judged without one.
     assert reference_tool(task("tool", None)) == "work"
     assert reference_tool(task("agent", None)) is None
-    assert asyncio.run(pin(None, None, {"x": 1}, False, 1.0)) is None
+    assert asyncio.run(pin(None, None, {"x": 1}, None, 1.0)) == (None, None)
     with pytest.raises(ValueError, match="cannot pin a decide task"):
         reference_tool(task("decide", None))
     with pytest.raises(ValueError, match="cannot pin a review task"):

@@ -18,8 +18,8 @@
     {"date": "2026-10-08", "measure": "temperature_min_c", "comparison": "at_least", "threshold": 20.0}
   ],
   "refuse": [
-    {"date": "2026-11-20", "measure": "precipitation_mm", "comparison": "at_least", "threshold": 5.0},
-    {"date": "2026-12-01", "measure": "temperature_max_c", "comparison": "at_least", "threshold": 20.0},
-    {"date": "1930-06-01", "measure": "temperature_max_c", "comparison": "at_least", "threshold": 25.0}
+    {"arguments": {"date": "2099-11-20", "measure": "precipitation_mm", "comparison": "at_least", "threshold": 5.0}, "reference_error": "is not over in every city yet"},
+    {"arguments": {"date": "2099-12-01", "measure": "temperature_max_c", "comparison": "at_least", "threshold": 20.0}, "reference_error": "is not over in every city yet"},
+    {"arguments": {"date": "1930-06-01", "measure": "temperature_max_c", "comparison": "at_least", "threshold": 25.0}, "reference_error": "HTTP Error 400: Bad Request"}
   ]
 }

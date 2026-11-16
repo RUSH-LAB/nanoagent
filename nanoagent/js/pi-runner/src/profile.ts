@@ -81,7 +81,9 @@ export class Profiler {
     if (!step) return undefined;
     if (this.running.size) throw new Error(`a step closed with tools still running: ${[...this.running.keys()]}`);
     const ended = performance.now();
-    const calls = step.calls.map((call) => {
+    // A failed attempt is not a completed turn: its time is the step's model time, and it is no record.
+    const modelS = step.calls.reduce((sum, call) => sum + seconds(call.started, call.ended ?? ended), 0);
+    const calls = step.calls.filter((call) => call.error === null).map((call) => {
       const end = call.ended ?? ended;
       const generation = call.first === undefined ? null : seconds(call.first, end);
       const output = call.usage.completion_tokens;
@@ -93,13 +95,12 @@ export class Profiler {
         output_tokens_per_second: generation && output !== undefined ? output / generation : null,
         usage: call.usage,
         cost: 0,
-        error: call.error,
+        error: null,
       };
     });
     const usage: Usage = {};
     for (const call of calls) add(usage, call.usage);
     this.usages.push(usage);
-    const modelS = calls.reduce((sum, call) => sum + call.duration_s, 0);
     const duration = seconds(step.started, ended);
     const profile = {
       step: this.steps.length + 1,

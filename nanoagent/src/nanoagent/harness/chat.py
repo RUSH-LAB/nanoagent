@@ -11,9 +11,8 @@ from uuid import uuid4
 from nanoagent.core.agent import AgentResult, StopReason, _accumulate, last_assistant_text
 from slimconfig import Folder, Layout
 
-from nanoagent import __version__
 from nanoagent.cli.repl.tree import SessionTree
-from nanoagent.harness.base import HarnessRequest
+from nanoagent.harness.base import HarnessError, HarnessRequest
 from nanoagent.harness.registry import HarnessProfile
 from nanoagent.trajectory.atif import AtifTrajectory, to_atif
 from rich.console import Console
@@ -42,6 +41,8 @@ class Conversation:
     cost: float = 0.0
     stop_reason: StopReason = StopReason.ANSWER
     error: str | None = None
+    # The version the harness reported for its latest run; None until a run reports one.
+    harness_version: str | None = None
     session_id: str = field(default_factory=lambda: uuid4().hex)
     last_events: list[dict[str, Any]] = field(default_factory=list)
     request_history: list[dict[str, Any]] = field(default_factory=list)
@@ -144,15 +145,20 @@ class Conversation:
             self.console.print(
                 f"[agent]{self.profile.harness}[/] · [dim]{self.profile.model}[/]"
             )
-        result = await self.profile.runner.run(
-            HarnessRequest(
-                input=task,
-                messages=history,
-                instructions=self.instructions,
-                workspace=str(self.workspace),
-            ),
-            progress,
-        )
+        try:
+            result = await self.profile.runner.run(
+                HarnessRequest(
+                    input=task,
+                    messages=history,
+                    instructions=self.instructions,
+                    workspace=str(self.workspace),
+                ),
+                progress,
+            )
+        except HarnessError as failure:
+            self.harness_version = failure.version
+            raise
+        self.harness_version = result.version
         if self.render:
             if streamed_content:
                 self.console.print()
@@ -209,7 +215,7 @@ class Conversation:
             self.to_result(),
             session_id=self.session_id,
             harness=self.profile.harness,
-            harness_version=__version__,
+            harness_version=self.harness_version,
             model=self.profile.model,
         )
         return AtifTrajectory.from_dict(value)

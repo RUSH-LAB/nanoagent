@@ -12,10 +12,12 @@ what Claude Code reports of its own clock and cost is kept as ``metrics.reported
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Any
 
 from nanoagent.harness.adapters._coding_cli import (
+    HarnessFailure,
     aws_environment,
     emit,
     executable,
@@ -56,6 +58,8 @@ class _Relay:
         # When Claude Code asked for the next call: its tools done, it sends their results at once.
         self.asked: float | None = None
         self.result: dict[str, Any] | None = None
+        # The version Claude Code reports of itself in its init event.
+        self.version: str | None = None
         self.raw_usage: dict[str, Any] = {}
 
     def start_call(self, at: float | None = None) -> None:
@@ -76,6 +80,7 @@ class _Relay:
         if event.get("parent_tool_use_id") is not None:
             return
         if kind == "system" and event.get("subtype") == "init":
+            self.version = event.get("claude_code_version")
             self.start_call()
         elif kind == "stream_event":
             self.stream(event["event"])
@@ -156,6 +161,23 @@ def _model_usage(models: dict[str, Any]) -> dict[str, int]:
     return total
 
 
+def _openrouter_environment(options: dict[str, Any]) -> dict[str, str]:
+    """Claude Code on OpenRouter's Anthropic-compatible API: ``base_url`` is OpenRouter's API root
+    (``.../api/v1``), to which Claude Code itself adds ``/v1/messages``, so it is given the root
+    without ``/v1``; the key is read from the variable ``api_key_env`` names."""
+    base_url, key = options.get("base_url"), options.get("api_key_env")
+    if not isinstance(base_url, str) or not base_url.rstrip("/").endswith("/v1"):
+        raise ValueError("Claude Code on openrouter needs option base_url, OpenRouter's API root ending in /v1")
+    if not isinstance(key, str) or not os.environ.get(key):
+        raise ValueError("Claude Code on openrouter needs option api_key_env naming a variable that holds the key")
+    return {
+        "ANTHROPIC_BASE_URL": base_url.rstrip("/").removesuffix("/v1"),
+        "ANTHROPIC_AUTH_TOKEN": os.environ[key],
+        # Claude Code prefers an API key to the token: none.
+        "ANTHROPIC_API_KEY": "",
+    }
+
+
 def _seconds(result: dict[str, Any], field: str) -> float | None:
     value = result.get(field)
     return value / 1000 if isinstance(value, (int, float)) and not isinstance(value, bool) else None
@@ -166,10 +188,12 @@ def _run(payload: dict[str, Any]) -> dict[str, Any]:
     root = workspace(request)
     environment = aws_environment(options)
     provider = options.get("provider")
-    if provider is not None and provider != "bedrock":
-        raise ValueError("Claude Code provider must be 'bedrock' when set")
+    if provider is not None and provider not in {"bedrock", "openrouter"}:
+        raise ValueError("Claude Code provider must be 'bedrock' or 'openrouter' when set")
     if provider == "bedrock":
         environment["CLAUDE_CODE_USE_BEDROCK"] = "1"
+    if provider == "openrouter":
+        environment |= _openrouter_environment(options)
     relay = _Relay()
     status, diagnostics = stream_child(
         _command(executable(options, "claude"), options),
@@ -180,8 +204,15 @@ def _run(payload: dict[str, Any]) -> dict[str, Any]:
     )
     result = relay.result
     if result is None:
-        raise RuntimeError(diagnostics or f"Claude Code exited with status {status} and no result")
+        message = diagnostics or f"Claude Code exited with status {status} and no result"
+        raise HarnessFailure(message, relay.version) if relay.version else RuntimeError(message)
+    if not isinstance(relay.version, str) or not relay.version:
+        raise RuntimeError("Claude Code's init event reports no claude_code_version")
     failed = bool(result.get("is_error")) or status != 0
+    if relay.calling:
+        # A call whose stream never finished (the provider failed every request): a failed attempt, which
+        # the profile does not count as a model call.
+        relay.profiler.model_end(error=f"{result.get('result')}".strip() or "the model call did not complete")
     relay.passed(relay.profiler.close())
     profile = relay.profiler.finish(_model_usage(result["modelUsage"]))
     # Claude Code's own clock and cost: the whole run, its time on the model's API, its first token.
@@ -196,6 +227,7 @@ def _run(payload: dict[str, Any]) -> dict[str, Any]:
     cost = result.get("total_cost_usd", 0.0)
     return {
         "type": "done",
+        "version": relay.version,
         "answer": result.get("result", ""),
         "stop_reason": "error" if failed else "answer",
         "steps": len(profile.steps),

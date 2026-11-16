@@ -15,12 +15,24 @@ manifest decides how the case is pinned and worked (`reference_tool`):
   * a tool task, which RUSH answers by calling its one tool: its reference tool, or else that one
     tool, pins the answer, and NanoAgent works it as an agent task, its agent given the task's tools
     and submit, not the direct call.
-A case to answer the pinning tool cannot answer, or a case to refuse it answers, fails the run; a
-case with no tool to pin it is taken as the cases file says. Every other harness
+Whether a case is answered or refused is the plugin's call: the pinning tool answers a case to
+answer, and rejects a case to refuse with an error holding the text the cases file names
+(`reference_error`). A case to answer it cannot answer, a case to refuse it answers, or a rejection
+for any other reason (an outage, say) fails the run, so no fault passes as a refusal; a case with no
+tool to pin it is taken as the cases file says. Run by step 3, the case comes pinned (`pinned`), once
+for every harness. Every other harness
 (Claude Code, Codex, Hermes, PI, DeepSeek Harness) gets the case's prompt and its own tools, and
-writes its answer to answer.json in its workspace. How each harness starts, and how it reaches each
-provider, is the config's `harnesses` table. The plugin's verifier judges the answer against the
-pinned one; a case to refuse is right when refused.
+writes its answer to answer.json in its workspace. How each harness starts is the config's
+`harnesses` table; every harness reaches its model through the config's one OpenRouter endpoint
+(`openrouter`), so pointing that at another server (a mock of OpenRouter, say) moves every harness
+with it. The plugin's verifier judges the answer against the pinned one; a case to refuse is right
+when refused.
+
+Setup that fails (unpacking, the plugin's environment, the reference, launching the harness) fails
+the run with no result. Once the harness has its work, the run always has a result: a harness that
+fails, for any harness and any reason (its provider refusing a request, its runner crashing, the
+timeout), is recorded wrong with its `error`, its latency and whatever it measured before it failed
+(the steps it finished), and the run exits 1.
 
 The profile is RUSH's dashboard figures, measured alike for every harness:
   * End-to-End Latency: this process's clock, from giving the harness its work to having its answer.
@@ -35,7 +47,8 @@ The profile is RUSH's dashboard figures, measured alike for every harness:
   * Input Tokens: every token sent to the model, cached or not (cache reads and writes broken out).
     Output Tokens: every token generated (reasoning broken out). Both as the harness accounts them,
     calls it makes outside its steps included.
-  * Cost: those tokens at the config's prices, alike for every harness; the harness's own figures
+  * Cost: those tokens at the config's prices for the run's model (uncached input, cache reads, cache
+    writes and output each at its own), alike for every harness; the harness's own figures
     (its cost, and its own clock where it has one) are kept as `reported`.
   * CPU seconds: the CPU time the run's processes used while the harness worked, which shows when
     runs side by side (step 3) competed for the machine."""
@@ -49,7 +62,6 @@ import logging
 import os
 import resource
 import shutil
-import stat
 import subprocess
 import sys
 import tarfile
@@ -65,28 +77,38 @@ from pathlib import Path
 from typing import Any
 
 from omegaconf import MISSING
-from slimconfig import Config, Layout, Output, Run, Workspace, build_output, output_schema
+from slimconfig import Config, Layout, Output, Run, Workspace, build_output, load_output, output_schema
 
 from step2_coding_environment import coding_environment, fetch_npm, npm_package_cache
 
 from nanoagent import __version__
 from nanoagent.core.agent import AgentResult, StopReason
 from nanoagent.harness import Conversation, HarnessProfile
-from nanoagent.harness.base import ProgressSink, Runner, RunnerError, RunnerRequest, RunnerResult
+from nanoagent.harness.base import ProgressSink, Runner, RunnerRequest, RunnerResult
 from nanoagent.harness.nanoagent import NanoAgentConfig
 from nanoagent.harness.subprocess import SubprocessRunner
 from nanoagent.llm.openrouter import OpenRouterConfig
 from nanoagent.plugin import load_manifest, sandbox
-from nanoagent.plugin.install import INSTALL_HOSTS, SYNC, SYNC_TIMEOUT
+from nanoagent.plugin.install import INSTALL_HOSTS, SYNC
 from nanoagent.plugin.python import PluginPython, plugin_python
-from nanoagent.plugin.runtime import call_tool_async
 from nanoagent.plugin.tasks import ModelDecider, PinnedReference, TaskNotSubmitted, run_task
 from nanoagent.plugin.verifier import Verification, verify_task
-from nanoagent.profiler import RunProfile, normalize_usage
+from nanoagent.profiler import RunProfile, accumulate_usage, normalize_usage
 from nanoagent.runtime.build import build_agent
 from nanoagent.runtime.config import AgentDefinitionConfig
-from nanoagent.runtime.model import Model
+from nanoagent.runtime.model import Model as RuntimeModel
 from nanoagent.trajectory.atif import AtifTrajectory, to_atif
+from nanoagent.uploaded.answer import read_answer
+from nanoagent.uploaded.case_sets import CaseSet, Refusal, pin
+from nanoagent.uploaded.case_sets import reference_tool as uploaded_reference_tool
+
+def reference_tool(task) -> str | None:
+    """The uploaded benchmark's `reference_tool`, except that the local plugin benchmark pins every case and so
+    refuses a decide task without a reference tool, as it always has."""
+    if task.runner == "decide" and task.reference is None:
+        raise ValueError(f"task {task.id!r}: the benchmark cannot pin a decide task without a reference tool")
+    return uploaded_reference_tool(task)
+
 
 # The marketplace's package of a plugin, one tab-separated line: version, SHA-256, package (base64,
 # which Postgres breaks into lines of 76 characters, joined back here).
@@ -104,50 +126,49 @@ class Harness(Enum):
     DSH = "dsh"
 
 
-class Provider(Enum):
-    OPENROUTER = "openrouter"
+class Model(Enum):
+    """The models a run may use, by OpenRouter id: each needs its prices in the config."""
 
-
-class Variable(Enum):
-    """The environment variables a route may set for its harness."""
-
-    ANTHROPIC_BASE_URL = "ANTHROPIC_BASE_URL"
-    ANTHROPIC_AUTH_TOKEN = "ANTHROPIC_AUTH_TOKEN"
-    ANTHROPIC_API_KEY = "ANTHROPIC_API_KEY"
-    OPENROUTER_API_KEY = "OPENROUTER_API_KEY"
+    DEEPSEEK_V4_FLASH = "deepseek/deepseek-v4-flash-0731"
 
 
 class Option(Enum):
-    """The runner options a harness or route may set; every runner also gets the run's model."""
+    """The runner options a harness may set; every runner also gets the run's model and its route to
+    OpenRouter (provider, base_url and api_key_env)."""
 
-    PROVIDER = "provider"
-    API_KEY_ENV = "api_key_env"
     PACKAGE = "package"
     TOOLS = "tools"
-    BASE_URL = "base_url"
-    LOCAL_PROVIDER = "local_provider"
     SANDBOX = "sandbox"
+    THINKING_LEVEL = "thinking_level"
 
 
 @dataclass
-class Route(Config):
-    """How a harness reaches one provider."""
+class OpenRouter(Config):
+    """Where every harness reaches its model: OpenRouter's API root (its OpenAI-compatible API, which
+    Claude Code is given as the same server's Anthropic-compatible API), and the variable in this
+    process's environment that holds the key, so the key never lands in the run's config.yaml."""
 
-    options: dict[Option, str] = MISSING
-    # Variables set to these values, and variables copied from this process's environment by the name
-    # given, so a key never lands in the run's config.yaml.
-    env: dict[Variable, str] = MISSING
-    env_from: dict[Variable, str] = MISSING
+    base_url: str = MISSING
+    api_key_env: str = MISSING
+
+
+@dataclass
+class Prices(Config):
+    """USD per million tokens: input sent uncached, input read from the provider's cache, input
+    written to it, and output."""
+
+    input: float = MISSING
+    cached_input: float = MISSING
+    cache_write: float = MISSING
+    output: float = MISSING
 
 
 @dataclass
 class HarnessConfig(Config):
-    """A coding harness's runner command, relative to nanoagent/, and its routes."""
+    """A coding harness's runner command, relative to nanoagent/, and its options."""
 
     command: list[str] = MISSING
     options: dict[Option, str] = MISSING
-    # API-key routes by provider. DSH's direct DeepSeek route is built into its adapter.
-    routes: dict[Provider, Route] = MISSING
 
 
 @dataclass
@@ -158,23 +179,19 @@ class NanoAgentLoopConfig(Config):
 
 
 @dataclass
-class Cases(Output):
-    """One task of one plugin, and its inputs: to answer, and to refuse."""
+class Cases(Output, CaseSet):
+    """One task of one plugin, and its inputs: to answer, and to refuse (nanoagent.uploaded.case_sets.CaseSet)."""
 
-    plugin: str
-    task: str
-    # What a coding agent is told that the task's input does not say: its universe and data source.
-    context: str
-    answer: list[dict[str, Any]]
-    refuse: list[dict[str, Any]]
 
-    def case(self, id: str) -> tuple[dict[str, Any], bool]:
-        """The input of case ``id`` (<plugin>-<n>, the inputs to answer first), and whether to refuse it."""
-        inputs = [(arguments, False) for arguments in self.answer] + [(arguments, True) for arguments in self.refuse]
-        ids = [f"{self.plugin}-{index:02d}" for index in range(1, len(inputs) + 1)]
-        if id not in ids:
-            raise ValueError(f"{self.plugin}'s cases are {ids[0]} to {ids[-1]}, not {id}")
-        return inputs[ids.index(id)]
+@dataclass
+class Pinned(Output):
+    """A case pinned once for every harness (step 3): the pinning tool's answer, or for a case to refuse
+    its rejection; and how long pinning took (null with no tool to pin it)."""
+
+    case: str
+    reference: dict[str, Any] | None
+    reference_error: str | None
+    reference_seconds: float | None
 
 
 @dataclass
@@ -185,24 +202,28 @@ class SingleRunConfig(Config):
     cases: Cases = MISSING
     case: str = MISSING
     harness: Harness = MISSING
-    model: str = MISSING
-    # OpenRouter, or null for DSH's direct DeepSeek API-key route.
-    provider: Provider | None = MISSING
-    # USD per million tokens: input, input read from the provider's cache, and output. The run's cost
-    # is its tokens at these prices, the same for every harness (input written to the cache is
-    # counted as input).
-    input_price: float = MISSING
-    cached_input_price: float = MISSING
-    output_price: float = MISSING
+    model: Model = MISSING
+    openrouter: OpenRouter = field(default_factory=OpenRouter)
+    # Prices by model. The run's cost is its tokens at its model's prices, the same for every harness.
+    prices: dict[Model, Prices] = MISSING
     # The coding agent's prompt, with {description}, {context}, {arguments}, {input_schema} and
     # {output_schema} and {workspace} filled in for the case.
     prompt: str = MISSING
     # Seconds the harness, and the reference tool, may take before the run fails.
     timeout: float = MISSING
+    # Seconds setup may take, before any clock starts: fetching a harness's pinned npx package, and
+    # readying the plugin's Python environment.
+    npm_timeout: float = MISSING
+    sync_timeout: float = MISSING
     nanoagent: NanoAgentLoopConfig = field(default_factory=NanoAgentLoopConfig)
     harnesses: dict[Harness, HarnessConfig] = MISSING
     # Where Step 3 warmed the pinned npm packages, if it started this attempt.
     batch_runs: str | None = None
+    # The case as step 3 pinned it for every harness (a Pinned file); null to pin it here.
+    pinned: str | None = None
+    # Whether the harness's runner stays in this process's group, which step 3 kills whole once the run
+    # ends; alone, the runner gets a group of its own, killed whole when it is stopped.
+    inherit_process_group: bool = False
 
 
 @dataclass
@@ -219,7 +240,8 @@ class Case:
 class SingleRun(Output):
     harness: str
     model: str
-    provider: str | None
+    # The OpenRouter endpoint the harness reached its model through.
+    base_url: str
     plugin: str
     task: str
     plugin_version: str
@@ -308,6 +330,8 @@ class Timed:
         self.name = runner.name
         self.capabilities = runner.capabilities
         self.result: RunnerResult | None = None
+        # Whether the harness got its work: from then on, its failure is the run's result.
+        self.started = False
         self.seconds = 0.0
         self.cpu_seconds = 0.0
         self.timeline: list[dict[str, Any]] = []
@@ -315,15 +339,18 @@ class Timed:
     async def run(self, request: RunnerRequest, emit: ProgressSink) -> RunnerResult:
         started = time.monotonic()
         used = cpu()
+        self.started = True
 
         def stamped(event: dict[str, Any]) -> None:
             if event["type"] != "delta":
                 self.timeline.append({"t": time.monotonic() - started, **event})
             emit(event)
 
-        self.result = await self.runner.run(request, stamped)
-        self.seconds = time.monotonic() - started
-        self.cpu_seconds = cpu() - used
+        try:
+            self.result = await self.runner.run(request, stamped)
+        finally:
+            self.seconds = time.monotonic() - started
+            self.cpu_seconds = cpu() - used
         return self.result
 
     async def aclose(self) -> None:
@@ -338,22 +365,24 @@ async def nanoagent_work(
 ) -> Work:
     """NanoAgent working the case's plugin task as RUSH Lab does; a tool task as an agent task, its
     agent given the task's tools, with the tool that pinned the answer as its reference."""
-    if config.provider is not Provider.OPENROUTER:
-        raise ValueError(f"NanoAgent runs here on OpenRouter only: provider is {config.provider}")
     manifest = load_manifest(case.plugin)
     task = manifest.task(case.task)
     if task.runner == "tool":
         task = replace(task, runner="agent", reference=reference_tool(task))
     loop = config.nanoagent
+    prices = config.prices[config.model]
     llm = OpenRouterConfig(
-        model=config.model,
+        model=config.model.value,
         max_tokens=None,
         temperature=None,
         max_attempts=loop.max_attempts,
         read_timeout=loop.read_timeout,
-        input_price=config.input_price,
-        output_price=config.output_price,
+        input_price=prices.input,
+        output_price=prices.output,
     )
+    # The config's endpoint, and the key from the variable it names (OpenRouterConfig leaves both to
+    # the client's defaults: OpenRouter itself and OPENROUTER_API_KEY).
+    model = replace(llm.runtime(), base_url=config.openrouter.base_url, api_key=api_key(config))
     marks: dict[str, float] = {}
     result: AgentResult | None = None
     decider: ModelDecider | None = None
@@ -369,7 +398,7 @@ async def nanoagent_work(
         start()
         limits = loop.harness
         decider = ModelDecider(
-            Model.from_config(llm.runtime()),
+            RuntimeModel.from_config(model),
             system_prompt,
             max_steps=limits.max_steps,
             cost_limit=limits.cost_limit,
@@ -380,14 +409,25 @@ async def nanoagent_work(
     def make_agent(system_prompt: str):
         start()
         definition = AgentDefinitionConfig(
-            model=llm.runtime(), agent=loop.harness.runtime(system_prompt=system_prompt), tools=[], tools_dir=None, allowed_tools=None
+            model=model, agent=loop.harness.runtime(system_prompt=system_prompt), tools=[], tools_dir=None, allowed_tools=None
         )
         agent = build_agent(definition)
         run = agent.run
 
         async def kept(*args: Any, **kwargs: Any):
-            # The agent's result, kept even when the task then fails for want of a submission.
+            # The agent's result, kept even when the task then fails for want of a submission; and
+            # its partial result after every step, which the agent also reports, marked failed,
+            # before it raises.
             nonlocal result
+            on_step = kwargs.get("on_step")
+
+            def partial(snapshot: AgentResult) -> None:
+                nonlocal result
+                result = snapshot
+                if on_step is not None:
+                    on_step(snapshot)
+
+            kwargs["on_step"] = partial
             result = await run(*args, **kwargs)
             return result
 
@@ -400,7 +440,9 @@ async def nanoagent_work(
         if kind in {"task.answer", "task.result"} and "answer" not in marks:
             marks["answer"] = now
             marks["answer_cpu"] = cpu()
-        if kind in {"task.tool", "task.decision", "task.answer", "task.result", "task.verdict"} and "agent" in marks:
+        # The harness's progress only: checking its output (task.result, task.verdict) is RUSH's own
+        # work after the answer, timed as check_seconds, so the timeline ends within the latency.
+        if kind in {"task.tool", "task.decision", "task.answer"} and "agent" in marks:
             timeline.append({"t": now - marks["agent"], "type": kind, **({"name": data["name"]} if "name" in data else {})})
 
     output = refused = error = verification = None
@@ -429,25 +471,32 @@ async def nanoagent_work(
         elif result.stop_reason is StopReason.ERROR:
             error = result.error or str(failure)
     except Exception as failure:
-        # The decider stopped before an output (its limits, a tool it chose failing): its run fails
-        # with what it did.
-        if decider is None or "answer" in marks:
-            raise
-        result = replace(decider.record(), stop_reason=StopReason.ERROR, error=f"{type(failure).__name__}: {failure}")
-        error = result.error
-        marks["answer"] = time.monotonic()
-        marks["answer_cpu"] = cpu()
+        if "agent" not in marks:
+            raise  # the agent never started: setup failed
+        traceback.print_exc()
+        error = described(failure)
+        if decider is not None:
+            # The decider stopped (its limits, a tool it chose failing): its run fails with what it did.
+            result = replace(decider.record(), stop_reason=StopReason.ERROR, error=error)
     ended = time.monotonic()
-    assert result is not None
+    if result is None:
+        assert error is not None, "NanoAgent's task ended without its agent running"
+        # The agent failed before its first step: nothing measured, nothing said.
+        result = AgentResult(answer="", messages=[], tool_calls=[], steps=0, stop_reason=StopReason.ERROR, error=error)
+    if result.profile is None:
+        result = replace(result, profile=RunProfile(duration_s=ended - marks["agent"], usage={}, cost=0.0))
     messages = AtifTrajectory.from_dict(
-        to_atif(result, session_id=str(uuid.uuid4()), harness="nanoagent", harness_version=__version__, model=config.model)
+        to_atif(result, session_id=str(uuid.uuid4()), harness="nanoagent", harness_version=__version__, model=config.model.value)
     )
+    # A failed agent never answered: its run ends where it failed.
+    marks.setdefault("answer", ended)
+    marks.setdefault("answer_cpu", cpu())
     return Work(
         seconds=marks["answer"] - marks["agent"],
         cpu_seconds=marks["answer_cpu"] - marks["agent_cpu"],
         profile=result.profile.to_dict(),
         timeline=timeline,
-        stop_reason="refused" if refused else result.stop_reason.value,
+        stop_reason="refused" if refused else "error" if error else result.stop_reason.value,
         answer=result.answer,
         output=output,
         refused=refused,
@@ -466,114 +515,74 @@ def other_runner(config: SingleRunConfig, workspace: Path) -> Iterator[Subproces
     if harness not in config.harnesses:
         raise ValueError(f"the config's harnesses table has no {harness.value}")
     settings = config.harnesses[harness]
-    options: dict[str, Any] = {"model": config.model}
+    key = config.openrouter.api_key_env
+    options: dict[str, Any] = {"model": config.model.value, "provider": "openrouter", "base_url": config.openrouter.base_url, "api_key_env": key}
     options |= {option.value: value for option, value in settings.options.items()}
-    route = None
-    credentials: set[str] = set()
-    if config.provider is None:
-        if Option.PROVIDER in settings.options:
-            raise ValueError(f"{harness.value} has a provider option set with provider: null")
-        if harness is not Harness.DSH:
-            raise ValueError(f"{harness.value} requires a configured API-key provider")
-        credentials.add("DEEPSEEK_API_KEY")
-        provider = "DeepSeek"
-    else:
-        provider = config.provider.value
-        route = settings.routes.get(config.provider)
-        if route is None:
-            raise ValueError(f"{harness.value} has no route to {provider} in the config")
-        options |= {option.value: value for option, value in route.options.items()}
-        if Option.API_KEY_ENV.value in options:
-            credentials.add(options[Option.API_KEY_ENV.value])
-
-    required = credentials | (set(route.env_from.values()) if route is not None else set())
-    if not required:
-        raise ValueError(f"{harness.value} on {provider} requires an API key in its route config")
-    missing = sorted(name for name in required if not os.environ.get(name))
-    if missing:
-        raise ValueError(f"{harness.value} on {provider} needs {', '.join(missing)} set")
     package = options.get(Option.PACKAGE.value)
     cache = npm_package_cache(Path(config.batch_runs), package) if package and config.batch_runs is not None else None
-    with coding_environment(workspace, credential_names=credentials, npm_cache=cache) as (prefix, env):
+    with coding_environment(workspace, credential_names={key}, npm_cache=cache) as (prefix, env):
         if package and cache is None:
-            fetch_npm(package, prefix, {name: value for name, value in env.items() if name not in credentials}, cwd=workspace)
+            fetch_npm(package, prefix, {name: value for name, value in env.items() if name != key}, cwd=workspace, timeout=config.npm_timeout)
         if harness is Harness.DSH and Option.SANDBOX.value in options:
             env["DSH_PERMISSION_MODE"] = options.pop(Option.SANDBOX.value)
-        if route is not None:
-            env |= {variable.value: value for variable, value in route.env.items()}
-            env |= {variable.value: os.environ[source] for variable, source in route.env_from.items()}
         command = []
         for part in settings.command:
             path = Path(part)
             command.append(str(path.absolute()) if path.parent != Path(".") and path.is_file() else part)
-        runner = SubprocessRunner(harness.value, command, cwd=workspace, options=options, launch_prefix=prefix, env=env)
+        runner = SubprocessRunner(
+            harness.value,
+            command,
+            cwd=workspace,
+            options=options,
+            launch_prefix=prefix,
+            env=env,
+            inherit_process_group=config.inherit_process_group,
+        )
         available, reason = runner.availability()
         if not available:
             raise RuntimeError(reason)
         yield runner
 
 
-def read_answer(workspace: Path) -> tuple[dict[str, Any] | None, str | None, str | None]:
-    """The output, refusal or failure a coding agent's answer.json gives."""
-    try:
-        fd = os.open(workspace / "answer.json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    except FileNotFoundError:
-        return None, None, "wrote no answer.json"
-    except OSError as error:
-        return None, None, f"cannot open answer.json: {error.strerror}"
-    try:
-        with os.fdopen(fd, encoding="utf-8") as answer:
-            if not stat.S_ISREG(os.fstat(answer.fileno()).st_mode):
-                return None, None, "answer.json is not a regular file"
-            value = json.load(answer)
-    except (json.JSONDecodeError, UnicodeDecodeError) as error:
-        return None, None, f"answer.json is not UTF-8 JSON: {error}"
-    if not isinstance(value, dict):
-        return None, None, "answer.json is not a JSON object"
-    if set(value) == {"refused"}:
-        reason = value["refused"]
-        if not isinstance(reason, str) or not reason.strip():
-            return None, None, 'answer.json needs a nonempty refusal reason'
-        return None, reason, None
-    return value, None, None
-
-
 async def other_work(config: SingleRunConfig, case: Case, workspace: Path) -> Work:
     """A coding harness given the case's prompt, answering in answer.json."""
-    async with AsyncExitStack() as stack:
-        runner = stack.enter_context(other_runner(config, workspace))
-        timed = Timed(runner)
-        stack.push_async_callback(timed.aclose)
-        chat = Conversation.start(
-            HarnessProfile(id=config.harness.value, label=config.harness.value, harness=config.harness.value, model=config.model, runner=timed),
-            instructions="",
-            system_prompt="",
-            workspace=workspace,
-            render=False,
-        )
-        started, used = time.monotonic(), cpu()
-        try:
-            await asyncio.wait_for(chat.run_task(case.prompt), config.timeout)
-        except (TimeoutError, RunnerError) as failure:
-            # The harness's own failure: it fails with what it did until then, the runner's profile
-            # unreported, so only the timeline and the conversation so far.
-            timeout = isinstance(failure, TimeoutError)
-            seconds = config.timeout if timeout else time.monotonic() - started
-            return Work(
-                seconds=seconds,
-                cpu_seconds=cpu() - used,
-                profile=RunProfile(duration_s=seconds, usage={}, cost=0.0).to_dict(),
-                timeline=timed.timeline,
-                stop_reason="timeout" if timeout else "error",
-                answer="",
-                output=None,
-                refused=None,
-                error=f"timed out after {config.timeout:g} s" if timeout else str(failure),
-                messages=chat.trajectory(),
+    timed: Timed | None = None
+    try:
+        async with AsyncExitStack() as stack:
+            runner = stack.enter_context(other_runner(config, workspace))
+            timed = Timed(runner)
+            stack.push_async_callback(timed.aclose)
+            chat = Conversation.start(
+                HarnessProfile(
+                    id=config.harness.value, label=config.harness.value, harness=config.harness.value, model=config.model.value, runner=timed
+                ),
+                instructions="",
+                system_prompt="",
+                workspace=workspace,
+                render=False,
             )
-    result = timed.result
-    if result.profile is None:
-        raise RuntimeError(f"{config.harness.value}'s runner reports no profile, so the run cannot be profiled")
+            await asyncio.wait_for(chat.run_task(case.prompt), config.timeout)
+        result = timed.result
+        if result.profile is None:
+            raise RuntimeError(f"{config.harness.value}'s runner reports no profile, so the run cannot be profiled")
+    except Exception as failure:
+        if timed is None or not timed.started:
+            raise  # the harness never got its work: setup failed
+        traceback.print_exc()
+        timeout = isinstance(failure, TimeoutError)
+        error = f"timed out after {config.timeout:g} s" if timeout else described(failure)
+        return Work(
+            seconds=timed.seconds,
+            cpu_seconds=timed.cpu_seconds,
+            profile=finished_steps(timed.timeline, timed.seconds),
+            timeline=timed.timeline,
+            stop_reason="timeout" if timeout else "error",
+            answer="",
+            output=None,
+            refused=None,
+            error=error,
+            messages=chat.trajectory(),
+        )
     output, refused, failure = read_answer(workspace) if result.error is None else (None, None, None)
     return Work(
         seconds=timed.seconds,
@@ -630,47 +639,15 @@ def isolate() -> PluginPython:
 
 
 @contextmanager
-def prepared_plugin(source: Path, python: PluginPython) -> Iterator[Path]:
+def prepared_plugin(source: Path, python: PluginPython, timeout: float) -> Iterator[Path]:
     """Install outside the checkout so uv cannot discover the benchmark's parent project."""
     with tempfile.TemporaryDirectory(prefix="nanoagent-benchmark-plugin-") as directory:
         root = Path(directory).resolve() / source.name
         shutil.copytree(source, root, symlinks=True)
         sync = [*SYNC, "--python", str(python.executable), "--quiet"]
         with sandbox.launch(sync, root=root, env={}, writable=[root], hosts=INSTALL_HOSTS) as (argv, env):
-            subprocess.run(argv, cwd=root, env=env, check=True, timeout=SYNC_TIMEOUT)
+            subprocess.run(argv, cwd=root, env=env, check=True, timeout=timeout)
         yield root
-
-
-def reference_tool(task) -> str | None:
-    """The tool that pins the task's right answer, as its manifest says: its reference tool; for a
-    tool task without one, its one tool, whose output RUSH gives; None for an agent task without one,
-    which its verifier judges with reference None."""
-    if task.reference is not None:
-        return task.reference
-    match task.runner:
-        case "tool":
-            [tool] = task.tools
-            return tool
-        case "agent":
-            return None
-    raise ValueError(f"task {task.id!r}: the benchmark cannot pin a {task.runner} task without a reference tool")
-
-
-async def pin(manifest, tool: str | None, arguments: dict[str, Any], refuse: bool, timeout: float) -> dict[str, Any] | None:
-    """``tool``'s answer to a case to answer; None for a case to refuse, which it refuses, and for a
-    task with no tool to pin it."""
-    if tool is None:
-        return None
-    with tempfile.TemporaryDirectory() as scratch:
-        try:
-            output = await call_tool_async(manifest, tool, arguments, workspace=Path(scratch), timeout=timeout)
-        except RuntimeError as error:
-            if refuse and f"{manifest.id} {tool} failed:" in str(error):
-                return None
-            raise RuntimeError(f"{tool} could not answer {json.dumps(arguments)}, a case to answer: {error}") from error
-    if refuse:
-        raise RuntimeError(f"{tool} answered {json.dumps(arguments)}, a case to refuse")
-    return output
 
 
 def judge(manifest, task, case: Case, work: Work, reference: dict[str, Any] | None, refuse: bool, workspace: Path) -> tuple[bool, str]:
@@ -711,6 +688,54 @@ def logged():
         logging.getLogger().removeHandler(handler)
 
 
+def described(failure: BaseException) -> str:
+    """A failure as the run's error: its type, and its message when it has one."""
+    return f"{type(failure).__name__}: {failure}" if str(failure) else type(failure).__name__
+
+
+def finished_steps(timeline: list[dict[str, Any]], seconds: float) -> dict[str, Any]:
+    """A failed harness's profile: the steps it reported finished before it failed, as RunProfile's
+    dict gives them (a step under way when it failed is not among them, so its time is overhead)."""
+    steps = [event["metrics"] for event in timeline if event["type"] == "step"]
+    usage: dict[str, int] = {}
+    for step in steps:
+        accumulate_usage(usage, step["usage"])
+    model_s = sum(step["model_s"] for step in steps)
+    tools_s = sum(step["tools_s"] for step in steps)
+    return {
+        "duration_s": seconds,
+        "model_s": model_s,
+        "tools_s": tools_s,
+        "overhead_s": max(0.0, seconds - model_s - tools_s),
+        "ttft_s": None,
+        "generation_s": None,
+        "usage": usage,
+        "cost": 0.0,
+        "steps": steps,
+    }
+
+
+def api_key(config: SingleRunConfig) -> str:
+    """The OpenRouter key, from the variable the config names."""
+    value = os.environ.get(config.openrouter.api_key_env)
+    if not value:
+        raise ValueError(f"{config.harness.value} needs {config.openrouter.api_key_env} set")
+    return value
+
+
+def cost(tokens: dict[str, int], prices: Prices) -> float:
+    """USD for the run's tokens at its model's prices: cache reads and writes are within the input."""
+    uncached = tokens["prompt_tokens"] - tokens["cached_tokens"] - tokens["cache_write_tokens"]
+    if uncached < 0:
+        raise ValueError(f"the run's cache reads and writes exceed its input tokens: {tokens}")
+    return (
+        uncached * prices.input
+        + tokens["cached_tokens"] * prices.cached_input
+        + tokens["cache_write_tokens"] * prices.cache_write
+        + tokens["completion_tokens"] * prices.output
+    ) / 1e6
+
+
 def cpu() -> float:
     """CPU seconds this process and its ended children have used."""
     own, children = resource.getrusage(resource.RUSAGE_SELF), resource.getrusage(resource.RUSAGE_CHILDREN)
@@ -729,20 +754,31 @@ class SingleRunner(Run):
 
     def work(self) -> int:
         config = self.config
-        arguments, refuse = config.cases.case(config.case)
+        arguments, refusal = config.cases.case(config.case)
+        if config.model not in config.prices:
+            raise ValueError(f"the config's prices table has no {config.model.value}")
+        api_key(config)
         python = isolate()
         version = unpack(config.database, config.psql, config.cases.plugin, Path(self.layout.plugin))
-        with prepared_plugin(Path(self.layout.plugin, config.cases.plugin), python) as folder:
-            return self.run_case(folder, version, arguments, refuse)
+        with prepared_plugin(Path(self.layout.plugin, config.cases.plugin), python, config.sync_timeout) as folder:
+            return self.run_case(folder, version, arguments, refusal)
 
-    def run_case(self, folder: Path, version: str, arguments: dict[str, Any], refuse: bool) -> int:
+    def run_case(self, folder: Path, version: str, arguments: dict[str, Any], refusal: Refusal | None) -> int:
         config = self.config
+        refuse = refusal is not None
         manifest = load_manifest(folder)
         task = manifest.task(config.cases.task)
         tool = reference_tool(task)
-        pin_started = time.monotonic()
-        reference = asyncio.run(pin(manifest, tool, arguments, refuse, config.timeout))
-        reference_seconds = None if tool is None else time.monotonic() - pin_started
+        if config.pinned is not None:
+            # Pinned once by step 3, so every harness is judged against the same answer.
+            pinned_case = load_output(config.pinned, Pinned)
+            if pinned_case.case != config.case:
+                raise ValueError(f"{config.pinned} pins {pinned_case.case}, not {config.case}")
+            reference, reference_seconds = pinned_case.reference, pinned_case.reference_seconds
+        else:
+            pin_started = time.monotonic()
+            reference, _ = asyncio.run(pin(manifest, tool, arguments, refusal, config.timeout))
+            reference_seconds = None if tool is None else time.monotonic() - pin_started
         # NanoAgent is given no pinned answer when no tool pins a case to answer.
         pinned = None if tool is None and not refuse else PinnedReference(reference)
         workspace = Path(self.layout.workspace).resolve()
@@ -771,16 +807,11 @@ class SingleRunner(Run):
         tokens = {
             name: usage.get(name, 0) for name in ("prompt_tokens", "completion_tokens", "cached_tokens", "cache_write_tokens", "reasoning_tokens")
         }
-        cost = (
-            (tokens["prompt_tokens"] - tokens["cached_tokens"]) * config.input_price
-            + tokens["cached_tokens"] * config.cached_input_price
-            + tokens["completion_tokens"] * config.output_price
-        )
         steps = own["steps"]
         self.layout.result = run = SingleRun(
             harness=config.harness.value,
-            model=config.model,
-            provider=None if config.provider is None else config.provider.value,
+            model=config.model.value,
+            base_url=config.openrouter.base_url,
             plugin=config.cases.plugin,
             task=task.id,
             plugin_version=version,
@@ -795,7 +826,7 @@ class SingleRunner(Run):
             overhead_seconds=max(0.0, work.seconds - own["model_s"] - own["tools_s"]),
             input_tokens=tokens["prompt_tokens"],
             output_tokens=tokens["completion_tokens"],
-            cost=cost / 1e6,
+            cost=cost(tokens, config.prices[config.model]),
             cached_input_tokens=tokens["cached_tokens"],
             cache_write_tokens=tokens["cache_write_tokens"],
             reasoning_tokens=tokens["reasoning_tokens"],

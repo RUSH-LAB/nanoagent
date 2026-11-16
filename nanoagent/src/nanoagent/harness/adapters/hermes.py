@@ -15,6 +15,7 @@ import logging
 import os
 import sys
 import threading
+from importlib.metadata import version as package_version
 from contextlib import redirect_stderr, redirect_stdout
 from typing import Any, TextIO
 
@@ -157,6 +158,11 @@ def _run(payload: dict[str, Any]) -> dict[str, Any]:
     model, provider = _option(options, "model"), _option(options, "provider")
     if provider is not None and model is None:
         raise ValueError("Hermes option 'provider' needs a model")
+    base_url, key = _option(options, "base_url"), _option(options, "api_key_env")
+    if (base_url is not None or key is not None) and provider != "openrouter":
+        raise ValueError("Hermes options 'base_url' and 'api_key_env' need provider 'openrouter'")
+    if key is not None and not os.environ.get(key):
+        raise ValueError(f"Hermes option 'api_key_env' names {key}, which is not set")
     toolsets = options.get("toolsets")
     if toolsets is not None and (not isinstance(toolsets, list) or any(not isinstance(item, str) for item in toolsets)):
         raise ValueError("Hermes option 'toolsets' must be a list of strings")
@@ -176,6 +182,11 @@ def _run(payload: dict[str, Any]) -> dict[str, Any]:
     # As `hermes -z` sets itself up: no one approves anything, and nothing runs in the background.
     os.environ["HERMES_YOLO_MODE"] = "1"
     os.environ["HERMES_ACCEPT_HOOKS"] = "1"
+    # Hermes's OpenRouter route reads its endpoint and key from these.
+    if base_url is not None:
+        os.environ["OPENROUTER_BASE_URL"] = base_url
+    if key is not None:
+        os.environ["OPENROUTER_API_KEY"] = os.environ[key]
     declare_stateless_channel()
     logging.disable(logging.CRITICAL)
     shipped = run_agent.AIAgent
@@ -208,6 +219,8 @@ def _run(payload: dict[str, Any]) -> dict[str, Any]:
     cost = result.get("estimated_cost_usd")
     return {
         "type": "done",
+        # The hermes-agent release this process runs Hermes from.
+        "version": package_version("hermes-agent"),
         "answer": answer,
         "stop_reason": "error" if failed else "answer",
         "steps": len(profile.steps),

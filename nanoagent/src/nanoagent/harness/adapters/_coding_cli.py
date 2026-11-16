@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -9,9 +10,28 @@ import signal
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, Sequence
+
+
+class HarnessFailure(RuntimeError):
+    """A run that failed after its harness's version was known: the error event reports it."""
+
+    def __init__(self, message: str, version: str) -> None:
+        super().__init__(message)
+        self.version = version
+
+
+@contextlib.contextmanager
+def reporting_version(version: str) -> Iterator[None]:
+    """Within it, a run's failure (a RuntimeError) carries the harness's ``version``."""
+    try:
+        yield
+    except HarnessFailure:
+        raise
+    except RuntimeError as error:
+        raise HarnessFailure(str(error), version) from error
 
 
 def emit(event: dict[str, Any]) -> None:
@@ -73,6 +93,14 @@ def executable(options: dict[str, Any], default: str) -> str:
     if resolved is None:
         raise FileNotFoundError(f"coding CLI executable was not found: {name}")
     return resolved
+
+
+def package_version(package: str) -> str:
+    """The release an npm package spec pins: ``1.2.3`` of ``@scope/name@1.2.3``."""
+    name, _, version = package.rpartition("@")
+    if not name or not version or "/" in version:
+        raise ValueError(f"npm package {package!r} must pin a release, as name@version")
+    return version
 
 
 def extra_args(options: dict[str, Any]) -> list[str]:
@@ -154,6 +182,7 @@ def stream_child(
                 stderr=stderr,
                 text=True,
                 env=os.environ | (env or {}),
+                start_new_session=True,
             )
 
             def terminate_child(_signum: int, _frame: Any) -> None:
@@ -170,8 +199,12 @@ def stream_child(
             child.wait()
         finally:
             signal.signal(signal.SIGTERM, previous_handler)
-            if child is not None and child.poll() is None:
-                child.kill()
+            if child is not None:
+                # Whatever the harness left running in its group (a background sync, a daemon) must not
+                # outlive the run: it would write into a home or workspace the caller is about to remove.
+                # (macOS answers PermissionError, not ProcessLookupError, for a group of only exited processes.)
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(child.pid, signal.SIGKILL)
                 child.wait()
         stderr.seek(0)
         return child.returncode, stderr.read().strip()[-8000:]
@@ -201,5 +234,6 @@ def run_main(
         emit({"type": "error", "code": "invalid_request", "error": str(error)})
     except Exception as error:
         print(f"{label} failed: {error}", file=sys.stderr)
-        emit({"type": "error", "code": error_code, "error": f"{label} failed"})
+        version = getattr(error, "version", None)
+        emit({"type": "error", "code": error_code, "error": f"{label} failed", **({"version": version} if version else {})})
     return 0

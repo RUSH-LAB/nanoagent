@@ -18,8 +18,8 @@
     {"source": "import os\nname = os.getcwd()\nname = name.upper()\nprint(name)\n"}
   ],
   "refuse": [
-    {"source": "def broken(:\n    pass\n"},
-    {"source": "x = = 1\n"},
-    {"source": "if True print(1)\n"}
+    {"arguments": {"source": "def broken(:\n    pass\n"}, "reference_error": "source is not valid Python"},
+    {"arguments": {"source": "x = = 1\n"}, "reference_error": "source is not valid Python"},
+    {"arguments": {"source": "if True print(1)\n"}, "reference_error": "source is not valid Python"}
   ]
 }

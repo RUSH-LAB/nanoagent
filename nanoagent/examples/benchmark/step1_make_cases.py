@@ -43,6 +43,7 @@ from omegaconf import MISSING
 from openai import OpenAI
 from slimconfig import Config, Layout, Output, Run, build_output, load_output, output_schema, write_output
 
+from nanoagent.plugin.install import SYNC_TIMEOUT
 from step2_single_run import Cases, isolate, logged, pin, prepared_plugin, reference_tool, unpack
 
 from nanoagent.plugin import load_manifest
@@ -302,7 +303,7 @@ def tools_needed(manifest, task, tool: str, arguments: dict[str, Any], timeout: 
     """Pin ``tool``'s answer and verify that answer itself, kept to the task's output fields, in a
     fresh, empty workspace: None when the verifier accepts it, UNCHECKABLE when it is no task output,
     else why the task needs the plugin's tools."""
-    reference = asyncio.run(pin(manifest, tool, arguments, False, timeout))
+    reference, _ = asyncio.run(pin(manifest, tool, arguments, None, timeout))
     fields = output_schema(task.output_type)["properties"]
     answer = {key: value for key, value in reference.items() if key in fields}
     try:
@@ -319,7 +320,7 @@ def check_existing(config: MakeCasesConfig, python: PluginPython, cases: Cases) 
     that is not None (UNCHECKABLE, or why its task needs the plugin's tools), else None."""
     with tempfile.TemporaryDirectory(prefix="benchmark-check-") as unpacked:
         unpack(config.database, config.psql, cases.plugin, Path(unpacked))
-        with prepared_plugin(Path(unpacked, cases.plugin), python) as folder:
+        with prepared_plugin(Path(unpacked, cases.plugin), python, SYNC_TIMEOUT) as folder:
             manifest = load_manifest(folder)
             task = manifest.task(cases.task)
             tool = reference_tool(task)
@@ -349,7 +350,7 @@ def make_case(
     with tempfile.TemporaryDirectory(prefix="benchmark-cases-") as unpacked:
         try:
             unpack(config.database, config.psql, plugin, Path(unpacked))
-            with prepared_plugin(Path(unpacked, plugin), python) as folder:
+            with prepared_plugin(Path(unpacked, plugin), python, SYNC_TIMEOUT) as folder:
                 manifest = load_manifest(folder)
                 task = manifest.task(task_id)
                 tool = reference_tool(task)

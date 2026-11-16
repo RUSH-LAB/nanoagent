@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNNER = """
 import json, sys
 envelope = json.loads(sys.stdin.readline())
-print(json.dumps({"type": "done", "answer": json.dumps(envelope["options"]), "stop_reason": "answer",
+print(json.dumps({"type": "done", "answer": json.dumps(envelope["options"]), "stop_reason": "answer", "version": "9.9.9",
                   "steps": 1, "usage": {}, "cost": 0.0, "error": None}))
 """
 # Stands in for models.js.

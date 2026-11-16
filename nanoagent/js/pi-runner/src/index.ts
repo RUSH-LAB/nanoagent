@@ -10,6 +10,11 @@ import {realpathSync} from "node:fs";
 import {fileURLToPath} from "node:url";
 import {Profiler} from "./profile.js";
 
+export {Profiler};
+
+// The version of PI the bundle holds, defined at build time (build.mjs).
+declare const PI_VERSION: string;
+
 interface RunnerRequest {
   input: string;
   messages?: unknown[];
@@ -28,6 +33,8 @@ export interface PiOptions {
   provider: string;
   model: string;
   apiKeyEnv?: string;
+  // The provider's endpoint, in place of the one pi-ai's catalog gives the model.
+  baseUrl?: string;
   thinkingLevel: ThinkingLevel;
   systemPrompt: string;
   awsRegion?: string;
@@ -50,6 +57,7 @@ export function parseOptions(value: Record<string, unknown> = {}): PiOptions {
   const provider = value.provider;
   const model = value.model;
   const apiKeyEnv = value.api_key_env;
+  const baseUrl = value.base_url;
   const thinkingLevel = value.thinking_level ?? "off";
   const systemPrompt = value.system_prompt ?? "You are a helpful assistant.";
   const awsRegion = value.aws_region;
@@ -61,6 +69,9 @@ export function parseOptions(value: Record<string, unknown> = {}): PiOptions {
   if (typeof model !== "string" || !model) throw new Error("PI option 'model' is required");
   if (apiKeyEnv !== undefined && (typeof apiKeyEnv !== "string" || !apiKeyEnv)) {
     throw new Error("PI option 'api_key_env' must be a non-empty string");
+  }
+  if (baseUrl !== undefined && (typeof baseUrl !== "string" || !baseUrl)) {
+    throw new Error("PI option 'base_url' must be a non-empty string");
   }
   if (typeof thinkingLevel !== "string" || !THINKING_LEVELS.has(thinkingLevel as ThinkingLevel)) {
     throw new Error("PI option 'thinking_level' is invalid");
@@ -83,6 +94,7 @@ export function parseOptions(value: Record<string, unknown> = {}): PiOptions {
     provider,
     model,
     apiKeyEnv: apiKeyEnv as string | undefined,
+    baseUrl: baseUrl as string | undefined,
     thinkingLevel: thinkingLevel as ThinkingLevel,
     systemPrompt,
     awsRegion: awsRegion as string | undefined,
@@ -174,8 +186,9 @@ async function main(): Promise<void> {
     if (options.awsRegion) process.env.AWS_REGION = options.awsRegion;
     if (options.awsProfile) process.env.AWS_PROFILE = options.awsProfile;
     const models = builtinModels();
-    const model = models.getModel(options.provider, options.model);
-    if (!model) throw new Error(`PI model not found: ${options.provider}/${options.model}`);
+    const found = models.getModel(options.provider, options.model);
+    if (!found) throw new Error(`PI model not found: ${options.provider}/${options.model}`);
+    const model = options.baseUrl ? {...found, baseUrl: options.baseUrl} : found;
     // pi-ai's own error for a provider with no key says only that it is "not configured".
     const keyed = options.apiKeyEnv
       ? Boolean(process.env[options.apiKeyEnv])
@@ -249,12 +262,13 @@ async function main(): Promise<void> {
     );
     if (!final) throw new Error("PI completed without an assistant message");
     if (final.stopReason === "error" || final.stopReason === "aborted") {
-      write({type: "error", code: `pi_${final.stopReason}`, error: final.errorMessage ?? final.stopReason});
+      write({type: "error", code: `pi_${final.stopReason}`, version: PI_VERSION, error: final.errorMessage ?? final.stopReason});
       return;
     }
     const profile = profiler.finish();
     write({
       type: "done",
+      version: PI_VERSION,
       answer: messageText(final),
       stop_reason: final.stopReason === "stop" ? "answer" : final.stopReason,
       steps: (profile.steps as unknown[]).length,
@@ -264,7 +278,7 @@ async function main(): Promise<void> {
       metrics: {...profile, reported: {cost}},
     });
   } catch (error) {
-    write({type: "error", code: "pi_error", error: error instanceof Error ? error.message : String(error)});
+    write({type: "error", code: "pi_error", version: PI_VERSION, error: error instanceof Error ? error.message : String(error)});
   }
 }
 

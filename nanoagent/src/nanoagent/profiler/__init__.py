@@ -77,7 +77,10 @@ def normalize_usage(raw: Any) -> dict[str, int]:
     if cached is not None:
         usage["cached_tokens"] = cached
 
-    cache_write = _first_number(raw, "cache_write_tokens", "cache_creation_input_tokens", "cacheWrite")
+    # OpenRouter reports cache writes beside the cached reads, in prompt_tokens_details.
+    cache_write = _first_number(prompt_details, "cache_write_tokens")
+    if cache_write is None:
+        cache_write = _first_number(raw, "cache_write_tokens", "cache_creation_input_tokens", "cacheWrite")
     if cache_write is not None:
         usage["cache_write_tokens"] = cache_write
     cache_write_1h = _first_number(raw, "cache_write_1h_tokens", "cacheWrite1h")
@@ -95,7 +98,8 @@ def normalize_usage(raw: Any) -> dict[str, int]:
 
 @dataclass(frozen=True, slots=True)
 class ModelCallProfile:
-    """One model request, including retries represented as separate records."""
+    """One completed model turn. A failed attempt (and so a retry's earlier attempts) is not a call:
+    its time is in the step's ``model_s``."""
 
     kind: str
     duration_s: float
@@ -280,6 +284,7 @@ class StepProfiler:
         self.step = step
         self._started = owner._clock()
         self._model_calls: list[ModelCallProfile] = []
+        self._failed_model_s = 0.0
         self._tool_calls: list[ToolCallProfile | None] = []
         self._tools_s = 0.0
         self._finished = False
@@ -296,7 +301,11 @@ class StepProfiler:
         error: str | None = None,
     ) -> ModelCallProfile:
         record = timer.finish(usage=usage, cost=cost, error=error)
-        self._model_calls.append(record)
+        if error is None:
+            self._model_calls.append(record)
+        else:
+            # A failed attempt is not a completed turn, but the time it took was spent on the model.
+            self._failed_model_s += record.duration_s
         return record
 
     def add_model_call(self, record: ModelCallProfile) -> None:
@@ -337,7 +346,7 @@ class StepProfiler:
         for call in self._model_calls:
             accumulate_usage(usage, call.usage)
             cost += call.cost
-        model_s = sum(call.duration_s for call in self._model_calls if call.kind != "tool")
+        model_s = self._failed_model_s + sum(call.duration_s for call in self._model_calls if call.kind != "tool")
         duration_s = max(0.0, ended - self._started)
         profile = StepProfile(
             step=self.step,
@@ -508,6 +517,8 @@ class StreamProfiler:
         if self._running:
             raise RuntimeError(f"step {len(self._steps) + 1} closed with tools still running: {sorted(self._running)}")
         ended = self._clock() if at is None else at
+        # A failed attempt is not a completed turn: its time is the step's model time, and it is no record.
+        model_s = sum((call.ended or ended) - call.started for call in step.calls)
         calls = tuple(
             ModelCallProfile(
                 kind="agent",
@@ -516,14 +527,14 @@ class StreamProfiler:
                 generation_s=None if call.first is None else (call.ended or ended) - call.first,
                 usage=dict(call.usage or {}),
                 cost=0.0,
-                error=call.error,
+                error=None,
             )
             for call in step.calls
+            if call.error is None
         )
         usage: dict[str, int] = {}
         for call in calls:
             accumulate_usage(usage, call.usage)
-        model_s = sum(call.duration_s for call in calls)
         duration = ended - step.started
         profile = StepProfile(
             step=len(self._steps) + 1,

@@ -1,0 +1,22 @@
+_ > mockllm.engine.Scenario:
+name: two-step-answer
+case: acceptance-probe-01
+# Model call, the 1.0 s wait tool, model call. Call 1 writes 300 prompt tokens to the cache, call 2 reads 1000.
+turns:
+  - ttfb: 0.6
+    stream: {chunks: 10, gap: 0.05}
+    reasoning: "Need to wait, then answer."
+    text: "Working."
+    act: {wait: 1.0}
+    usage: {prompt: 1000, cached: 0, completion: 50, reasoning: 20, cache_write: 300}
+  - ttfb: 0.4
+    stream: {chunks: 4, gap: 0.05}
+    text: "Done."
+    act: {answer: {digest: "@reference"}}
+    usage: {prompt: 1200, cached: 1000, completion: 30, reasoning: 10, cache_write: 0}
+  # NanoAgent calls its model once more after `submit`; this closing turn ends its loop.
+  - ttfb: 0.3
+    stream: {chunks: 2, gap: 0.05}
+    text: "Submitted."
+    usage: {prompt: 1500, cached: 0, completion: 10, reasoning: 0, cache_write: 0}
+expect: {correct: true}

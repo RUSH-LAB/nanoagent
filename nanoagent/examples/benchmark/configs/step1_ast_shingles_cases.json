@@ -18,8 +18,8 @@
     {"source": "d = {'a': 1, 'b': 2}\nprint(d['a'])\n", "k": 3}
   ],
   "refuse": [
-    {"source": "def broken(:\n    pass\n", "k": 2},
-    {"source": "x = = 1\n", "k": 2},
-    {"source": "print('unterminated)\n", "k": 3}
+    {"arguments": {"source": "def broken(:\n    pass\n", "k": 2}, "reference_error": "source is not valid Python"},
+    {"arguments": {"source": "x = = 1\n", "k": 2}, "reference_error": "source is not valid Python"},
+    {"arguments": {"source": "print('unterminated)\n", "k": 3}, "reference_error": "source is not valid Python"}
   ]
 }

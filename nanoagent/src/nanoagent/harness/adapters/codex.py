@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -27,7 +28,9 @@ from nanoagent.harness.adapters._coding_cli import (
     emit,
     executable,
     extra_args,
+    package_version,
     prompt,
+    reporting_version,
     request_and_options,
     run_main,
     stream_child,
@@ -40,6 +43,8 @@ EXIT = re.compile(r"Process exited with code (-?\d+)")
 TOOL_CALLS = {"function_call", "custom_tool_call", "local_shell_call"}
 TOOL_OUTPUTS = {"function_call_output", "custom_tool_call_output", "local_shell_call_output"}
 STREAMED_TOOLS = {"command_execution", "file_change", "mcp_tool_call", "web_search"}
+# The fields of a streamed tool item that say what it was asked to do, as each tool's arguments.
+TOOL_ARGUMENTS = ("command", "changes", "server", "tool", "arguments", "query")
 
 
 def _string(options: dict[str, Any], name: str) -> str | None:
@@ -79,6 +84,9 @@ def _command(codex: list[str], root: Path, options: dict[str, Any]) -> list[str]
     if sandbox not in {"read-only", "workspace-write", "danger-full-access"}:
         raise ValueError("Codex sandbox must be read-only, workspace-write, or danger-full-access")
     command = [*codex, "exec", "--json", "--color", "never", "--skip-git-repo-check", "--sandbox", sandbox, "--cd", str(root)]
+    # Codex's plugin sync clones the curated plugins repo into CODEX_HOME from a background git that outlives
+    # Codex, and the run needs no plugins: with it off, nothing writes into the home after Codex exits.
+    command.extend(["--disable", "plugins"])
     model = options.get("model")
     if isinstance(model, str) and model and model != "default":
         command.extend(["--model", model])
@@ -93,6 +101,17 @@ def _codex(options: dict[str, Any]) -> list[str]:
     return [executable(options, "npx"), "-y", package]
 
 
+def _version(codex: list[str], options: dict[str, Any]) -> str:
+    """The Codex release that runs: the one the pinned package names, or what ``codex --version`` reports."""
+    package = _string(options, "package")
+    if package is not None:
+        return package_version(package)
+    reported = subprocess.run([*codex, "--version"], capture_output=True, text=True, check=True).stdout.strip()
+    if not reported:
+        raise RuntimeError("codex --version printed nothing")
+    return reported
+
+
 class _Relay:
     """Codex's streamed events passed on as NanoAgent progress."""
 
@@ -101,6 +120,9 @@ class _Relay:
         self.answer = ""
         self.usage: dict[str, int] | None = None
         self.failure: str | None = None
+        # When the turn failed, on the same clock as the session's timestamps: Codex retries a failed
+        # request inside the turn (the waiting is model time) and emits nothing for the request itself.
+        self.failed_at: float | None = None
 
     def __call__(self, event: dict[str, Any]) -> None:
         kind = event.get("type")
@@ -110,6 +132,7 @@ class _Relay:
             self.usage = event["usage"]
         elif kind == "turn.failed":
             self.failure = json.dumps(event.get("error") or event.get("message"))
+            self.failed_at = datetime.now().timestamp()
         elif kind in {"item.started", "item.completed"}:
             item = event["item"]
             if item["type"] in STREAMED_TOOLS:
@@ -123,7 +146,7 @@ class _Relay:
                             "type": "tool",
                             "id": item["id"],
                             "name": item["type"],
-                            "arguments": item.get("command") or {},
+                            "arguments": {key: item[key] for key in TOOL_ARGUMENTS if key in item},
                             "output": output,
                             "is_error": failed,
                         }
@@ -165,13 +188,16 @@ def _usage(counts: dict[str, int]) -> dict[str, int]:
     }
 
 
-def _profile(session: Path, started: float, total: dict[str, int] | None) -> tuple[RunProfile, dict[str, Any]]:
+def _profile(
+    session: Path, started: float, total: dict[str, int] | None, failed_at: float | None = None
+) -> tuple[RunProfile, dict[str, Any]]:
     """The run's standard profile from Codex's session record, with ``total`` its tokens as Codex
     counts them (null when it reported none), and what Codex reported of itself.
 
     Codex records a call's usage (``token_count``) after the outputs of the tools it asked for, so the
     next call is opened only when its response appears, from when it was asked for: the turn's start,
-    the last tool's output, or the previous response."""
+    the last tool's output, or the previous response. A turn that failed (``failed_at``) ends in a
+    request that got no response, from when it was asked for to the failure, retries included."""
     now = started
     profiler = StreamProfiler(clock=lambda: now)
     calling, asked, reported = False, started, {}
@@ -203,6 +229,12 @@ def _profile(session: Path, started: float, total: dict[str, int] | None) -> tup
         elif kind == "task_complete":
             ttft = payload.get("time_to_first_token_ms")
             reported = {"duration_s": payload["duration_ms"] / 1000, "ttft_s": None if ttft is None else ttft / 1000}
+    if failed_at is not None and not profiler.tools_running:
+        if not calling:
+            now = asked
+            profiler.model_start()
+        now = max(failed_at, now)
+        profiler.model_end(error="the request failed")
     # The rollout holds no streamed tokens, so the profile has no first token of its own; Codex's own
     # figure counts from its turn's start, not the harness's, and stays in what it reported.
     return profiler.finish(None if total is None else _usage(total)), reported
@@ -212,6 +244,12 @@ def _run(payload: dict[str, Any]) -> dict[str, Any]:
     request, options = request_and_options(payload)
     root = workspace(request)
     codex = _codex(options)
+    version = _version(codex, options)
+    with reporting_version(version):
+        return _exec(request, options, root, codex, version)
+
+
+def _exec(request: dict[str, Any], options: dict[str, Any], root: Path, codex: list[str], version: str) -> dict[str, Any]:
     relay = _Relay()
     with tempfile.TemporaryDirectory(prefix="nanoagent-codex-") as home:
         login = Path.home() / ".codex" / "auth.json"
@@ -228,10 +266,11 @@ def _run(payload: dict[str, Any]) -> dict[str, Any]:
         sessions = list(Path(home, "sessions").rglob(f"rollout-*{relay.thread}.jsonl"))
         if len(sessions) != 1:
             raise RuntimeError(f"Codex recorded {len(sessions)} sessions for thread {relay.thread}")
-        profile, reported = _profile(sessions[0], started, relay.usage)
+        profile, reported = _profile(sessions[0], started, relay.usage, relay.failed_at)
     failed = status != 0 or relay.failure is not None or relay.usage is None
     return {
         "type": "done",
+        "version": version,
         "answer": relay.answer,
         "stop_reason": "error" if failed else "answer",
         "steps": len(profile.steps),

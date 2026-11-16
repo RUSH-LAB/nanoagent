@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from nanoagent.profiler import Profiler, StreamProfiler, messages_usage
+from nanoagent.profiler import Profiler, StreamProfiler, messages_usage, normalize_usage
 
 
 class Clock:
@@ -88,5 +88,39 @@ def test_stream_profile_keeps_a_retry_in_its_step() -> None:
     profiler.model_end({"completion_tokens": 3})
     profile = profiler.finish()
     assert len(profile.steps) == 1
-    assert [call.error for call in profile.steps[0].model_calls] == ["rate limited", None]
+    # The failed attempt is not a call, but its time is model time.
+    assert [call.error for call in profile.steps[0].model_calls] == [None]
+    assert profile.steps[0].model_calls[0].duration_s == 2.0
     assert profile.model_s == 3.0
+
+
+def test_stream_profile_counts_no_call_when_every_attempt_fails() -> None:
+    clock = Clock()
+    profiler = StreamProfiler(clock=clock)
+    profiler.model_start()
+    clock.now += 1.5
+    profiler.model_end(error="server error")
+    profile = profiler.finish()
+    assert len(profile.steps) == 1
+    assert profile.steps[0].model_calls == ()
+    assert profile.model_s == 1.5
+
+
+def test_openrouter_cache_writes_are_read_from_the_prompt_details() -> None:
+    usage = normalize_usage(
+        {"prompt_tokens": 1000, "completion_tokens": 50, "prompt_tokens_details": {"cached_tokens": 600, "cache_write_tokens": 300}}
+    )
+    assert usage["cached_tokens"] == 600
+    assert usage["cache_write_tokens"] == 300
+
+
+def test_run_profile_counts_no_call_for_a_failed_attempt_but_keeps_its_time() -> None:
+    clock = Clock()
+    profiler = Profiler(clock=clock)
+    step = profiler.start_step(1)
+    call = step.start_model_call()
+    clock.now = 2.0
+    step.finish_model_call(call, error="APIStatusError: 500")
+    profile = step.finish()
+    assert profile.model_calls == ()
+    assert profile.model_s == 2.0
