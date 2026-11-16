@@ -1,0 +1,299 @@
+"""The NanoAgent worker: claims uploaded-harness benchmark jobs from RUSH and runs them.
+
+    python -m nanoagent.uploaded.worker config=deploy/gvisor/worker.openrouter.yaml [home=<run folder>]
+
+Everything is validated before the first claim: the RUSH token and upstream credential must be in the environment, the
+endpoint profile, prices and limits must be well formed, the plugin sandbox must work and the process collector must pass
+its end-to-end self-test for every published toolchain. A claim that returns nothing (204) backs off up to
+`poll.max_idle_s`.
+"""
+
+from __future__ import annotations
+
+import ipaddress
+import logging
+import math
+import os
+import shutil
+import time
+from dataclasses import dataclass, field
+from decimal import Decimal
+from enum import Enum
+from pathlib import Path
+
+import anyio
+from omegaconf import MISSING
+from slimconfig import Config, Run
+
+from nanoagent.uploaded.collector import SeccheckCollector
+from nanoagent.uploaded.dockercli import CliDockerRunner
+from nanoagent.uploaded.endpoint import parse_endpoint
+from nanoagent.uploaded.plugin_package import isolate
+from nanoagent.uploaded.reconcile import HttpxGenerationLookup, reconcile
+from nanoagent.uploaded.relay import DockerRelay
+from nanoagent.uploaded.runner import AttemptRunner, RunnerConfig, SyncedPlugins
+from nanoagent.uploaded.rush_worker import AttemptJob, RushWorkerClient
+from nanoagent.uploaded.sandbox import DockerSandboxSupervisor, Egress, Limits
+from nanoagent.uploaded.timing import DEFAULT_CLOCK_TOLERANCE_NS
+from nanoagent.uploaded.toolchains import TOOLCHAINS
+
+LOG = logging.getLogger(__name__)
+
+
+class WorkerConfigError(ValueError):
+    pass
+
+
+class Toolchain(Enum):
+    PYTHON_3 = "python-3"
+    CPP_20 = "cpp-20"
+    RUST_1 = "rust-1"
+    GO_1 = "go-1"
+    TYPESCRIPT_5 = "typescript-5"
+    JAVASCRIPT_22 = "javascript-22"
+    JAVA_21 = "java-21"
+
+
+class Model(Enum):
+    """The models a worker may be priced for: the production model and the acceptance mock's."""
+
+    DEEPSEEK_V4_FLASH = "deepseek/deepseek-v4-flash-0731"
+    TEST_MODEL = "test/model"
+
+
+@dataclass
+class Price(Config):
+    # USD per token, upper bounds the gateway reserves spend with.
+    input: float = MISSING
+    output: float = MISSING
+
+
+@dataclass
+class RushConfig(Config):
+    # The RUSH server origin, and the environment variable holding BENCHMARK_WORKER_TOKEN.
+    base_url: str = MISSING
+    token_env: str = MISSING
+
+
+@dataclass
+class OpenRouterConfig(Config):
+    # See nanoagent.uploaded.endpoint: where the gateway forwards, and the variable holding its credential.
+    label: str = MISSING
+    mode: str = MISSING
+    upstream_base_url: str = MISSING
+    api_key_env: str = MISSING
+    mock_hosts: list[str] | None = None
+
+
+@dataclass
+class TimingConfig(Config):
+    reference_tokens_per_second: float = 100.0
+    clock_tolerance_ns: int = DEFAULT_CLOCK_TOLERANCE_NS
+
+
+@dataclass
+class SandboxConfig(Config):
+    cpus: float = 1.0
+    memory_bytes: int = 1 << 30
+    pids: int = 256
+    workspace_bytes: int = 256 << 20
+    out_bytes: int = 4 << 20
+    tmp_bytes: int = 64 << 20
+    output_bytes: int = 1 << 20
+    workspace_files: int = 20_000
+    # The build's own bounds: its output volume is a tmpfs charged to the build's memory.
+    build_memory_bytes: int = 3 << 30
+    build_output_bytes: int = 1 << 30
+    build_files: int = 100_000
+    # The build's /tmp, also charged to the build's memory; the go-1 toolchain needs about 400 MiB of it.
+    build_tmp_bytes: int = 512 << 20
+    # The largest of each limit a run may ask for (see LimitsConfig for the rest): a run's limits set what one attempt gets.
+    build_wall_s: float = 600.0
+    drain_timeout_s: float = 10.0
+    plugin_sync_timeout_s: float = 600.0
+
+
+@dataclass
+class LimitsConfig(Config):
+    # The worker's maximum for the per-attempt limits `sandbox` does not bound; advertised with every claim.
+    wall_time_ms: int = 3_600_000
+    max_model_calls: int = 500
+    max_output_tokens_per_call: int = 65_536
+    max_cost_usd: float = 10.0
+    # How many attempts the worker runs at once; a run's `concurrency` may not exceed it.
+    concurrency: int = 4
+
+
+@dataclass
+class EgressConfig(Config):
+    # Internet access for harness containers (a run's `limits.internet_access`). Turning it on needs the host filter of
+    # deploy/gvisor/egress.sh for this subnet; the worker proves it at startup and refuses to start without it.
+    enabled: bool = False
+    subnet: str = "10.213.0.0/16"
+    dns: list[str] = field(default_factory=lambda: ["1.1.1.1", "8.8.8.8"])
+
+
+@dataclass
+class CollectorConfig(Config):
+    socket: str = MISSING
+
+
+@dataclass
+class DependenciesConfig(Config):
+    # Toolchain id -> the index (a simple-API URL or a folder of wheels) its locked dependencies are fetched from.
+    index_urls: dict[Toolchain, str] = field(default_factory=dict)
+
+
+@dataclass
+class PollConfig(Config):
+    idle_s: float = 1.0
+    max_idle_s: float = 15.0
+    renew_interval_s: float = 15.0
+
+
+@dataclass
+class WorkerConfig(Config):
+    rush: RushConfig = field(default_factory=RushConfig)
+    worker_id: str = MISSING
+    openrouter: OpenRouterConfig = field(default_factory=OpenRouterConfig)
+    prices: dict[Model, Price] = MISSING
+    timing: TimingConfig = field(default_factory=TimingConfig)
+    sandbox: SandboxConfig = field(default_factory=SandboxConfig)
+    limits: LimitsConfig = field(default_factory=LimitsConfig)
+    egress: EgressConfig = field(default_factory=EgressConfig)
+    collector: CollectorConfig = field(default_factory=CollectorConfig)
+    dependencies: DependenciesConfig = field(default_factory=DependenciesConfig)
+    poll: PollConfig = field(default_factory=PollConfig)
+    scratch: str = MISSING
+
+
+def prices_of(raw: dict[Model, Price]) -> dict[str, tuple[Decimal, Decimal]]:
+    prices = {}
+    for model, entry in raw.items():
+        if not all(math.isfinite(v) and v > 0 for v in (entry.input, entry.output)):
+            raise WorkerConfigError(f"prices.{model.value} must be positive finite USD per token")
+        prices[model.value] = (Decimal(str(entry.input)), Decimal(str(entry.output)))
+    if not prices:
+        raise WorkerConfigError("prices must name at least one model")
+    return prices
+
+
+def runner_config(config: WorkerConfig, env: dict[str, str]) -> RunnerConfig:
+    """Validate the YAML and resolve what it names; raises before any work is accepted."""
+    block = config.openrouter
+    hosts = None if block.mock_hosts is None else list(block.mock_hosts)
+    profile = {"label": block.label, "mode": block.mode, "upstream_base_url": block.upstream_base_url, "api_key_env": block.api_key_env}
+    endpoint = parse_endpoint(profile | ({} if hosts is None else {"mock_hosts": hosts}), env)
+    timing = config.timing
+    if not (math.isfinite(timing.reference_tokens_per_second) and timing.reference_tokens_per_second > 0) or timing.clock_tolerance_ns < 0:
+        raise WorkerConfigError("timing.reference_tokens_per_second must be positive and finite and clock_tolerance_ns non-negative")
+    box = config.sandbox
+    maxima = config.limits
+    if not all(math.isfinite(v) and v > 0 for v in (maxima.max_cost_usd, box.cpus)) or min(maxima.wall_time_ms, maxima.max_model_calls, maxima.max_output_tokens_per_call, maxima.concurrency, box.pids, box.workspace_files, box.build_memory_bytes, box.build_output_bytes, box.build_files, box.build_tmp_bytes) < 1:
+        raise WorkerConfigError("limits and sandbox maxima must be positive")
+    if config.egress.enabled:
+        try:
+            ipaddress.ip_network(config.egress.subnet)
+            for server in config.egress.dns:
+                ipaddress.ip_address(server)
+        except ValueError as error:
+            raise WorkerConfigError(f"egress: {error}") from error
+        if not config.egress.dns:
+            raise WorkerConfigError("egress.dns must name at least one resolver")
+    scratch = Path(config.scratch)
+    scratch.mkdir(parents=True, exist_ok=True)
+    prices = prices_of(config.prices)
+    return RunnerConfig(
+        worker_id=config.worker_id, endpoint=endpoint, prices=prices, scratch=scratch.resolve(),
+        limits=Limits(box.cpus, box.memory_bytes, box.pids, box.workspace_bytes, box.out_bytes, box.tmp_bytes, box.output_bytes, workspace_files=box.workspace_files),
+        capabilities={
+            "wall_time_ms": maxima.wall_time_ms, "max_model_calls": maxima.max_model_calls, "max_output_tokens_per_call": maxima.max_output_tokens_per_call,
+            "max_cost_usd": maxima.max_cost_usd, "concurrency": maxima.concurrency, "cpus": box.cpus, "memory_mb": box.memory_bytes >> 20, "pids": box.pids,
+            "workspace_bytes": box.workspace_bytes, "workspace_files": box.workspace_files, "tmp_bytes": box.tmp_bytes,
+            "build_wall_ms": int(box.build_wall_s * 1000), "build_memory_mb": box.build_memory_bytes >> 20, "build_output_bytes": box.build_output_bytes,
+            "build_files": box.build_files, "build_tmp_bytes": box.build_tmp_bytes,
+            "internet_access": config.egress.enabled, "models": sorted(prices),
+        },
+        index_urls={key.value: url for key, url in config.dependencies.index_urls.items()},
+        reference_tokens_per_second=timing.reference_tokens_per_second, clock_tolerance_ns=timing.clock_tolerance_ns,
+        drain_timeout_s=box.drain_timeout_s, plugin_sync_timeout_s=box.plugin_sync_timeout_s, renew_interval_s=config.poll.renew_interval_s,
+    )
+
+
+async def serve(config: WorkerConfig, env: dict[str, str] | None = None) -> None:
+    env = dict(os.environ if env is None else env)
+    token = env.get(config.rush.token_env, "")
+    if not token.strip():
+        raise WorkerConfigError(f"environment variable {config.rush.token_env} is unset or empty")
+    settings = runner_config(config, env)
+    isolate()
+    uv = shutil.which("uv")
+    if uv is None:
+        raise WorkerConfigError("uv is not on PATH: plugin tools are prepared and run with it")
+    collector = SeccheckCollector(config.collector.socket)
+    collector.start()
+    docker = CliDockerRunner()
+    supervisor = DockerSandboxSupervisor(
+        docker, collector=collector, clock=lambda: time.monotonic_ns() / 1e9, wall_clock_ns=time.time_ns, uv=Path(uv),
+        egress=Egress(config.egress.subnet, tuple(config.egress.dns)) if config.egress.enabled else None,
+    )
+    worker = RushWorkerClient(config.rush.base_url, token)
+    lookup = HttpxGenerationLookup(settings.endpoint)
+    try:
+        for profile in TOOLCHAINS.values():
+            supervisor.startup(profile)  # the collector must observe a probe's exec and exit before member source runs
+        if config.egress.enabled:
+            supervisor.verify_egress()  # the advertised internet access is only offered behind the host filter
+        runner = AttemptRunner(
+            settings, supervisor=supervisor, worker=worker, relay=DockerRelay(docker),
+            plugins=SyncedPlugins(),
+        )
+        async with anyio.create_task_group() as background:
+            await poll(config, settings, worker, runner, lookup, background)
+    finally:
+        collector.stop()
+        await worker.aclose()
+        await lookup.aclose()
+
+
+async def poll(config: WorkerConfig, settings: RunnerConfig, worker: RushWorkerClient, runner: AttemptRunner, lookup: HttpxGenerationLookup, background: anyio.abc.TaskGroup) -> None:
+    """Claim and run attempts, up to the advertised `concurrency` at once; a claimed attempt keeps the slot it was claimed in."""
+    idle = config.poll.idle_s
+    slots = anyio.Semaphore(settings.capabilities["concurrency"])
+
+    async def attempt(job: AttemptJob) -> None:
+        try:
+            result = await runner.run(job)
+            LOG.info("attempt %s: %s %s", job.attempt_id, result.outcome, result.execution)
+            if result.accounting:
+                background.start_soon(reconcile, worker, job.attempt_id, result.accounting, lookup)
+        finally:
+            slots.release()
+
+    while True:
+        await slots.acquire()
+        try:
+            job = await worker.claim(settings.worker_id, settings.endpoint.label, settings.endpoint.mode, settings.capabilities)
+        except BaseException:
+            slots.release()
+            raise
+        if job is None:
+            slots.release()
+            await anyio.sleep(idle)
+            idle = min(idle * 2, config.poll.max_idle_s)
+            continue
+        idle = config.poll.idle_s
+        background.start_soon(attempt, job)
+
+
+class WorkerRun(Run):
+    config: WorkerConfig
+
+    def main(self) -> int:
+        logging.basicConfig(level=logging.INFO)
+        anyio.run(serve, self.config)
+        return 0
+
+
+if __name__ == "__main__":
+    WorkerRun(home="worker-run").run()

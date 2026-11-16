@@ -1,0 +1,49 @@
+# The production worker: inference goes to OpenRouter with the deployment's key.
+#   export BENCHMARK_WORKER_TOKEN=...  OPENROUTER_API_KEY=...
+#   python -m nanoagent.uploaded.worker config=deploy/gvisor/worker.openrouter.yaml home=<run folder>
+_ > nanoagent.uploaded.worker.WorkerConfig:
+
+worker_id: worker-1
+scratch: /var/lib/rush-worker/attempts
+
+rush > nanoagent.uploaded.worker.RushConfig:
+  base_url: https://rush-lab.org
+  token_env: BENCHMARK_WORKER_TOKEN
+
+openrouter > nanoagent.uploaded.worker.OpenRouterConfig:
+  label: openrouter
+  mode: openrouter
+  upstream_base_url: https://openrouter.ai/api/v1
+  api_key_env: OPENROUTER_API_KEY
+
+# USD per token upper bounds (OpenRouter's deepseek-v4-flash prices on 2026-11-05, with headroom).
+prices > dict[nanoagent.uploaded.worker.Model, nanoagent.uploaded.worker.Price]:
+  deepseek/deepseek-v4-flash-0731:
+    input: 0.0000001
+    output: 0.0000005
+
+timing > nanoagent.uploaded.worker.TimingConfig:
+  reference_tokens_per_second: 100
+  clock_tolerance_ns: 1000000
+
+sandbox > nanoagent.uploaded.worker.SandboxConfig:
+  cpus: 1.0
+  memory_bytes: 1073741824
+  pids: 256
+  workspace_bytes: 268435456
+  # /tmp holds the Go build cache (the standard library is compiled into it).
+  tmp_bytes: 402653184
+  build_wall_s: 600
+
+collector > nanoagent.uploaded.worker.CollectorConfig:
+  socket: /run/rush-gvisor/seccheck.sock
+
+dependencies > nanoagent.uploaded.worker.DependenciesConfig:
+  index_urls:
+    python-3: https://pypi.org/simple
+    javascript-22: https://registry.npmjs.org
+
+poll > nanoagent.uploaded.worker.PollConfig:
+  idle_s: 1
+  max_idle_s: 15
+  renew_interval_s: 15

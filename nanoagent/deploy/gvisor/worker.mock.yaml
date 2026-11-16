@@ -1,0 +1,51 @@
+# The acceptance worker: inference goes to the scripted OpenRouter mock, with a synthetic credential.
+#   export BENCHMARK_WORKER_TOKEN=...  RUSH_BENCHMARK_MOCK_API_KEY=...
+#   python -m nanoagent.uploaded.worker config=deploy/gvisor/worker.mock.yaml home=<run folder>
+_ > nanoagent.uploaded.worker.WorkerConfig:
+
+worker_id: acceptance-worker-1
+scratch: /home/worker/rush-worker/scratch/attempts
+
+rush > nanoagent.uploaded.worker.RushConfig:
+  base_url: http://127.0.0.1:3000
+  token_env: BENCHMARK_WORKER_TOKEN
+
+openrouter > nanoagent.uploaded.worker.OpenRouterConfig:
+  label: mock
+  mode: mock
+  upstream_base_url: http://openrouter-mock:8080/api/v1
+  api_key_env: RUSH_BENCHMARK_MOCK_API_KEY
+  mock_hosts: [openrouter-mock]
+
+# USD per token; the acceptance mock reports its own usage.
+prices > dict[nanoagent.uploaded.worker.Model, nanoagent.uploaded.worker.Price]:
+  test/model:
+    input: 0.000001
+    output: 0.000004
+
+timing > nanoagent.uploaded.worker.TimingConfig:
+  reference_tokens_per_second: 100
+  clock_tolerance_ns: 1000000
+
+sandbox > nanoagent.uploaded.worker.SandboxConfig:
+  cpus: 1.0
+  memory_bytes: 1073741824
+  pids: 256
+  workspace_bytes: 268435456
+  # /tmp holds the Go build cache (the standard library is compiled into it).
+  tmp_bytes: 402653184
+  build_wall_s: 600
+
+collector > nanoagent.uploaded.worker.CollectorConfig:
+  socket: /run/rush-gvisor/seccheck.sock
+
+# Acceptance fixtures stage the locked wheels from a folder; point this at it.
+dependencies > nanoagent.uploaded.worker.DependenciesConfig:
+  index_urls:
+    python-3: /home/worker/rush-worker/wheels
+    javascript-22: https://registry.npmjs.org
+
+poll > nanoagent.uploaded.worker.PollConfig:
+  idle_s: 0.5
+  max_idle_s: 5
+  renew_interval_s: 15
