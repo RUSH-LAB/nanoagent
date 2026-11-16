@@ -1,0 +1,527 @@
+# RUSH benchmark API
+
+The RUSH server side of [uploaded harness benchmarks](../plans/uploaded-harness-benchmarks.md): a member publishes a **benchmark** for a plugin version, any member runs a harness against it, and everyone sees every run's summary. The [harness contract](uploaded-harness-v1.md) defines the harness protocol, prompt and replay rules this API stores. Code: `helpinghands/src/server/routes/benchmark.js` (member), `routes/benchmark-worker.js` (worker), `benchmark/` (pure rules: `prompt.js`, `limits.js`, `plan.js`, `compare.js`, `rules.js`, `validate.js`, `harness.js`), `postgres/benchmark*.js`, migration `0052_benchmark.sql`.
+
+## Conventions
+
+- JSON requests send `Content-Type: application/json`. Every error is `{"error": "<message>", "code": "<code>", ...extra}` with the status below. A message is for people; branch on `code`.
+- IDs (`benchmark_id`, `run_id`, `attempt_id`, `preview_id`) are UUIDs. Digests are lowercase SHA-256 hex.
+- Nanosecond times (`occurred_ns`, `start_ns`, `end_ns`) exceed 2^53: **send them as decimal strings** (a safe JSON integer is also accepted). They are returned as strings. Cursors, counts, scores and USD amounts are JSON numbers.
+- The server parses JSON numbers as IEEE doubles. It does not detect duplicate object keys in a body.
+- Cursors are per attempt, start at 1, and are assigned in commit order. `high_water_cursor` is the last committed cursor, 0 for none.
+- Canonical JSON (prompt rendering, digests): keys sorted by Unicode code point at every depth, no non-finite numbers, no unpaired surrogates, Unicode unescaped. Prompts indent by two spaces; digests use the compact form (`{"a":1}`).
+
+## Authentication
+
+| Surface | Credential |
+| --- | --- |
+| Member API | Better Auth session: the session cookie, or `Authorization: Bearer <session token>`. The path names the workspace (`/api/workspaces/{wid}/benchmark/...`); a non-member gets `404`. Reads need `content:read`, writes `apps:use` (every role has both). |
+| Benchmark publishing | The same session, no workspace: `POST /api/benchmark/benchmarks`. Any signed-in member may publish, for any published plugin version. |
+| Worker API | `Authorization: Bearer $BENCHMARK_WORKER_TOKEN` on every `/api/benchmark-worker/...` request. Unset token: `503 worker_api_disabled`. Missing or wrong: `401 unauthorized`. |
+
+Everything a member creates (sources, previews, runs and all their attempts, events, payloads, accounting) belongs to that member in that workspace. Another member, even of the same workspace, another workspace, or a member who left gets `404` for it: the run, attempt, event, span, payload, accounting, rerun, cancel, compare and source routes are **owner-only** and never answer for another member's rows. Private references appear in no member response.
+
+Benchmarks are the exception: they belong to no workspace, and every signed-in member reads every benchmark. Through `GET /benchmarks/{id}/results` a member also sees a **run summary** of every other member's runs of that benchmark. A row from another member carries no evidence (no events, spans, payloads, attempts or cases) and no source sha256, and its `run_id` opens nothing: `GET /runs/{run_id}` and everything below it answer `404` for it.
+
+## Server configuration
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `BENCHMARK_WORKER_TOKEN` | unset | Bearer token of the worker API; unset disables it. |
+| `BENCHMARK_MEMBER_BUDGET_USD` | `25` | Most one member may have reserved or spent per UTC day across all attempts. |
+| `BENCHMARK_WORKSPACE_BUDGET_USD` | `100` | The same, per workspace. |
+| `BENCHMARK_LEASE_SECONDS` | `60` | Lease length at claim and at each renewal. |
+| `BENCHMARK_UNCERTAIN_DEADLINE_SECONDS` | `3600` | How long an unsettled or uncertain reservation stays before a claim settles it at its reserved bound. |
+| `BENCHMARK_SOURCE_MAX_BYTES` | `52428800` | Largest source ZIP. |
+| `BENCHMARK_PAYLOAD_MAX_BYTES` | `16777216` | Largest payload. |
+
+JSON bodies may be 10 MiB.
+
+---
+
+# Member API
+
+Prefix `/api/workspaces/{wid}/benchmark`.
+
+## `GET /defaults`
+
+What a benchmark publication starts from: the defaults its `limits` overrides sit under, the default coding template, and the endpoints a benchmark may name.
+
+```json
+{"limits": {"wall_time_ms": 600000, "max_model_calls": 50, "max_output_tokens_per_call": 4096, "max_cost_usd": 1.5, "concurrency": 4,
+            "cpus": 1, "memory_mb": 1024, "pids": 256, "workspace_bytes": 268435456, "workspace_files": 20000, "tmp_bytes": 67108864, "build_wall_ms": 600000,
+            "build_memory_mb": 3072, "build_output_bytes": 1073741824, "build_files": 100000, "build_tmp_bytes": 536870912, "internet_access": true},
+ "coding_template": "<the default coding template>", "placeholders": ["description", "context", "arguments", "input_schema", "output_schema", "workspace"],
+ "renderer_version": "rush.prompt.v1",
+ "endpoints": [{"label": "mock", "capabilities": {"<every limit>": 0, "internet_access": true, "models": ["vendor/model"]}, "updated_at": "…", "expires_at": "…"}]}
+```
+
+`endpoints` are the endpoint labels a worker has claimed for within the last 300 seconds (the capability window), with the latest capabilities (see `POST /claim`) and when they expire. A label whose workers have not claimed within the window is no longer listed and counts as `worker_unavailable`.
+
+## Benchmarks
+
+A **benchmark** is a case set plus a pinned run configuration (model, endpoint, limits including `internet_access`, the coding template and the task-tools instructions). It belongs to one plugin version, is immutable once published, and is named: the name is unique per `(plugin_id, plugin_version, name)`. A harness run takes everything but the policy and the harness from the benchmark. The case set under a benchmark is an implementation detail (`case_set_id` is an opaque string) that the server creates or reuses on publish.
+
+A **benchmark summary**:
+
+```json
+{"benchmark_id": "…", "name": "acceptance-probe",
+ "plugin": {"id": "classroom", "name": "Classroom", "version": "0.1.0", "sha256": "<package digest>"},
+ "task_id": "sum", "task_kind": "agent", "publisher": {"id": "u1", "name": "Una", "github": "una"},
+ "case_set_id": "…", "case_set_digest": "…", "digest": "…",
+ "model": "vendor/model", "endpoint_profile": "label",
+ "limits": {"wall_time_ms": 600000, "…": 0, "internet_access": true},
+ "coding_template": "<the pinned template>", "task_instructions": "<the pinned instructions>", "renderer_version": "rush.prompt.v1",
+ "published_at": "…", "case_count": 4, "answer_count": 2, "refuse_count": 2, "run_count": 4, "runner_count": 2}
+```
+
+`limits` is the effective limits (defaults under the publisher's overrides). `coding_template` and `task_instructions` are the texts that were pinned, a default included. `run_count` counts every member's runs of the benchmark (canceled ones too) and `runner_count` the distinct members who made them. `digest` is the SHA-256 of the compact canonical JSON of `{case_set_digest, model, endpoint_profile, limits, coding_template, task_instructions}`.
+
+### `GET /benchmarks?plugin_id=&version=`
+
+Every published benchmark (any publisher, any workspace), newest first. `plugin_id` filters to one plugin; `version` (only together with `plugin_id`, else `400 invalid_request`) to one plugin version. No filter lists all.
+
+```json
+{"benchmarks": [<benchmark summary>]}
+```
+
+### `GET /benchmarks/{benchmark_id}`
+
+`{"benchmark": <benchmark summary> + {"task": {kind, description, instructions, input_schema, output_schema, tools, egress_hosts}, "context": "…", "cases": [{"case_id": "c1", "position": 0, "kind": "answer|refuse", "arguments": {}, "expected_error": null, "content_digest": "…"}]}}` or `404 unknown_benchmark`. The task, context and cases are the benchmark's case set for viewing, in the case set's order. Private references are never returned. Any signed-in member reads it, not only the publisher.
+
+### `GET /benchmarks/{benchmark_id}/results?limit=&before=`
+
+Run summaries of every member's runs of the benchmark, newest first (`limit` 1 to 200, default 50; `before` an ISO timestamp, runs created earlier).
+
+```json
+{"runs": [<run summary>]}
+```
+
+`404 unknown_benchmark`. See **Run summary** below for the row shape and what other members' rows leave out.
+
+### Run summary
+
+One shape, returned by `GET /runs` (the caller's own runs) and `GET /benchmarks/{benchmark_id}/results` (everyone's):
+
+```json
+{"run_id": "…",
+ "harness": {"name": "my-harness", "version": "1.3"},
+ "benchmark": {"name": "acceptance-probe"},
+ "plugin": {"id": "classroom", "name": "Classroom", "version": "0.1.0"},
+ "model": "vendor/model", "policy": "coding",
+ "user": {"id": "u1", "name": "Jane Doe", "github": "jdoe"},
+ "metrics": {"total_tokens": {"total": 48210, "missing_attempts": 0}, "elapsed_ms": {"total": 134000, "missing_attempts": 1}},
+ "status": "queued|running|complete|canceled",
+ "score": {"value": 0.8, "passed": 8, "scored": 10, "total": 10, "unscored": 0, "verifier_errors": 0, "complete": true, "unavailable_reason": null},
+ "created_at": "…"}
+```
+
+- `harness` is the identity the uploaded manifest declared; `user` is who ran it (`id`, `name`, and `github` the GitHub login, `null` when the member has none). The harness owner is `user`; group a harness across runs by `user.id` + `harness.name` + `harness.version`.
+- `metrics.total_tokens` and `metrics.elapsed_ms` are the **metric sums** of the run detail, computed by the same code: `total` sums the newest attempt of each case that reported the metric and `missing_attempts` counts those that did not (so a live run shows partial totals). `elapsed_ms` is the sum of the attempts' `elapsed_ms`, not wall clock. `status` and `score` are the run detail's.
+- A row for another member's run carries no evidence and no source sha256, and no other field than these. `GET /runs` rows for the caller's own runs have exactly the same fields.
+
+## `POST /previews`
+
+Resolves a run without queueing anything. The benchmark fixes everything but the policy.
+
+```json
+{"benchmark_id": "…", "policy": "coding"}
+```
+
+- `policy` is `coding` or `task_tools`. Under `coding` the prompt is the benchmark's `coding_template`, under `task_tools` its `task_instructions`, rendered per case by the renderer below. No other field is accepted: a model, limits, dialects, selection, prompt or endpoint is `400 invalid_request`. Every case of the benchmark runs.
+- Errors: `404 unknown_benchmark`; `400 invalid_request`; `409 worker_unavailable` (no worker has claimed for the benchmark's `endpoint_profile` within the capability window); `400 limit_exceeds_worker` with `exceeded: [{field, limit, max}]` (the benchmark's pinned limits are above what the latest advertised capabilities allow, or `internet_access: true` where unsupported); `400 unknown_model` with `model` and `models` (no worker for the endpoint prices the benchmark's pinned model: the latest advertised capabilities do not list it); `400 invalid_template` (the pinned template fails to render; publishing already refuses one).
+
+`200`:
+
+```json
+{"preview_id": "…", "benchmark": <benchmark summary>, "policy": "coding",
+ "prompt": {"source": "benchmark", "text": "<template or instructions>"},
+ "limits": {"effective": {}, "capabilities": {}},
+ "egress_hosts": null, "endpoint_profile": "label", "model": "vendor/model", "renderer_version": "rush.prompt.v1", "unverified_egress": true,
+ "cases": [{"case_id": "c1", "position": 0, "kind": "answer", "content_digest": "…", "prompt": {"system": null, "user": "<exact rendered text>", "sha256": "…"}}]}
+```
+
+`limits.effective` is the benchmark's pinned limits. `unverified_egress` is true when `internet_access` is: model calls that bypass the gateway cannot be detected. `egress_hosts` is the tool container's network under `task_tools` (HTTPS to those hosts only, through an egress proxy; the task's `egress_hosts`), and `null` (not applicable: there is no tool container) under `coding`.
+
+### Prompt renderer `rush.prompt.v1`
+
+A case's prompt is `{system, user, sha256}`; either text may be `null`. `sha256` is the SHA-256 of the compact canonical JSON of `{"system": …, "user": …}` (keys sorted, no spaces, Unicode unescaped).
+
+- **`coding`**: `{system: null, user: template.format(...)}` with Python `str.format` semantics for plain fields: `{{` and `}}` are braces; `{description}`, `{context}`, `{arguments}`, `{input_schema}`, `{output_schema}` and `{workspace}` are the placeholders and anything else is an error. The values are those `other_work` in `examples/benchmark/step2_single_run.py` formats: `description` = the task description, `context` = the case set's context stripped, `arguments` / `input_schema` / `output_schema` = `json.dumps(value, indent=2)` as Python writes it (keys in the order published, non-ASCII as `\uXXXX`), `workspace` = `/rush/workspace`. The server's default coding template (the value a benchmark publication starts from) is `prompt` in `examples/benchmark/configs/step2_single_run.yaml`; a test keeps them equal. (JavaScript cannot tell `1.0` from `1`, so a float without a fraction prints as an integer.)
+- **`task_tools`**: for `agent` and `tool` tasks `{system, user}` as `task_prompt` in `src/nanoagent/plugin/tasks.py` builds them, and for `decide` tasks `{system: decide_prompt(...), user: null}`, with the benchmark's `task_instructions` in place of the task's and the plugin name for the manifest's. A test checks them byte for byte against strings the real Python functions produced.
+
+## `POST /sources`
+
+Body: the raw ZIP, `Content-Type: application/zip` (`415 unsupported_media_type`). Up to `BENCHMARK_SOURCE_MAX_BYTES` (`413 source_too_large`). The server checks that it starts as a ZIP and has an end-of-central-directory record (`400 invalid_zip`), and reads `harness.yaml` from its root and validates it against the `Manifest` shape of the [harness contract](uploaded-harness-v1.md) (`name`, `version` and `dialects` are required there): `400 missing_manifest` when `harness.yaml` is not at the archive root, `400 invalid_manifest` (the message names the problem, e.g. a missing `name`) when it does not validate. The worker validates the rest of the contents.
+
+`201`:
+
+```json
+{"source_sha256": "…", "size": 1234, "harness": {"name": "my-harness", "version": "1.3", "dialects": ["chat_completions"]}}
+```
+
+A manifest `name` that is a reference harness's (`claude-code`, `codex`, `dsh`, `hermes`, `nanoagent`, `pi`) is refused as `400 reserved_harness_name` and stores nothing: those names are reserved for the reference harnesses below. `GET /defaults` lists them as `reference_harnesses`; the server keeps the list, and a test keeps it equal to the folders of `nanoagent/src/nanoagent/uploaded/reference_harnesses/`.
+
+Uploading the same bytes again is a no-op with the same answer. The source is the member's, per workspace. The harness is `(owner, name)`, owned by the uploading member, so two members may both upload `foo`. The first upload of `owner/name@version` pins its `source_sha256`; a different ZIP under the same `owner/name@version` is `409 harness_version_taken` with `{"harness": {"name", "version"}, "pinned_sha256": "…"}` and stores nothing. The same ZIP is accepted any number of times; each run is its own row.
+
+### Reference harnesses
+
+NanoAgent ships the reference harnesses `claude-code`, `codex`, `dsh`, `hermes`, `nanoagent` and `pi` in its package (`nanoagent.uploaded.reference_harnesses`). A reference's ZIP is built by NanoAgent (`nanoagent.uploaded.reference.build_reference`): deterministically, under the reference's own name, with the manifest's `version` replaced by a short (12 hex digits) sha256 of the reference folder's files (for `nanoagent`, the folder `assemble.py` makes from NanoAgent's working tree). The same reference always builds to the same ZIP under the same version, and a changed one, a changed NanoAgent tree included, is a new version, so a reference never meets `harness_version_taken`. Reference ZIPs reach RUSH only through these routes, at the trust level of private-reference pinning; each answers `201` as `POST /sources` does (the harness echoed, stored as the member's source with the version pin) and refuses a name that is no reference (`400 unknown_reference`) and a ZIP whose manifest names another harness (`400 reference_name_mismatch`):
+
+- `POST /sources/references/{name}`: the body is the reference's ZIP, as the CLI's `reference:` sends it (`415 unsupported_media_type`, `413 source_too_large`, as for `POST /sources`).
+- `POST /sources/references/{name}/computer`: no body. Needs `apps:use`. The app's Benchmark Your Harness uses it: the server asks the member's own NanoAgent for the ZIP (`GET /v1/benchmark/reference-harnesses/{name}`, relayed by the runner) and stores it. Extra errors: `503 runner_offline`, `reference_unavailable` (with the status the computer returned).
+
+## `POST /runs`
+
+```json
+{"benchmark_id": "…", "policy": "coding", "preview_id": "…", "source_sha256": "…", "idempotency_key": "any string up to 200 chars"}
+```
+
+All five are required; any other field is `400 invalid_request`. The model, endpoint, limits, prompt and cases come from the benchmark and the harness name, version and dialects from the uploaded source's manifest. Only a worker claiming with the benchmark's `endpoint_profile` label receives the run's work.
+
+The server, in this order:
+
+1. Returns the original run if the key was used by this member in this workspace: `200 {"replayed": true, "run": …}`, or `409 idempotency_conflict` if the request differs. This happens even if the plugin has since been uninstalled.
+2. `404 unknown_benchmark`, `404 unknown_preview`, `404 unknown_source`.
+3. Resolves the request again, as a preview does (so `409 worker_unavailable`, `400 limit_exceeds_worker`, `400 unknown_model` and the rest apply: a worker that stopped pricing the benchmark's model is a refusal here, never a queued run whose attempts would be interrupted). If it no longer resolves to what the preview pinned, `409 stale_preview`:
+   ```json
+   {"error": "…", "code": "stale_preview", "stale": ["prompt", "cases"], "current": <the preview body, without preview_id>}
+   ```
+4. In one transaction pins the run: source and package bytes (content-addressed, retained after uninstall; the benchmark's stored package is used, so a benchmark of an older plugin version still runs after a newer one is installed), the benchmark id and name, the harness owner, name and version, the case set id and digest, the task and context as published, the cases with their content digests and rendered prompts, the policy, the prompt text, the effective limits, the model, endpoint and the manifest's dialects, and the case set's private references; creates one attempt per case; only then are attempts claimable. `409 package_unavailable` if the plugin version is no longer published and no run kept its package.
+
+`201 {"replayed": false, "run": <run>}`. Errors: `400 invalid_request`.
+
+## `GET /runs?limit=&before=`
+
+The caller's own runs in this workspace, as **run summaries** (see Run summary above), newest first. `limit` 1 to 200 (default 50); `before` an ISO timestamp (runs created earlier). Metrics sum the newest attempt of each case with the same code as `GET /runs/{run_id}`, so a list row's `metrics`, `status` and `score` equal the detail's.
+
+```json
+{"runs": [<run summary>]}
+```
+
+## `GET /runs/{run_id}`
+
+`{"run": <run>}` or `404 unknown_run`. A run:
+
+```json
+{
+  "run_id": "…", "status": "queued|running|complete|canceled", "created_at": "…", "canceled_at": null,
+  "benchmark": {"benchmark_id": "…", "name": "…"}, "harness": {"name": "…", "version": "…", "dialects": []},
+  "model": "…", "endpoint_profile": "…", "dialects": [], "policy": "coding|task_tools",
+  "prompt": {"source": "benchmark", "text": "<template or instructions>", "renderer_version": "rush.prompt.v1"},
+  "limits": {"wall_time_ms": 600000, "…": 0, "internet_access": true}, "egress_hosts": null, "unverified_egress": true,
+  "selection": {"case_ids": ["c1"]}, "preview_id": "…", "source": {"sha256": "…", "size": 123},
+  "case_set": {"case_set_id": "…", "name": "…", "digest": "…", "publisher": {}, "plugin": {"id": "…", "name": "…", "version": "…", "sha256": "…"},
+               "task_id": "…", "task": {}, "context": "…"},
+  "cases": [{
+    "case_id": "c1", "position": 0, "kind": "answer", "arguments": {}, "expected_error": null, "content_digest": "…",
+    "prompt": {"system": null, "user": "…", "sha256": "…"}, "latest_attempt_id": "…", "attempts": [<attempt>]
+  }],
+  "score": {"value": 0.5, "passed": 1, "scored": 2, "total": 2, "unscored": 0, "verifier_errors": 0, "complete": true, "unavailable_reason": null},
+  "metrics": <metric sums>
+}
+```
+
+`selection` is every case id of the benchmark; `cases` are those cases. `case_set.name` is the benchmark's name and `case_set.publisher` the benchmark's publisher. `dialects` are the harness manifest's. `status` is `canceled` once canceled, `complete` when every case's newest attempt is final, `running` when some started, else `queued`. `egress_hosts` is the tool container's allowed HTTPS hosts under `task_tools`, `null` (not applicable) under `coding`.
+
+**Score.** `value` = passed / scored over each case's newest attempt: a case is *scored* when that attempt has a verdict (`pass` or `fail`), *passed* when it is `pass`. `unscored` counts the others (not final yet, ended before a verifier saw them, or a verifier error), `verifier_errors` those among them whose verifier failed, and `complete` says every newest attempt is final. `value` is `null` with `unavailable_reason` `verifier_error`, `no_scored_cases` or `scoring_pending` when none was scored. The score is provisional while `complete` is false.
+
+**Metric sums:** for each of `total_tokens, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, elapsed_ms`: `{"total": <sum of the newest attempts that reported it>, "missing_attempts": <count that did not>}`.
+
+**Outcomes** stay distinguishable by `execution.status` and the verdict: `build_failed` (the source did not build: a preparation error), `execution_failed` (the harness failed, timed out, ran out of budget, or left no valid `answer.json`), `refused`, `answered`, then the verdict `pass`/`fail`, a `verifier_error` (the verifier crashed: no verdict), and the run's `score.unavailable_reason`. Verdicts are the worker's: a refusal case passes when refused and fails when answered; an answer case fails when refused.
+
+**Attempt:**
+
+```json
+{
+  "attempt_id": "…", "run_id": "…", "case_id": "…", "attempt_no": 1, "rerun_of": null,
+  "state": "queued|leased|final",
+  "execution": {"status": "answered|refused|execution_failed|build_failed|canceled|interrupted", "reason": null},
+  "verdict": "pass|fail|null", "explanation": null, "verifier_error": null,
+  "coverage": {}, "metrics": {}, "sealed": true, "final_cursor": 3, "high_water_cursor": 3,
+  "cancel_requested": false, "created_at": "…", "claimed_at": "…", "finalized_at": "…"
+}
+```
+
+`execution` is `null` until final.
+
+## `GET /attempts/{attempt_id}`
+
+`{"attempt": <attempt> + "kind", "content_digest", "prompt": {"system", "user", "sha256"}}` or `404 unknown_attempt`.
+
+## `GET /attempts/{attempt_id}/events?after=<cursor>&limit=<n>`
+
+`after` default 0; `limit` default 200, max 1000. Events with `cursor > after`, ordered by cursor.
+
+```json
+{"events": [{"cursor": 2, "event_id": "…", "source": "gateway", "kind": "model_call", "sequence": 2, "occurred_ns": "1700000000123456789", "data": {}, "payload_sha256s": ["…"], "received_at": "…"}],
+ "has_more": false, "sealed": false, "final_cursor": null, "high_water_cursor": 3}
+```
+
+## `GET /attempts/{attempt_id}/stream?after=<cursor>`
+
+Server-sent events. A reconnect resumes with `after` or the `Last-Event-ID` header. Each committed event after the cursor:
+
+```text
+id: <cursor>
+event: event
+data: <the event object above>
+```
+
+When the attempt is sealed and every event up to its final cursor was sent: `event: sealed` with `data: {"final_cursor": N}`, then the stream ends. `: heartbeat` comments arrive while idle. A sealed attempt streams what remains, then `sealed`. `404` for an attempt the caller cannot see.
+
+## `GET /attempts/{attempt_id}/spans?kind=&status=&q=&limit=`
+
+`limit` default 1000, max 5000. `q` is a case-insensitive substring match on span id, name, target and scope.
+
+```json
+{"spans": [{"id": "s1", "kind": "tool", "name": "…", "parent": "root", "scope": null, "status": "ok", "start_ns": "…", "end_ns": "…", "provenance": "harness", "target": "…", "attributes": {}}],
+ "links": [{"kind": "caused_by", "from": "s1", "to": "root", "method": "broker", "attributes": {}}]}
+```
+
+Links are always all of the attempt's.
+
+## `GET /attempts/{attempt_id}/payloads/{sha256}`
+
+The bytes, `Content-Disposition: attachment`, with the stored `Content-Type`, `X-Rush-Redaction: none|redacted|truncated` and `X-Content-Type-Options: nosniff`. `404 unknown_payload` / `unknown_attempt`.
+
+## `GET /attempts/{attempt_id}/accounting`
+
+```json
+{"attempt_id": "…", "calls": [{
+  "call_id": "…",
+  "admission": {"status": "reserved|uncertain|settled", "reserve_usd": 0.4, "cost_usd": null, "provenance": null, "created_at": "…", "settled_at": null},
+  "accounting": {"version": 2, "record": {}}
+}], "totals": {"calls": 2, "reserved_usd": 0.4, "settled_usd": 0.1, "uncertain_calls": 1}}
+```
+
+`accounting` is the call's latest version, or `null`. `reserved_usd` sums reservations not yet settled. `settled_usd` sums the settled calls' costs, and is `null` (unknown, never zero) when calls were made but none has a settled cost; `uncertain_calls` counts the calls whose cost is not known.
+
+## `POST /runs/{run_id}/cases/{case_id}/rerun`
+
+Queues a new attempt (`attempt_no` + 1, `rerun_of` the newest) using the run's retained source and package, whether or not the plugin is still installed. `201 {"attempt_id", "attempt_no"}`. Errors: `404 unknown_run` (also for another member or one who left), `404 unknown_case`, `409 run_canceled`, `409 attempt_active` (the newest attempt is not final).
+
+## `POST /runs/{run_id}/cancel`
+
+Marks the run canceled. Queued attempts end `canceled` at once; leased ones are told at their next renewal or admission (`409 canceled`) and finalize themselves. `200 {"canceled_attempts": n, "signaled_attempts": n}`; repeating is harmless.
+
+## `GET /compare?a=<run>&b=<run>`
+
+Compares two runs that share a task verifier. `409 not_same_verifier` (with `differing`: `package_sha256` and/or `task_id`) unless both pin the same plugin package digest and task id; `404 unknown_run`; `400` for ids that are not UUIDs. Benchmarks, plugin versions that share a package digest, harnesses, policies, models, prompts and limits may differ; runs of one benchmark always share a verifier. Runs of different plugin versions with different package digests are refused as `not_same_verifier`.
+
+```json
+{
+  "verifier": {"package_sha256": "…", "task_id": "…"},
+  "a": {"run_id": "…", "status": "…", "case_set_id": "…", "case_set_name": "…", "policy": "…", "model": "…", "endpoint_profile": "…", "score": {}, "source": {}, "created_at": "…"}, "b": {},
+  "config": [{"field": "limits.memory_mb", "a": 1024, "b": 512, "differs": true}],
+  "differences": ["limits.memory_mb", "model"],
+  "prompt_diff": {
+    "a_kind": "template|instructions", "b_kind": "template|instructions",
+    "text": [{"type": "same|removed|added", "text": "line(s)"}],
+    "rendered": [{"content_digest": "…", "a_case_id": "c1", "b_case_id": "x9", "identical": false, "system": [<parts>], "user": [<parts>]}]
+  },
+  "shared": [{"content_digest": "…", "kind": "answer", "a": <side>, "b": <side>}],
+  "only_a": [{"content_digest": "…", "kind": "answer", "case_id": "…", …<side>}], "only_b": [],
+  "unverified_egress": {"a": true, "b": false}
+}
+```
+
+`config` lists every setting, with `differs`: `benchmark_id`, `harness` (`name@version`), `case_set_id`, `case_set_digest`, `policy`, `model`, `endpoint_profile`, `dialects`, every `limits.<name>` (`internet_access` included), `egress_hosts` (`null` under `coding`), `selection` (the resolved case ids), `renderer_version`. `prompt_diff.text` is a line diff (`diff` package) of the two runs' template or instructions text; `rendered` has one entry per shared case, with line diffs of `system` and `user` (a `null` text counts as empty) only when the rendered prompts differ. Cases are aligned by `content_digest` (the pinned kind, arguments, expected error and reference), not by case id; the n-th occurrence of a digest in one run matches the n-th in the other. A `<side>` is `{case_id, attempt_id, outcome, execution_reason, verdict, explanation, verifier_error, tokens: {total, input, output}, cost_usd, uncertain_cost, latency_ms}` for the case's newest attempt (`outcome` is its `execution.status`, else its state; `cost_usd` sums its admissions' settled costs and is `null` when any call is not settled with a known cost, since a reserve is a spending bound and not a cost; `uncertain_cost` is true when a call's cost is uncertain). `unverified_egress` is true for a run with `internet_access`.
+
+## `GET /compare/attempts?a=<attempt>&b=<attempt>`
+
+The comparison of two sealed attempts of one pinned case, computed by NanoAgent from their stored events and payloads. `409 not_same_verifier` (package digest or task id differ), `409 not_same_case` (content digests differ), `409 attempt_not_sealed`, `404 unknown_attempt`. `200 {"header": {attempt_a, attempt_b, case: {package_sha256, task_id, content_digest}, …conditions, redactions, missing_payloads}, "rows": […], "first_difference": …}`.
+
+---
+
+# Benchmark publishing
+
+## `POST /api/benchmark/benchmarks`
+
+Any signed-in member's session, no workspace. Publishes a benchmark bound to one published plugin version of any plugin; the publisher is the caller. A benchmark is immutable. The case-set fields are derived by `nanoagent.uploaded.case_sets` from the plugin package and a plugin benchmark case file; the member supplies the case file, the package source, a name and the run configuration. There is no route that publishes a case set alone.
+
+```json
+{
+  "name": "lowercase [a-z0-9._-], up to 128",
+  "plugin_id": "p", "plugin_name": "P", "version": "1.0.0", "package_sha256": "<that version's package digest>", "task_id": "sum",
+  "task": {"kind": "agent|decide|tool", "description": "…", "instructions": "<manifest default>", "input_schema": {}, "output_schema": {},
+           "tools": [{"name": "read", "description": "…", "input_schema": {}, "output_schema": {}, "writes": false}],
+           "egress_hosts": ["api.example.com"]},
+  "context": "the case set's shared context",
+  "cases": [{"case_id": "c1", "kind": "answer", "arguments": {}, "expected_error": null},
+            {"case_id": "r1", "kind": "refuse", "arguments": {}, "expected_error": "pinned error text"}],
+  "private": {"c1": {}, "r1": "pinned error text"},
+  "model": "vendor/model", "endpoint_profile": "label",
+  "limits": {"max_model_calls": 20, "internet_access": false},
+  "coding_template": null, "task_instructions": null
+}
+```
+
+- `version` is the plugin version the benchmark is tied to. `task.tools` is what `run_task` gives the agent (the reference tool excluded); `egress_hosts` is sorted without repeats (`400 invalid_request` otherwise; `[]` is none). `private` has exactly one reference per case: for an answer case the pinned output object, or `null` for a task the verifier judges without one; for a refusal case the pinned error string (and `expected_error` is required). Private references are stored where only the worker API reads them.
+- `model` and `endpoint_profile` are required. `limits` holds overrides only (`null` is the default); an unknown name or an invalid value is `400 invalid_request`. The effective limits, `internet_access` included, are the defaults under the overrides, and are pinned and shown.
+- `coding_template` and `task_instructions` are strings or `null` for the default (the server's coding template; the task's `instructions`). Both are pinned as text, because the runner picks the policy. CRLF and CR become LF; blank is `400 empty_template|empty_instructions`; over 100000 characters is refused; a template that fails to render is `400 invalid_template`.
+- `endpoint_profile` must have been advertised for by a worker within the capability window, else `409 worker_unavailable` (an unknown endpoint is refused). A limit above what the latest advertised capabilities allow, or `internet_access: true` where they say it is unsupported, is `400 limit_exceeds_worker` with `exceeded: [{field, limit, max}]`. A `model` that the latest advertised capabilities do not list (`capabilities.models`) is `400 unknown_model` with `{model, models}`, so no benchmark can pin a model whose attempts the endpoint's workers could not price. A refused publication stores nothing.
+
+The server computes each case's `reference_sha256` (SHA-256 of the compact canonical JSON of its reference) and `content_digest` (SHA-256 of the compact canonical JSON of `{kind, arguments, expected_error, reference_sha256}`), the case set's digest (SHA-256 of the compact canonical JSON of `{package_sha256, task_id, task, context, cases: [{case_id, content_digest}]}`), and the benchmark's `digest` (see Benchmarks). It creates the case set, or reuses an identical one.
+
+**Naming.** A name is unique per `(plugin_id, version, name)`: `classroom` may exist for 0.1.0 and for 0.2.0. Publishing the same name for the same plugin version again with identical content (the same `digest`) is `200 {"created": false, …}` and stores nothing; with different content it is `409 benchmark_name_taken` and stores nothing.
+
+`201 {"created": true, "benchmark": <benchmark summary>}`; an identical republish `200 {"created": false, "benchmark": …}`. Errors: `400 invalid_request`, `400 empty_template|empty_instructions|invalid_template`, `400 limit_exceeds_worker`, `400 unknown_model`, `401`, `404 unknown_plugin_version` (the id, version and digest are not one published row), `409 worker_unavailable`, `409 benchmark_name_taken`.
+
+## `POST /api/workspaces/{wid}/benchmark/benchmarks/pinned`
+
+Needs `apps:use`. The app's Create Plugin Benchmark uses it, so that the plugin's reference tool pins each case on the member's computer and the private references never reach the browser. It replaces the former `POST .../benchmark/pins`. The body is the `POST /api/benchmark/benchmarks` body without the derived case-set fields (`plugin_name`, `package_sha256`, `task_id` and `task`, which the case file names, `context`, `private`; `version` too, which is the installed one) and with the case file in place of `cases`:
+
+```json
+{"name": "…", "plugin_id": "p", "cases": <the plugin benchmark case file>,
+ "model": "vendor/model", "endpoint_profile": "label", "limits": {}, "coding_template": null, "task_instructions": null}
+```
+
+The server installs the app on the member's computer if needed and sends the computer's NanoAgent only `{name, cases}` (the case file without its `_` class tag); the computer pins on it with the package it runs and answers the derived case-set fields. The server builds the publication from NanoAgent's own text plus the member's `model`, `endpoint_profile`, `limits`, `coding_template` and `task_instructions` (nothing else the member sent), and publishes it with the naming rules and responses of `POST /api/benchmark/benchmarks` (`201 {"created": true, "benchmark": …}`, `200 {"created": false, …}`, the same errors). Extra errors: `503 runner_offline`, `409 app_unavailable` and `409 fs-disabled`, `pin_failed` (with the status the computer returned).
+
+---
+
+# Worker API
+
+Prefix `/api/benchmark-worker`. All bodies are JSON unless noted. A **fence** is the integer a claim returns; it increments each time a job is leased. Attempt routes take it in the body as `fence`, byte routes in the header `X-Rush-Fence`. A fenced route answers:
+
+| Condition | Response |
+| --- | --- |
+| Fence is not the attempt's current fence, or the attempt was interrupted | `409 lease_lost` |
+| Lease expired (the attempt becomes `interrupted`, evidence kept) | `409 lease_lost` |
+| Attempt already finalized by this fence | `409 sealed` |
+| Unknown attempt | `404 unknown_attempt` |
+
+An interrupted attempt is final: a retry needs a new attempt, which only a member's rerun creates.
+
+## `POST /claim`
+
+```json
+{"worker_id": "w-1", "endpoint_profile": {"label": "mock", "mode": "mock"},
+ "capabilities": {"wall_time_ms": 600000, "max_model_calls": 100, "max_output_tokens_per_call": 8192, "max_cost_usd": 5, "concurrency": 8,
+                  "cpus": 4, "memory_mb": 4096, "pids": 1024, "workspace_bytes": 1073741824, "workspace_files": 50000, "tmp_bytes": 268435456, "build_wall_ms": 1200000,
+                  "build_memory_mb": 4096, "build_output_bytes": 2147483648, "build_files": 200000, "build_tmp_bytes": 1073741824, "internet_access": true,
+                  "models": ["vendor/model"]}}
+```
+
+`capabilities` is required (`400 invalid_request` if any limit is missing or invalid): the maximum the worker applies for each numeric limit and whether it can give a harness `internet_access`, and `models`, the names of the models it prices (the keys of its `prices`; a non-empty list of strings, else `400 invalid_request`). Every claim stores them as the latest for the endpoint `label`; previews and runs for that label are checked against them (`409 worker_unavailable` before any worker has advertised, or when none has claimed for the label within the last 300 seconds, `400 limit_exceeds_worker`, `400 unknown_model`).
+
+The claim first expires stale leases (attempts become `interrupted`, sealed at their last committed cursor) and settles reservations past their deadline at the reserved bound. Then it leases the oldest queued attempt of a run whose `endpoint_profile` equals `label`, whose pinned limits are all within the claiming worker's `capabilities`, and which has fewer than `limits.concurrency` attempts leased; a canceled run's queued work is never leased. `204` for none.
+
+Job (`200`):
+
+```json
+{
+  "kind": "attempt", "attempt_id": "…", "attempt_no": 1, "fence": 1, "lease_expires_at": "…", "lease_seconds": 60,
+  "run": {"run_id": "…", "model": "…", "endpoint_profile": "…", "dialects": [], "source_sha256": "…", "policy": "coding|task_tools",
+          "limits": {"wall_time_ms": 600000, "…": 0, "internet_access": true}, "prompt_source": "benchmark", "renderer_version": "rush.prompt.v1"},
+  "plugin": {"id": "…", "name": "…", "version": "…", "sha256": "…"},
+  "case_set": {"case_set_id": "…", "digest": "…"},
+  "task": {"id": "sum", "kind": "agent|decide|tool", "description": "…", "instructions": "…", "plugin_name": "…", "tools": [{"name": "…", "description": "…", "input_schema": {}, "output_schema": {}, "writes": false}], "egress_hosts": ["api.example.com"]},
+  "case": {"case_id": "c1", "position": 0, "kind": "answer|refuse", "arguments": {}, "context": "…", "input_schema": {}, "output_schema": {}, "content_digest": "…"},
+  "prompt": {"system": null, "user": "…", "sha256": "…"},
+  "private_reference": {}
+}
+```
+
+`task.instructions` is the instructions the run works: under `task_tools` the benchmark's pinned `task_instructions`, under `coding` the task's default. `task.egress_hosts` is the tool container's network under `task_tools`; the worker applies it only for that policy. `case.input_schema` / `output_schema` are the task's. `case.kind` and `private_reference` stay on the worker: `private_reference` is the pinned output object (or `null`) of an answer case and the pinned error string of a refusal case. A run's scoring is computed by the server from the attempts' verdicts; there are no scoring jobs.
+
+## `POST /attempts/{id}/renew`
+
+`{"fence": 1}` → `200 {"lease_expires_at": "…", "lease_seconds": 60}`. A canceled run: `409 canceled`. `lease_seconds` is how long a claim or renewal keeps the lease, counted from when the server received it; the worker fences its own services on it (no new gateway, tool, exec or event work once it passes without a renewal).
+
+Expired leases do not wait for a claim: the server sweeps every `BENCHMARK_SWEEP_SECONDS` (default 15) and before member reads of a run, attempt, run list or accounting. Attempts whose lease ran out become `interrupted` (evidence kept), and reservations past their deadline settle at the reserved bound.
+
+## `GET /attempts/{id}/source`, `GET /attempts/{id}/package`
+
+Header `X-Rush-Fence`. The retained source ZIP, or the plugin package, as `application/octet-stream` with `X-Rush-Sha256`. Missing header `400 invalid_request`.
+
+## `POST /attempts/{id}/admissions`
+
+```json
+{"fence": 1, "call_id": "call-1", "reserve_usd": 0.4}
+```
+
+One transaction with row locks: records a unique admission and reserves `reserve_usd` against the attempt, the member and the workspace. `201 {"call_id", "reserve_usd"}`. Errors: `409 duplicate_call`; `409 canceled`; `409 lease_lost`; `402 budget_exhausted` with `scope`:
+
+| `scope` | Exhausted |
+| --- | --- |
+| `calls` | `limits.max_model_calls` admissions already made |
+| `attempt` | the attempt's reserved plus settled spend + this reservation exceeds `limits.max_cost_usd` |
+| `member` | the member's committed spend today (UTC) + this reservation exceeds `BENCHMARK_MEMBER_BUDGET_USD` |
+| `workspace` | likewise for `BENCHMARK_WORKSPACE_BUDGET_USD` |
+
+Checked in that order; nothing is reserved on refusal. A reservation stays against the budgets, even for a call with an uncertain outcome, until settled.
+
+## `POST /attempts/{id}/admissions/{call_id}/settle`
+
+```json
+{"fence": 1, "outcome": "settled", "cost_usd": 0.1, "provenance": {"source": "usage"}}
+```
+
+`outcome` is `settled` (requires `cost_usd`) or `uncertain` (`cost_usd` ignored; the reservation is kept until it is settled or its deadline passes, when a claim settles it at `reserve_usd` with `provenance.settled_by = "deadline_sweep"`). `provenance` is an object. **The fence is ignored**: settlement is allowed after the lease is lost, so spend is never dropped. `200 {"call_id", "status", ...}`. Settling a settled call again with the same cost is `200`; with another cost `409 already_settled`. `404 unknown_call`. Budgets move by `cost_usd - reserve_usd`.
+
+## `POST /attempts/{id}/events`
+
+```json
+{"fence": 1, "events": [{"event_id": "e1", "source": "gateway", "kind": "model_call", "sequence": 1, "occurred_ns": "1700000000123456789", "data": {}, "payload_sha256s": ["…"]}]}
+```
+
+1 to 500 events; `data` is an object; `occurred_ns` and `payload_sha256s` optional. The attempt row is locked and each new event gets the next cursor, in request order. The batch is atomic. `200`:
+
+```json
+{"receipts": [{"event_id": "e1", "cursor": 1, "duplicate": false}], "high_water_cursor": 1}
+```
+
+An event with a known `event_id` and identical canonical content (`source, kind, sequence, occurred_ns, data, payload_sha256s`) returns its original cursor with `duplicate: true`. Different content: `409 conflicting_duplicate` (nothing from the batch is stored). After the seal: `409 sealed`.
+
+## `PUT /attempts/{id}/payloads/{sha256}`
+
+Raw bytes. Headers: `X-Rush-Fence`, `X-Rush-Redaction: none|redacted|truncated` (required), `Content-Type` (stored). `200 {"sha256", "size", "created"}`; storing the same payload again is `created: false`. Errors: `400 digest_mismatch` (bytes do not hash to the path), `413 payload_too_large`, `409 sealed|lease_lost`. Events reference payloads by digest; the server does not require a payload to exist first.
+
+## `POST /attempts/{id}/spans`
+
+The span index and causal links, apart from events. Rejected after the seal.
+
+```json
+{"fence": 1,
+ "spans": [{"id": "s1", "kind": "tool", "name": "read-file", "parent": "root", "scope": "agent", "status": "ok", "start_ns": "…", "end_ns": "…", "provenance": "harness", "target": "…", "attributes": {}}],
+ "links": [{"kind": "caused_by", "from": "s1", "to": "root", "method": "broker", "attributes": {}}]}
+```
+
+`id`, `kind` and `name` are required for a span; `kind`, `from`, `to` for a link. Reporting a span again fills missing fields (`end_ns`, `status`) and merges `attributes`; links are unique by `(kind, from, to)`. `200 {"spans": n, "links": n}`.
+
+## `POST /attempts/{id}/finalize`
+
+```json
+{
+  "fence": 1,
+  "execution": {"status": "answered", "reason": null},
+  "verdict": "pass", "explanation": null, "verifier_error": null,
+  "coverage": {"status": "complete"}, "metrics": {"total_tokens": 10, "elapsed_ms": 100},
+  "final_cursor_expected": 3
+}
+```
+
+`execution.status` is `answered`, `refused`, `execution_failed`, `build_failed` or `canceled` (`interrupted` is the server's). `verdict` is `pass` or `fail`, the plugin task verifier's decision under its table (a refusal case passes when refused and fails when answered; an answer case fails when refused), and only comes with `answered`, `refused` or `execution_failed` (`400 verdict_not_allowed`); an `execution_failed` attempt sent with `fail` counts as a scored failure, one sent without a verdict is unscored. `verifier_error` (a string; the verifier crashed) replaces the verdict, comes only with `answered` or `refused`, and leaves the case unscored; members see it. Both together is `400 invalid_request`. `coverage` and `metrics` are objects stored as sent; the metric sums read `total_tokens`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `elapsed_ms`. `final_cursor_expected` must equal the committed high-water mark (`409 cursor_mismatch` with `high_water_cursor`). `explanation` (optional, only with a `fail` verdict) is one of `invalid_answer`, `refused_answer_case`, `answered_refusal_case`, `execution_failed` (`nanoagent.plugin.verifier.TASK_VERIFIER_EXPLANATIONS`), and is stored and returned beside the verdict (`null` for a pass and for a failure `verify_task` alone judged). Unknown fields (`score`) are ignored.
+
+One transaction stores status, verdict or verifier error, coverage, metrics, the high-water mark, and seals the stream. `200 {"attempt_id", "sealed": true, "final_cursor", "replayed": false}`. Finalizing again identically returns `replayed: true`; differently `409 conflicting_duplicate`.
+
+## `POST /attempts/{id}/accounting`
+
+```json
+{"call_id": "call-1", "version": 1, "record": {"cost_usd": 0.1, "generation_id": "gen-1"}}
+```
+
+No fence; allowed after the seal and after lease loss; never rewrites events. The call must have been admitted (`404 unknown_call`). Versions are separate records (`version` ≥ 1); the same version with the same record is a no-op `200 {"created": false}`, with a different record `409 conflicting_duplicate`. Members read the highest version.
+
+---
+
+# Future: shared traces and harness archives
+
+Not in this iteration. A database of every run's trace and harness ZIP that other members can open from the all-members results. The first iteration returns only run summaries; the contract is shaped so this follows without reshaping:
+
+- Results rows are keyed by `run_id`, and evidence (events, spans, payloads) is already stored per attempt, so a row can later link to its trace.
+- `owner/name@version` names exactly one ZIP (the `harness_version_taken` pin), so a gallery shows one archive per version.
+- Sharing is opt-in (`shared_at` on the run) because a ZIP or trace may carry secrets; read policies on the evidence tables would admit shared runs. Until then the run, attempt and event routes stay owner-only.
+- ZIPs and payloads move from Postgres `bytea` to object storage.
