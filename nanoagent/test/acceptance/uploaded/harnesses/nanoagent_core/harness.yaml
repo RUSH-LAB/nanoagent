@@ -1,0 +1,13 @@
+protocol: rush.harness.v1
+name: nanoagent-core
+version: "1"
+dialects: [chat_completions]
+toolchain: python-3
+lockfiles: [requirements.txt]
+# The build has no network: pip installs the hashed closure the worker staged under /deps (PIP_FIND_LINKS), and the
+# vendored NanoAgent core (generated at test time from the pinned revision) is staged beside the harness.
+build:
+  argv: [sh, -c, "python -m pip install --quiet --no-index --find-links /deps --require-hashes --target /build-out/site -r requirements.txt && cp -r main.py nanoagent /build-out/"]
+  outputs: [main.py, nanoagent, site]
+run:
+  argv: [python, /harness/main.py]

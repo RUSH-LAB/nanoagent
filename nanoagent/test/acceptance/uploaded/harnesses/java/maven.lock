@@ -1,0 +1,2 @@
+# group:artifact:version sha256:<hex>; the complete classpath (gson 2.11.0 has no runtime dependencies).
+com.google.code.gson:gson:2.11.0 sha256:57928d6e5a6edeb2abd3770a8f95ba44dce45f3b23b7a9dc2b309c581552a78b

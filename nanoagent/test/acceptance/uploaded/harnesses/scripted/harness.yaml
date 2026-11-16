@@ -1,0 +1,12 @@
+protocol: rush.harness.v1
+name: scripted
+version: "1"
+dialects: [chat_completions, responses, anthropic_messages]
+toolchain: python-3
+lockfiles: [requirements.txt]
+# The build has no network: pip installs the hashed closure the worker staged under /deps (PIP_FIND_LINKS).
+build:
+  argv: [sh, -c, "python -m pip install --quiet --no-index --find-links /deps --require-hashes --target /build-out/site -r requirements.txt && cp main.py script.json /build-out/"]
+  outputs: [main.py, script.json, site]
+run:
+  argv: [python, /harness/main.py]
