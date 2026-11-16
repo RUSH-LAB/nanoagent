@@ -14,13 +14,14 @@ import json
 import os
 import shutil
 import subprocess
-from collections.abc import Iterator, Sequence
-from contextlib import AsyncExitStack
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import AbstractContextManager, AsyncExitStack, nullcontext
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import anyio
+import anyio.to_thread
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.types import TextContent
@@ -29,7 +30,7 @@ from slimconfig import build_output
 from nanoagent.core.tool import Tool, ToolText
 from nanoagent.plugin import sandbox
 from nanoagent.plugin.manifest import PluginManifest, load_manifest
-from nanoagent.plugin.verifier import verify_input, verify_output
+from nanoagent.plugin.verifier import Verification, verify_input, verify_output
 
 # The one folder a plugin may write to (its `filesystem: write: [workspace]` permission).
 WORKSPACE_ENV = "NANOAGENT_WORKSPACE"
@@ -107,36 +108,52 @@ def _check_input(manifest: PluginManifest, tool: str, arguments: dict[str, Any])
         raise ValueError(f"plugin input verification failed: {input_check.message}")
 
 
+class PluginLauncher(Protocol):
+    """Runs the plugin's MCP server somewhere other than :func:`sandbox.launch`, such as a container of its own.
+
+    The plugin then sees ``workspace`` at that path inside its sandbox, which need not exist on this host.
+    """
+
+    def launch(self, manifest: PluginManifest, env: Mapping[str, str]) -> AbstractContextManager[tuple[list[str], dict[str, str]]]:
+        """The command and the environment of the local process whose stdio is the plugin's, while the block runs."""
+        ...
+
+    def workspace_view(self) -> AbstractContextManager[Path]:
+        """A folder on this host holding the workspace as the plugin left it, for the verifier to read."""
+        ...
+
+
 class PluginSession:
     """One plugin process for a run: entered once, then :meth:`call` any number of times.
 
-    ``timeout`` bounds the launch and each call separately.
+    ``timeout`` bounds the launch and each call separately. ``fixtures``, a folder, is one the plugin may only read.
+    ``launcher`` replaces the host sandbox: the plugin's environment is then the launcher's, so the host's ``uv lock``
+    check, the host ``workspace`` folder and ``fixtures`` are not used.
     """
 
-    def __init__(self, manifest: PluginManifest, workspace: Path, *, timeout: float) -> None:
+    def __init__(
+        self,
+        manifest: PluginManifest,
+        workspace: Path,
+        *,
+        timeout: float,
+        fixtures: Path | None = None,
+        launcher: PluginLauncher | None = None,
+    ) -> None:
         self.manifest = manifest
         self.workspace = workspace
+        self.fixtures = fixtures
+        self.launcher = launcher
         self.timeout = timeout
         self._stack = AsyncExitStack()
         self._session: ClientSession | None = None
 
     async def __aenter__(self) -> PluginSession:
         self._check()
-        if not self.workspace.is_dir():
-            raise ValueError(f"plugin workspace {self.workspace} is not a folder")
-        env = plugin_env(self.manifest, self.workspace)
-        preflight(self.manifest, env)
-        # A sandboxed plugin's environment was built when it was installed: its runs neither sync
-        # it again nor reach the package index.
-        argv, launch_env = self._stack.enter_context(
-            sandbox.launch(
-                self.manifest.command,
-                root=self.manifest.root,
-                env={**env, "UV_NO_SYNC": "1", "UV_OFFLINE": "1"} if sandbox.current() != "none" else env,
-                writable=[self.workspace],
-                hosts=self.manifest.permissions.network_hosts,
-            )
-        )
+        if self.launcher is not None:
+            argv, launch_env = self._stack.enter_context(self.launcher.launch(self.manifest, plugin_env(self.manifest, self.workspace)))
+        else:
+            argv, launch_env = self._launch_in_host_sandbox()
         params = StdioServerParameters(command=argv[0], args=argv[1:], cwd=self.manifest.root, env=launch_env)
         try:
             # The connection's own scopes close with the session, so only the waits are bounded.
@@ -163,6 +180,26 @@ class PluginSession:
         self._session = session
         return self
 
+    def _launch_in_host_sandbox(self) -> tuple[list[str], dict[str, str]]:
+        if not self.workspace.is_dir():
+            raise ValueError(f"plugin workspace {self.workspace} is not a folder")
+        if self.fixtures is not None and not self.fixtures.is_dir():
+            raise ValueError(f"plugin fixtures {self.fixtures} is not a folder")
+        env = plugin_env(self.manifest, self.workspace)
+        preflight(self.manifest, env)
+        # A sandboxed plugin's environment was built when it was installed: its runs neither sync
+        # it again nor reach the package index.
+        return self._stack.enter_context(
+            sandbox.launch(
+                self.manifest.command,
+                root=self.manifest.root,
+                env={**env, "UV_NO_SYNC": "1", "UV_OFFLINE": "1"} if sandbox.current() != "none" else env,
+                readable=[self.fixtures] if self.fixtures is not None else [],
+                writable=[self.workspace],
+                hosts=self.manifest.permissions.network_hosts,
+            )
+        )
+
     async def __aexit__(self, *exc: object) -> None:
         self._session = None
         await self._stack.aclose()
@@ -175,14 +212,16 @@ class PluginSession:
 
     async def call(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Check the input, run ``tool``, and return its checked output."""
-        _check_input(self.manifest, tool, arguments)
+        # The verifier runs in processes of its own and blocks for their whole run: off the loop, so whatever else the loop
+        # serves (the attempt gateway relaying a model's stream) is not held up behind a tool call.
+        await anyio.to_thread.run_sync(_check_input, self.manifest, tool, arguments)
         return await self.invoke(tool, arguments)
 
     async def invoke(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """:meth:`call` for input already checked by :func:`_check_input`."""
         if self._session is None:
             raise RuntimeError("plugin session is not open")
-        self._check()
+        await anyio.to_thread.run_sync(self._check)
         manifest = self.manifest
         definition = manifest.tool(tool)
         with anyio.fail_after(self.timeout):
@@ -197,10 +236,15 @@ class PluginSession:
                 f"invalid output from {tool}: it names the run's workspace folder, which is gone once the run"
                 " ends; name what is in it by a path relative to it"
             )
-        output_check = verify_output(manifest, tool, arguments, response, self.workspace)
+        output_check = await anyio.to_thread.run_sync(self._verify_output, tool, arguments, response)
         if not output_check.valid:
             raise RuntimeError(f"plugin output verification failed: {output_check.message}")
         return response
+
+    def _verify_output(self, tool: str, arguments: dict[str, Any], response: dict[str, Any]) -> Verification:
+        view = nullcontext(self.workspace) if self.launcher is None else self.launcher.workspace_view()
+        with view as workspace:
+            return verify_output(self.manifest, tool, arguments, response, workspace)
 
 
 def _strings(value: Any) -> Iterator[str]:
