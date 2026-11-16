@@ -5,10 +5,12 @@ import Link from '@docusaurus/Link';
 import TwoColumnLayout from '@site/src/components/TwoColumnLayout';
 import {SidebarFoot} from '@site/src/components/PluginSidebar';
 import sidebar from '@site/src/components/BlogGroupSidebar/styles.module.css';
+import pluginSidebar from '@site/src/components/PluginSidebar/styles.module.css';
 import Compare from './CompareView';
 import CompareRuns from './RunCompareView';
 import AllResults from './AllResultsView';
-import NewRun from './NewRunForm';
+import NewRun from './BatchRunForm';
+import HarnessCompare from './HarnessCompareView';
 import Publish from './PublishForm';
 import {RunView, RunsList} from './RunsView';
 import TraceView from './TraceView';
@@ -17,15 +19,13 @@ import {screenOf, searchFor} from './location';
 import styles from './styles.module.css';
 
 /**
- * RUSH Lab's Benchmark workflow: publish a benchmark for an installed plugin, run an uploaded harness on any published benchmark of it,
- * follow the run live, open any attempt's saved trace, compare two runs of one task verifier or two attempts of one pinned case, and read
- * everyone's results on a benchmark. The address holds the screen (./location.js).
+ * Publish plugin benchmarks, run a harness across them, compare harnesses and inspect individual runs and attempts.
+ * The address holds the screen (./location.js).
  */
 const VIEWS = [
-  {id: 'publish', label: 'Create Plugin Benchmark'},
   {id: 'new', label: 'Benchmark Your Harness'},
+  {id: 'harnesses', label: 'Compare Harnesses'},
   {id: 'runs', label: 'Benchmark Results'},
-  {id: 'worker', label: 'Local Runner Health Check'},
 ];
 
 // The two sub-tabs of Benchmark Results.
@@ -37,15 +37,15 @@ const RESULTS = [
 export default function Benchmark() {
   const location = useLocation();
   const history = useHistory();
-  const {screen, run, runs, attempt, compare, initialSelection, caseKey} = screenOf(location.search);
+  const {screen, run, runs, attempt, compare, initialSelection, caseKey, fromHarness} = screenOf(location.search);
   const go = target => {
     history.push({...history.location, search: searchFor(target)});
     window.scrollTo(0, 0);
   };
   // Back from a trace or comparison opened from a run, or from a comparison of runs, returns there.
-  const back = () => go(runs ? {runs, caseKey} : run ? {run} : {});
+  const back = () => go(runs ? {runs: runs.join(','), caseKey, fromHarness} : run ? {run} : fromHarness ? {view: 'harnesses'} : {});
 
-  const view = screen === 'new' || screen === 'publish' || screen === 'worker' ? screen : 'runs';
+  const view = screen === 'new' || screen === 'publish' || screen === 'worker' || screen === 'harnesses' ? screen : 'runs';
   const results = screen === 'all' ? 'all' : 'runs';
   const href = id => `${location.pathname}${searchFor(id === 'runs' ? {} : {view: id})}`;
   return (
@@ -61,6 +61,12 @@ export default function Benchmark() {
                 </Link>
               </li>
             ))}
+            <li className="menu__list-item">
+              <Link className={clsx('menu__link', sidebar.categoryLink, pluginSidebar.marketplace, view === 'publish' && 'menu__link--active')} aria-current={view === 'publish' ? 'page' : undefined} to={href('publish')}>
+                <svg className={pluginSidebar.plus} viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
+                <span className={sidebar.taxonomyTitle}>Create Plugin Benchmark</span>
+              </Link>
+            </li>
           </ul>
         </nav>
         <SidebarFoot label="Collapse benchmark navigation" onCollapse={onCollapse} />
@@ -72,6 +78,7 @@ export default function Benchmark() {
           <Link key={item.id} to={href(item.id)} aria-current={item.id === view ? 'page' : undefined}
             className={clsx({[styles.active]: item.id === view})}>{item.label}</Link>
         ))}
+        <Link to={href('publish')} className={clsx(pluginSidebar.marketplace, {[styles.active]: view === 'publish'})}>+ Create Plugin Benchmark</Link>
       </nav>
       {(screen === 'runs' || screen === 'all') && (
         <nav className={styles.subTabs} aria-label="Benchmark results">
@@ -81,16 +88,17 @@ export default function Benchmark() {
           ))}
         </nav>
       )}
-      {screen !== 'worker' && <WorkerBanner />}
+      {(screen === 'new' || screen === 'publish') && <WorkerBanner />}
       {screen === 'worker' && <WorkerPanel />}
       {screen === 'new' && <NewRun key={location.search} go={go} initialSelection={initialSelection} />}
       {screen === 'publish' && <Publish go={go} />}
+      {screen === 'harnesses' && <HarnessCompare go={go} />}
       {screen === 'runs' && <RunsList go={go} />}
       {screen === 'all' && <AllResults />}
       {screen === 'run' && <RunView key={run} runId={run} go={go} />}
       {screen === 'attempt' && <TraceView key={attempt} attemptId={attempt} onBack={back} backLabel={runs ? 'Run comparison' : run ? 'Run results' : 'All runs'} />}
-      {screen === 'compare' && <Compare key={compare.join()} a={compare[0]} b={compare[1]} go={target => go({...target, run, runs, caseKey})} back={back} />}
-      {screen === 'compare-runs' && <CompareRuns key={runs.join()} a={runs[0]} b={runs[1]} initialCaseKey={caseKey} go={go} />}
+      {screen === 'compare' && <Compare key={compare.join()} a={compare[0]} b={compare[1]} go={target => go({...target, run, runs: runs?.join(','), caseKey, fromHarness})} back={back} />}
+      {screen === 'compare-runs' && <CompareRuns key={runs.join()} a={runs[0]} b={runs[1]} initialCaseKey={caseKey} go={target => go({...target, fromHarness})} onBack={fromHarness ? () => go({view: 'harnesses'}) : undefined} />}
     </div>
     </TwoColumnLayout>
   );

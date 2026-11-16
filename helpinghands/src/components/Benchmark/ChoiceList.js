@@ -1,7 +1,7 @@
 import React, {useId, useState} from 'react';
 import styles from './styles.module.css';
 
-export default function ChoiceList({label, description, options, value, onChange, searchPlaceholder}) {
+export default function ChoiceList({label, description, options, value, onChange, searchPlaceholder, disabled = false}) {
   const id = useId();
   const [query, setQuery] = useState('');
   const search = query.trim().toLowerCase();
@@ -9,7 +9,7 @@ export default function ChoiceList({label, description, options, value, onChange
     [item.label, item.value, item.detail].some(text => typeof text === 'string' && text.toLowerCase().includes(search)));
 
   return (
-    <fieldset className={styles.choices} aria-describedby={description ? `${id}-hint` : undefined}>
+    <fieldset className={styles.choices} disabled={disabled} aria-describedby={description ? `${id}-hint` : undefined}>
       <legend>{label}</legend>
       {description && <p id={`${id}-hint`} className={styles.fieldHint}>{description}</p>}
       {searchPlaceholder && options.length > 4 && (

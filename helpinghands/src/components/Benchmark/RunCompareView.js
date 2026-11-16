@@ -24,16 +24,16 @@ function Diff({parts, label}) {
 function RunSummary({label, run, egress, onOpen}) {
   const score = run.score;
   return (
-    <section className={compareStyles.summaryCard} aria-label={`Run ${label} summary`}>
+    <section className={compareStyles.summaryCard} aria-label={`${label} summary`}>
       <div className={compareStyles.cardTop}>
-        <div><h3>Run {label}</h3><p className={styles.fieldHint}>{run.case_set_name} · <code>{run.run_id.slice(0, 8)}</code></p></div>
+        <div><h3>{label}</h3><p className={styles.fieldHint}>{run.case_set_name} · <code>{run.run_id.slice(0, 8)}</code></p></div>
         <span className={styles.badge}>{run.status}</span>
       </div>
       <strong className={compareStyles.score}>{Number.isFinite(score?.value) ? percent.format(score.value) : 'Score unavailable'}</strong>
       <p className={styles.fieldHint}>{Number.isFinite(score?.value) ? <>{score.passed} of {score.scored} scored cases passed{!score.complete && ' · provisional'}{score.unscored > 0 && ` · ${score.unscored} unscored`}{score.verifier_errors > 0 && ` · ${score.verifier_errors} verifier errors`}</> : scoreText(score)}</p>
       <p className={compareStyles.runModel}>{run.model} · {POLICY_LABELS[run.policy] ?? run.policy}</p>
       <div className={compareStyles.cardFooter}>
-        <button type="button" className={styles.link} onClick={onOpen}>Open run {label}</button>
+        <button type="button" className={styles.link} onClick={onOpen}>Open {label} run</button>
         {egress && <span className={clsx(styles.badge, styles.unverified)}>Unverified internet access</span>}
       </div>
     </section>
@@ -52,7 +52,7 @@ function CaseSide({label, side, onTrace}) {
   const result = side && sideCells(side);
   return (
     <div className={compareStyles.caseSide}>
-      <h4>Run {label}</h4>
+      <h4>{label}</h4>
       {!side ? <p className={styles.fieldHint}>This run did not include the case.</p> : (
         <>
           <CaseVerdict side={side} />
@@ -69,7 +69,7 @@ function CaseSide({label, side, onTrace}) {
   );
 }
 
-function CaseResults({data, pair, initialCaseKey, go}) {
+function CaseResults({data, pair, initialCaseKey, go, names}) {
   const [group, setGroup] = useState('all');
   const [query, setQuery] = useState('');
   const [selectedKey, select] = useState(initialCaseKey);
@@ -90,8 +90,8 @@ function CaseResults({data, pair, initialCaseKey, go}) {
         <h3 className={styles.sectionHeading}>Shared case verdicts</h3>
         <dl className={compareStyles.verdictStats}>
           {[
-            ['Both passed', verdicts.bothPassed], ['Only A passed', verdicts.onlyAPassed],
-            ['Only B passed', verdicts.onlyBPassed], ['Both failed', verdicts.bothFailed], ['Missing paired verdicts', verdicts.unpaired],
+            ['Both passed', verdicts.bothPassed], [`Only ${names.a} passed`, verdicts.onlyAPassed],
+            [`Only ${names.b} passed`, verdicts.onlyBPassed], ['Both failed', verdicts.bothFailed], ['Missing paired verdicts', verdicts.unpaired],
           ].map(([label, count]) => <div key={label}><dt>{label}</dt><dd>{count}</dd></div>)}
         </dl>
       </div>
@@ -101,7 +101,7 @@ function CaseResults({data, pair, initialCaseKey, go}) {
           {[
             ['all', 'All', groups.shared.length + groups.onlyA.length + groups.onlyB.length],
             ['shared', 'Shared', groups.shared.length], ['changed', 'Changed', groups.changed.length],
-            ['onlyA', 'In A only', groups.onlyA.length], ['onlyB', 'In B only', groups.onlyB.length],
+            ['onlyA', `Only ${names.a}`, groups.onlyA.length], ['onlyB', `Only ${names.b}`, groups.onlyB.length],
           ].map(([id, label, count]) => <button key={id} type="button" className={styles.chip} aria-pressed={group === id} onClick={() => setGroup(id)}>{label} · {count}</button>)}
         </div>
       </div>
@@ -109,7 +109,7 @@ function CaseResults({data, pair, initialCaseKey, go}) {
         <div className={compareStyles.resultsGrid}>
           <div className={compareStyles.caseTable}>
             <table aria-label="Cases and verdicts">
-              <thead><tr><th scope="col">Case</th><th scope="col">Run A</th><th scope="col">Run B</th></tr></thead>
+              <thead><tr><th scope="col">Case</th><th scope="col">{names.a}</th><th scope="col">{names.b}</th></tr></thead>
               <tbody>
                 {visible.map(item => {
                   const key = caseKey(item);
@@ -131,8 +131,8 @@ function CaseResults({data, pair, initialCaseKey, go}) {
             <h3 className={styles.sectionHeading}>{caseName(selected)}</h3>
             <p className={styles.fieldHint}>{selected.kind === 'refuse' ? 'Refusal case' : 'Answer case'} · <code>{selected.content_digest.slice(0, 12)}</code></p>
             <div className={compareStyles.caseSides}>
-              <CaseSide label="A" side={selected.a} onTrace={() => go({attempt: selected.a.attempt_id, runs: pair, caseKey: caseKey(selected)})} />
-              <CaseSide label="B" side={selected.b} onTrace={() => go({attempt: selected.b.attempt_id, runs: pair, caseKey: caseKey(selected)})} />
+              <CaseSide label={names.a} side={selected.a} onTrace={() => go({attempt: selected.a.attempt_id, runs: pair, caseKey: caseKey(selected)})} />
+              <CaseSide label={names.b} side={selected.b} onTrace={() => go({attempt: selected.b.attempt_id, runs: pair, caseKey: caseKey(selected)})} />
             </div>
             {selected.a && selected.b && (
               <button type="button" className={styles.primaryButton} disabled={!attemptsComparable(selected)}
@@ -146,7 +146,7 @@ function CaseResults({data, pair, initialCaseKey, go}) {
   );
 }
 
-function Settings({data}) {
+function Settings({data, names}) {
   const [showAll, setShowAll] = useState(false);
   const rows = configRows(data.config, !showAll);
   return (
@@ -154,7 +154,7 @@ function Settings({data}) {
       <div className={styles.toolbar}><label><input type="checkbox" checked={showAll} onChange={event => setShowAll(event.target.checked)} /> Show matching settings</label></div>
       {rows.length === 0 ? <p className={styles.fieldHint}>The recorded settings match.</p> : (
         <div className={compareStyles.tableScroll}><table className={styles.table}>
-          <thead><tr><th scope="col">Setting</th><th scope="col">Run A</th><th scope="col">Run B</th></tr></thead>
+          <thead><tr><th scope="col">Setting</th><th scope="col">{names.a}</th><th scope="col">{names.b}</th></tr></thead>
           <tbody>{rows.map(row => (
             <tr key={row.field} className={clsx({[styles.differs]: row.differs && showAll})}><th scope="row">{row.label}</th><td>{row.a}</td><td>{row.b}</td></tr>
           ))}</tbody>
@@ -162,19 +162,19 @@ function Settings({data}) {
       )}
       <dl className={styles.facts}>
         <dt>Verifier package</dt><dd><code>{data.verifier.package_sha256.slice(0, 12)}</code></dd>
-        {[[data.a, 'A'], [data.b, 'B']].map(([run, label]) => <React.Fragment key={label}>
-          <dt>Run {label} source</dt><dd><code>{run.source.sha256.slice(0, 12)}</code> · {new Date(run.created_at).toLocaleString()}</dd>
+        {[[data.a, names.a], [data.b, names.b]].map(([run, label]) => <React.Fragment key={label}>
+          <dt>{label} source</dt><dd><code>{run.source.sha256.slice(0, 12)}</code> · {new Date(run.created_at).toLocaleString()}</dd>
         </React.Fragment>)}
       </dl>
     </section>
   );
 }
 
-function Prompts({prompt}) {
+function Prompts({prompt, names}) {
   return (
     <section className={compareStyles.details} aria-label="Prompt differences">
       <h3 className={styles.sectionHeading}>Run prompt</h3>
-      <p className={styles.fieldHint}>Run A {prompt.a_kind} · Run B {prompt.b_kind}</p>
+      <p className={styles.fieldHint}>{names.a} {prompt.a_kind} · {names.b} {prompt.b_kind}</p>
       <Diff parts={prompt.text} label="Run prompt" />
       <h3>Rendered prompts</h3>
       <p className={styles.fieldHint}>{prompt.rendered.filter(item => !item.identical).length} of {prompt.rendered.length} shared cases have prompt differences.</p>
@@ -190,24 +190,28 @@ function Prompts({prompt}) {
   );
 }
 
-export default function CompareRuns({a, b, initialCaseKey, go}) {
-  const result = useLoad(() => benchmarkApi.compareRuns(a, b), [a, b]);
+export default function CompareRuns({a, b, initialCaseKey, go, onBack}) {
+  const result = useLoad(async () => {
+    const [comparison, first, second] = await Promise.all([benchmarkApi.compareRuns(a, b), benchmarkApi.run(a), benchmarkApi.run(b)]);
+    return {comparison, names: {a: `${first.run.harness.name} v${first.run.harness.version}`, b: `${second.run.harness.name} v${second.run.harness.version}`}};
+  }, [a, b]);
   const [view, setView] = useState('cases');
-  const data = result.data;
-  if (result.error) return <div><button type="button" className={styles.link} onClick={() => go({})}>← All runs</button><p className={styles.error} role="alert">{result.error}</p></div>;
+  const data = result.data?.comparison;
+  const names = result.data?.names;
+  if (result.error) return <div><button type="button" className={styles.link} onClick={onBack ?? (() => go({}))}>← {onBack ? 'Harness comparison' : 'All runs'}</button><p className={styles.error} role="alert">{result.error}</p></div>;
   if (!data) return <LoadingSkeleton shape="block" height={200} />;
   const egress = egressSides(data.unverified_egress);
   return (
     <div>
       <header className={styles.header}>
-        <button type="button" className={styles.link} onClick={() => go({})}>← All runs</button>
+        <button type="button" className={styles.link} onClick={onBack ?? (() => go({}))}>← {onBack ? 'Harness comparison' : 'All runs'}</button>
         <h2>Compare runs</h2>
         <p className={styles.fieldHint}>{data.verifier.task_id}</p>
         <div className={styles.twin}>
-          <RunSummary label="A" run={data.a} egress={data.unverified_egress.a} onOpen={() => go({run: a})} />
-          <RunSummary label="B" run={data.b} egress={data.unverified_egress.b} onOpen={() => go({run: b})} />
+          <RunSummary label={names.a} run={data.a} egress={data.unverified_egress.a} onOpen={() => go({run: a})} />
+          <RunSummary label={names.b} run={data.b} egress={data.unverified_egress.b} onOpen={() => go({run: b})} />
         </div>
-        {egress.length > 0 && <p className={compareStyles.egress}>Run {egress.join(' and ')} allowed internet access. Calls outside the model gateway are unverified.</p>}
+        {egress.length > 0 && <p className={compareStyles.egress}>{egress.map(side => names[side.toLowerCase()]).join(' and ')} allowed internet access. Calls outside the model gateway are unverified.</p>}
       </header>
       <div className={styles.toolbar} role="group" aria-label="Comparison view">
         {[
@@ -216,9 +220,9 @@ export default function CompareRuns({a, b, initialCaseKey, go}) {
           ['prompts', 'Prompts'],
         ].map(([id, label]) => <button type="button" className={styles.chip} aria-pressed={view === id} key={id} onClick={() => setView(id)}>{label}</button>)}
       </div>
-      <div hidden={view !== 'cases'}><CaseResults data={data} pair={`${a},${b}`} initialCaseKey={initialCaseKey} go={go} /></div>
-      {view === 'settings' && <Settings data={data} />}
-      {view === 'prompts' && <Prompts prompt={data.prompt_diff} />}
+      <div hidden={view !== 'cases'}><CaseResults data={data} pair={`${a},${b}`} initialCaseKey={initialCaseKey} go={go} names={names} /></div>
+      {view === 'settings' && <Settings data={data} names={names} />}
+      {view === 'prompts' && <Prompts prompt={data.prompt_diff} names={names} />}
     </div>
   );
 }

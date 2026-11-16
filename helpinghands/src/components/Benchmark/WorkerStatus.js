@@ -1,4 +1,5 @@
 import React, {useCallback, useState} from 'react';
+import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import {useLocation} from '@docusaurus/router';
 import {apiRequest} from '../../utils/api.js';
@@ -55,17 +56,20 @@ function DockerHelp({check, platform}) {
   );
 }
 
-/** One line above every Benchmark screen: the worker's state, linking to its panel. */
+/** Runner health on the setup and publication screens. */
 export function WorkerBanner() {
   const location = useLocation();
-  const {data} = useWorkerStatus();
-  const notice = workerNotice(data);
-  if (!notice) return null;
+  const {data, error} = useWorkerStatus();
+  const notice = error ? {tone: 'bad', text: `Could not check runner health: ${error}`} : workerNotice(data);
   return (
-    <p className={notice.tone === 'ok' ? styles.muted : notice.tone === 'bad' ? styles.workerBad : styles.warn} role="status">
-      {notice.text}{' '}
-      <Link to={`${location.pathname}${searchFor({view: 'worker'})}`}>See Local Runner Health Check</Link>
-    </p>
+    <div className={styles.workerBanner} role="status">
+      <span>Benchmark Runner Health:</span>
+      <Link className={clsx(styles.healthLink, notice?.tone === 'ok' ? styles.healthOk : notice?.tone === 'bad' ? styles.healthBad : styles.healthWait)}
+        to={`${location.pathname}${searchFor({view: 'worker'})}`} title="Open Benchmark Runner Health" aria-label="Open Benchmark Runner Health">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 10h4l2-5 4 10 2-5h4" /></svg>
+      </Link>
+      <span className={styles.fieldHint}>{notice?.text ?? 'Checking…'}</span>
+    </div>
   );
 }
 

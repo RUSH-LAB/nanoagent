@@ -303,6 +303,8 @@ test('the Benchmark screens say what each worker state needs', () => {
   const say = worker => workerNotice({connected: true, worker}).text;
   assert.equal(say({state: 'ready'}), 'Benchmark worker ready.');
   assert.match(say({state: 'no-key'}), /Add your OpenRouter key in Settings/);
+  assert.equal(workerNotice({connected: true, worker: {state: 'no-key'}}).tone, 'bad');
+  assert.equal(workerNotice({connected: true, worker: {state: 'ready'}}).tone, 'ok');
   assert.match(say({state: 'no-docker', message: 'Docker is not installed. Install Docker Desktop'}), /Install Docker Desktop/);
   assert.match(say({state: 'pulling', progress: {done: 2, total: 5}}), /2 of 5 layers/);
   assert.match(say({state: 'failed', message: 'RUSH rejected the worker\'s credential'}), /failed: RUSH rejected/);

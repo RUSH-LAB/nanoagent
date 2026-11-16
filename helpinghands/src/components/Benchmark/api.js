@@ -1,5 +1,6 @@
 import API_BASE, {apiFetch, apiRequest} from '../../utils/api.js';
 import {readEvents} from '../../utils/eventStream.js';
+import {allPages} from './pagination.js';
 
 /** The member's benchmark API (docs/contracts/rush-benchmark-api.md), under the workspace the page is in. */
 const BASE = '/api/benchmark';
@@ -17,6 +18,7 @@ async function request(path, init) {
 export const benchmarkApi = {
   /** The member's installed apps with their tasks, the plugins a benchmark is published for. */
   async apps() { return (await apiRequest('/api/apps')).apps; },
+  account: () => apiRequest('/api/workspaces'),
   /** What a benchmark publication starts from: limits, the coding template and its placeholders, the endpoints workers advertise. */
   defaults: () => apiRequest(`${BASE}/defaults`),
   /** Every published benchmark, newest first, of one plugin (and one version of it) when given. */
@@ -29,7 +31,17 @@ export const benchmarkApi = {
   /** A benchmark with its case set: task, context and the cases (kind, arguments, expected error). */
   async benchmark(benchmarkId) { return (await apiRequest(`${BASE}/benchmarks/${id(benchmarkId)}`)).benchmark; },
   /** Every member's runs of a benchmark, as run summaries. */
-  async benchmarkResults(benchmarkId) { return (await apiRequest(`${BASE}/benchmarks/${id(benchmarkId)}/results?limit=200`)).runs; },
+  async benchmarkResults(benchmarkId, before) {
+    const query = new URLSearchParams({limit: '200'});
+    if (before) query.set('before', before);
+    return (await apiRequest(`${BASE}/benchmarks/${id(benchmarkId)}/results?${query}`)).runs;
+  },
+  allBenchmarkResults(benchmarkId) { return allPages(before => this.benchmarkResults(benchmarkId, before)); },
+  allRuns() { return allPages(async before => {
+    const query = new URLSearchParams({limit: '200'});
+    if (before) query.set('before', before);
+    return (await apiRequest(`${BASE}/runs?${query}`)).runs;
+  }); },
   /**
    * Publish a benchmark for the installed plugin: `bodyText` is the request as text (the case file embedded as it was read, never parsed
    * here, so a number's spelling survives). The member's computer pins the cases and RUSH publishes them: `{benchmark, created}`.

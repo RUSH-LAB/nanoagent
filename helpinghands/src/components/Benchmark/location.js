@@ -18,19 +18,25 @@ export function screenOf(search) {
   const attempt = ID.test(params.get('attempt') ?? '') ? params.get('attempt') : null;
   const compare = pairOf(params.get('compare'));
   const caseKey = runs ? params.get('case') : null;
-  const selection = caseKey ? {caseKey} : {};
+  const selection = {...(caseKey ? {caseKey} : {}), ...(params.get('from') === 'harnesses' ? {fromHarness: true} : {})};
   if (compare) return {screen: 'compare', run, runs, attempt: null, compare, ...selection};
   if (attempt) return {screen: 'attempt', run, runs, attempt, compare: null, ...selection};
   if (runs) return {screen: 'compare-runs', run: null, runs, attempt: null, compare: null, ...selection};
   if (run) return {screen: 'run', run, runs: null, attempt: null, compare: null};
   const view = params.get('view');
-  const initialSelection = view === 'new' && params.has('benchmark') ? {plugin: params.get('plugin'), benchmark: params.get('benchmark')} : undefined;
+  let initialSelection;
+  if (view === 'new' && params.has('benchmarks')) {
+    let harness;
+    try { harness = JSON.parse(params.get('harness')); } catch { harness = null; }
+    const benchmarks = params.get('benchmarks').split(',').filter(id => ID.test(id));
+    if (benchmarks.length && harness?.harness?.name && harness?.harness?.version && ['coding', 'task_tools'].includes(harness.policy)) initialSelection = {benchmarks, harness};
+  } else if (view === 'new' && params.has('benchmark')) initialSelection = {plugin: params.get('plugin'), benchmark: params.get('benchmark')};
   if (initialSelection) return {screen: 'new', run: null, runs: null, attempt: null, compare: null, initialSelection};
-  return {screen: view === 'new' || view === 'publish' || view === 'all' || view === 'worker' ? view : 'runs', run: null, runs: null, attempt: null, compare: null};
+  return {screen: view === 'new' || view === 'publish' || view === 'all' || view === 'worker' || view === 'harnesses' ? view : 'runs', run: null, runs: null, attempt: null, compare: null};
 }
 
 /** The search string for a screen: `{}` is the runs list, `{view: 'all'}` everyone's results, `{view: 'new'}` the form, `{view: 'publish'}` Create Plugin Benchmark, `{view: 'worker'}` the benchmark worker's health. */
-export function searchFor({view, run, runs, attempt, compare, plugin, benchmark, caseKey}) {
+export function searchFor({view, run, runs, attempt, compare, plugin, benchmark, benchmarks, harness, caseKey, fromHarness}) {
   const params = new URLSearchParams();
   if (view) params.set('view', view);
   if (run) params.set('run', run);
@@ -38,6 +44,8 @@ export function searchFor({view, run, runs, attempt, compare, plugin, benchmark,
   if (runs && caseKey) params.set('case', caseKey);
   if (attempt) params.set('attempt', attempt);
   if (compare) params.set('compare', compare);
+  if (fromHarness) params.set('from', 'harnesses');
+  if (view === 'new' && benchmarks?.length && harness) { params.set('benchmarks', benchmarks.join(',')); params.set('harness', JSON.stringify(harness)); }
   if (view === 'new' && benchmark) {
     if (plugin) params.set('plugin', plugin);
     params.set('benchmark', benchmark);

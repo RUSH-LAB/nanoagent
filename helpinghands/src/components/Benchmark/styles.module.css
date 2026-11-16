@@ -226,11 +226,44 @@ ol.actions button { width: 100%; padding: 0.3rem 0.6rem; border: 0; background: 
 
 @media (max-width: 680px) { .twin { grid-template-columns: minmax(0, 1fr); } }
 
-.cardGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 0.5rem; margin-top: 0.4rem; }
-.benchmarkCard span { min-width: 0; }
 
 .workerBad { color: var(--ifm-color-danger-dark); }
 .workerChecks { list-style: none; padding: 0; margin: 0.75rem 0; }
 .workerChecks li { padding: 0.4rem 0; border-bottom: 1px solid var(--site-hairline); }
 .workerChecks li[data-state='fail'] strong { color: var(--ifm-color-danger-dark); }
 .workerChecks li[data-state='warn'] strong, .workerChecks li[data-state='wait'] strong { color: var(--ifm-color-warning-darkest); }
+
+/* Multi-benchmark selection and harness comparison */
+.benchmarkList { max-height: 25rem; overflow: auto; border: 1px solid var(--site-hairline); border-radius: var(--site-radius); }
+.benchmarkOption { display: flex; align-items: flex-start; gap: 0.7rem; padding: 0.7rem 0.85rem; margin: 0; cursor: pointer; }
+.benchmarkOption + .benchmarkOption, .reviewItem + .reviewItem { border-top: 1px solid var(--site-hairline); }
+.benchmarkOption:hover, .benchmarkOption:has(:checked) { background: var(--ifm-color-emphasis-100); }
+.benchmarkOption input { margin: 0.25rem 0 0; accent-color: var(--ifm-font-color-base); }
+.benchmarkOption small, .comparisonMeta { display: block; margin-top: 0.15rem; font-weight: 400; color: var(--ifm-color-emphasis-700); }
+.reviewItem { padding: 0.65rem 0.85rem; }
+.reviewItem summary { cursor: pointer; }
+.reviewItem p { margin: 0.5rem 0 0; }
+.comparisonTable { overflow-x: auto; border: 1px solid var(--site-hairline); border-radius: var(--site-radius-lg); }
+.comparisonTable table { margin: 0; }
+.comparisonTable th, .comparisonTable td { padding: 0.75rem 0.85rem; }
+.comparisonTable select { max-width: 15rem; }
+
+.harnessPicker { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 1.25rem; margin: 1.25rem 0 1.5rem; }
+.harnessPicker .choiceGrid { display: flex; flex-direction: column; max-height: 17rem; }
+.harnessPicker .choice { width: 100%; }
+.runChoices { margin-top: 0.45rem; color: var(--ifm-color-emphasis-700); }
+.runChoices summary { cursor: pointer; }
+.runChoices fieldset { display: grid; gap: 0.35rem; margin: 0.4rem 0; padding: 0; border: 0; }
+.runChoices legend { font-weight: 600; }
+.workerBanner { display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem; margin-bottom: 1rem; }
+.healthLink { display: inline-flex; align-items: center; justify-content: center; width: 1.75rem; height: 1.75rem; border: 1px solid var(--site-hairline); border-radius: var(--site-radius); color: inherit; }
+.healthOk { color: var(--ifm-color-success-dark); }
+.healthBad { color: var(--ifm-color-danger); }
+.healthWait { color: var(--ifm-color-warning-darkest); }
+.healthLink:hover { border-color: currentColor; }
+.healthLink svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.reviewItem pre { max-height: 18rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.comparisonTable thead th { text-align: left; background: var(--ifm-color-emphasis-100); }
+.comparisonTable th, .comparisonTable td { border-left: 0; border-right: 0; text-align: left; }
+.comparisonTable tbody tr:last-child th, .comparisonTable tbody tr:last-child td { border-bottom: 0; }
