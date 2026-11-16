@@ -15,6 +15,7 @@ const SECTIONS = [
   {id: 'home', title: 'Home', path: ''},
   {id: 'plugins', title: 'Plugins', path: 'apps', running: true},
   {id: 'marketplace', title: 'Marketplace', path: 'marketplace'},
+  {id: 'benchmark', title: 'Benchmark', path: 'benchmark'},
   {id: 'workspace', title: 'Filesystem', path: 'workspace'},
   {id: 'settings', title: 'Settings', path: 'settings', foot: true},
 ];

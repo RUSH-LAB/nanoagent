@@ -71,4 +71,22 @@ describe('account-wide API paths on a workspace page', () => {
       resetClientPlatform();
     }
   });
+
+  it('reads benchmarks in the workspace the page is in, the list with its query too', async () => {
+    const {installClientPlatform, resetClientPlatform} = await import('../../../src/platform/client.js');
+    installClientPlatform({runtimeConfig: () => ({}), location: {pathname: () => '/w/mine/benchmark'}});
+    const asked = [];
+    globalThis.fetch = async input => {
+      const url = typeof input === 'string' ? input : input.url;
+      asked.push(url);
+      return new Response(JSON.stringify(url.endsWith('/api/workspaces') ? {workspaces: [{slug: 'mine', id: 'w1'}]} : {}), {status: 200});
+    };
+    try {
+      await api.apiRequest('/api/benchmark/benchmarks?plugin_id=p');
+      await api.apiRequest('/api/benchmark/benchmarks/b1');
+      assert.deepEqual(asked.filter(url => url.includes('benchmarks')), ['/api/workspaces/w1/benchmark/benchmarks?plugin_id=p', '/api/workspaces/w1/benchmark/benchmarks/b1']);
+    } finally {
+      resetClientPlatform();
+    }
+  });
 });
