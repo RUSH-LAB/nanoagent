@@ -142,6 +142,7 @@ const commands = Object.freeze({
     run(process.execPath, ['tests/integration/postgres/rls-acceptance.mjs'], env);
     run(process.execPath, ['tests/integration/postgres/runtime-acceptance.mjs'], env);
     run(process.execPath, ['tests/integration/postgres/tenancy-acceptance.mjs'], env);
+    run(process.execPath, ['tests/integration/postgres/benchmark-acceptance.mjs'], env);
   },
 });
 

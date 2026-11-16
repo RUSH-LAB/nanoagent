@@ -7,7 +7,7 @@
  * do not meet. In particular, activeOrganizationId is deliberately absent:
  * changing a preference in one tab must not change what another tab may read.
  */
-const {APP_UI_ROUTE, LAB_ROUTE, MARKET_ROUTE} = require('./routes/paths');
+const {APP_UI_ROUTE, BENCHMARK_PUBLISH_ROUTE, BENCHMARK_WORKER_ROUTE, LAB_ROUTE, MARKET_ROUTE} = require('./routes/paths');
 
 const WORKSPACE_ROLES = Object.freeze(['owner', 'editor', 'viewer']);
 
@@ -52,6 +52,8 @@ function isGlobalApiPath(pathname) {
     || APP_UI_ROUTE.test(value)
     || MARKET_ROUTE.test(value)
     || LAB_ROUTE.test(value)
+    || BENCHMARK_PUBLISH_ROUTE.test(value)
+    || BENCHMARK_WORKER_ROUTE.test(value)
     || /^\/api\/users\/[^/]+\/role$/.test(value);
 }
 

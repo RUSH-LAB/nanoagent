@@ -13,4 +13,8 @@ const LAB_ROUTE = /^\/api\/lab\/(?:(connect)|(session)|(sign-in)|(window-sign-in
 // A plugin's page, from whichever workspace opens it (apps.js).
 const APP_UI_ROUTE = /^\/api\/apps\/([^/]+)\/ui\/([^/]+)\/([^/]+)\/(.+)$/;
 
-module.exports = {MARKET_ROUTE, LAB_ROUTE, APP_UI_ROUTE};
+// A member's benchmark publication (benchmark.js), and the benchmark worker's API, which has no member session (benchmark-worker.js).
+const BENCHMARK_PUBLISH_ROUTE = /^\/api\/benchmark\/benchmarks$/;
+const BENCHMARK_WORKER_ROUTE = /^\/api\/benchmark-worker\/.+$/;
+
+module.exports = {MARKET_ROUTE, LAB_ROUTE, APP_UI_ROUTE, BENCHMARK_PUBLISH_ROUTE, BENCHMARK_WORKER_ROUTE};
