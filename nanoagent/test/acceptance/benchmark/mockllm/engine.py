@@ -239,10 +239,6 @@ class Ledger:
         with self._lock:
             return list(self._lookups)
 
-    def violate(self, message: str) -> None:
-        with self._lock:
-            self.violations.append(message)
-
     @property
     def calls(self) -> list[Call]:
         with self._lock:

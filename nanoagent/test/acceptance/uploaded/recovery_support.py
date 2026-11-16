@@ -150,18 +150,18 @@ def read_stream(member: Member, attempt: str, after: int, *, stop_after: int | N
 
 def signal_worker(worker: Worker, name: str) -> None:
     """Send ``name`` (STOP, CONT, KILL) to the worker process in the worker container (its pid is the launcher's: the script execs the worker)."""
-    done = vm("bash", "-c", f"kill -{name} $(cat {worker.pidfile})")
+    done = inside("bash", "-c", f"kill -{name} $(cat {worker.pidfile})")
     assert done.returncode == 0, done.stderr
 
 
 def remove_attempt_leftovers(attempt: str) -> None:
     """What a killed worker leaves in the worker container for ``attempt``: its containers, volumes and network."""
-    vm("bash", "-c", f"docker ps -aq --filter label=rush.attempt={attempt} | xargs -r docker rm -f; docker ps -aq --filter name={attempt} | xargs -r docker rm -f", timeout=180)
-    vm("bash", "-c", f"docker volume ls -q --filter name={attempt} | xargs -r docker volume rm -f; docker network rm rush-net-{attempt}", timeout=180)
+    inside("bash", "-c", f"docker ps -aq --filter label=rush.attempt={attempt} | xargs -r docker rm -f; docker ps -aq --filter name={attempt} | xargs -r docker rm -f", timeout=180)
+    inside("bash", "-c", f"docker volume ls -q --filter name={attempt} | xargs -r docker volume rm -f; docker network rm rush-net-{attempt}", timeout=180)
 
 
 def attempt_containers(attempt: str) -> list[str]:
-    done = vm("bash", "-c", f"docker ps -aq --filter label=rush.attempt={attempt}", timeout=120)
+    done = inside("bash", "-c", f"docker ps -aq --filter label=rush.attempt={attempt}", timeout=120)
     return done.stdout.split()
 
 

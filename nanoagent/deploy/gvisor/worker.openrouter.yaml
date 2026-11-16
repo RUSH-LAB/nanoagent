@@ -1,4 +1,4 @@
-# The production worker: inference goes to OpenRouter with the deployment's key.
+# The member's worker: inference goes to OpenRouter with the member's own key.
 #   export RUSH_WORKER_TOKEN=...  OPENROUTER_API_KEY=...
 #   python -m nanoagent.uploaded.worker config=deploy/gvisor/worker.openrouter.yaml home=<run folder>
 _ > nanoagent.uploaded.worker.WorkerConfig:

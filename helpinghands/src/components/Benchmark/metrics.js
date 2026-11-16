@@ -13,7 +13,7 @@ const TOKENS = [
   ['cache_write_tokens', 'Cache writes', 'cache_write'],
 ];
 
-export const formatCount = value => (Number.isFinite(value) ? Math.round(value).toLocaleString('en-US') : 'Unknown');
+const formatCount = value => (Number.isFinite(value) ? Math.round(value).toLocaleString('en-US') : 'Unknown');
 
 /** `1.2 s`, `340 ms`, `2 m 5 s`. */
 export function formatMs(ms) {
@@ -25,7 +25,7 @@ export function formatMs(ms) {
   return `${Math.floor(whole / 60)} m ${whole % 60} s`;
 }
 
-export const formatNs = ns => (Number.isFinite(ns) ? formatMs(ns / 1e6) : 'Unknown');
+const formatNs = ns => (Number.isFinite(ns) ? formatMs(ns / 1e6) : 'Unknown');
 
 const missingText = (count, unit) => (count > 0 ? `${count} ${unit}${count === 1 ? '' : 's'} without it` : null);
 

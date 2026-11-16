@@ -54,7 +54,7 @@ const CHECK_STATES = new Set(['pending', 'running', 'pass', 'warn', 'wait', 'fai
 const text = (value, max) => (typeof value === 'string' ? value.slice(0, max) : null);
 
 /**
- * The computer's `hello` worker: its benchmark worker's health (runner/worker.mjs) as {state, message, platform, progress, checks, log}, each
+ * The computer's `hello` worker: its benchmark worker's health (runner/worker.mjs) as {state, message, platform, concurrency, progress, checks, log}, each
  * check {id, label, state, message, fix}; anything else is dropped, and null when it says none.
  */
 function workerState(value) {

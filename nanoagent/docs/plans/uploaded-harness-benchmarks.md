@@ -6,41 +6,37 @@ The comparison is the plugin benchmark's (`nanoagent/examples/benchmark/`): Nano
 
 ## Contracts and code map
 
-- [Uploaded harness contract](../contracts/uploaded-harness-v1.md) and its [schema](../../src/nanoagent/uploaded/uploaded-harness-v1.schema.json): source package and build, request and result, participant policies, limits and network, scoring, prompt, OpenRouter boundary, token accounting, tool, exec and event interfaces, durable replay.
-- [RUSH benchmark API](../contracts/rush-benchmark-api.md): the member, publishing and worker HTTP APIs, storage and authorization.
-- Server: `helpinghands/src/server/routes/benchmark*.js`, `helpinghands/src/server/benchmark/` (pure rules: `prompt.js`, `limits.js`, `plan.js`, `compare.js`, `rules.js`, `validate.js`), `helpinghands/src/server/postgres/benchmark*.js`, migration `0052_benchmark.sql`.
-- Worker, CLI and engine: `nanoagent/src/nanoagent/uploaded/` (`worker.py`, `runner.py`, `sandbox.py`, `gateway.py`, `broker.py`, `execservice.py`, `collector.py`, `projection*.py`, `timing.py`, `compare*.py`, `case_sets.py`, `reference.py`, `source_zip.py`, `answer.py`, `client.py`, `reference_harnesses/`), `nanoagent/deploy/gvisor/`.
-- Desktop: `helpinghands/src/components/Benchmark/`.
+- [Uploaded harness contract](../contracts/uploaded-harness-v1.md) and its [schema](../../src/nanoagent/uploaded/uploaded-harness-v1.schema.json): the wire protocol between a harness and the worker (package and build, request and result, policies, network, scoring, prompt, OpenRouter boundary, token accounting, tool, exec and event interfaces, durable replay).
+- [RUSH benchmark API](../contracts/rush-benchmark-api.md): the member, publishing and worker HTTP APIs, with every route, field, status code and limit.
+- Server: `helpinghands/src/server/routes/benchmark*.js`, `helpinghands/src/server/benchmark/` (pure rules: `prompt.js`, `limits.js`, `plan.js`, `compare.js`, `rules.js`, `validate.js`, `harness.js`), `helpinghands/src/server/postgres/benchmark*.js`, migrations `0052` to `0055` (`benchmark*.sql`).
+- Worker, CLI and engine: `nanoagent/src/nanoagent/uploaded/` (`worker.py`, `rush_worker.py`, `runner.py`, `sandbox.py`, `gateway.py`, `broker.py`, `execservice.py`, `collector.py`, `projection*.py`, `timing.py`, `compare*.py`, `case_sets.py`, `reference.py`, `source_zip.py`, `answer.py`, `client.py`, `reference_harnesses/`), `nanoagent/deploy/gvisor/`.
+- Desktop: `helpinghands/src/components/Benchmark/` (screens), `helpinghands/src/runner/worker.mjs` (starts and checks the worker).
 
-This document does not restate the contracts. It describes how the pieces fit, the trace and timing model, the tests and the open work.
+This document does not restate the contracts. It describes how the pieces fit and why, the trace and timing model, the tests and the open work.
 
 ## Benchmarks and harness identity
 
 Cases are authored and validated first with the plugin benchmark's `examples/benchmark/step1_make_cases.py`. A case file names the plugin and task and holds the shared context, inputs to answer and inputs to refuse with the expected reference error. A model may propose a case, but code validates the input and the reference or verifier behavior; no model is a judge.
 
-A **benchmark** is a case set plus a pinned run configuration: model, endpoint profile, limits (internet access included), the coding template and the task-tools instructions. It belongs to one plugin version, is immutable once published, and is named; the name is unique per `(plugin_id, plugin_version, name)`. Republishing identical content answers `created: false`; other content under a taken name is `409 benchmark_name_taken`. Any signed-in member may publish for any published plugin version, and every signed-in member reads every benchmark with its case set (task, context, each case's kind, input and expected error, never the private reference).
+A **benchmark** is a case set plus a pinned run configuration: model, endpoint profile, limits (internet access included), the coding template and the task instructions. It belongs to one plugin version, is immutable once published and is named. Any signed-in member may publish for any published plugin version, and every signed-in member reads every benchmark with its case set, never the references. Naming, republishing and the visible case-set fields are in the [API](../contracts/rush-benchmark-api.md#benchmarks).
 
-Publishing (CLI `examples/uploaded_benchmark/step1_publish_benchmark.py`, RUSH Lab's Create Plugin Benchmark screen) shares `nanoagent.uploaded.case_sets`. It pins the plugin package digest, runs the same deterministic validation, pins each case's reference once (the plugin's reference tool, privately; in the app on the member's own computer, so private references never reach the browser), and derives every field (task description, schemas, tools, egress hosts, case digests) from the package and case file. The member supplies the case file, the plugin version, a name and optional overrides of the defaults. Reference failures, missing cases, invalid schemas, limits above what the endpoint's workers allow, an endpoint no worker serves and a model no worker prices are publication errors that store nothing, never invented around. The case set under a benchmark is an implementation detail.
+Publishing (CLI `examples/uploaded_benchmark/step1_publish_benchmark.py`, RUSH Lab's Create Plugin Benchmark screen) shares `nanoagent.uploaded.case_sets`. It pins the plugin package digest, runs the same deterministic validation, pins each case's reference once with the plugin's reference tool (in the app on the member's own computer, so references never reach the browser), and derives every field (task description, schemas, tools, egress hosts, case digests) from the package and case file. The member supplies the case file, the plugin version, a name and optional overrides of the defaults. Reference failures, missing cases, invalid schemas, limits above what the member's worker allows, an endpoint it does not serve and a model it does not price are publication errors that store nothing, never invented around. The case set under a benchmark is an implementation detail.
 
-A **harness** is `(owner, name)` at a `version`, read from the `name`, `version` and `dialects` its `harness.yaml` declares. The first upload of `owner/name@version` pins its source sha256, and a different ZIP under that version is `409 harness_version_taken`. The same ZIP runs any number of times, each run its own row. The reference harness names are reserved (`400 reserved_harness_name`).
+A **harness** is `(owner, name)` at a `version`, read from the `name`, `version` and `dialects` its `harness.yaml` declares, so identity comes from the ZIP and two members may both have `foo`. The first upload of a version pins its source sha256 so a version always means one archive; the same ZIP runs any number of times, each run its own row. The reference harness names are reserved so a member upload cannot impersonate one. Rules and codes: [contract](../contracts/uploaded-harness-v1.md#package-build-and-entry-point), [API](../contracts/rush-benchmark-api.md#post-sources).
 
 ## Run setup
 
-A run takes a benchmark, a policy and a harness source, and nothing else:
+A run takes a benchmark, a policy and a harness source, and nothing else. The server pins everything a run needs (case set, rendered prompts, limits, endpoint, model, dialects, source) so a retained run stays readable and rerunnable after the plugin is uninstalled or republished.
 
-- **Benchmark and cases.** Every case of the benchmark runs. The run pins the case set, the task and context as published, and each case's content digest.
-- **Participant policy.** `task_tools` (NanoAgent's side: the harness works the task with the task's tools through the broker) or `coding` (every other harness: the harness gets the coding prompt, uses its own tools, and writes `answer.json`). The server cannot tell which side a source is on, so any member can choose either policy for any source. A harness that does not support the chosen policy fails its attempts like any other harness failure. Both policies are scored by the same verifier.
-- **Prompt.** The benchmark pins both prompts because the runner picks the policy: the coding template (default: `prompt` in `examples/benchmark/configs/step2_single_run.yaml`) and the task instructions (default: the pinned manifest's). The run pins each case's exact rendered text and digest for the chosen policy. There is no per-run override.
-- **Limits.** Every limit has a visible default, is set when the benchmark is published, and is pinned with it: `wall_time_ms`, `max_model_calls`, `max_output_tokens_per_call`, `max_cost_usd`, `cpus`, `memory_mb`, `pids`, `workspace_bytes`, `workspace_files`, `tmp_bytes`, `internet_access` and the build's own `build_wall_ms`, `build_memory_mb`, `build_output_bytes`, `build_files`, `build_tmp_bytes`. Defaults live in `helpinghands/src/server/benchmark/limits.js` and the [defaults endpoint](../contracts/rush-benchmark-api.md). No limit applies that the run's effective configuration does not show. A run has no concurrency: how many attempts run at once is the runner's own setting in RUSH Lab (Local Runner Health Check, Advanced settings). Build limits exist because the build's output volume and `/tmp` are tmpfs charged to the build's memory; the defaults fit every reference harness.
-- **Internet access.** On by default. The harness container gets the public internet, with private, link-local (cloud metadata included), CGNAT, loopback, multicast and host addresses and all of IPv6 unreachable (a host packet filter, `deploy/gvisor/egress.sh`, which a worker verifies at startup). Model calls must still go through the gateway; bypasses cannot be detected, so runs with internet access are marked unverified egress in comparisons. The build is network-less with pinned dependencies.
-- **Egress hosts.** Under `task_tools` the tool container has no network of its own: its only way out is an egress proxy that allows HTTPS to the hosts the plugin declares (`network_hosts`, published as the task's `egress_hosts`) and refuses anything else, including private addresses. The hosts are pinned with the benchmark and shown in the run's configuration.
-- **Model, endpoint profile and dialects.** The model and endpoint profile are the benchmark's; the dialects are the harness manifest's. A preview resolves all of this without queueing; submit rejects a stale preview and uses an idempotency key. A worker advertises its endpoint label, maximum limits and the models it prices, and a run only goes to a worker that can give the benchmark's limits and price its model.
+- **Participant policy.** `task_tools` (NanoAgent's side: the harness works the task with the task's tools through the broker) or `coding` (every other harness: the harness gets the coding prompt, uses its own tools and writes `answer.json`). The server cannot tell which side a source is on, so any member can choose either policy for any source; a harness that does not support the policy fails its attempts like any other harness failure. Both policies are scored by the same verifier.
+- **Prompt.** The benchmark pins both prompts because the runner picks the policy: the coding template (default: `prompt` in `examples/benchmark/configs/step2_single_run.yaml`) and the task instructions (default: the plugin manifest's). The run pins each case's exact rendered text and digest. There is no per-run override.
+- **Limits.** Every limit has a visible default, is set when the benchmark is published and is pinned with it, so none applies that the run's effective configuration does not show. Defaults live in `helpinghands/src/server/benchmark/limits.js` and the [defaults endpoint](../contracts/rush-benchmark-api.md#get-defaults). A run has no concurrency: how many attempts run at once is the runner's own setting in RUSH Lab (Local Runner Health Check, Advanced settings; default 1, at most the machine's CPUs). The build has limits of its own because its output volume and `/tmp` are tmpfs charged to the build's memory; the [contract](../contracts/uploaded-harness-v1.md#limits-capabilities-and-the-network) gives the figures.
+- **Internet access.** On by default, public addresses only. Model calls must still go through the gateway; bypasses cannot be detected, so runs with internet access are marked unverified egress in comparisons. Under `task_tools` the tool container reaches only the hosts the plugin declares. Network rules: [contract](../contracts/uploaded-harness-v1.md#limits-capabilities-and-the-network).
+- **Model, endpoint profile and dialects.** The model and endpoint profile are the benchmark's; the dialects are the harness manifest's. A preview resolves all of this without queueing; submit rejects a stale preview and uses an idempotency key. A worker advertises its endpoint label, maximum limits and the models it prices, and a run only goes to the submitting member's worker, and only if it can give the benchmark's limits and price its model.
 
 ## Harness interfaces
 
-The harness implements one operation, `run(request) -> result`. `harness.yaml` declares the build and run argument vectors for the language's pinned toolchain (C++, Rust, Go, Python, TypeScript, Java, JavaScript). The worker supplies the read-only request at `RUSH_REQUEST` and the writable workspace at `RUSH_WORKSPACE`. Under `task_tools` it accepts a clean exit with an atomic `answered` or `refused` envelope at `RUSH_RESULT`; under `coding` it reads `answer.json` from the frozen workspace. RUSH owns timeout and cancellation; the plugin owns scoring.
-
-RUSH provides language-neutral HTTP interfaces that SDK helpers can wrap:
+The harness implements one operation, `run(request) -> result`. `harness.yaml` declares the build and run argument vectors for the language's pinned toolchain (C++, Rust, Go, Python, TypeScript, Java, JavaScript). RUSH owns timeout and cancellation; the plugin owns scoring. RUSH provides language-neutral HTTP interfaces that SDK helpers can wrap:
 
 | Operation | Responsibility |
 | --- | --- |
@@ -51,19 +47,12 @@ RUSH provides language-neutral HTTP interfaces that SDK helpers can wrap:
 
 ## OpenRouter endpoint configuration
 
-Every harness that uses inference configures its client from `request.openrouter.base_url`, `model` and `dialects`, with `RUSH_ATTEMPT_TOKEN` as its credential. The gateway replaces the token with the deployment's upstream credential and enforces the model, provider routing and budget. The exact first-prompt rule is in the contract's [prompt section](../contracts/uploaded-harness-v1.md#prompt-contract). The verifier can score a locally produced result from a harness that made zero model calls.
-
-| Dialect declared in the request | Harness sends | Gateway forwards |
-| --- | --- | --- |
-| `chat_completions` | `POST <base_url>/chat/completions` with `Authorization: Bearer <attempt token>` | OpenRouter Chat Completions |
-| `responses` | `POST <base_url>/responses` with `Authorization: Bearer <attempt token>` | OpenRouter Responses |
-| `anthropic_messages` | `POST <base_url>/messages` with bearer or `x-api-key`. For an SDK that appends `/v1/messages`, remove `/v1` from the supplied base URL. | OpenRouter Anthropic Messages |
-
-The worker's YAML independently configures where the gateway forwards (`deploy/gvisor/worker.openrouter.yaml` and `worker.mock.yaml`), so acceptance can select a scripted endpoint explicitly.
+The harness side (dialect routes, credential, first-prompt rule) is the contract's [OpenRouter boundary](../contracts/uploaded-harness-v1.md#openrouter-boundary). The worker's YAML independently configures where the gateway forwards (`deploy/gvisor/worker.openrouter.yaml` and `worker.mock.yaml`), so acceptance can select a scripted endpoint explicitly.
 
 ```yaml
 # Production worker profile
 openrouter:
+  label: openrouter
   mode: openrouter
   upstream_base_url: https://openrouter.ai/api/v1
 ```
@@ -71,6 +60,7 @@ openrouter:
 ```yaml
 # Acceptance worker profile
 openrouter:
+  label: mock
   mode: mock
   upstream_base_url: http://openrouter-mock:8080/api/v1
   mock_hosts: [openrouter-mock]
@@ -82,7 +72,7 @@ The key is never in the YAML: both profiles read it from the worker's `OPENROUTE
 
 ```mermaid
 flowchart LR
-    App[RUSH Lab Dev or CLI] -->|Source, case set, policy, prompt, limits| RUSH[RUSH server]
+    App[RUSH Lab Dev or CLI] -->|Source, policy, benchmark| RUSH[RUSH server]
     RUSH <-->|Pinned manifests, attempts and traces| PG[(PostgreSQL)]
     RUSH <-->|Scoped leases and ingestion| W[NanoAgent worker]
     W --> B[Isolated build]
@@ -98,23 +88,34 @@ flowchart LR
     RUSH -->|Live and saved trace| App
 ```
 
-**Where the worker runs.** The worker runs on the member's own computer, in a gVisor-isolated container on the member's Docker (see Local worker below), and runs only that member's runs, on that member's OpenRouter key. It authenticates to RUSH with a worker credential the member minted (stored hashed, revocable, good only on `/api/benchmark-worker/`); RUSH hands it only runs whose owner is that member, and checks a run's limits against that member's own worker's advertised capabilities (`worker_unavailable` when it is not running). Results come from the member's own machine and are trusted. The claim carries each case's reference to that machine, so references are not hidden from whoever runs a benchmark, and elapsed and CPU figures are the member's machine's.
-
 1. **Queue and pin.** The server resolves the case set, plugin package, source, rendered prompts, limits, endpoint, model and dialects, and queues only after the run holds durable references to the actual source, package, case set, private references and build dependencies. An authorized rerun uses the retained artifacts and creates a new attempt. Uninstalling or republishing a plugin leaves a retained run readable.
 2. **Build and isolate.** Pinned gVisor in the worker's container. Each toolchain version defines its build and runtime images, dependency resolver and offline validation policy. The full verified dependency closure is staged before a network-less build in a disposable sandbox; declared outputs are validated and mounted read-only. Each case then gets a fresh sandbox with an unprivileged identity, immutable inputs, bounded writable paths and enforced process, CPU, memory, disk and output limits. The process collector must pass startup and loss checks before member source is accepted.
 3. **Fence and observe.** The current lease and attempt token govern admission at the gateway, tool broker and command service, and trace ingestion. Each physical model request is admitted with a unique record and its bounded spend reserved against the attempt, member and workspace budgets before dispatch. Uncertain calls stay reserved until reconciliation or are settled at the reserved bound. Cancellation or lease loss revokes admission, drains in-flight local work and keeps confirmed or uncertain spend. An expired attempt is interrupted and a rerun needs a new attempt.
 4. **Freeze and score.** The worker stops new calls and every workspace writer (harness descendants, tool work, managed commands), takes a bounded snapshot, reads the result without following links, and gives the frozen outcome and private references to the isolated verifier. Execution status, verdict and trace coverage are recorded independently. A reliable timeout or invalid result is scored as an execution failure; a worker interruption, verifier exception or missing scoring evidence leaves the score unavailable and keeps the trace.
-5. **Store and replay.** A per-attempt event stream and span index go into workspace-scoped PostgreSQL with bounded redacted payloads and artifacts. Cursors are persisted with events and sealed with a watermark. The desktop resumes from a cursor and reads history from storage with the upstream offline. Late accounting is versioned and never rewrites trace events.
+5. **Store and replay.** A per-attempt event stream and span index go into PostgreSQL with bounded redacted payloads and artifacts. Cursors are persisted with events and sealed with a watermark. The desktop resumes from a cursor and reads history from storage with the upstream offline. Late accounting is versioned and never rewrites trace events. See the contract's [durable replay](../contracts/uploaded-harness-v1.md#durable-replay).
 
 ## Local worker
 
-The worker ships as one golden container image (`deploy/gvisor/Dockerfile`, `container-entrypoint.sh`) that runs on Docker Desktop, Colima, OrbStack or Docker Engine, so no deployment host is needed (Railway runs neither privileged containers nor Docker). A privileged container runs dockerd with the `runsc-rush` runtime, the egress filter and the collector, then the worker as a non-root user. NanoAgent, the uv-locked venv, a pinned gVisor and `bubblewrap` are baked in; named volumes keep the inner image cache and uv caches across restarts. At startup the worker reaps `rush-*` containers, networks and volumes a previous run left behind.
+The worker runs on the member's own computer, so no deployment host is needed: it needs a Docker daemon with the `runsc-rush` runtime and root for its packet filter, and Railway runs neither privileged containers nor Docker (see `plugin-sandbox.md`). Both Railway services (RUSH, and a NanoAgent that runs no model or plugin) stay as they are. A VM per member was rejected: it is macOS only, needs a second path for Windows, and is one more thing to provision. One container image runs on Docker Desktop, Colima, OrbStack and Docker Engine.
 
-- **Publishing.** `ghcr.io/hosung-k1m/benchmark-worker`, built for amd64 and arm64 by `.github/workflows/benchmark-worker-image.yml`. Each RUSH Lab build pins the image digest it was tested with and never pulls a tag; the digest is the integrity check for a container the member runs privileged.
-- **Credentials.** RUSH Lab mints the member's worker credential and starts the container per connection with the member's OpenRouter key from Settings (`OPENROUTER_API_KEY`, never in YAML or on the wire). Adding, changing or removing the key starts, restarts or stops the worker without an app restart. `npm start` builds the image from the checkout and runs the worker in it with a dev credential (`helpinghands/scripts/dev/mint-worker-credential.mjs`).
-- **Health.** The Benchmark screens show the worker's state (ready, no OpenRouter key, Docker missing or stopped, pulling) and one Local Runner Health Check tab runs the checks in order, each with its fix: Docker CLI, daemon, privileged containers, Docker VM resources, pinned image, key, startup proofs, claiming from RUSH. Docker is explained, never installed for the member.
-- **Resilience.** Losing RUSH backs off and retries, logging the outage and recovery once. An attempt whose lease ran out while the computer slept is dropped on waking, not finalized late.
-- **Trust.** Members are trusted: no anti-tampering, references are not hidden from whoever runs a benchmark, and timing across machines is not reconciled.
+```text
+Member's computer
+  RUSH Lab (lab.mjs) -- per connection --> NanoAgent (sessions)
+                     -- per connection --> docker run ghcr.io/hosung-k1m/benchmark-worker@sha256:...
+                                            dockerd + runsc-rush + collector + egress filter
+                                            nanoagent.uploaded.worker -- HTTPS --> RUSH /api/benchmark-worker
+                                                                      -- HTTPS --> openrouter.ai (member's key)
+```
+
+The worker only connects out; nothing on the member's computer listens.
+
+- **Scope.** The worker runs only its member's runs, on that member's OpenRouter key. It authenticates with a worker credential the member minted (stored hashed, revocable, good only on `/api/benchmark-worker/`). RUSH hands it only runs whose owner is that member, and checks a run's limits against that member's own worker's advertised capabilities (`worker_unavailable` when it is not running). Capabilities come from what the container is given (CPUs and memory Docker sees), not from a server-sized config.
+- **Image.** One golden image (`deploy/gvisor/Dockerfile`, `container-entrypoint.sh`): a privileged container (`--init --privileged --cgroupns=private`) that runs dockerd with `runsc-rush`, installs the egress filter and starts the collector as root, then runs the worker as a non-root user. NanoAgent, the uv-locked venv, a pinned gVisor and `bubblewrap` (the plugin verifier runs under it) are baked in; `--init` stops exited `containerd-shim`s piling up as zombies. Named volumes keep the inner image cache and uv caches across restarts. At startup the worker reaps `rush-*` containers, networks and volumes a previous run left behind, because a laptop quits mid-attempt far more often than a server does.
+- **Publishing.** `ghcr.io/hosung-k1m/benchmark-worker`, built for amd64 and arm64 by `.github/workflows/benchmark-worker-image.yml` on pushes to `production` that touch `nanoagent/**`, after the gVisor tests pass inside the built image. Pushing to a personal account's namespace needs that account's token (`GHCR_TOKEN`, scope `write:packages`) as a repository secret; moving the package to an organization namespace later changes only the image name RUSH Lab pins. Each RUSH Lab build pins the image digest it was tested with and never pulls a tag; the digest is the integrity check for a container the member runs privileged.
+- **Credentials.** RUSH Lab mints the member's worker credential and starts the container per connection with the member's OpenRouter key from Settings (`OPENROUTER_API_KEY`, never in YAML or on the wire). Adding, changing or removing the key starts, restarts or stops the worker without an app restart; a restart interrupts attempts in flight, whose leases then expire. `npm start` builds the image from the checkout and runs the worker in it with a dev credential (`helpinghands/scripts/dev/start-local.mjs`, `mint-worker-credential.mjs`).
+- **Health.** The Benchmark screens show the worker's state (ready, no OpenRouter key, Docker missing or stopped, pulling) and one Local Runner Health Check tab runs the checks in order, each with its fix: Docker CLI, daemon, privileged containers, Docker VM resources, pinned image, key, startup proofs, claiming from RUSH. A missing key is a waiting state, not a failure. A crashed worker gets one automatic restart. Docker is explained, never installed for the member.
+- **Resilience.** Losing RUSH backs off (doubling up to `poll.max_outage_s`) and retries, logging the outage and recovery once. An attempt whose lease ran out while the computer slept is dropped on waking, not finalized late.
+- **Trust.** Members are trusted: no anti-tampering. The claim carries each case's reference to the member's machine, so references are not hidden from whoever runs a benchmark, and elapsed and CPU figures are that machine's and are not reconciled across machines.
 
 ## Code design
 
@@ -196,7 +197,7 @@ For example, two harnesses both read `config.yaml`; one runs `go test ./...`, th
 
 ## Scoring
 
-The plugin's ordinary `verify_task` scores both policies against the case's pinned private reference, with verdict rules that match the plugin benchmark's local `judge`; the full table and explanation codes are in the [contract](../contracts/uploaded-harness-v1.md#benchmark-scoring). A coding-policy `answer.json` is read from the frozen workspace by `nanoagent.uploaded.answer`, which follows the local benchmark's `read_answer` rules, so the verifier sees the same answer shape the local benchmark checks. Setup or reference errors stop preparation. Execution errors, refusals, verifier errors and unavailable scores stay distinguishable.
+The plugin's ordinary `verify_task` scores both policies against the case's pinned private reference. The verdict table and explanation codes are in the [contract](../contracts/uploaded-harness-v1.md#benchmark-scoring), and the rules match the plugin benchmark's local `judge`. A coding-policy `answer.json` is read from the frozen workspace by `nanoagent.uploaded.answer`, which follows the local benchmark's `read_answer`, so the verifier sees the same answer shape the local benchmark checks. Setup or reference errors stop preparation. Execution errors, refusals, verifier errors and unavailable scores stay distinguishable.
 
 ## Reference harnesses
 
@@ -231,7 +232,7 @@ RUSH Lab's Benchmark page (`helpinghands/src/components/Benchmark/`) has the sam
 
 ### CLI gate
 
-The mock-driven suite drives the full workflow from the CLI with YAML configuration, a scratch PostgreSQL database and real Linux workers in gVisor (each a `docker exec` in one container of the worker image, `deploy/gvisor/Dockerfile`, reaching the host as `host.docker.internal`). It uses the [acceptance-probe plugin](../../test/plugins/acceptance-probe) and its [cases](../../test/acceptance/benchmark/cases/probe_cases.json), the [scripted OpenRouter upstream](../../test/acceptance/benchmark/mockllm), mock dependency registries and the real source build, sandbox, gateway, broker, process collector, verifier, persistence, replay and comparison. Assertions are deterministic over machine-readable CLI output and stored evidence.
+The mock-driven suite drives the full workflow from the CLI with YAML configuration, a scratch PostgreSQL database and real Linux workers in gVisor (each a `docker exec` in one container of the worker image, reaching the host as `host.docker.internal`). It uses the [acceptance-probe plugin](../../test/plugins/acceptance-probe) and its [cases](../../test/acceptance/benchmark/cases/probe_cases.json), the [scripted OpenRouter upstream](../../test/acceptance/benchmark/mockllm), mock dependency registries and the real source build, sandbox, gateway, broker, process collector, verifier, persistence, replay and comparison. Assertions are deterministic over machine-readable CLI output and stored evidence.
 
 ```bash
 .venv/bin/python -m pytest test/acceptance/uploaded -m uploaded_acceptance
@@ -251,11 +252,11 @@ The mock-driven suite drives the full workflow from the CLI with YAML configurat
 | `test_reference_harnesses` | Claude Code and Codex build from their locks and run under the coding policy against the scripted provider, writing `answer.json` through their own shell tool. |
 | `test_plugin_benchmarks` | Two members, two plugin versions, everything through the CLI steps: version-tied benchmark names and idempotent republish; publish refusals that store nothing; the benchmark, not the runner, fixes model, limits, prompt and cases; harness identity from the manifest and its version pin; dialects from the manifest; the case-set view without private references; run counts, runners and results across members with other members' evidence unreadable; run summaries equal to run detail; a reference harness accepted under its own name and a member upload of that name refused. |
 
-For each unexpected failure: reproduce from artifacts, diagnose and fix the cause, rerun the failing scenario, then the full suite. Fix test or fixture errors against the documented contract. Host unit tests (`test/uploaded`) and the server tests (`npm test`, `npm run test:postgres` including `benchmark-acceptance.mjs`) run alongside.
+For an unexpected failure: reproduce from artifacts, fix the cause (a test or fixture error against the documented contract), rerun the failing scenario, then the suite. Host unit tests (`test/uploaded`) and the server tests (`npm test`, `npm run test:postgres` including `benchmark-acceptance.mjs`) run alongside.
 
 ### Local plugin benchmark acceptance
 
-`nanoagent/examples/benchmark/` has its own mock-driven suite (`test/acceptance/benchmark/`) that replaces only the LLM provider with the scripted `mockllm` server (one OpenRouter mock with the three dialects, strict 599 on unknown endpoints, a ledger of every request and server-side timestamp). Everything else is real: plugin unpack through a fake `psql` serving the acceptance-probe package, environment setup, reference pinning, each harness, profiling, verification, the batch runner and the report. Checks use only outer interfaces: the CLI steps, the artifacts they write, and the HTTP traffic. Validity predicates (layout, arithmetic, verdict consistency, timeline, no secret in any file) hold for any run, and conservation checks compare a run with the ledger (tokens exactly, cost from distinct prices, model and tool time within per-harness tolerances in `tolerances.yaml`). The scenario catalog covers one-shot and two-step answers, parallel tools, retry, wrong and malformed answers, the three refusal outcomes, provider errors, no answer and the setup failures. External-harness tiers are deselected by default and run with markers such as `harness_claude` and `harness_codex`; Hermes is left out for the reason above. Not yet run on Linux with bwrap in CI.
+`nanoagent/examples/benchmark/` has its own mock-driven suite (`test/acceptance/benchmark/`) that replaces only the LLM provider with the scripted `mockllm` server (one OpenRouter mock with the three dialects, strict 599 on unknown endpoints, a ledger of every request and server-side timestamp). Everything else is real: plugin unpack through a fake `psql` serving the acceptance-probe package, environment setup, reference pinning, each harness, profiling, verification, the batch runner and the report. Checks use only outer interfaces: the CLI steps, the artifacts they write, and the HTTP traffic. Validity predicates (layout, arithmetic, verdict consistency, timeline, no secret in any file) hold for any run, and conservation checks compare a run with the ledger (tokens exactly, cost from distinct prices, model and tool time within per-harness tolerances in `tolerances.yaml`). The scenario catalog covers one-shot and two-step answers, parallel tools, retry, wrong and malformed answers, the three refusal outcomes, provider errors, no answer and the setup failures. External-harness tiers are deselected by default and run with markers such as `harness_claude` and `harness_codex`; Hermes is left out for the reason above.
 
 ### Real benchmark
 
@@ -265,37 +266,30 @@ After mock acceptance passes, verify through the entry point being changed with 
 
 - Multi-harness comparison is multiple individual runs, one per harness. Any harness that follows the contract is allowed; NanoAgent is one uploaded source.
 - NanoAgent's run normally pins `task_tools`; every other harness normally pins `coding`. Any member can choose either policy for any source; an incompatible choice shows up as failed attempts, not a submission error.
-- A coding-policy harness answers in `answer.json`, read by the worker from the frozen workspace.
-- Claude Code, Codex, Hermes, PI, DeepSeek Harness and NanoAgent are packaged at locked versions as reference harnesses.
-- A benchmark is a case set plus a pinned run configuration, immutable, tied to one plugin version and named uniquely within it. A run takes the policy and the harness and nothing else: model, endpoint, limits, prompts and cases are the benchmark's, dialects the manifest's.
-- A harness is `(owner, name)@version`, declared in its manifest; the first upload of a version pins its sha256. Reference harness names are reserved.
-- Prompts are defined when the benchmark is published, as the plugin benchmark's config defines them, and the run pins each case's rendered text.
-- Cases are authored and validated separately; benchmarks are published from the CLI or RUSH Lab with every case-set field derived from the plugin and case file.
-- Every member sees run summaries of a benchmark's runs, never the evidence behind another member's row; the run, attempt and event routes stay owner-only.
-- The plugin's task verifier is the only scoring mode, the same for both policies.
+- A benchmark is a case set plus a pinned run configuration, immutable and tied to one plugin version. A run takes the policy and the harness and nothing else: model, endpoint, limits, prompts and cases are the benchmark's, dialects the manifest's. Both prompts are pinned at publication because the runner picks the policy.
+- Cases are authored and validated separately; benchmarks are published from the CLI or RUSH Lab with every case-set field derived from the plugin and case file. Publishing is open to any member.
+- Every member sees run summaries of a benchmark's runs, never the evidence behind another member's row; the run, attempt and event routes stay owner-only. Other members' rows come only through `security definer` functions that return public columns, and row-level security on `benchmark_run` stays owner-only.
+- The plugin's task verifier is the only scoring mode, the same for both policies, and it is deterministic code: scoring never uses a model.
 - Any runs with the same task verifier can be compared, aligning cases by content; the comparison shows configuration differences and a prompt diff.
 - Harness-initiated broker calls (no `cause`), such as a decide task's tool calls, count toward a complete trace; their link to the decision that produced them is harness-reported.
 - The gateway sets `provider.require_parameters` for structured-output requests; harnesses do not send `provider`.
 - Only the harness container gets internet access (public only). Model calls must go through the gateway; runs with internet access are marked unverified egress. The tool container reaches only the plugin's declared hosts.
 - Budgets, timeouts and build limits are pre-filled, visible defaults pinned with the benchmark and shown with the run and in comparisons.
-- Publishing is open to any member; the benchmark catalog checks only installed plugins.
-- Scoring never uses a model: a plugin's verifier is deterministic code.
+- The worker runs on the member's computer in a container, on the member's OpenRouter key, and claims only that member's runs. Members are trusted, so references are not private from whoever runs a benchmark and timing is not reconciled across machines.
 
 ## Future features
 
-- **Shared traces and harness archives.** A database of every run's trace and harness ZIP that other members can open from All Benchmark Results. Today only run summaries are shared, and evidence is stored per attempt in PostgreSQL `bytea` and readable by its owner alone. The [API contract](../contracts/rush-benchmark-api.md#future-shared-traces-and-harness-archives) shapes it so this follows without reshaping: opt-in sharing per run (`shared_at`) because a ZIP or trace may carry secrets, read policies that admit shared runs, and ZIPs and payloads moved to object storage.
-- **Exec shim for coding-policy harnesses.** Claude Code and Codex run their shell tools in their own process, so the trace shows the model's `Bash` or `exec_command` proposals and the gVisor process tree side by side, joined only by time, with no command output for direct subprocesses. A shim that routes those harnesses' shell commands through `exec_url` would give a verified proposal-to-process link and captured stdout and stderr, as managed exec does today.
-- **Worker capability refresh while busy.** A worker advertises its endpoint label and capabilities with each claim, and the advertisement expires after 300 s (`CAPABILITY_WINDOW_S`). A worker busy with a long attempt stops claiming, so its label drops out of previews with `worker_unavailable`. Refreshing the advertisement while busy would keep it listed.
-- **Persistent egress filter.** The host packet filter installed by `deploy/gvisor/egress.sh` does not survive a restart of the container; the image's entrypoint installs it again at each start (a worker with `egress.enabled` refuses to start without it).
+- **Shared traces and harness archives.** A database of every run's trace and harness ZIP that other members can open from All Benchmark Results. Today only run summaries are shared. The [API contract](../contracts/rush-benchmark-api.md#future-shared-traces-and-harness-archives) shapes it so this follows without reshaping.
+- **Exec shim for coding-policy harnesses.** Claude Code and Codex run their shell tools in their own process, so the trace shows the model's `Bash` or `exec_command` proposals and the gVisor process tree side by side, joined only by time, with no command output for direct subprocesses. A shim that routes those shell commands through `exec_url` would give a verified proposal-to-process link and captured streams, as managed exec does today.
+- **Worker capability refresh while busy.** A worker advertises its capabilities with each claim, and the advertisement expires after 300 s (`CAPABILITY_WINDOW_S`). A worker busy with a long attempt stops claiming, so its label drops out of previews with `worker_unavailable`.
 - **Tamper evidence and verification beyond trust.** Hash-chained attempt logs, signed worker attestations (image digest plus the worker's key), server-side spot re-runs on a trusted worker, and private references again for case sets whose publisher wants them.
 - **Comparable timing across machines.** Label each row with the machine it ran on (CPUs, memory, architecture) and let Compare group or normalize by it.
-- **Docker requirement.** Docker Desktop is free for education and small companies, not for large organizations; Colima and Docker Engine are free. Docker Desktop, Colima and Docker Engine are the supported runtimes; Windows (WSL2) and Intel macOS still need one verified run each.
-- **Linux and Windows desktops.** RUSH Lab Dev installs on macOS only. The Dev install command rejects Linux and the desktop runner has no Linux platform entry, although x86-64 Linux runtimes are staged. Windows is not supported yet.
+- **Docker requirement and platforms.** Docker Desktop is free for education and small companies, not for large organizations; Colima and Docker Engine are free. Docker Desktop, Colima and Docker Engine are supported; Windows (WSL2) and Intel macOS still need one verified run each. RUSH Lab Dev builds for macOS and Windows; Linux desktops are not supported.
 - **Packaged-app acceptance.** The app flow is verified by one real benchmark in RUSH Lab Dev (publish, run, trace); rerun, compare and reopen are not exercised in the packaged app, and there is no automated packaged UI acceptance.
 - **Timing coverage.** Measured time outside waits and the latency-adjusted estimate are **Unknown** for harnesses that emit no harness spans, and parallel-branch timing can be Unknown in real runs because of gateway delivery lag.
-- **Faster pickup of new runs.** A new run waits up to the worker's idle poll (`poll.max_idle_s`, 15 s in the OpenRouter profile) before it is claimed.
+- **Faster pickup of new runs.** A new run waits up to the worker's idle poll (`poll.max_idle_s`, 15 s) before it is claimed.
 - **Warm-up measurement.** A `prepare(config) -> Ready` operation would let a suite measure warm-up separately from case execution.
 - **File-operation events.** The trace captures the final workspace diff; individual file operations would need observed file events.
 - **Coding-harness reasoning text.** ATIF trajectories of coding harnesses carry reasoning token counts but not the reasoning text.
 - **Hermes against a mock.** Hermes's hard-coded OpenRouter URLs keep it out of the mock-driven suites; it would need those URLs to follow `base_url` upstream.
-- **Mock acceptance on Linux with bwrap, and dsh timing slack.** The local plugin benchmark suite has not run on Linux with bwrap in CI, and dsh's model time comes from its own step events, so its tolerance may need widening if the occasional overshoot recurs.
+- **Local benchmark suite on Linux with bwrap, and dsh timing slack.** That suite has not run on Linux with bwrap in CI, and dsh's model time comes from its own step events, so its tolerance may need widening if the occasional overshoot recurs.

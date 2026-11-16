@@ -17,7 +17,7 @@ SETTLE_S = 3.0
 def checked_stop_and_drain(self: sandbox._DockerCase) -> sandbox.WorkspaceSnapshot:
     snapshot = stop_and_drain(self)
     time.sleep(SETTLE_S)
-    later, directory = self._s._copy_out(self.holder, "/hold/workspace", "workspace", self.spec.limits, self.spec.workdir)
+    later, directory = self._s._copy_out(self.holder, "/hold/workspace", self.spec.limits, self.spec.workdir)
     print(f"SNAPSHOT_CHECK stable={later.files == snapshot.files} files={len(snapshot.files)} progress_bytes={(snapshot.directory / 'progress.bin').stat().st_size if (snapshot.directory / 'progress.bin').exists() else -1}", flush=True)
     return snapshot
 

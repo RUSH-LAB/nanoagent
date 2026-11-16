@@ -2,21 +2,21 @@
 
 import {primaryMetrics} from './metrics.js';
 
-export const EXECUTION_LABELS = {
+const EXECUTION_LABELS = {
   answered: 'Answered', refused: 'Refused', execution_failed: 'Execution failed', build_failed: 'Build failed', canceled: 'Canceled', interrupted: 'Interrupted',
 };
 
 export const POLICY_LABELS = {coding: 'Coding', task_tools: 'Task tools'};
 
 /** The verifier's explanation codes, as people read them. */
-export const EXPLANATION_LABELS = {
+const EXPLANATION_LABELS = {
   invalid_answer: 'The answer does not have the shape the task requires.',
   refused_answer_case: 'The harness refused a case that has an answer.',
   answered_refusal_case: 'The harness answered a case it should have refused.',
   execution_failed: 'The harness did not produce a result.',
 };
 
-export const VERDICT_LABELS = {pass: 'Pass', fail: 'Fail'};
+const VERDICT_LABELS = {pass: 'Pass', fail: 'Fail'};
 
 /** What an attempt is doing or did: `Queued`, `Running`, or its execution status. */
 export function attemptStatus(attempt) {

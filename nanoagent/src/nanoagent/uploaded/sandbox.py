@@ -435,7 +435,7 @@ class ToolLauncher:
     def workspace_view(self) -> Iterator[Path]:
         """A copy of the case workspace as it is now, for the host-side tool verifier to read."""
         case = self._case()
-        _, directory = self._supervisor._copy_out(case.holder, "/hold/workspace", "workspace", case.spec.limits, case.spec.workdir)
+        _, directory = self._supervisor._copy_out(case.holder, "/hold/workspace", case.spec.limits, case.spec.workdir)
         try:
             yield directory
         finally:
@@ -640,7 +640,7 @@ class DockerSandboxSupervisor:
             if state.get("ExitCode") != 0:
                 tail = result.stderr[-2000:].decode("utf-8", "replace")
                 raise SandboxError("build_failed", f"build exited {state.get('ExitCode')}: {tail}")
-            extracted = self._copy_out(holder, "/hold/build-out", "build-out", spec.limits, spec.workdir)
+            extracted = self._copy_out(holder, "/hold/build-out", spec.limits, spec.workdir)
             try:
                 return self._accept_outputs(spec, extracted, result, duration)
             finally:
@@ -949,7 +949,7 @@ class DockerSandboxSupervisor:
         result = _checked(self._docker.run(["inspect", "--format", "{{json .State}}", container]), "inspect_failed", "inspect container")
         return json.loads(result.stdout)
 
-    def _copy_out(self, container: str, path: str, root_name: str, limits: Limits, workdir: Path) -> tuple[Extracted, Path]:
+    def _copy_out(self, container: str, path: str, limits: Limits, workdir: Path) -> tuple[Extracted, Path]:
         result = _checked(
             self._docker.run(["cp", f"{container}:{path}", "-"], capture_bytes=limits.workspace_bytes + limits.workspace_files * TAR_ENTRY_OVERHEAD + (8 << 20)),
             "snapshot_failed", f"copy {path} out",
@@ -1121,7 +1121,7 @@ class _DockerCase:
         if state.get("Running") and not state.get("Paused"):
             _checked(self._s._docker.run(["pause", self._container]), "freeze_failed", "freeze the sandbox")
             self._paused = True
-        extracted, directory = self._s._copy_out(self.holder, "/hold/workspace", "workspace", self.spec.limits, self.spec.workdir)
+        extracted, directory = self._s._copy_out(self.holder, "/hold/workspace", self.spec.limits, self.spec.workdir)
         files = extracted.files
         added = tuple(sorted(set(files) - set(self._initial)))
         deleted = tuple(sorted(set(self._initial) - set(files)))
@@ -1156,7 +1156,7 @@ class _DockerCase:
         return list(self._counters)
 
     def read_result(self) -> bytes:
-        extracted, directory = self._s._copy_out(self.holder, "/hold/out", "out", self.spec.limits, self.spec.workdir)
+        extracted, directory = self._s._copy_out(self.holder, "/hold/out", self.spec.limits, self.spec.workdir)
         try:
             # Only result.json is accepted: anything else in the directory is ignored and never read.
             if RESULT_NAME not in extracted.files:

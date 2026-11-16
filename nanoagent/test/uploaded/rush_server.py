@@ -168,9 +168,6 @@ commit;""",
         )
         return entry
 
-    def uninstall(self, plugin_id: str) -> None:
-        psql(self.database, f"delete from user_plugin where user_id = '{self.user_id}' and plugin_id = '{plugin_id}'")
-
 
 def sign_in(origin: str, login: str) -> str:
     """The session token of GitHub user ``login`` (the fake GitHub answers every login), as _github.mjs signs in."""

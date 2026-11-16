@@ -266,7 +266,7 @@ test('names the container and reaches a local site as the host', () => {
   assert.equal(containerName('localhost-3000-u 1'), 'rush-lab-worker-localhost-3000-u-1');
   assert.equal(containerSite('http://localhost:3000'), 'http://host.docker.internal:3000');
   assert.equal(containerSite('https://rush-lab.org/'), 'https://rush-lab.org');
-  const args = workerArgs({name: 'n', id: 'i', site: 'https://rush-lab.org', worker: 'lab-x'});
+  const args = workerArgs({name: 'n', site: 'https://rush-lab.org', worker: 'lab-x'});
   assert.deepEqual(args.slice(0, 6), ['run', '-d', '--init', '--privileged', '--cgroupns=private', '--name']);
   assert.ok(args.includes('rush.base_url=https://rush-lab.org'));
 });
@@ -287,6 +287,14 @@ test('mints a credential after revoking this device\'s earlier ones', async () =
   assert.equal(credential.token, 'rwk_new');
   assert.deepEqual(seen.map(([key]) => key), ['GET /worker-credentials', 'DELETE /worker-credentials/a', 'POST /worker-credentials']);
   assert.ok(seen.every(([, auth]) => auth === 'Bearer tok'));
+});
+
+test('a credential answer that is not JSON fails with the route, and an error answer without JSON with its status', async () => {
+  const notJson = async () => { throw new SyntaxError('Unexpected token <'); };
+  const ok = async () => ({ok: true, status: 200, json: notJson});
+  await assert.rejects(mintCredential({site: 'https://rush-lab.org', token: 'tok', name: 'n', fetchImpl: ok}), /answered GET \/worker-credentials with something that is not JSON: Unexpected token </);
+  const failing = async () => ({ok: false, status: 502, json: notJson});
+  await assert.rejects(mintCredential({site: 'https://rush-lab.org', token: 'tok', name: 'n', fetchImpl: failing}), /^Error: https:\/\/rush-lab\.org answered 502$/);
 });
 
 test('the Benchmark screens say what each worker state needs', () => {
@@ -327,6 +335,26 @@ test('the runner concurrency goes to the container, and changing it restarts the
   assert.equal(t.calls.filter(call => call.args[0] === 'run').length, 2);
 });
 
+test('advertised capabilities the app cannot read fail the proofs and stop the worker', async () => {
+  const t = setup({logLines: [...PROOF_LINES.slice(0, 3), 'advertised capabilities: {not json', CLAIMING_LINE]});
+  await t.worker.start();
+  await settle();
+  assert.equal(states(t.last()).proofs, 'fail');
+  assert.equal(states(t.last()).claims, 'pending');
+  assert.match(t.last().message, /advertised capabilities are not readable/);
+  assert.ok(t.verbs().includes('stop'));
+});
+
+test('a runner concurrency the worker cannot read fails the start with the reason', async () => {
+  const t = setup();
+  Object.defineProperty(t.state, 'concurrency', {get() { throw new Error('worker.json holds no runner concurrency'); }});
+  await t.worker.start();
+  await settle();
+  assert.equal(t.last().state, 'failed');
+  assert.match(t.last().message, /holds no runner concurrency/);
+  assert.ok(!t.verbs().includes('run'));
+});
+
 test('an invalid runner concurrency is refused and not kept', async () => {
   const t = setup();
   await t.worker.start();
@@ -343,5 +371,7 @@ test('the runner concurrency persists in a file of the connection, 1 until set, 
   assert.throws(() => writeConcurrency(file, 2.5), /whole number/);
   assert.equal(readConcurrency(file), 3);
   fs.writeFileSync(file, '{"concurrency": "x"}');
-  assert.equal(readConcurrency(file), 1);
+  assert.throws(() => readConcurrency(file), /holds no runner concurrency/);
+  fs.writeFileSync(file, '{"concurrency":');
+  assert.throws(() => readConcurrency(file), /worker\.json: /);
 });

@@ -125,7 +125,7 @@ class LimitsConfig(Config):
     max_model_calls: int = 500
     max_output_tokens_per_call: int = 65_536
     max_cost_usd: float = 10.0
-    # How many attempts the worker runs at once, at most the machine's CPUs. A run's own `concurrency` is not compared with it: a run's parallelism is the lesser.
+    # How many attempts the worker runs at once, at most the machine's CPUs.
     concurrency: int = 1
     # The advertised cpus and memory are the machine's; these only lower them.
     max_cpus: float | None = None

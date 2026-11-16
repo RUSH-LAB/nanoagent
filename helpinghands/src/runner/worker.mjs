@@ -7,7 +7,7 @@
  *
  * Starting it is a chain of health checks (CHECKS), each with a clear pass, warn or fail and a fix the member can act on;
  * the first failure stops the chain, and later checks stay pending. Every change is handed to `report` as one object,
- * {state, message, progress, checks, log}: lab.mjs gives it to the relay, which sends it to RUSH in its `hello`, and the
+ * {state, message, platform, concurrency, progress, checks, log}: lab.mjs gives it to the relay, which sends it to RUSH in its `hello`, and the
  * Benchmark screens read it from GET /api/runner/status. `state` is ready, starting, pulling, no-key, no-docker or failed.
  * Docker is never installed for the member: it needs administrator rights and a license choice, so the fix only says how.
  */
@@ -21,8 +21,8 @@ export const WORKER_IMAGE = 'ghcr.io/hosung-k1m/benchmark-worker@sha256:810a1bd9
 
 // What Docker's VM should have (docker info): the worker's sandboxes and the toolchain images need room. Below either, the
 // resources check warns and the worker still starts.
-export const MIN_CPUS = 2;
-export const MIN_MEMORY_BYTES = 4 * 1024 ** 3;
+const MIN_CPUS = 2;
+const MIN_MEMORY_BYTES = 4 * 1024 ** 3;
 
 const STOP_SECONDS = 10;
 const DOCKER_RETRY_MS = 10_000;
@@ -30,7 +30,7 @@ const DOCKER_RETRY_MS = 10_000;
 const STABLE_MS = 10 * 60_000;
 const LOG_LINES = 10;
 
-export const CHECKS = [
+const CHECKS = [
   ['docker-cli', 'Docker installed'],
   ['docker-daemon', 'Docker running'],
   ['privileged', 'Privileged containers'],
@@ -52,7 +52,7 @@ const PROOFS_DONE = 'advertised capabilities';
 const CLAIMING = 'claiming from RUSH';
 
 /** Where to get Docker on `platform`, with links. */
-export function installAdvice(platform) {
+function installAdvice(platform) {
   if (platform === 'darwin') return `Install Docker Desktop (${LINK.desktop}) or Colima (${LINK.colima}), then open RUSH Lab again or press Re-check.`;
   if (platform === 'win32') return `Install Docker Desktop with the WSL 2 backend (${LINK.desktop}), then press Re-check.`;
   return `Install Docker Engine (${LINK.engine}), then press Re-check.`;
@@ -62,7 +62,7 @@ export function installAdvice(platform) {
 export const containerName = id => `rush-lab-worker-${id.replace(/[^A-Za-z0-9_.-]/g, '-')}`;
 
 /** `docker args`, in `env`, each output line given to `onLine`: {code, error, tail} (the last lines). A missing docker is error.code ENOENT. */
-export function dockerRun(args, {env, onLine} = {}) {
+function dockerRun(args, {env, onLine} = {}) {
   return new Promise(resolve => {
     const tail = [];
     const child = spawn('docker', args, {env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true});
@@ -90,7 +90,11 @@ export async function mintCredential({site, token, name, fetchImpl = fetch}) {
       body: body && JSON.stringify(body),
       signal: AbortSignal.timeout(15_000),
     });
-    const data = await response.json().catch(() => ({}));
+    // An error answer without a JSON body still fails with its status; a successful one must be JSON.
+    const data = await response.json().catch(error => {
+      if (response.ok) throw new Error(`${site} answered ${method} ${route} with something that is not JSON: ${error.message}`);
+      return {};
+    });
     if (!response.ok) throw new Error(data.error ?? `${site} answered ${response.status}`);
     return data;
   };
@@ -108,7 +112,7 @@ export function containerSite(site) {
 }
 
 /** `docker run` arguments for the worker (secrets by name only: they are in the environment of the docker process). */
-export function workerArgs({name, id, site, worker, concurrency = 1}) {
+export function workerArgs({name, site, worker, concurrency = 1}) {
   return [
     'run', '-d', '--init', '--privileged', '--cgroupns=private', '--name', name,
     '--add-host', 'host.docker.internal:host-gateway',
@@ -148,6 +152,8 @@ export function benchmarkWorker({
   let container = false;
   let keyInUse;
   let concurrencyInUse;
+  // The member's setting as last read (at start, a settings change, or set), so publishing never reads the file.
+  let concurrencySetting = null;
   // What the worker advertised once its proofs passed (its concurrency is already clamped to the machine's CPUs), null until then.
   let advertised = null;
   let autoRestarts = 0;
@@ -166,7 +172,7 @@ export function benchmarkWorker({
     if (checks.every(entry => entry.state === 'pass' || entry.state === 'warn')) return {state: 'ready', message: null};
     return {state: 'starting', message: null};
   };
-  const concurrency = () => ({setting: readConcurrency(), cpus: info?.NCPU ?? null, effective: advertised?.concurrency ?? null});
+  const concurrency = () => ({setting: concurrencySetting, cpus: info?.NCPU ?? null, effective: advertised?.concurrency ?? null});
   const publish = () => report({...summary(), platform, concurrency: concurrency(), progress, checks, log: logTail});
   const mark = (checkId, state, message = null, fix = null) => {
     Object.assign(check(checkId), {state, message, fix});
@@ -292,8 +298,8 @@ export function benchmarkWorker({
     fs.writeFileSync(logFile, '');
     logTail = [];
     advertised = null;
-    concurrencyInUse = readConcurrency();
-    const started = await docker(workerArgs({name, id, site, worker: `lab-${device.replace(/[^A-Za-z0-9_-]/g, '-')}`, concurrency: concurrencyInUse}), {
+    concurrencySetting = concurrencyInUse = readConcurrency();
+    const started = await docker(workerArgs({name, site, worker: `lab-${device.replace(/[^A-Za-z0-9_-]/g, '-')}`, concurrency: concurrencyInUse}), {
       env: {...await env(), RUSH_WORKER_TOKEN: credential.token, OPENROUTER_API_KEY: keyInUse},
     });
     if (mine !== generation) {
@@ -326,8 +332,11 @@ export function benchmarkWorker({
           proofsDone = true;
           try {
             advertised = JSON.parse(line.slice(line.indexOf(PROOFS_DONE) + PROOFS_DONE.length + 1));
-          } catch {
-            advertised = null;
+          } catch (error) {
+            // The worker image and this app disagree on what the worker reports: stop it rather than run it unreported.
+            mark('proofs', 'fail', `The worker's advertised capabilities are not readable (${error.message}): ${clip(line)}`, 'Update RUSH Lab, then press Restart.');
+            halt().catch(stopError => log(`could not stop the worker: ${stopError.message}`));
+            return;
           }
           mark('proofs', 'pass', `${proofText()} The worker's startup proofs passed.`);
           mark('claims', 'running', 'Waiting for RUSH to answer a claim.');
@@ -367,6 +376,7 @@ export function benchmarkWorker({
     progress = null;
     publish();
     try {
+      concurrencySetting = readConcurrency();
       for (;;) {
         if (await chain(mine, ['docker-cli', 'docker-daemon', 'privileged', 'resources', 'image', 'key'])) break;
         if (mine !== generation) return;
@@ -406,7 +416,8 @@ export function benchmarkWorker({
      */
     async keysChanged() {
       if (stopped || generation === 0) return;
-      if ((readKey() || null) === (keyInUse ?? null) && (concurrencyInUse === undefined || readConcurrency() === concurrencyInUse)) return;
+      concurrencySetting = readConcurrency();
+      if ((readKey() || null) === (keyInUse ?? null) && (concurrencyInUse === undefined || concurrencySetting === concurrencyInUse)) return;
       if (!CHECKS.slice(0, 5).every(([checkId]) => ['pass', 'warn'].includes(check(checkId).state))) return;
       log('The OpenRouter key or the runner concurrency changed; restarting the worker from the key check.');
       await halt();
@@ -419,6 +430,7 @@ export function benchmarkWorker({
     async setConcurrency(value) {
       if (!Number.isSafeInteger(value) || value < 1) throw new Error('Runner concurrency must be a whole number of at least 1');
       writeConcurrency(value);
+      concurrencySetting = value;
       publish();
       await this.keysChanged();
     },

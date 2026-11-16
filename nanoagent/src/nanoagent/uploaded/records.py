@@ -17,7 +17,6 @@ GATEWAY = "gateway"
 TOOL_BROKER = "tool_broker"
 EXEC = "exec"
 HARNESS = "harness"
-SOURCE_NAMES = (GATEWAY, TOOL_BROKER, EXEC, HARNESS, WORKER, PROCESS)
 
 ATTEMPT_STARTED = "attempt.started"
 CASE_LAUNCHED = "case.launched"

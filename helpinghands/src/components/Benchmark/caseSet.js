@@ -1,6 +1,6 @@
 /** The case set view model: what a member reads of a benchmark (GET benchmarks/{id}) before running it or reading its results. Private references never arrive. */
 
-export const KIND_LABELS = {answer: 'Answer', refuse: 'Refuse'};
+const KIND_LABELS = {answer: 'Answer', refuse: 'Refuse'};
 
 /** `{task: {id, kind, description}, context, cases: [{id, kind, input, expectedError}]}`: the cases in the case set's order, each input as indented JSON. */
 export function caseSetView(benchmark) {

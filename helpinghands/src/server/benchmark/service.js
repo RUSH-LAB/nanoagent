@@ -83,4 +83,4 @@ function createBenchmarkService({repository}) {
   });
 }
 
-module.exports = {createBenchmarkService, summaryOf};
+module.exports = {createBenchmarkService};

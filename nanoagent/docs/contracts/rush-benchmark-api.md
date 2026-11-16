@@ -1,6 +1,6 @@
 # RUSH benchmark API
 
-The RUSH server side of [uploaded harness benchmarks](../plans/uploaded-harness-benchmarks.md): a member publishes a **benchmark** for a plugin version, any member runs a harness against it, and everyone sees every run's summary. The [harness contract](uploaded-harness-v1.md) defines the harness protocol, prompt and replay rules this API stores. Code: `helpinghands/src/server/routes/benchmark.js` (member), `routes/benchmark-worker.js` (worker), `benchmark/` (pure rules: `prompt.js`, `limits.js`, `plan.js`, `compare.js`, `rules.js`, `validate.js`, `harness.js`), `postgres/benchmark*.js`, migrations `0052_benchmark.sql` and `0054_benchmark_worker_credential.sql`.
+The RUSH server side of [uploaded harness benchmarks](../plans/uploaded-harness-benchmarks.md): a member publishes a **benchmark** for a plugin version, any member runs a harness against it, and everyone sees every run's summary. The [harness contract](uploaded-harness-v1.md) defines the harness protocol, prompt and replay rules this API stores. Code: `helpinghands/src/server/routes/benchmark.js` (member), `routes/benchmark-worker.js` (worker), `benchmark/` (pure rules: `prompt.js`, `limits.js`, `plan.js`, `compare.js`, `rules.js`, `validate.js`, `harness.js`), `postgres/benchmark*.js`, migrations `0052` to `0055` (`benchmark*.sql`).
 
 ## Conventions
 
@@ -32,6 +32,7 @@ Benchmarks are the exception: they belong to no workspace, and every signed-in m
 | `BENCHMARK_WORKSPACE_BUDGET_USD` | `100` | The same, per workspace. |
 | `BENCHMARK_LEASE_SECONDS` | `60` | Lease length at claim and at each renewal. |
 | `BENCHMARK_UNCERTAIN_DEADLINE_SECONDS` | `3600` | How long an unsettled or uncertain reservation stays before a claim settles it at its reserved bound. |
+| `BENCHMARK_SWEEP_SECONDS` | `15` | How often the server expires leases and settles reservations past their deadline, without waiting for a claim. |
 | `BENCHMARK_SOURCE_MAX_BYTES` | `52428800` | Largest source ZIP. |
 | `BENCHMARK_PAYLOAD_MAX_BYTES` | `16777216` | Largest payload. |
 
@@ -51,6 +52,7 @@ What a benchmark publication starts from: the defaults its `limits` overrides si
 {"limits": {"wall_time_ms": 600000, "max_model_calls": 50, "max_output_tokens_per_call": 4096, "max_cost_usd": 1.5,
             "cpus": 1, "memory_mb": 1024, "pids": 256, "workspace_bytes": 268435456, "workspace_files": 20000, "tmp_bytes": 67108864, "build_wall_ms": 600000,
             "build_memory_mb": 3072, "build_output_bytes": 1073741824, "build_files": 100000, "build_tmp_bytes": 536870912, "internet_access": true},
+ "reference_harnesses": ["claude-code", "codex", "dsh", "hermes", "nanoagent", "pi"],
  "coding_template": "<the default coding template>", "placeholders": ["description", "context", "arguments", "input_schema", "output_schema", "workspace"],
  "renderer_version": "rush.prompt.v1",
  "endpoints": [{"label": "mock", "capabilities": {"<every limit>": 0, "internet_access": true, "models": ["vendor/model"]}, "updated_at": "…", "expires_at": "…"}]}
@@ -160,13 +162,13 @@ Body: the raw ZIP, `Content-Type: application/zip` (`415 unsupported_media_type`
 {"source_sha256": "…", "size": 1234, "harness": {"name": "my-harness", "version": "1.3", "dialects": ["chat_completions"]}}
 ```
 
-A manifest `name` that is a reference harness's (`claude-code`, `codex`, `dsh`, `hermes`, `nanoagent`, `pi`) is refused as `400 reserved_harness_name` and stores nothing: those names are reserved for the reference harnesses below. `GET /defaults` lists them as `reference_harnesses`; the server keeps the list, and a test keeps it equal to the folders of `nanoagent/src/nanoagent/uploaded/reference_harnesses/`.
+A manifest `name` that is a reference harness's is refused as `400 reserved_harness_name` and stores nothing. The names are `GET /defaults`'s `reference_harnesses`; the server keeps the list, and a test keeps it equal to the folders of `nanoagent/src/nanoagent/uploaded/reference_harnesses/`.
 
 Uploading the same bytes again is a no-op with the same answer. The source is the member's, per workspace. The harness is `(owner, name)`, owned by the uploading member, so two members may both upload `foo`. The first upload of `owner/name@version` pins its `source_sha256`; a different ZIP under the same `owner/name@version` is `409 harness_version_taken` with `{"harness": {"name", "version"}, "pinned_sha256": "…"}` and stores nothing. The same ZIP is accepted any number of times; each run is its own row.
 
 ### Reference harnesses
 
-NanoAgent ships the reference harnesses `claude-code`, `codex`, `dsh`, `hermes`, `nanoagent` and `pi` in its package (`nanoagent.uploaded.reference_harnesses`). A reference's ZIP is built by NanoAgent (`nanoagent.uploaded.reference.build_reference`): deterministically, under the reference's own name, with the manifest's `version` replaced by a short (12 hex digits) sha256 of the reference folder's files (for `nanoagent`, the folder `assemble.py` makes from NanoAgent's working tree). The same reference always builds to the same ZIP under the same version, and a changed one, a changed NanoAgent tree included, is a new version, so a reference never meets `harness_version_taken`. Reference ZIPs reach RUSH only through these routes, at the trust level of private-reference pinning; each answers `201` as `POST /sources` does (the harness echoed, stored as the member's source with the version pin) and refuses a name that is no reference (`400 unknown_reference`) and a ZIP whose manifest names another harness (`400 reference_name_mismatch`):
+The reference harnesses ship in NanoAgent's package and are built by NanoAgent under their own name, with a content-derived version, so a reference never meets `harness_version_taken` (see the design document's [reference harnesses](../plans/uploaded-harness-benchmarks.md#reference-harnesses)). Their ZIPs reach RUSH only through these routes, at the trust level of private-reference pinning. Each answers `201` as `POST /sources` does (the harness echoed, stored as the member's source with the version pin) and refuses a name that is no reference (`400 unknown_reference`) and a ZIP whose manifest names another harness (`400 reference_name_mismatch`):
 
 - `POST /sources/references/{name}`: the body is the reference's ZIP, as the CLI's `reference:` sends it (`415 unsupported_media_type`, `413 source_too_large`, as for `POST /sources`).
 - `POST /sources/references/{name}/computer`: no body. Needs `apps:use`. The app's Benchmark Your Harness uses it: the server asks the member's own NanoAgent for the ZIP (`GET /v1/benchmark/reference-harnesses/{name}`, relayed by the runner) and stores it. Extra errors: `503 runner_offline`, `reference_unavailable` (with the status the computer returned).
@@ -359,18 +361,18 @@ Any signed-in member's session, no workspace. Publishes a benchmark bound to one
 
 - `version` is the plugin version the benchmark is tied to. `task.tools` is what `run_task` gives the agent (the reference tool excluded); `egress_hosts` is sorted without repeats (`400 invalid_request` otherwise; `[]` is none). `private` has exactly one reference per case: for an answer case the pinned output object, or `null` for a task the verifier judges without one; for a refusal case the pinned error string (and `expected_error` is required). References are stored where only the worker API reads them. The worker runs on the member's computer, so a member who runs a benchmark receives its references with each claim and can read them: references are not hidden from whoever runs the benchmark. (The wire keeps the names `private` and `private_reference`.)
 - `model` and `endpoint_profile` are required. `limits` holds overrides only (`null` is the default); an unknown name or an invalid value is `400 invalid_request`. The effective limits, `internet_access` included, are the defaults under the overrides, and are pinned and shown.
-- `coding_template` and `task_instructions` are strings or `null` for the default (the server's coding template; the task's `instructions`). Both are pinned as text, because the runner picks the policy. CRLF and CR become LF; blank is `400 empty_template|empty_instructions`; over 100000 characters is refused; a template that fails to render is `400 invalid_template`.
+- `coding_template` and `task_instructions` are strings or `null` for the default (the server's coding template; the task's `instructions`). Both are pinned as text, because the runner picks the policy. CRLF and CR become LF; blank is `400 empty_template|empty_instructions`, over 100000 characters `400 template_too_long|instructions_too_long`, an unpaired surrogate `400 invalid_template|invalid_instructions`; a template that fails to render is `400 invalid_template`.
 - `endpoint_profile` must have been advertised for by the publishing member's own worker within the capability window, else `409 worker_unavailable` (an unknown endpoint is refused). A limit above what the latest advertised capabilities allow, or `internet_access: true` where they say it is unsupported, is `400 limit_exceeds_worker` with `exceeded: [{field, limit, max}]`. A `model` that the latest advertised capabilities do not list (`capabilities.models`) is `400 unknown_model` with `{model, models}`, so no benchmark can pin a model whose attempts the publisher's worker could not price. A refused publication stores nothing.
 
 The server computes each case's `reference_sha256` (SHA-256 of the compact canonical JSON of its reference) and `content_digest` (SHA-256 of the compact canonical JSON of `{kind, arguments, expected_error, reference_sha256}`), the case set's digest (SHA-256 of the compact canonical JSON of `{package_sha256, task_id, task, context, cases: [{case_id, content_digest}]}`), and the benchmark's `digest` (see Benchmarks). It creates the case set, or reuses an identical one.
 
 **Naming.** A name is unique per `(plugin_id, version, name)`: `classroom` may exist for 0.1.0 and for 0.2.0. Publishing the same name for the same plugin version again with identical content (the same `digest`) is `200 {"created": false, …}` and stores nothing; with different content it is `409 benchmark_name_taken` and stores nothing.
 
-`201 {"created": true, "benchmark": <benchmark summary>}`; an identical republish `200 {"created": false, "benchmark": …}`. Errors: `400 invalid_request`, `400 empty_template|empty_instructions|invalid_template`, `400 limit_exceeds_worker`, `400 unknown_model`, `401`, `404 unknown_plugin_version` (the id, version and digest are not one published row), `409 worker_unavailable`, `409 benchmark_name_taken`.
+`201 {"created": true, "benchmark": <benchmark summary>}`; an identical republish `200 {"created": false, "benchmark": …}`. Errors: `400 invalid_request`, `400 empty_template|empty_instructions|template_too_long|instructions_too_long|invalid_template|invalid_instructions`, `400 limit_exceeds_worker`, `400 unknown_model`, `401`, `404 unknown_plugin_version` (the id, version and digest are not one published row), `409 worker_unavailable`, `409 benchmark_name_taken`.
 
 ## `POST /api/workspaces/{wid}/benchmark/benchmarks/pinned`
 
-Needs `apps:use`. The app's Create Plugin Benchmark uses it, so that the plugin's reference tool pins each case on the member's computer and the private references never reach the browser. It replaces the former `POST .../benchmark/pins`. The body is the `POST /api/benchmark/benchmarks` body without the derived case-set fields (`plugin_name`, `package_sha256`, `task_id` and `task`, which the case file names, `context`, `private`; `version` too, which is the installed one) and with the case file in place of `cases`:
+Needs `apps:use`. The app's Create Plugin Benchmark uses it, so that the plugin's reference tool pins each case on the member's computer and the private references never reach the browser. The body is the `POST /api/benchmark/benchmarks` body without the derived case-set fields (`plugin_name`, `package_sha256`, `task_id` and `task`, which the case file names, `context`, `private`; `version` too, which is the installed one) and with the case file in place of `cases`:
 
 ```json
 {"name": "…", "plugin_id": "p", "cases": <the plugin benchmark case file>,
@@ -404,7 +406,7 @@ An interrupted attempt is final: a retry needs a new attempt, which only a membe
                   "models": ["vendor/model"]}}
 ```
 
-`capabilities` is required (`400 invalid_request` if any limit is missing or invalid): the maximum the worker applies for each numeric limit (and `concurrency`, how many attempts the worker runs at once: it sizes the worker's own slots and is never compared with a run; a run has no concurrency limit, and a request that sends `limits.concurrency` is `400 invalid_request`) and whether it can give a harness `internet_access`, and `models`, the names of the models it prices (the keys of its `prices`; a non-empty list of strings, else `400 invalid_request`). Every claim stores them as the latest for the credential's member and the endpoint `label`; that member's previews and runs for that label are checked against them (`409 worker_unavailable` before their worker has advertised, or when it has not claimed for the label within the last 300 seconds, `400 limit_exceeds_worker`, `400 unknown_model`).
+`capabilities` is required (`400 invalid_request` if any limit is missing or invalid): the maximum the worker applies for each numeric limit (the worker also sends `concurrency`, how many attempts it runs at once, at most its machine's CPUs; the server does not store or check it, a run has no concurrency limit, and a request that sends `limits.concurrency` is `400 invalid_request`) and whether it can give a harness `internet_access`, and `models`, the names of the models it prices (the keys of its `prices`; a non-empty list of strings, else `400 invalid_request`). Every claim stores them as the latest for the credential's member and the endpoint `label`; that member's previews and runs for that label are checked against them (`409 worker_unavailable` before their worker has advertised, or when it has not claimed for the label within the last 300 seconds, `400 limit_exceeds_worker`, `400 unknown_model`).
 
 The claim first expires stale leases (attempts become `interrupted`, sealed at their last committed cursor) and settles reservations past their deadline at the reserved bound. Then it leases the oldest queued attempt of a run whose `user_id` is the credential's member and whose `endpoint_profile` equals `label` (a worker never receives another member's run), whose pinned limits are all within the claiming worker's `capabilities`; a canceled run's queued work is never leased. `204` for none.
 
@@ -430,7 +432,7 @@ Job (`200`):
 
 `{"fence": 1}` → `200 {"lease_expires_at": "…", "lease_seconds": 60}`. A canceled run: `409 canceled`. `lease_seconds` is how long a claim or renewal keeps the lease, counted from when the server received it; the worker fences its own services on it (no new gateway, tool, exec or event work once it passes without a renewal).
 
-Expired leases do not wait for a claim: the server sweeps every `BENCHMARK_SWEEP_SECONDS` (default 15) and before member reads of a run, attempt, run list or accounting. Attempts whose lease ran out become `interrupted` (evidence kept), and reservations past their deadline settle at the reserved bound.
+Expired leases do not wait for a claim: the server sweeps every `BENCHMARK_SWEEP_SECONDS` and before member reads of a run, attempt, run list or accounting. Attempts whose lease ran out become `interrupted` (evidence kept), and reservations past their deadline settle at the reserved bound.
 
 ## `GET /attempts/{id}/source`, `GET /attempts/{id}/package`
 
@@ -519,7 +521,7 @@ No fence; allowed after the seal and after lease loss; never rewrites events. Th
 
 # Future: shared traces and harness archives
 
-Not in this iteration. A database of every run's trace and harness ZIP that other members can open from the all-members results. The first iteration returns only run summaries; the contract is shaped so this follows without reshaping:
+Not built. A database of every run's trace and harness ZIP that other members can open from the all-members results. The API returns only run summaries today and is shaped so this follows without reshaping:
 
 - Results rows are keyed by `run_id`, and evidence (events, spans, payloads) is already stored per attempt, so a row can later link to its trace.
 - `owner/name@version` names exactly one ZIP (the `harness_version_taken` pin), so a gallery shows one archive per version.

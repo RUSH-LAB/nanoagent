@@ -265,14 +265,19 @@ function readSettings(file) {
   }
 }
 
-/** The runner concurrency kept in `file` (the attempts the member lets their worker run at once): 1 until they set it. */
+/** The runner concurrency kept in `file` (the attempts the member lets their worker run at once): 1 until they set it; a file that holds none throws. */
 export function readConcurrency(file) {
+  if (!fs.existsSync(file)) return 1;
+  let concurrency;
   try {
-    const {concurrency} = JSON.parse(fs.readFileSync(file, 'utf8'));
-    return Number.isSafeInteger(concurrency) && concurrency >= 1 ? concurrency : 1;
-  } catch {
-    return 1;
+    ({concurrency} = JSON.parse(fs.readFileSync(file, 'utf8')));
+  } catch (error) {
+    throw new Error(`${file}: ${error.message}`);
   }
+  if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
+    throw new Error(`${file} holds no runner concurrency (a whole number of at least 1); set it again in RUSH Lab`);
+  }
+  return concurrency;
 }
 
 /** Keep the runner concurrency `value` (a whole number of at least 1) in `file`. */
@@ -600,21 +605,28 @@ async function main() {
     }
   }
 
-  // The member's own PATH, which finds docker where their terminal does: asked once, when the first worker needs it.
+  // The member's own PATH, which finds docker where their terminal does: asked once, when the first worker needs it, and
+  // again after a failure, which fails the check that needed it.
   let memberDockerPath = null;
   const dockerEnv = async () => {
-    memberDockerPath ??= memberPath(os.userInfo().shell).catch(() => system.PATH);
+    memberDockerPath ??= memberPath(os.userInfo().shell).catch(error => {
+      memberDockerPath = null;
+      throw new Error(`Could not read your terminal's PATH, where docker is found: ${error.message}`);
+    });
     return {...system, PATH: await memberDockerPath};
   };
 
   /** The connection's worker (worker.mjs): started with the connection, its state told to its relay. */
   function startWorker(connection, logs) {
     const {id, folder, settingsFile} = connection;
+    // The member's session token, null until they have signed in (no file yet); a file that is not credentials throws.
     const readSession = () => {
+      const file = path.join(folder, 'runner-credentials.json');
+      if (!fs.existsSync(file)) return null;
       try {
-        return JSON.parse(fs.readFileSync(path.join(folder, 'runner-credentials.json'), 'utf8')).token ?? null;
-      } catch {
-        return null;
+        return JSON.parse(fs.readFileSync(file, 'utf8')).token ?? null;
+      } catch (error) {
+        throw new Error(`${file}: ${error.message}`);
       }
     };
     connection.worker = benchmarkWorker({

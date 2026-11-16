@@ -512,7 +512,7 @@ class AttemptRunner:
 
         recorded: list[bool] = []  # set once the collector's process evidence is committed
         try:
-            outcome = await self._wait(job, lease, handle, services)
+            outcome = await self._wait(lease, handle, services)
             await self._revoke(services)
             lease.lapsed()  # a lease that ran out while the computer slept is dropped on waking, not finalized late
             if lease.reason in ("lease_lost", "sealed"):
@@ -574,7 +574,7 @@ class AttemptRunner:
         validate("Request", request)
         return request
 
-    async def _wait(self, job: AttemptJob, lease: Lease, handle: CaseHandle, services: AttemptServices) -> Any:
+    async def _wait(self, lease: Lease, handle: CaseHandle, services: AttemptServices) -> Any:
         """The case's outcome, or None if the lease was lost or canceled first (the case is killed and drained)."""
         done = anyio.Event()
         box: list[Any] = []

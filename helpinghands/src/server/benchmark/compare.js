@@ -33,7 +33,7 @@ async function evidenceOf(repository, context, attemptId) {
       continue;
     }
     payloads[sha] = Buffer.from(stored.data).toString('base64');
-    redactions[sha] = stored.redaction || 'none';
+    redactions[sha] = stored.redaction;
   }
   return {
     attempt,

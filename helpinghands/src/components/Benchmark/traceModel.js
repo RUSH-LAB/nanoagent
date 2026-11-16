@@ -8,7 +8,7 @@ export const ERROR_STATUSES = new Set(['error', 'rejected']);
 const LOCAL_KINDS = new Set(['tool', 'command']);
 const TRANSCRIPT_KINDS = new Set(['model_call', 'proposal', 'tool', 'command']);
 // Links that connect actions across the tree: what a proposal became, what came back, a command's process, a retried call.
-export const CAUSAL_KINDS = new Set(['proposal_invocation', 'result_delivery', 'command_process', 'process_lineage', 'retry']);
+const CAUSAL_KINDS = new Set(['proposal_invocation', 'result_delivery', 'command_process', 'process_lineage', 'retry']);
 
 const big = ns => (ns === null || ns === undefined || ns === '' ? null : BigInt(ns));
 

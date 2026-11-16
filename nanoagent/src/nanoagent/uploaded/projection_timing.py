@@ -192,22 +192,22 @@ def build_timing(
     items: dict[str, list[_Item]] = {}
     placed_under: set[str] = set()
 
-    def put(key: str, span_id: str | None, entry: str, s: int, e: int) -> None:
+    def put(span_id: str | None, entry: str, s: int, e: int) -> None:
         placed_under.add(span_id) if span_id in spans else None
         items.setdefault(branch_of(span_id), []).append(_Item(entry, entry, min(max(s, start), end), min(max(e, start), end)))
 
     for c in calls:
-        put(c.call_id, placements.get(c.call_id), c.call_id, c.interval.start_ns, c.interval.end_ns)
+        put(placements.get(c.call_id), c.call_id, c.interval.start_ns, c.interval.end_ns)
     for t in n.tools:
         if t.rejected is None and t.start_ns is not None and t.end_ns is not None:
             node = tool_node(t.call_id)
             graph.activities.append(Activity(node, Interval(*_clip(t.start_ns, t.end_ns, start, end))))
-            put(node, placements.get(t.call_id), node, t.start_ns, t.end_ns)
+            put(placements.get(t.call_id), node, t.start_ns, t.end_ns)
     for cmd in n.commands:
         if cmd.rejected is None and cmd.start_ns is not None and cmd.end_ns is not None:
             node = command_node(cmd.request_id)
             graph.activities.append(Activity(node, Interval(*_clip(cmd.start_ns, cmd.end_ns, start, end))))
-            put(node, placements.get(cmd.request_id), node, cmd.start_ns, cmd.end_ns)
+            put(placements.get(cmd.request_id), node, cmd.start_ns, cmd.end_ns)
 
     waits: dict[str, list[BranchWait]] = {}
     waited: set[str] = set()
