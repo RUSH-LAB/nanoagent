@@ -1,0 +1,45 @@
+_ > step1_publish_benchmark.PublishConfig:
+
+# The RUSH server, the workspace, and the variable holding the publishing member's Better Auth session token.
+server > nanoagent.uploaded.client.ServerConfig:
+  base_url: ${oc.env:RUSH_BASE_URL,http://127.0.0.1:3000}
+  workspace_id: ${oc.env:RUSH_WORKSPACE_ID}
+  token_env: RUSH_SESSION_TOKEN
+# The task's cases (examples/benchmark's step 1 file, which names the plugin and the task), the plugin version the benchmark is
+# tied to, and its name (unique per plugin version). Everything else of the case set is derived from the cases and the package.
+cases: test/acceptance/benchmark/cases/probe_cases.json
+plugin_version: 0.1.0
+name: acceptance-probe
+# What every harness run on the benchmark gets. Only a worker advertising the endpoint profile label serves the runs.
+model: deepseek/deepseek-v4-flash-0731
+endpoint_profile: mock
+# Overrides of the server's defaults; null takes the default. The effective values are pinned with the benchmark.
+limits > step1_publish_benchmark.Limits:
+  wall_time_ms: null
+  max_model_calls: null
+  max_output_tokens_per_call: null
+  max_cost_usd: null
+  internet_access: null
+  concurrency: null
+  cpus: null
+  memory_mb: null
+  pids: null
+  workspace_bytes: null
+  workspace_files: null
+  tmp_bytes: null
+  build_wall_ms: null
+  build_memory_mb: null
+  build_output_bytes: null
+  build_files: null
+  build_tmp_bytes: null
+# coding takes the template, task_tools the instructions; null is the default of each.
+coding_template: null
+task_instructions: null
+# market: the published package, downloaded. folder: `folder` packed locally; its SHA-256 must
+# be `sha256`, the published version's.
+plugin_source: market
+folder: null
+sha256: null
+# Seconds the reference tool may take, and the plugin's environment may take to sync.
+timeout: 900.0
+sync_timeout: 600.0
