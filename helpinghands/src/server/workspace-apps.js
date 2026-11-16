@@ -19,11 +19,14 @@ const {checkUpload, checkedUploads} = require('./market-checks');
  * sessions they had with it and starts none until they run a version NanoAgent accepts.
  */
 function createWorkspaceApps({ai, market, plugins}) {
-  /** Every plugin a member may install, by id: `{value: Map<id, {source, entry}>}` or `{error, status}`. */
-  async function catalog(userId) {
+  /**
+   * Every plugin a member may install, by id, or only those named in `ids` when given (the uploads
+   * checked are then just those): `{value: Map<id, {source, entry}>}` or `{error, status}`.
+   */
+  async function catalog(userId, ids = null) {
     const builtIn = await ai.packages();
     if (builtIn.error) return builtIn;
-    const uploads = await checkedUploads({ai, market}, userId);
+    const uploads = await checkedUploads({ai, market}, userId, ids);
     if (uploads.error) return uploads;
     const offered = new Map(builtIn.value.packages.map(entry => [entry.id, {source: 'nanoagent', entry}]));
     for (const entry of uploads.value) offered.set(entry.id, {source: 'upload', entry});
@@ -88,9 +91,11 @@ function createWorkspaceApps({ai, market, plugins}) {
    * listed as `unavailable`, for them to remove.
    */
   async function list(context) {
-    const offered = await catalog(context.userId);
+    const installedPlugins = await plugins.list(context);
+    // Only the caller's own plugins are looked up, so only their uploads are checked.
+    const offered = await catalog(context.userId, new Set(installedPlugins.map(plugin => plugin.id)));
     if (offered.error) return offered;
-    const apps = await Promise.all((await plugins.list(context)).map(added => described(context.userId, added, offered.value.get(added.id))));
+    const apps = await Promise.all(installedPlugins.map(added => described(context.userId, added, offered.value.get(added.id))));
     return apps.find(result => result.error) ?? {value: apps.map(result => result.value)};
   }
 
