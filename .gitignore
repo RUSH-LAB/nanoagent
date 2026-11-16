@@ -227,3 +227,5 @@ KEY
 
 # Claude Code settings for one computer only.
 .claude/settings.local.json
+
+plugin-cases/

@@ -53,6 +53,21 @@ dependencies = [
     "textual",
     # Which wheels in a plugin's uv.lock this Python can install (nanoagent.plugin.install).
     "packaging",
+    # Makes jsonschema's `uri` format check real (it is silently skipped without an RFC 3986
+    # validator); the uploaded-harness wire schema relies on it (nanoagent.uploaded.contract).
+    "rfc3986-validator",
+    # Decodes gVisor's seccheck trace frames in the uploaded-harness process collector
+    # (nanoagent.uploaded.collector). The generated modules under uploaded/seccheck need >= 7.35.1.
+    "protobuf>=7.35.1,<8",
+    # Imported directly by the plugin runtime and the uploaded-harness services (nanoagent.uploaded). The floor is the one `mcp`
+    # already requires, so it adds no constraint.
+    "anyio>=4.5",
+    # The attempt-scoped gateway, tool broker and command service (nanoagent.uploaded.app) are one
+    # ASGI app. httpx is the gateway's upstream transport: the plain `httpx` package on purpose,
+    # independent of whichever httpx the openai SDK builds on (see the openai note above).
+    "httpx>=0.27",
+    "starlette>=0.41",
+    "uvicorn>=0.30",
 ]
 authors = [
     {name = "Zeyu Yang"},
@@ -87,6 +102,8 @@ tokens = ["transformers"]
 # ordinary question/answer benchmarks need neither Hugging Face datasets nor Docker bindings.
 swebench = ["swebench>=5,<6"]
 dev = [
+    # The acceptance suite drives its mock Anthropic Messages endpoint with the real client.
+    "anthropic",
     "pytest",
     "pytest-asyncio",
     "ruff",
@@ -126,10 +143,12 @@ include = ["nanoagent*"]
 # default toolset an installed `mgen` cannot find. See nanoagent.extensions.resolve_config.
 # Package data belongs to the top-level package alongside ``py.typed``.
 [tool.setuptools.package-data]
-nanoagent = ["py.typed", "configs/*.yaml", "configs/tools/*.yaml", "web/schema/*.json", "plugin/template/**/*", "plugin/v0001/page/**/*"]
+nanoagent = ["py.typed", "configs/*.yaml", "configs/tools/*.yaml", "web/schema/*.json", "plugin/template/**/*", "plugin/v0001/page/**/*", "uploaded/*.json", "uploaded/reference_harnesses/**/*"]
 
 [tool.ruff]
 line-length = 150
+# protoc output: its imports register descriptor dependencies, so lint fixes must not touch it.
+extend-exclude = ["src/nanoagent/uploaded/seccheck/*_pb2.py", "src/nanoagent/uploaded/seccheck/*_pb2.pyi"]
 
 [tool.ruff.lint]
 # Pinned, not inherited: ruff's default selection has widened across releases, so an unpinned
@@ -143,3 +162,17 @@ asyncio_mode = "auto"
 testpaths = ["test"]
 # Each fixture plugin under test/plugins/ is its own uv project and runs its own tests.
 norecursedirs = ["plugins"]
+# The external-harness acceptance tiers run locally and before benchmark releases, not on every run:
+#   pytest test/acceptance/benchmark -m "acceptance or harness_claude or harness_codex or harness_pi or harness_dsh"
+addopts = "-m 'not harness_claude and not harness_codex and not harness_pi and not harness_dsh and not gvisor and not rush_server and not uploaded_acceptance and not real_openrouter'"
+markers = [
+    "acceptance: benchmark acceptance tests against the scripted mock provider, NanoAgent only (no external binary)",
+    "harness_claude: acceptance tests that need the local `claude` binary",
+    "harness_codex: acceptance tests that need npx and the pinned @openai/codex package",
+    "harness_pi: acceptance tests that need node and a built js/pi-runner/dist",
+    "harness_dsh: acceptance tests that need npx and the pinned @deepseek-ai/dsh package",
+    "rush_server: smoke tests that start the real RUSH server (helpinghands) on a scratch PostgreSQL database; run with -m rush_server",
+    "uploaded_acceptance: uploaded-harness CLI acceptance: the CLI steps against a real RUSH server and a worker in the Lima VM (deploy/gvisor); run on the host with -m uploaded_acceptance",
+    "real_openrouter: the real uploaded-harness CLI benchmark against live OpenRouter (spends money; needs OPENROUTER_API_KEY in the repository .env); run with -m real_openrouter",
+    "gvisor: Linux integration tests that need Docker with the runsc-rush runtime and a running collector (deploy/gvisor)",
+]
