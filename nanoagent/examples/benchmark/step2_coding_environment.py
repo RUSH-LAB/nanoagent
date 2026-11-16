@@ -30,15 +30,22 @@ MACOS_SYSTEM = (
     "/private/etc",
     "/private/var/db/timezone",
     "/dev",
-    "/opt/homebrew/Cellar",
-    "/opt/homebrew/bin",
-    "/opt/homebrew/etc/ca-certificates",
-    # Node reads the openssl.cnf of the OpenSSL it links: @3, or @4 since Homebrew moved node to it.
-    "/opt/homebrew/etc/openssl@3",
-    "/opt/homebrew/etc/openssl@4",
-    "/opt/homebrew/lib",
-    "/opt/homebrew/opt",
-    "/opt/homebrew/share",
+    # Homebrew's prefix: /opt/homebrew on Apple silicon, /usr/local on Intel.
+    *(
+        f"{prefix}/{folder}"
+        for prefix in ("/opt/homebrew", "/usr/local")
+        for folder in (
+            "Cellar",
+            "bin",
+            "etc/ca-certificates",
+            # Node reads the openssl.cnf of the OpenSSL it links: @3, or @4 since Homebrew moved node to it.
+            "etc/openssl@3",
+            "etc/openssl@4",
+            "lib",
+            "opt",
+            "share",
+        )
+    ),
 )
 
 

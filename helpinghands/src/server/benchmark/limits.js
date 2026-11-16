@@ -12,7 +12,6 @@ const NUMBER_LIMITS = Object.freeze({
   max_model_calls: {default: 50, integer: true, min: 0},
   max_output_tokens_per_call: {default: 4096, integer: true, min: 1},
   max_cost_usd: {default: 1.5, integer: false, min: 0},
-  concurrency: {default: 4, integer: true, min: 1},
   cpus: {default: 1, integer: false, min: Number.MIN_VALUE},
   memory_mb: {default: 1024, integer: true, min: 1},
   pids: {default: 256, integer: true, min: 1},
@@ -54,6 +53,8 @@ function limitValue(name, value, what) {
 function limitOverrides(value) {
   if (value === undefined || value === null) return {};
   if (typeof value !== 'object' || Array.isArray(value)) throw bad('invalid_request', 'limits must be an object');
+  // A run has no concurrency of its own: how many attempts run at once is the runner's setting in RUSH Lab.
+  if ('concurrency' in value) throw bad('invalid_request', 'limits.concurrency is not a limit: how many attempts run at once is the local runner\'s concurrency, set in RUSH Lab (Local Runner Health Check, Advanced settings)');
   const unknown = Object.keys(value).find(name => !LIMIT_FIELDS.includes(name));
   if (unknown) throw bad('invalid_request', `limits.${unknown} is not a limit; the limits are ${LIMIT_FIELDS.join(', ')}`);
   // A null field takes its default, as the CLI sends them.
@@ -81,4 +82,11 @@ function exceeded(limits, capabilities) {
     .map(field => ({field, limit: limits[field], max: capabilities[field]}));
 }
 
-module.exports = {CAPABILITY_WINDOW_S, DEFAULT_LIMITS, LIMIT_FIELDS, limitOverrides, effectiveLimits, capabilitiesOf, exceeded};
+/** The server setting `name` from the environment, `fallback` when unset; a value that is not a positive number stops startup. */
+function positiveSetting(name, fallback) {
+  const value = process.env[name] === undefined ? fallback : Number(process.env[name]);
+  if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number`);
+  return value;
+}
+
+module.exports = {CAPABILITY_WINDOW_S, DEFAULT_LIMITS, LIMIT_FIELDS, limitOverrides, effectiveLimits, capabilitiesOf, exceeded, positiveSetting};

@@ -2,15 +2,18 @@
 
     python -m nanoagent.uploaded.worker config=deploy/gvisor/worker.openrouter.yaml [home=<run folder>]
 
-Everything is validated before the first claim: the RUSH token and upstream credential must be in the environment, the
+Everything is validated before the first claim: the RUSH token and the OpenRouter key (`OPENROUTER_API_KEY`) must be in the environment, the
 endpoint profile, prices and limits must be well formed, the plugin sandbox must work and the process collector must pass
 its end-to-end self-test for every published toolchain. A claim that returns nothing (204) backs off up to
-`poll.max_idle_s`.
+`poll.max_idle_s`. Leftovers of a previous run (`rush-*` containers, networks and volumes) are reaped first, the advertised
+capabilities come from the machine's CPUs and memory as Docker reports them, and a RUSH that cannot be reached is waited out
+(capped exponential backoff), never fatal.
 """
 
 from __future__ import annotations
 
 import ipaddress
+import json
 import logging
 import math
 import os
@@ -26,18 +29,21 @@ from omegaconf import MISSING
 from slimconfig import Config, Run
 
 from nanoagent.uploaded.collector import SeccheckCollector
-from nanoagent.uploaded.dockercli import CliDockerRunner
+from nanoagent.uploaded.dockercli import CliDockerRunner, DockerRunner
 from nanoagent.uploaded.endpoint import parse_endpoint
 from nanoagent.uploaded.plugin_package import isolate
 from nanoagent.uploaded.reconcile import HttpxGenerationLookup, reconcile
 from nanoagent.uploaded.relay import DockerRelay
 from nanoagent.uploaded.runner import AttemptRunner, RunnerConfig, SyncedPlugins
-from nanoagent.uploaded.rush_worker import AttemptJob, RushWorkerClient
-from nanoagent.uploaded.sandbox import DockerSandboxSupervisor, Egress, Limits
+from nanoagent.uploaded.rush_worker import AttemptJob, RushUnavailable, RushWorkerClient
+from nanoagent.uploaded.sandbox import DockerSandboxSupervisor, Egress, Limits, reap_leftovers
 from nanoagent.uploaded.timing import DEFAULT_CLOCK_TOLERANCE_NS
 from nanoagent.uploaded.toolchains import TOOLCHAINS
 
 LOG = logging.getLogger(__name__)
+
+# The one place the worker's OpenRouter key comes from: the container's environment, set by RUSH Lab from the member's settings.
+OPENROUTER_KEY_ENV = "OPENROUTER_API_KEY"
 
 
 class WorkerConfigError(ValueError):
@@ -70,18 +76,17 @@ class Price(Config):
 
 @dataclass
 class RushConfig(Config):
-    # The RUSH server origin, and the environment variable holding BENCHMARK_WORKER_TOKEN.
+    # The RUSH server origin, and the environment variable holding RUSH_WORKER_TOKEN.
     base_url: str = MISSING
     token_env: str = MISSING
 
 
 @dataclass
 class OpenRouterConfig(Config):
-    # See nanoagent.uploaded.endpoint: where the gateway forwards, and the variable holding its credential.
+    # See nanoagent.uploaded.endpoint: where the gateway forwards. The credential is OPENROUTER_API_KEY in the environment.
     label: str = MISSING
     mode: str = MISSING
     upstream_base_url: str = MISSING
-    api_key_env: str = MISSING
     mock_hosts: list[str] | None = None
 
 
@@ -120,8 +125,11 @@ class LimitsConfig(Config):
     max_model_calls: int = 500
     max_output_tokens_per_call: int = 65_536
     max_cost_usd: float = 10.0
-    # How many attempts the worker runs at once; a run's `concurrency` may not exceed it.
-    concurrency: int = 4
+    # How many attempts the worker runs at once, at most the machine's CPUs. A run's own `concurrency` is not compared with it: a run's parallelism is the lesser.
+    concurrency: int = 1
+    # The advertised cpus and memory are the machine's; these only lower them.
+    max_cpus: float | None = None
+    max_memory_mb: int | None = None
 
 
 @dataclass
@@ -148,6 +156,8 @@ class DependenciesConfig(Config):
 class PollConfig(Config):
     idle_s: float = 1.0
     max_idle_s: float = 15.0
+    # While RUSH cannot be reached the claim is retried with a doubling wait, from idle_s up to this.
+    max_outage_s: float = 60.0
     renew_interval_s: float = 15.0
 
 
@@ -178,11 +188,33 @@ def prices_of(raw: dict[Model, Price]) -> dict[str, tuple[Decimal, Decimal]]:
     return prices
 
 
-def runner_config(config: WorkerConfig, env: dict[str, str]) -> RunnerConfig:
+@dataclass(frozen=True)
+class Machine:
+    """What the worker has: the CPUs and memory Docker sees (its VM, on Docker Desktop)."""
+
+    cpus: int
+    memory_bytes: int
+
+
+def machine_of(docker: DockerRunner) -> Machine:
+    result = docker.run(["info", "--format", "{{json .}}"], timeout_s=60)
+    if result.returncode != 0:
+        raise WorkerConfigError(f"docker info failed: {result.error_text()}")
+    try:
+        info = json.loads(result.stdout)
+        machine = Machine(int(info["NCPU"]), int(info["MemTotal"]))
+    except (ValueError, KeyError, TypeError) as error:
+        raise WorkerConfigError(f"docker info did not report NCPU and MemTotal: {error!r}") from error
+    if machine.cpus < 1 or machine.memory_bytes < 1:
+        raise WorkerConfigError(f"docker info reports {machine.cpus} CPUs and {machine.memory_bytes} bytes of memory")
+    return machine
+
+
+def runner_config(config: WorkerConfig, env: dict[str, str], machine: Machine) -> RunnerConfig:
     """Validate the YAML and resolve what it names; raises before any work is accepted."""
     block = config.openrouter
     hosts = None if block.mock_hosts is None else list(block.mock_hosts)
-    profile = {"label": block.label, "mode": block.mode, "upstream_base_url": block.upstream_base_url, "api_key_env": block.api_key_env}
+    profile = {"label": block.label, "mode": block.mode, "upstream_base_url": block.upstream_base_url, "api_key_env": OPENROUTER_KEY_ENV}
     endpoint = parse_endpoint(profile | ({} if hosts is None else {"mock_hosts": hosts}), env)
     timing = config.timing
     if not (math.isfinite(timing.reference_tokens_per_second) and timing.reference_tokens_per_second > 0) or timing.clock_tolerance_ns < 0:
@@ -191,6 +223,11 @@ def runner_config(config: WorkerConfig, env: dict[str, str]) -> RunnerConfig:
     maxima = config.limits
     if not all(math.isfinite(v) and v > 0 for v in (maxima.max_cost_usd, box.cpus)) or min(maxima.wall_time_ms, maxima.max_model_calls, maxima.max_output_tokens_per_call, maxima.concurrency, box.pids, box.workspace_files, box.build_memory_bytes, box.build_output_bytes, box.build_files, box.build_tmp_bytes) < 1:
         raise WorkerConfigError("limits and sandbox maxima must be positive")
+    if any(v is not None and v <= 0 for v in (maxima.max_cpus, maxima.max_memory_mb)):
+        raise WorkerConfigError("limits.max_cpus and limits.max_memory_mb must be positive")
+    machine_mb = machine.memory_bytes >> 20
+    cpus = machine.cpus if maxima.max_cpus is None else min(machine.cpus, maxima.max_cpus)
+    memory_mb = machine_mb if maxima.max_memory_mb is None else min(machine_mb, maxima.max_memory_mb)
     if config.egress.enabled:
         try:
             ipaddress.ip_network(config.egress.subnet)
@@ -208,9 +245,9 @@ def runner_config(config: WorkerConfig, env: dict[str, str]) -> RunnerConfig:
         limits=Limits(box.cpus, box.memory_bytes, box.pids, box.workspace_bytes, box.out_bytes, box.tmp_bytes, box.output_bytes, workspace_files=box.workspace_files),
         capabilities={
             "wall_time_ms": maxima.wall_time_ms, "max_model_calls": maxima.max_model_calls, "max_output_tokens_per_call": maxima.max_output_tokens_per_call,
-            "max_cost_usd": maxima.max_cost_usd, "concurrency": maxima.concurrency, "cpus": box.cpus, "memory_mb": box.memory_bytes >> 20, "pids": box.pids,
+            "max_cost_usd": maxima.max_cost_usd, "concurrency": min(maxima.concurrency, machine.cpus), "cpus": cpus, "memory_mb": memory_mb, "pids": box.pids,
             "workspace_bytes": box.workspace_bytes, "workspace_files": box.workspace_files, "tmp_bytes": box.tmp_bytes,
-            "build_wall_ms": int(box.build_wall_s * 1000), "build_memory_mb": box.build_memory_bytes >> 20, "build_output_bytes": box.build_output_bytes,
+            "build_wall_ms": int(box.build_wall_s * 1000), "build_memory_mb": min(box.build_memory_bytes >> 20, memory_mb), "build_output_bytes": box.build_output_bytes,
             "build_files": box.build_files, "build_tmp_bytes": box.build_tmp_bytes,
             "internet_access": config.egress.enabled, "models": sorted(prices),
         },
@@ -225,14 +262,16 @@ async def serve(config: WorkerConfig, env: dict[str, str] | None = None) -> None
     token = env.get(config.rush.token_env, "")
     if not token.strip():
         raise WorkerConfigError(f"environment variable {config.rush.token_env} is unset or empty")
-    settings = runner_config(config, env)
+    docker = CliDockerRunner()
+    machine = machine_of(docker)
+    LOG.info("machine: %d CPUs, %d MiB memory", machine.cpus, machine.memory_bytes >> 20)
+    settings = runner_config(config, env, machine)
     isolate()
     uv = shutil.which("uv")
     if uv is None:
         raise WorkerConfigError("uv is not on PATH: plugin tools are prepared and run with it")
     collector = SeccheckCollector(config.collector.socket)
     collector.start()
-    docker = CliDockerRunner()
     supervisor = DockerSandboxSupervisor(
         docker, collector=collector, clock=lambda: time.monotonic_ns() / 1e9, wall_clock_ns=time.time_ns, uv=Path(uv),
         egress=Egress(config.egress.subnet, tuple(config.egress.dns)) if config.egress.enabled else None,
@@ -240,10 +279,16 @@ async def serve(config: WorkerConfig, env: dict[str, str] | None = None) -> None
     worker = RushWorkerClient(config.rush.base_url, token)
     lookup = HttpxGenerationLookup(settings.endpoint)
     try:
-        for profile in TOOLCHAINS.values():
+        for kind, name in reap_leftovers(docker):
+            LOG.info("reaped a leftover %s: %s", kind, name)  # a previous run quit mid-attempt
+        LOG.info("leftover reaping passed")
+        for toolchain, profile in TOOLCHAINS.items():
             supervisor.startup(profile)  # the collector must observe a probe's exec and exit before member source runs
+            LOG.info("collector probe passed: %s", toolchain)
         if config.egress.enabled:
             supervisor.verify_egress()  # the advertised internet access is only offered behind the host filter
+            LOG.info("egress filter verified")
+        LOG.info("advertised capabilities: %s", json.dumps(settings.capabilities, sort_keys=True))
         runner = AttemptRunner(
             settings, supervisor=supervisor, worker=worker, relay=DockerRelay(docker),
             plugins=SyncedPlugins(),
@@ -259,6 +304,8 @@ async def serve(config: WorkerConfig, env: dict[str, str] | None = None) -> None
 async def poll(config: WorkerConfig, settings: RunnerConfig, worker: RushWorkerClient, runner: AttemptRunner, lookup: HttpxGenerationLookup, background: anyio.abc.TaskGroup) -> None:
     """Claim and run attempts, up to the advertised `concurrency` at once; a claimed attempt keeps the slot it was claimed in."""
     idle = config.poll.idle_s
+    outage: float | None = None  # the current wait while RUSH is unreachable; None when it is reachable
+    reached = False  # whether RUSH has answered a claim since startup or the last outage: the "claiming from" line is logged once per True
     slots = anyio.Semaphore(settings.capabilities["concurrency"])
 
     async def attempt(job: AttemptJob) -> None:
@@ -266,17 +313,40 @@ async def poll(config: WorkerConfig, settings: RunnerConfig, worker: RushWorkerC
             result = await runner.run(job)
             LOG.info("attempt %s: %s %s", job.attempt_id, result.outcome, result.execution)
             if result.accounting:
-                background.start_soon(reconcile, worker, job.attempt_id, result.accounting, lookup)
+                background.start_soon(reconciled, job.attempt_id, result.accounting)
+        except Exception:  # one attempt's fault, never every other attempt's: the server expires it as interrupted
+            LOG.exception("attempt %s: failed outside the runner's handling, left to expire as interrupted", job.attempt_id)
         finally:
             slots.release()
+
+    async def reconciled(attempt_id: str, accounting: list) -> None:
+        try:
+            await reconcile(worker, attempt_id, accounting, lookup)
+        except Exception:  # its accounting stays provisional, as for a generation that never appears
+            LOG.exception("attempt %s: reconciling its accounting failed", attempt_id)
 
     while True:
         await slots.acquire()
         try:
             job = await worker.claim(settings.worker_id, settings.endpoint.label, settings.endpoint.mode, settings.capabilities)
+        except RushUnavailable as error:
+            slots.release()
+            reached = False
+            if outage is None:
+                LOG.warning("RUSH is unreachable, retrying until it returns: %s", error)  # once per outage, not per retry
+                outage = config.poll.idle_s
+            await anyio.sleep(outage)
+            outage = min(outage * 2, config.poll.max_outage_s)
+            continue
         except BaseException:
             slots.release()
             raise
+        if outage is not None:
+            LOG.info("RUSH is reachable again")
+            outage = None
+        if not reached:
+            LOG.info("claiming from RUSH: %s", settings.endpoint.label)  # the first answer, 204 or a job: RUSH Lab's health check reads it
+            reached = True
         if job is None:
             slots.release()
             await anyio.sleep(idle)

@@ -66,11 +66,14 @@ export function RunView({runId, go}) {
     if (!live) return undefined;
     const controller = new AbortController();
     for (const attemptId of live.split(',')) {
-      followStream({attemptId, open: benchmarkApi.openStream, read: benchmarkApi.readStream, signal: controller.signal, onFrame: reloadSoon}).then(reloadSoon);
+      followStream({attemptId, open: benchmarkApi.openStream, read: benchmarkApi.readStream, signal: controller.signal, onFrame: reloadSoon}).then(() => {
+        if (!controller.signal.aborted) reloadSoon();
+      });
     }
     return () => controller.abort();
   }, [live, reloadSoon]);
-  useEffect(() => () => clearTimeout(soon.current), []);
+  // Cleared and forgotten: a hidden section (Shell's <Activity>) keeps its refs, and a stale one would stop every reload after.
+  useEffect(() => () => { clearTimeout(soon.current); soon.current = null; }, []);
 
   if (error && !run) return <p className={styles.error}>{error}</p>;
   if (!run) return <LoadingSkeleton shape="block" height={160} />;
@@ -81,9 +84,10 @@ export function RunView({runId, go}) {
   const {case_set: caseSet} = run;
 
   return (
-    <div className={styles.run}>
+    <div>
       <header className={styles.header}>
         <button type="button" className={styles.link} onClick={() => go({})}>All runs</button>
+        {error && <p className={styles.error} role="alert">Could not refresh this run: {error}</p>}
         <h2>Run <code>{run.run_id.slice(0, 8)}</code> <span className={clsx(styles.badge, styles[`status_${run.status}`])}>{run.status}</span></h2>
         <p className={styles.muted}>{run.model} on {run.endpoint_profile} · started {when(run.created_at)} · source <code>{run.source.sha256.slice(0, 12)}</code> · {run.prompt.renderer_version}</p>
         <dl className={styles.facts}>

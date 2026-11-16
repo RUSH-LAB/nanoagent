@@ -33,7 +33,6 @@ const github = Object.fromEntries(['root', 'alice', 'bob', 'carol'].map((name, o
   id: githubId(offset), login: `${name}-${token}`, name, email: `${name}@${domain}`, verified: true,
 }]));
 const clientIp = `203.0.113.${1 + (parseInt(token.slice(0, 2), 16) % 250)}`;
-const WORKER_TOKEN = `worker-${token}`;
 const checks = [];
 const check = (name, condition) => {
   assert.ok(condition, name);
@@ -76,7 +75,9 @@ async function api(path, {method = 'GET', cookie, body, headers = {}, raw} = {})
   if ((response.headers.get('content-type') ?? '').includes('json')) parsed = JSON.parse(buffer.toString());
   return {status: response.status, body: parsed, headers: response.headers, text: buffer.toString()};
 }
-const worker = (path, options = {}) => api(`/api/benchmark-worker/${path}`, {...options, headers: {authorization: `Bearer ${WORKER_TOKEN}`, ...options.headers}});
+// Each member's worker credential, minted below; a worker call is alice's unless it names `token`.
+const credentials = {};
+const worker = (path, {token: credential = credentials.alice, ...options} = {}) => api(`/api/benchmark-worker/${path}`, {...options, headers: {authorization: `Bearer ${credential}`, ...options.headers}});
 
 async function userIdOf(user) {
   return (await migrationPool.query(
@@ -179,7 +180,7 @@ const SECRET = `secret-reference-${token}`;
 const LABEL = `mock-${token}`;
 // What the test worker says it can do: every limit's maximum, whether it gives a harness internet access, and the models it prices.
 const CAPS = {
-  wall_time_ms: 600_000, max_model_calls: 100, max_output_tokens_per_call: 8192, max_cost_usd: 5, concurrency: 8, cpus: 4, memory_mb: 4096, pids: 1024,
+  wall_time_ms: 600_000, max_model_calls: 100, max_output_tokens_per_call: 8192, max_cost_usd: 5, cpus: 4, memory_mb: 4096, pids: 1024,
   workspace_bytes: 1 << 30, workspace_files: 50_000, tmp_bytes: 1 << 28, build_wall_ms: 1_200_000, build_memory_mb: 4096,
   build_output_bytes: 1 << 30, build_files: 100_000, build_tmp_bytes: 1 << 29, internet_access: true,
   models: ['mock/model', 'other/model', 'bobs/model'],
@@ -197,14 +198,8 @@ try {
   savedPolicy = (await migrationPool.query('select * from platform_policy')).rows[0];
   await migrationPool.query("update platform_policy set signup_mode = 'open', max_workspaces_per_user = 5");
 
-  // ── The worker API is off without its token ──
-  await startServer();
-  const disabled = await api('/api/benchmark-worker/claim', {method: 'POST', body: {}});
-  check('the worker API answers 503 worker_api_disabled while BENCHMARK_WORKER_TOKEN is unset',
-    disabled.status === 503 && disabled.body.code === 'worker_api_disabled');
-  await stopServer();
-  await startServer({BENCHMARK_WORKER_TOKEN: WORKER_TOKEN, BENCHMARK_MEMBER_BUDGET_USD: '1.5', BENCHMARK_LEASE_SECONDS: '30', BENCHMARK_SWEEP_SECONDS: '1'});
-  check('the worker API refuses a missing or wrong token',
+  await startServer({BENCHMARK_MEMBER_BUDGET_USD: '1.5', BENCHMARK_LEASE_SECONDS: '30', BENCHMARK_SWEEP_SECONDS: '1'});
+  check('the worker API refuses a missing or unknown credential',
     (await api('/api/benchmark-worker/claim', {method: 'POST', body: {}})).status === 401
     && (await api('/api/benchmark-worker/claim', {method: 'POST', body: {}, headers: {authorization: 'Bearer nope'}})).status === 401);
 
@@ -219,8 +214,36 @@ try {
   const w3 = (await api('/api/workspaces', {method: 'POST', cookie: alice.cookie, body: {name: 'Bench Three', slug: `b3-${token}`}})).body.workspace;
   const base = `/api/workspaces/${w1.id}/benchmark`;
 
+  // ── Worker credentials ──
+  const mint = (member, name = 'laptop') => api('/api/benchmark/worker-credentials', {method: 'POST', cookie: member.cookie, body: {name}});
+  const minted = {alice: await mint(alice), bob: await mint(bob), carol: await mint(carol)};
+  credentials.alice = minted.alice.body.token;
+  credentials.bob = minted.bob.body.token;
+  credentials.carol = minted.carol.body.token;
+  check('a member mints a worker credential: a random token shown once',
+    minted.alice.status === 201 && /^rwk_[A-Za-z0-9_-]{43}$/.test(credentials.alice) && credentials.alice !== credentials.bob && minted.alice.body.name === 'laptop');
+  check('the token is stored only as its SHA-256',
+    (await asSystem('select token_sha256 from benchmark_worker_credential where credential_id = $1', [minted.alice.body.credential_id])).rows[0].token_sha256 === sha256(credentials.alice)
+    && (await asSystem('select count(*)::int as n from benchmark_worker_credential where token_sha256 = $1', [credentials.alice])).rows[0].n === 0);
+  const credentialList = await api('/api/benchmark/worker-credentials', {cookie: alice.cookie});
+  check('a member lists only their own credentials, never a token',
+    credentialList.status === 200 && credentialList.body.credentials.length === 1 && credentialList.body.credentials[0].credential_id === minted.alice.body.credential_id
+    && credentialList.body.credentials[0].revoked_at === null && !JSON.stringify(credentialList.body).includes(credentials.alice));
+  check('minting and listing need a session and a name',
+    (await api('/api/benchmark/worker-credentials', {method: 'POST', body: {name: 'x'}})).status === 401 && (await api('/api/benchmark/worker-credentials')).status === 401
+    && (await api('/api/benchmark/worker-credentials', {method: 'POST', cookie: alice.cookie, body: {}})).status === 400);
+  const spare = (await mint(carol, 'spare')).body;
+  check('a credential works on the worker API until it is revoked, and only its owner revokes it',
+    (await worker('claim', {method: 'POST', token: spare.token, body: {}})).status === 400
+    && (await api(`/api/benchmark/worker-credentials/${spare.credential_id}`, {method: 'DELETE', cookie: bob.cookie})).status === 404
+    && (await api(`/api/benchmark/worker-credentials/${spare.credential_id}`, {method: 'DELETE', cookie: carol.cookie})).status === 200
+    && (await worker('claim', {method: 'POST', token: spare.token, body: {}})).status === 401
+    && (await api('/api/benchmark/worker-credentials', {cookie: carol.cookie})).body.credentials.find(entry => entry.credential_id === spare.credential_id).revoked_at !== null
+    && (await worker('claim', {method: 'POST', token: credentials.carol, body: {}})).status === 400);
+  check('a member credential opens no member route', (await api(`${base}/runs`, {headers: {authorization: `Bearer ${credentials.alice}`}})).status !== 200);
+
   // ── Worker capabilities ──
-  const claim = async (id = 'w1', {label = LABEL, capabilities = CAPS, body = {}} = {}) => worker('claim', {method: 'POST', body: {worker_id: id, endpoint_profile: {label, mode: 'mock'}, capabilities, ...body}});
+  const claim = async (id = 'w1', {label = LABEL, capabilities = CAPS, body = {}, token} = {}) => worker('claim', {method: 'POST', token, body: {worker_id: id, endpoint_profile: {label, mode: 'mock'}, capabilities, ...body}});
 
   // ── Benchmark publishing ──
   const pluginId = pluginIds[0];
@@ -291,6 +314,8 @@ try {
   const changedReference = await publish(alice, {...publication(mainName, ['c1', 'r1']), private: {c1: {expected: 4}, r1: allPrivate.r1}});
   check('a changed benchmark under the same name is refused, and nothing is stored',
     changed.status === 409 && changed.body.code === 'benchmark_name_taken' && changedReference.body.code === 'benchmark_name_taken' && await benchmarkRows(mainName) === 1 && await caseSetRows() === rowsBefore);
+  check('a worker advertises for its own member only', (await claim('wb', {token: credentials.bob})).status === 204
+    && !(await api(`/api/workspaces/${w2.id}/benchmark/defaults`, {cookie: carol.cookie})).body.endpoints.some(entry => entry.label === LABEL));
   const bobsOwn = await publish(bob, publication(`bobs-${token}`, ['c1', 'r1']));
   check('any member publishes a benchmark for a published plugin, and a name is unique per plugin version whoever published it',
     bobsOwn.status === 201 && bobsOwn.body.benchmark.publisher.id === bob.id
@@ -333,9 +358,9 @@ try {
     return result.body.benchmark;
   };
   const single = await published('single', ['c2']);
-  const withTools = await published('tools', ['c1', 'r1'], {limits: {...runLimits, concurrency: 1, internet_access: false}, task_instructions: 'Use read first.'});
+  const withTools = await published('tools', ['c1', 'r1'], {limits: {...runLimits, internet_access: false}, task_instructions: 'Use read first.'});
   const cross = await published('cross', ['c1', 'c2']);
-  const crowd = await published('crowd', ['c1', 'r1', 'c2', 'r2'], {limits: {...runLimits, concurrency: 2}});
+  const crowd = await published('crowd', ['c1', 'r1', 'c2', 'r2'], {limits: runLimits});
   const small = await published('small', ['c1', 'r1'], {limits: {...runLimits, memory_mb: 512}});
   const custom = await published('custom', ['c1', 'r1'], {coding_template: 'Do {description}\r\nin {workspace} {{ok}}', limits: {...runLimits, internet_access: false}});
   const otherPlugin = (await publish(alice, {...publication(`other-${token}`, ['c1', 'r1']), plugin_id: pluginIds[1], package_sha256: otherSha})).body.benchmark;
@@ -363,7 +388,7 @@ try {
     && (await api(`${base}/benchmarks/nope`, {cookie: alice.cookie})).status === 404 && (await api(`${base}/benchmarks/${crypto.randomUUID()}/results`, {cookie: alice.cookie})).status === 404);
   const defaults = (await api(`${base}/defaults`, {cookie: alice.cookie})).body;
   check('the defaults give the limits, the coding template and the advertised endpoints',
-    defaults.limits.internet_access === true && defaults.limits.concurrency === 4 && defaults.limits.max_cost_usd === 1.5 && defaults.renderer_version === 'rush.prompt.v1'
+    defaults.limits.internet_access === true && !('concurrency' in defaults.limits) && defaults.limits.max_cost_usd === 1.5 && defaults.renderer_version === 'rush.prompt.v1'
     && defaults.coding_template.startsWith('Task: {description}.') && defaults.endpoints.some(entry => entry.label === LABEL));
   check('there is no route that publishes a case set alone', (await api('/api/benchmark/case-sets', {method: 'POST', cookie: alice.cookie, body: publication('x', ['c1'])})).status === 404
     && (await api(`${base}/case-sets`, {cookie: alice.cookie})).status === 404 && (await api(`${base}/pins`, {method: 'POST', cookie: alice.cookie, body: {}})).status === 404);
@@ -524,9 +549,18 @@ try {
   };
   const aliceShared1 = await sharedRun(alice, `shared-a1-${token}`);
   const aliceShared2 = await sharedRun(alice, `shared-a2-${token}`, shared, 'task_tools');
+  await claim('wb-shared', {label: SHARED, token: credentials.bob});
   const bobShared = await sharedRun(bob, `shared-b1-${token}`, shared, 'coding', bobsSource);
   const shared2Run = await sharedRun(alice, `shared-a3-${token}`, shared2);
   const carolBase = `/api/workspaces/${w2.id}/benchmark`;
+  const carolRefused = await publish(carol, publication(`carol-${token}`, ['c1']));
+  check('a member with no worker running cannot publish, and is told to start RUSH Lab with Docker running',
+    carolRefused.status === 409 && carolRefused.body.code === 'worker_unavailable' && /start RUSH Lab with Docker running/.test(carolRefused.body.error)
+    && (await api(`${carolBase}/previews`, {method: 'POST', cookie: carol.cookie, body: {benchmark_id: shared.benchmark_id, policy: 'coding'}})).body.code === 'worker_unavailable');
+  check('a second member\'s worker never claims the first member\'s run, though its capabilities fit and the runs are queued',
+    (await claim('wc', {label: SHARED, token: credentials.carol})).status === 204
+    && (await asSystem("select count(*)::int as n from benchmark_attempt where worker_id = 'wc'")).rows[0].n === 0
+    && (await asSystem("select count(*)::int as n from benchmark_attempt a join benchmark_run r on r.run_id = a.run_id where a.state = 'queued' and r.user_id = $1 and r.endpoint_label = $2", [alice.id, SHARED])).rows[0].n > 0);
   const statsOf = async id => (await api(`${carolBase}/benchmarks/${id}`, {cookie: carol.cookie})).body.benchmark;
   const sharedStats = await statsOf(shared.benchmark_id);
   check('a benchmark counts every member\'s runs and its distinct runners', sharedStats.run_count === 3 && sharedStats.runner_count === 2);
@@ -618,7 +652,7 @@ try {
     && (await worker(`attempts/${a1}/renew`, {method: 'POST', body: {fence: 7}})).body.code === 'lease_lost');
   check('a lease renews', (await worker(`attempts/${a1}/renew`, {method: 'POST', body: {fence: first.fence}})).status === 200);
 
-  // A task tools run, and a run another worker can only claim within its capabilities, concurrency one.
+  // A task tools run, and a run another worker can only claim within its capabilities.
   const inetRun = await sharedRun(alice, `inet-${token}`, single);
   const toolsRun = await sharedRun(alice, `tools-${token}`, withTools, 'task_tools');
   check('a task tools run pins its instructions and a system and user prompt per case',
@@ -629,8 +663,6 @@ try {
   check('a worker that cannot give internet access is handed no run that wants it, only the run that does not',
     offline.status === 200 && offline.body.run.run_id === toolsRun.run_id && offline.body.run.policy === 'task_tools' && offline.body.run.limits.internet_access === false
     && offline.body.task.instructions === 'Use read first.' && offline.body.prompt.system === toolsRun.cases[0].prompt.system && offline.body.prompt.user === toolsRun.cases[0].prompt.user);
-  check('a run takes no more attempts at once than its concurrency, and a worker with room gets the next only after one ends',
-    (await claim('offline-2', {capabilities: noInternet})).status === 204);
   await worker(`attempts/${offline.body.attempt_id}/finalize`, {method: 'POST', body: {fence: 1, execution: {status: 'execution_failed', reason: 'harness_failed'}, verdict: 'fail', coverage: {}, metrics: {}, final_cursor_expected: 0}});
   const afterOne = await claim('offline-3', {capabilities: noInternet});
   check('the next attempt of that run is claimable once the first has ended', afterOne.status === 200 && afterOne.body.run.run_id === toolsRun.run_id && afterOne.body.case.case_id === 'r1');
@@ -777,7 +809,7 @@ try {
   check('two runs of one verifier compare: cases aligned by content, configuration and prompt differences, and unverified egress',
     compared.status === 200 && compared.body.verifier.package_sha256 === sha && compared.body.shared.length === 2 && compared.body.only_a.length === 0 && compared.body.only_b.length === 0
     && compared.body.shared[0].a.case_id === 'c1' && compared.body.shared[1].a.verdict === 'pass'
-    && ['policy', 'benchmark_id', 'limits.internet_access', 'limits.concurrency'].every(field => compared.body.differences.includes(field))
+    && ['policy', 'benchmark_id', 'limits.internet_access'].every(field => compared.body.differences.includes(field))
     && !compared.body.differences.includes('case_set_id') && compared.body.unverified_egress.a === true && compared.body.unverified_egress.b === false
     && compared.body.prompt_diff.a_kind === 'template' && compared.body.prompt_diff.b_kind === 'instructions' && compared.body.prompt_diff.text.some(part => part.type !== 'same')
     && compared.body.prompt_diff.rendered.every(entry => entry.identical === false));
@@ -891,11 +923,14 @@ try {
   await api(`${base}/runs/${run3.run_id}/cancel`, {method: 'POST', cookie: alice.cookie});
   await api(`${base}/runs/${raceRun.run_id}/cancel`, {method: 'POST', cookie: alice.cookie});
 
-  // ── Concurrency under racing claims ──
+  // ── Racing claims: a run has no concurrency of its own ──
+  check('a request that still sends limits.concurrency is refused as an unknown limit',
+    (await publish(alice, {...publication(`conc-${token}`, ['c1']), limits: {...runLimits, concurrency: 2}})).status === 400);
   const crowded = await newRun(`crowd-${token}`, crowd);
   const claimed = await Promise.all(Array.from({length: 8}, (_, n) => claim(`crowd-${n}`)));
-  check('racing claims never lease a run past its concurrency', claimed.filter(response => response.status === 200 && response.body.run.run_id === crowded.run.run_id).length === 2
-    && (await asSystem("select count(*)::int as n from benchmark_attempt where run_id = $1 and state = 'leased'", [crowded.run.run_id])).rows[0].n === 2);
+  const crowdClaims = claimed.filter(response => response.status === 200 && response.body.run.run_id === crowded.run.run_id);
+  check('racing claims lease every queued attempt of a run once, with no cap of the run\'s own', crowdClaims.length === 4 && new Set(crowdClaims.map(response => response.body.attempt_id)).size === 4
+    && (await asSystem("select count(*)::int as n from benchmark_attempt where run_id = $1 and state = 'leased'", [crowded.run.run_id])).rows[0].n === 4);
   await api(`${base}/runs/${crowded.run.run_id}/cancel`, {method: 'POST', cookie: alice.cookie});
 
   // ── Capabilities shrink ──

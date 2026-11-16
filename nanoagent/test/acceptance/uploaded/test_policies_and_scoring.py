@@ -54,7 +54,6 @@ from nanoagent.uploaded.client import BenchmarkClient, BenchmarkError  # noqa: E
 
 pytestmark = [pytest.mark.gvisor, pytest.mark.uploaded_acceptance]
 
-WORKER_TOKEN = "worker-acceptance-token"
 REF, NOREF, EGRESS = "probe-ref", "probe-noref", "probe-egress"
 HOSTS = ("api.example.com", "data.example.org")
 CONTEXT = "  Synthetic context: no data source.  "
@@ -122,13 +121,11 @@ class Evidence:
 
 @pytest.fixture(scope="module")
 def rush() -> Iterator[RushServer]:
-    reason = unavailable() or support.vm_available()
+    reason = unavailable() or support.container_unavailable()
     if reason:
         pytest.skip(reason)
-    with pytest.MonkeyPatch.context() as env:
-        env.setenv("BENCHMARK_WORKER_TOKEN", WORKER_TOKEN)
-        with rush_server() as server:
-            yield server
+    with rush_server() as server:
+        yield server
 
 
 def member_text(client: BenchmarkClient, runs: list[dict[str, Any]], events: dict[str, list[dict[str, Any]]]) -> str:
@@ -180,7 +177,7 @@ def evidence(rush: RushServer) -> Iterator[Evidence]:
         "kill": ("kill", REF, {"limits": {"wall_time_ms": TIMEOUT_MS}}),
         "egress": ("egress", EGRESS, {}),
         "egress-limits": (
-            "egress", EGRESS, {"limits": {"wall_time_ms": 120_000, "max_model_calls": 7, "max_output_tokens_per_call": 123, "max_cost_usd": 0.5, "concurrency": 2, "memory_mb": 512, "pids": 128}},
+            "egress", EGRESS, {"limits": {"wall_time_ms": 120_000, "max_model_calls": 7, "max_output_tokens_per_call": 123, "max_cost_usd": 0.5, "memory_mb": 512, "pids": 128}},
         ),
         "mix2": ("mix2", REF, {}),
         "calls": ("calls", REF, {"limits": {"max_model_calls": 2}}),
@@ -555,27 +552,27 @@ def test_default_limits_are_pinned_and_shown(evidence: Evidence) -> None:
     defaults = evidence.client.defaults()["limits"]
     # The documented defaults, today's values; the server may list more limits (the worker-level sandbox ones), all pinned.
     assert {
-        "wall_time_ms": 600000, "max_model_calls": 50, "max_output_tokens_per_call": 4096, "max_cost_usd": 1.5, "concurrency": 4, "cpus": 1, "memory_mb": 1024,
+        "wall_time_ms": 600000, "max_model_calls": 50, "max_output_tokens_per_call": 4096, "max_cost_usd": 1.5, "cpus": 1, "memory_mb": 1024,
         "pids": 256, "workspace_bytes": 268435456, "tmp_bytes": 67108864, "build_wall_ms": 600000, "internet_access": True,
     }.items() <= defaults.items()  # fmt: skip
     coding = evidence.runs["coding"]["limits"]
     # A benchmark that overrides nothing but internet access (off, for the plain worker) pins every default, and its runs show them all.
     assert coding == {**defaults, "internet_access": False}
     assert evidence.reports["coding"].limits == coding
-    # What the harness was given is the pinned set (less concurrency, which only the server applies).
+    # What the harness was given is the pinned set.
     given = evidence.harness_log("coding", "correct-model")["limits"]
-    assert {key: value for key, value in coding.items() if key != "concurrency"}.items() <= given.items()
+    assert coding.items() <= given.items()
 
 
 def test_explicit_limits_override_the_defaults_and_reach_the_harness(evidence: Evidence) -> None:
     run = evidence.runs["limits"]
     assert benchmark_of(evidence, "egress-limits")["limits"] == run["limits"]
-    explicit = {"wall_time_ms": 120_000, "max_model_calls": 7, "max_output_tokens_per_call": 123, "max_cost_usd": 0.5, "concurrency": 2, "memory_mb": 512, "pids": 128}
+    explicit = {"wall_time_ms": 120_000, "max_model_calls": 7, "max_output_tokens_per_call": 123, "max_cost_usd": 0.5, "memory_mb": 512, "pids": 128}
     assert {key: run["limits"][key] for key in explicit} == explicit
     assert run["limits"]["internet_access"] is False and run["limits"]["cpus"] == evidence.client.defaults()["limits"]["cpus"]
     given = evidence.harness_log("limits", "correct-model")["limits"]  # the probe echoes request.limits as it received them
-    assert {key: given[key] for key in explicit if key != "concurrency"} == {key: value for key, value in explicit.items() if key != "concurrency"}
-    assert {key: value for key, value in run["limits"].items() if key != "concurrency"}.items() <= given.items()
+    assert {key: given[key] for key in explicit} == explicit
+    assert run["limits"].items() <= given.items()
     # The gateway enforces the pinned output cap on the request it forwards.
     request = evidence.handle.ledger.calls[-1].request
     assert request is not None

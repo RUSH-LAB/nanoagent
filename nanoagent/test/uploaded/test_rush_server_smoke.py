@@ -33,7 +33,7 @@ def rush() -> Iterator[RushServer]:
         pytest.skip(reason)
     with rush_server() as server:
         server.seed_plugin(pack(PROBE))
-        server.advertise("mock")
+        server.advertise("openrouter", models=("deepseek/deepseek-v4-flash-0731",))  # the example config's endpoint profile and model
         yield server
 
 

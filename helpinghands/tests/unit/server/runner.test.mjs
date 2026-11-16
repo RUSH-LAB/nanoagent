@@ -136,7 +136,7 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     const result = await (await runners.aiFor('u1')).stream({input: 'hi'});
     assert.deepEqual(result, {error: RUNNER_OFFLINE, status: 503});
     assert.deepEqual(await (await runners.aiFor(null)).stream({input: 'hi'}), {error: RUNNER_OFFLINE, status: 503});
-    assert.deepEqual(runners.status('u1'), {connected: false, device: null, since: null, keys: []});
+    assert.deepEqual(runners.status('u1'), {connected: false, device: null, since: null, keys: [], worker: null});
   });
 
   it('sets the computer\'s API keys by the names it listed, and hears which are set now', async () => {
@@ -161,6 +161,18 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     assert.equal((await runners.saveKeys('u1', {})).status, 400);
     assert.equal(kept.length, 1);
     assert.equal((await runners.saveKeys('u2', {OPENROUTER_API_KEY: 'sk-1'})).status, 409);
+  });
+
+  it('hands the computer a runner concurrency to set, a whole number of at least 1, and refuses the rest', async () => {
+    const actions = [];
+    await dialIn('member-token', {onWorkerAction: (action, value) => actions.push([action, value])});
+    assert.deepEqual(runners.workerAction('u1', 'concurrency', 4), {value: {sent: true}});
+    await until(() => actions.length === 1);
+    assert.deepEqual(actions, [['concurrency', 4]]);
+    for (const value of [0, -2, 1.5, '3', null, undefined]) assert.equal(runners.workerAction('u1', 'concurrency', value).status, 400, String(value));
+    assert.equal(runners.workerAction('u1', 'nope').status, 400);
+    assert.equal(runners.workerAction('u2', 'concurrency', 2).status, 409);
+    assert.equal(actions.length, 1);
   });
 
   it('gives a computer without an OpenRouter key RUSH\'s, once a connection, and none to one with its own', async () => {

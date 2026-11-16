@@ -1,6 +1,7 @@
-"""Linux integration tests: the real supervisor, `runsc-rush` and the collector, inside the gVisor VM.
+"""Linux integration tests: the real supervisor, `runsc-rush` and the collector, inside the benchmark worker image.
 
-    limactl shell gvisor-dev -- bash deploy/gvisor/vm-test.sh test/uploaded/test_sandbox_gvisor.py
+    docker run --rm --init --privileged --cgroupns=private -v rush-worker-docker:/var/lib/docker rush-benchmark-worker:dev \
+        python -m pytest -p no:cacheprovider -o addopts= -m 'gvisor or not gvisor' test/uploaded/test_sandbox_gvisor.py
 
 Needs Docker with the `runsc-rush` runtime (`sudo python3 deploy/gvisor/setup.py`) and the
 collector socket path it was set up with (RUSH_SECCHECK_SOCKET).
@@ -451,7 +452,7 @@ def test_supervisor_refuses_member_source_without_a_listening_collector(tmp_path
 
 # -- internet access for the harness container (limits.internet_access) ----------------------------------------------------
 #
-# These need the host filter: `sudo bash deploy/gvisor/egress.sh` (vm-test.sh installs it when it can sudo).
+# These need the host filter: `sudo bash deploy/gvisor/egress.sh` (the image's entrypoint installs it).
 
 PUBLIC = ("1.1.1.1", 443)
 # One address in each blocked class; none is a host that exists, so the proof that the filter, not an absent host, is what

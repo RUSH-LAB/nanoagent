@@ -12,6 +12,7 @@ import NewRun from './NewRunForm';
 import Publish from './PublishForm';
 import {RunView, RunsList} from './RunsView';
 import TraceView from './TraceView';
+import {WorkerBanner, WorkerPanel} from './WorkerStatus';
 import {screenOf, searchFor} from './location';
 import styles from './styles.module.css';
 
@@ -24,6 +25,7 @@ const VIEWS = [
   {id: 'publish', label: 'Create Plugin Benchmark'},
   {id: 'new', label: 'Benchmark Your Harness'},
   {id: 'runs', label: 'Benchmark Results'},
+  {id: 'worker', label: 'Local Runner Health Check'},
 ];
 
 // The two sub-tabs of Benchmark Results.
@@ -43,7 +45,7 @@ export default function Benchmark() {
   // Back from a trace or comparison opened from a run, or from a comparison of runs, returns there.
   const back = () => go(runs ? {runs, caseKey} : run ? {run} : {});
 
-  const view = screen === 'new' || screen === 'publish' ? screen : 'runs';
+  const view = screen === 'new' || screen === 'publish' || screen === 'worker' ? screen : 'runs';
   const results = screen === 'all' ? 'all' : 'runs';
   const href = id => `${location.pathname}${searchFor(id === 'runs' ? {} : {view: id})}`;
   return (
@@ -79,6 +81,8 @@ export default function Benchmark() {
           ))}
         </nav>
       )}
+      {screen !== 'worker' && <WorkerBanner />}
+      {screen === 'worker' && <WorkerPanel />}
       {screen === 'new' && <NewRun key={location.search} go={go} initialSelection={initialSelection} />}
       {screen === 'publish' && <Publish go={go} />}
       {screen === 'runs' && <RunsList go={go} />}

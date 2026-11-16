@@ -15,15 +15,17 @@ const {compareAttempts, compareRuns} = require('../benchmark/compare');
 const {UUID, jsonBody, losslessBody, rawBody, sendFailure} = require('../benchmark/http');
 const {checkReference, referenceHarnessOf, uploadedHarnessOf} = require('../benchmark/harness');
 const {previewBody, runBody, benchmarkPublication, SHA256, object, string} = require('../benchmark/validate');
+const {positiveSetting} = require('../benchmark/limits');
 
-const MAX_SOURCE_BYTES = Number(process.env.BENCHMARK_SOURCE_MAX_BYTES) || 50 * 1024 * 1024;
+const MAX_SOURCE_BYTES = positiveSetting('BENCHMARK_SOURCE_MAX_BYTES', 50 * 1024 * 1024);
 const STREAM_POLL_MS = 300;
 const HEARTBEAT_MS = 15_000;
 const PAGE = 1000;
 
 const ROUTE = new RegExp([
   '^/api/benchmark/(?:',
-  '(defaults|benchmarks|benchmarks/pinned|previews|sources|runs|compare|compare/attempts)',
+  '(defaults|benchmarks|benchmarks/pinned|previews|sources|runs|compare|compare/attempts|worker-credentials)',
+  '|worker-credentials/([^/]+)',
   '|benchmarks/([^/]+)(?:/(results))?',
   '|runs/([^/]+)(?:/(cancel)|/cases/([^/]+)/(rerun))?',
   '|attempts/([^/]+)(?:/(events|stream|spans|accounting)|/payloads/([^/]+))?',
@@ -36,8 +38,17 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 function limitOf(url, fallback, max) {
   const raw = url.searchParams.get('limit');
   if (raw === null) return fallback;
-  if (!/^\d+$/.test(raw) || Number(raw) < 1) throw new BenchmarkError(400, 'invalid_request', 'limit is a positive integer');
-  return Math.min(Number(raw), max);
+  if (!/^\d+$/.test(raw) || Number(raw) < 1 || Number(raw) > max) throw new BenchmarkError(400, 'invalid_request', `limit is an integer from 1 to ${max}`);
+  return Number(raw);
+}
+
+/** A path segment, decoded; a malformed escape is the request's fault, not a 500. */
+function segment(raw, what) {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    throw new BenchmarkError(400, 'invalid_request', `${what} is not a valid URL path segment`);
+  }
 }
 
 function cursorOf(value) {
@@ -82,7 +93,7 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
   const {readBody, readRawBody, requireWorkspacePermission, benchmark: services, ai} = ctx;
   // Case arguments, tasks and references keep the spelling of their numbers, so a response writes them with the same serializer.
   const json = (res, status, data, opts) => ctx.json(res, status, data, {...opts, stringify: stringifyJson});
-  const [, top, benchmarkId, results, runId, cancel, caseId, rerun, attemptId, attemptPart, payload, referenceName, onComputer] = match;
+  const [, top, credentialId, benchmarkId, results, runId, cancel, caseId, rerun, attemptId, attemptPart, payload, referenceName, onComputer] = match;
   try {
     if (!services) return json(res, 503, {error: 'Benchmarks need PostgreSQL (DATABASE_URL)', code: 'benchmark_disabled'});
     const {repository, service} = services;
@@ -94,6 +105,19 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       const published = await service.publish(req.auth.userId, benchmarkPublication(await losslessBody(req, readRawBody)));
       return json(res, published.created ? 201 : 200, published);
     }
+    // A member's worker credentials, outside any workspace: the worker runs on the member's computer and acts only for the member.
+    if (top === 'worker-credentials' || credentialId !== undefined) {
+      if (!req.auth?.userId) return json(res, 401, {error: 'Not signed in'});
+      const {worker} = services;
+      if (credentialId !== undefined) {
+        if (req.method !== 'DELETE') return json(res, 405, {error: 'Method not allowed', code: 'method_not_allowed'});
+        const revoked = UUID.test(credentialId) ? await worker.revokeCredential(req.auth.userId, credentialId) : null;
+        return revoked ? json(res, 200, revoked) : json(res, 404, {error: 'No such credential', code: 'unknown_credential'});
+      }
+      if (req.method === 'GET') return json(res, 200, {credentials: await worker.listCredentials(req.auth.userId)});
+      if (req.method !== 'POST') return json(res, 405, {error: 'Method not allowed', code: 'method_not_allowed'});
+      return json(res, 201, await worker.mintCredential(req.auth.userId, string(object(await jsonBody(req, readBody), 'The body').name, 'name', {max: 100})));
+    }
     if (!req.context) return json(res, 404, {error: 'Workspace not found'});
     const {context} = req;
     const write = () => requireWorkspacePermission(context, 'apps:use');
@@ -104,7 +128,7 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
     if (top === 'defaults') {
       if (req.method !== 'GET') return wrongMethod();
       read();
-      return json(res, 200, await service.defaults());
+      return json(res, 200, await service.defaults(context.userId));
     }
     if (top === 'benchmarks' || benchmarkId !== undefined) {
       if (req.method !== 'GET') return wrongMethod();
@@ -220,7 +244,7 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       if (req.method !== 'POST') return wrongMethod();
       write();
       if (cancel) return json(res, 200, await repository.cancel(context, runId));
-      return json(res, 201, await repository.rerun(context, runId, decodeURIComponent(caseId)));
+      return json(res, 201, await repository.rerun(context, runId, segment(caseId, 'The case id')));
     }
 
     if (!UUID.test(attemptId)) return notFound('attempt');

@@ -1,6 +1,7 @@
 """Linux integration test: the JavaScript reference harnesses build network-less within the default build limits.
 
-    limactl shell gvisor-dev -- bash deploy/gvisor/vm-test.sh test/uploaded/test_reference_builds_gvisor.py
+    docker run --rm --init --privileged --cgroupns=private -v rush-worker-docker:/var/lib/docker rush-benchmark-worker:dev \
+        python -m pytest -p no:cacheprovider -o addopts= -m 'gvisor or not gvisor' test/uploaded/test_reference_builds_gvisor.py
 
 The worker stages each harness's locked packages from the npm registry (host side, every integrity checked), then the
 sandbox builds with no network. The build runs with the limits a run gets by default (`DEFAULT_LIMITS` in

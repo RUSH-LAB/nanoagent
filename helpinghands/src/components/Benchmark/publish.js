@@ -30,7 +30,7 @@ export function parseCases(text) {
 
 export const LIMIT_LABELS = {
   wall_time_ms: 'Wall time (ms)', max_model_calls: 'Model calls', max_output_tokens_per_call: 'Output tokens per call', max_cost_usd: 'Cost (USD)',
-  concurrency: 'Concurrency', cpus: 'CPUs', memory_mb: 'Memory (MB)', pids: 'Processes', workspace_bytes: 'Workspace (bytes)', workspace_files: 'Workspace files',
+  cpus: 'CPUs', memory_mb: 'Memory (MB)', pids: 'Processes', workspace_bytes: 'Workspace (bytes)', workspace_files: 'Workspace files',
   tmp_bytes: 'Temporary space (bytes)', build_wall_ms: 'Build wall time (ms)', build_memory_mb: 'Build memory (MB)', build_output_bytes: 'Build output (bytes)',
   build_files: 'Build files', build_tmp_bytes: 'Build temporary space (bytes)', internet_access: 'Internet access',
 };

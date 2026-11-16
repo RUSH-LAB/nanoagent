@@ -29,7 +29,8 @@ export default function TraceView({attemptId, onBack, backLabel = 'All runs'}) {
     });
     return () => controller.abort();
   }, [attemptId, sealed, reload]);
-  useEffect(() => () => clearTimeout(reloadSoon.current), []);
+  // Cleared and forgotten: a hidden section (Shell's <Activity>) keeps its refs, and a stale one would stop every reload after.
+  useEffect(() => () => { clearTimeout(reloadSoon.current); reloadSoon.current = null; }, []);
 
   const a = attempt.data;
 

@@ -29,7 +29,7 @@ import logging
 import secrets
 import shutil
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
@@ -222,6 +222,14 @@ async def in_thread(function: Callable[..., Any], *args: Any) -> Any:
     return await anyio.to_thread.run_sync(function, *args)
 
 
+async def shielded(cleanup: Callable[[], Awaitable[Any]]) -> None:
+    """Run one cleanup even in a cancelled attempt (worker shutdown, a sibling's fault): unshielded, its thread would never
+    start, leaving containers, the network and volumes behind. Each callback is shielded on its own, never the whole exit
+    stack, whose entered contexts (the plugin's MCP session) must unwind their own cancel scopes in order."""
+    with anyio.CancelScope(shield=True):
+        await cleanup()
+
+
 async def first_of(*events: anyio.Event) -> None:
     async with anyio.create_task_group() as group:
 
@@ -318,7 +326,7 @@ class AttemptRunner:
     # -- attempts ------------------------------------------------------------------------------------------------
 
     async def run(self, job: AttemptJob) -> AttemptResult:
-        lease = Lease(job.attempt_id, job.fence, lease_s=job.lease_seconds, clock_ns=self.clock_ns)
+        lease = Lease(job.attempt_id, job.fence, lease_s=job.lease_seconds, clock_ns=self.clock_ns, wall_clock_ns=self.wall_clock_ns)
         journal = RushJournal(self.worker, lease)
         work = self.config.scratch / job.attempt_id
         work.mkdir(parents=True, exist_ok=True)
@@ -376,6 +384,8 @@ class AttemptRunner:
         check_limits(limits, cfg.capabilities)
         source = await self.worker.source(job.attempt_id, job.fence)
         package = await self.worker.package(job.attempt_id, job.fence)
+        if (ended := await self._ended(job, lease, journal)) is not None:
+            return ended
         rejection: ContractError | None = None
         archive = None
         try:
@@ -402,11 +412,24 @@ class AttemptRunner:
             # The build is not part of the trace or the metrics; the worker log keeps its message, the attempt its code.
             LOG.warning("build of %s failed: %s: %s", job.attempt_id, error.code, error.message)
             return await self._finalize(job, journal, "build_failed", error.code)
+        if (ended := await self._ended(job, lease, journal)) is not None:  # the build is a thread nothing can interrupt, so a cancel is seen after it
+            return ended
         manifest = await in_thread(self.plugins.load, package, job.plugin["sha256"], job.plugin["id"], work / "plugin")
         if tools:
             await in_thread(self.supervisor.prepare_plugin, manifest.root, cfg.plugin_sync_timeout_s)
+        if (ended := await self._ended(job, lease, journal)) is not None:
+            return ended
         async with AsyncExitStack() as stack:
             return await self._case(job, lease, journal, emit, work, archive.manifest.run_argv, profile, artifact, manifest, tools, stack)
+
+    async def _ended(self, job: AttemptJob, lease: Lease, journal: RushJournal) -> AttemptResult | None:
+        """The result of an attempt whose lease was lost or canceled while it was preparing, before any case ran: canceled is
+        finalized as such, as a cancel during the case is; a lost lease finalizes nothing. None while the lease holds."""
+        if not lease.lapsed():
+            return None
+        if lease.reason == "canceled":
+            return await self._finalize(job, journal, "canceled", None, result=AttemptResult("canceled"))
+        return AttemptResult("lease_lost")
 
     @staticmethod
     def _tools(job: AttemptJob) -> tuple[Mapping[str, Any], ...]:
@@ -450,7 +473,7 @@ class AttemptRunner:
         input_price, output_price = cfg.prices[model]
         # Only the harness container may have the internet; the tool container and the build never do.
         network = await in_thread(lambda: self.supervisor.create_network(job.attempt_id, internet=run_limits["internet_access"]))
-        stack.push_async_callback(lambda: in_thread(network.remove))
+        stack.push_async_callback(shielded, lambda: in_thread(network.remove))
         workspace = Path(WORKSPACE)  # the case workspace, at the path the harness and the tool container both see
         runner: Any = NoTools()
         tool_container = None
@@ -474,13 +497,13 @@ class AttemptRunner:
         )
         services.attempt.lease_lapsed = lease.lapsed  # the services refuse new work once the lease's known expiry passes
         relay = await self.relay.start(job.attempt_id, network, services.app, work)
-        stack.push_async_callback(relay.aclose)
+        stack.push_async_callback(shielded, relay.aclose)
         request = self._request(job, tools, relay.base_url)
         spec = CaseSpec(job.attempt_id, profile, run_argv, artifact, json.dumps(request).encode(), token, network, work / "case", None, limits, tool_container)
         offset = self.wall_clock_ns() - self.clock_ns()
         handle = await in_thread(self.supervisor.create_case, spec)
-        stack.push_async_callback(lambda: in_thread(handle.close))
-        stack.push_async_callback(lambda: self._revoke(services))  # a fault after this leaves no in-flight call or tool behind
+        stack.push_async_callback(shielded, lambda: in_thread(handle.close))
+        stack.push_async_callback(shielded, lambda: self._revoke(services))  # a fault after this leaves no in-flight call or tool behind
         if tools:
             await stack.enter_async_context(runner)  # the plugin is up before the harness can call it
         await in_thread(handle.launch)
@@ -491,6 +514,7 @@ class AttemptRunner:
         try:
             outcome = await self._wait(job, lease, handle, services)
             await self._revoke(services)
+            lease.lapsed()  # a lease that ran out while the computer slept is dropped on waking, not finalized late
             if lease.reason in ("lease_lost", "sealed"):
                 return AttemptResult("lease_lost")
             if outcome is not None:  # a canceled attempt has no observed exit
@@ -556,7 +580,9 @@ class AttemptRunner:
         box: list[Any] = []
 
         async def waiter() -> None:
-            box.append(await in_thread(handle.wait))
+            # Abandoned when the attempt is cancelled, so its cleanup can close the case (which ends wait()) instead of waiting
+            # out the harness's wall time.
+            box.append(await anyio.to_thread.run_sync(handle.wait, abandon_on_cancel=True))
             done.set()
 
         async with anyio.create_task_group() as group:

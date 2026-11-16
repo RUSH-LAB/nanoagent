@@ -64,4 +64,4 @@ function overBudget({reserve, callsAdmitted, maxCalls, attemptCommitted, maxCost
   return null;
 }
 
-module.exports = {METRIC_FIELDS, latestByCase, runScore, sumMetrics, overBudget};
+module.exports = {latestByCase, runScore, sumMetrics, overBudget};

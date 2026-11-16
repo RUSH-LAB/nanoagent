@@ -198,7 +198,6 @@
         "max_output_tokens_per_call": {"type": "integer", "minimum": 1},
         "max_cost_usd": {"type": "number", "exclusiveMinimum": 0},
         "internet_access": {"type": "boolean"},
-        "concurrency": {"type": "integer", "minimum": 1},
         "cpus": {"type": "number", "exclusiveMinimum": 0},
         "memory_mb": {"type": "integer", "minimum": 1},
         "pids": {"type": "integer", "minimum": 1},

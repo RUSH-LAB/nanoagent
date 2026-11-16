@@ -172,7 +172,7 @@ markers = [
     "harness_pi: acceptance tests that need node and a built js/pi-runner/dist",
     "harness_dsh: acceptance tests that need npx and the pinned @deepseek-ai/dsh package",
     "rush_server: smoke tests that start the real RUSH server (helpinghands) on a scratch PostgreSQL database; run with -m rush_server",
-    "uploaded_acceptance: uploaded-harness CLI acceptance: the CLI steps against a real RUSH server and a worker in the Lima VM (deploy/gvisor); run on the host with -m uploaded_acceptance",
+    "uploaded_acceptance: uploaded-harness CLI acceptance: the CLI steps against a real RUSH server and a worker in the benchmark worker image (deploy/gvisor); run on the host with -m uploaded_acceptance",
     "real_openrouter: the real uploaded-harness CLI benchmark against live OpenRouter (spends money; needs OPENROUTER_API_KEY in the repository .env); run with -m real_openrouter",
     "gvisor: Linux integration tests that need Docker with the runsc-rush runtime and a running collector (deploy/gvisor)",
 ]

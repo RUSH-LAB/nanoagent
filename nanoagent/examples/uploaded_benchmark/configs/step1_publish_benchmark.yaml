@@ -10,9 +10,11 @@ server > nanoagent.uploaded.client.ServerConfig:
 cases: test/acceptance/benchmark/cases/probe_cases.json
 plugin_version: 0.1.0
 name: acceptance-probe
-# What every harness run on the benchmark gets. Only a worker advertising the endpoint profile label serves the runs.
+# What every harness run on the benchmark gets. Only the member's own worker advertising the endpoint profile label serves the runs:
+# `npm start` (helpinghands) runs one in the worker image, on OpenRouter, as `openrouter`, and prices this model. (The acceptance suite's
+# worker is `mock`; it overrides this.)
 model: deepseek/deepseek-v4-flash-0731
-endpoint_profile: mock
+endpoint_profile: openrouter
 # Overrides of the server's defaults; null takes the default. The effective values are pinned with the benchmark.
 limits > step1_publish_benchmark.Limits:
   wall_time_ms: null
@@ -20,7 +22,6 @@ limits > step1_publish_benchmark.Limits:
   max_output_tokens_per_call: null
   max_cost_usd: null
   internet_access: null
-  concurrency: null
   cpus: null
   memory_mb: null
   pids: null

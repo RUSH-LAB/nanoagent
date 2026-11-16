@@ -1,5 +1,5 @@
 """Runs of the scripted-loop harness (`harnesses/metrics_loop`) against one scripted upstream, for the metrics, comparison and
-reopen gates: one RUSH server, one worker in the VM, and runs submitted one after the other through the CLI so each consumes
+reopen gates: one RUSH server, one worker in the worker container, and runs submitted one after the other through the CLI so each consumes
 the next turns of the one scenario."""
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import support
-from support import REFERENCE, Cli, VmWorker
+from support import REFERENCE, Cli, Worker
 
 NANOAGENT = support.NANOAGENT
 sys.path[:0] = [
@@ -29,7 +29,7 @@ import step2_submit_run  # noqa: E402
 import step3_trace  # noqa: E402
 from mockllm import MockProvider, RunHandle, Scenario, Turn, Usage  # noqa: E402
 from mockllm.engine import Generation, Stream  # noqa: E402
-from rush_server import RushServer  # noqa: E402
+from rush_server import RushServer, worker_credential  # noqa: E402
 from slimconfig import load_layout  # noqa: E402
 
 LOOP = Path(__file__).resolve().parent / "harnesses" / "metrics_loop"
@@ -57,7 +57,7 @@ class Session:
     cli: Cli
     run_dir: Path
     handle: RunHandle
-    worker: VmWorker
+    worker: Worker
     suite: str
     provider: MockProvider
     index: int
@@ -71,7 +71,7 @@ class Session:
             self.upstream_open = False
             self.provider.__exit__(None, None, None)
 
-    def restart_worker(self, name: str) -> VmWorker:
+    def restart_worker(self, name: str) -> Worker:
         """Stop the worker and start a new one (a new home) against the same upstream address, which may be closed by now."""
         self.worker.stop()
         self.worker = start_worker(self.rush, self.cli, self.run_dir, name, upstream=self.handle.base_url, index=self.index, rate=self.rate, tolerance_ns=self.tolerance_ns)
@@ -124,10 +124,10 @@ def worker_yaml(text: str, *, rate: float, tolerance_ns: int) -> str:
 def start_worker(
     rush: RushServer, cli: Cli, run_dir: Path, name: str, *, upstream: str, index: int, rate: float, tolerance_ns: int,
     entry: tuple[str, ...] = ("-m", "nanoagent.uploaded.worker"),
-) -> VmWorker:
-    """The real worker in the VM, reaching the host's RUSH server, scripted upstream and dependency index as host.lima.internal."""
+) -> Worker:
+    """The real worker in the worker container, reaching the host's RUSH server, scripted upstream and dependency index as host.docker.internal."""
     config = run_dir / f"{name}.yaml"
-    worker = VmWorker(name, config, cli.logs / f"{name}-worker.log", entry=entry)
+    worker = Worker(name, config, cli.logs / f"{name}-worker.log", credential=worker_credential(cli.base_url, cli.token), entry=entry)
     config.write_text(
         worker_yaml(
             support.worker_yaml(
@@ -135,7 +135,7 @@ def start_worker(
                 upstream=upstream.replace("127.0.0.1", support.HOST),
                 index=f"http://{support.HOST}:{index}/simple",
                 socket=SOCKET,
-                scratch=f"{worker.vm_home}/scratch",
+                scratch=f"{worker.home}/scratch",
             ),
             rate=rate,
             tolerance_ns=tolerance_ns,

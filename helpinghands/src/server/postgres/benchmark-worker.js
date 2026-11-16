@@ -32,11 +32,11 @@ function createPostgresBenchmarkWorker({pool, config}) {
    * run out interrupts the attempt, and commits that, before it refuses. `final: true` lets
    * `work` see a final attempt of this fence (a retried finalize).
    */
-  async function fenced(attemptId, fence, work, {final = false} = {}) {
+  async function fenced(userId, attemptId, fence, work, {final = false} = {}) {
     const outcome = await system(async client => {
       const attempt = (await client.query(
-        `select a.*, r.canceled_at, r.limits, r.user_id, r.workspace_id from benchmark_attempt a join benchmark_run r on r.run_id = a.run_id
-          where a.attempt_id = $1 for update of a`, [attemptId],
+        `select a.*, r.canceled_at, r.limits, r.user_id, r.workspace_id, r.endpoint_label from benchmark_attempt a join benchmark_run r on r.run_id = a.run_id
+          where a.attempt_id = $1 and r.user_id = $2 for update of a`, [attemptId, userId],
       )).rows[0];
       if (!attempt) return {refusal: new BenchmarkError(404, 'unknown_attempt', 'No such attempt')};
       if (attempt.fence !== fence || attempt.execution_status === 'interrupted') return {refusal: lost()};
@@ -56,23 +56,20 @@ function createPostgresBenchmarkWorker({pool, config}) {
   }
 
   /**
-   * Lease the next queued attempt a worker with `capabilities` can run: the oldest run's, among the runs for `label` whose limits
-   * those capabilities cover and whose `concurrency` (attempts leased at once) is not reached. A run is locked while it is
-   * looked at, so two claims never lease past its concurrency together.
+   * Lease the next queued attempt a worker with `capabilities` can run: the oldest run's, among the member's own runs for `label` whose limits
+   * those capabilities cover. A run has no concurrency of its own: the worker's slots bound what it runs at once.
    */
-  async function claimAttempt(client, workerId, label, capabilities) {
+  async function claimAttempt(client, userId, workerId, label, capabilities) {
     const runs = (await client.query(
       `select r.run_id, r.limits from benchmark_run r
-        where r.canceled_at is null and r.endpoint_label = $1
+        where r.canceled_at is null and r.user_id = $1 and r.endpoint_label = $2
           and exists (select 1 from benchmark_attempt a where a.run_id = r.run_id and a.state = 'queued')
-        order by r.created_at, r.run_id limit 200`, [label],
+        order by r.created_at, r.run_id limit 200`, [userId, label],
     )).rows;
     for (const candidate of runs) {
       if (exceeded(candidate.limits, capabilities).length) continue;
       const run = (await client.query('select * from benchmark_run where run_id = $1 for update', [candidate.run_id])).rows[0];
       if (run.canceled_at) continue;
-      const leased = (await client.query("select count(*)::int as leased from benchmark_attempt where run_id = $1 and state = 'leased'", [run.run_id])).rows[0].leased;
-      if (leased >= run.limits.concurrency) continue;
       const picked = (await client.query(
         `select a.attempt_id from benchmark_attempt a join benchmark_run_case c on c.run_id = a.run_id and c.case_id = a.case_id
           where a.run_id = $1 and a.state = 'queued' order by a.created_at, c.position, a.attempt_id limit 1 for update of a skip locked`, [run.run_id],
@@ -132,19 +129,55 @@ function createPostgresBenchmarkWorker({pool, config}) {
 
   return Object.freeze({
     /**
-     * Expire stale leases and overdue reservations (see `sweep`), keep `capabilities` as what `label`'s workers can do, then lease
-     * the next attempt for `label` within them: a job, or null.
+     * Expire stale leases and overdue reservations (see `sweep`), keep `capabilities` as what member `userId`'s worker can do for `label`,
+     * then lease the next of that member's own attempts for `label` within them: a job, or null.
      */
-    async claim(workerId, label, capabilities) {
+    async claim(userId, workerId, label, capabilities) {
       return system(async client => {
         await sweepExpired(client);
         await client.query(
-          `insert into benchmark_worker_capability (endpoint_label, worker_id, capabilities) values ($1, $2, $3)
-           on conflict (endpoint_label) do update set worker_id = excluded.worker_id, capabilities = excluded.capabilities, updated_at = now()`,
-          [label, workerId, JSON.stringify(capabilitiesOf(capabilities))],
+          `insert into benchmark_worker_capability (user_id, endpoint_label, worker_id, capabilities) values ($1, $2, $3, $4)
+           on conflict (user_id, endpoint_label) do update set worker_id = excluded.worker_id, capabilities = excluded.capabilities, updated_at = now()`,
+          [userId, label, workerId, JSON.stringify(capabilitiesOf(capabilities))],
         );
-        return claimAttempt(client, workerId, label, capabilities);
+        return claimAttempt(client, userId, workerId, label, capabilities);
       });
+    },
+
+    /**
+     * Mint a credential named `name` for member `userId`'s worker: `{credential_id, name, token, created_at}`. The token is shown only
+     * here; what is kept is its SHA-256 (the token is 256 random bits, so a fast hash is enough).
+     */
+    async mintCredential(userId, name) {
+      const token = `rwk_${crypto.randomBytes(32).toString('base64url')}`;
+      const credentialId = crypto.randomUUID();
+      const row = (await inTransaction(pool, {userId}, client => client.query(
+        'insert into benchmark_worker_credential (credential_id, user_id, name, token_sha256) values ($1, $2, $3, $4) returning created_at',
+        [credentialId, userId, name, sha256Hex(token)],
+      ))).rows[0];
+      return {credential_id: credentialId, name, token, created_at: row.created_at};
+    },
+
+    /** Member `userId`'s credentials, newest first, without their tokens. */
+    async listCredentials(userId) {
+      return (await inTransaction(pool, {userId}, client => client.query(
+        'select credential_id, name, created_at, last_used_at, revoked_at from benchmark_worker_credential where user_id = $1 order by created_at desc, credential_id', [userId],
+      ))).rows;
+    },
+
+    /** Revoke member `userId`'s credential `credentialId` (revoking again changes nothing): its `{credential_id, revoked_at}`, or null when the member has none. */
+    async revokeCredential(userId, credentialId) {
+      return (await inTransaction(pool, {userId}, client => client.query(
+        `update benchmark_worker_credential set revoked_at = coalesce(revoked_at, now()) where credential_id = $1 and user_id = $2
+          returning credential_id, revoked_at`, [credentialId, userId],
+      ))).rows[0] ?? null;
+    },
+
+    /** The member a bearer `token` belongs to, or null when no credential has it or it is revoked. */
+    async authenticate(token) {
+      return inTransaction(pool, {system: true}, async client => (await client.query(
+        `update benchmark_worker_credential set last_used_at = now() where token_sha256 = $1 and revoked_at is null returning user_id`, [sha256Hex(token)],
+      )).rows[0]?.user_id ?? null);
     },
 
     /** Interrupt attempts whose lease ran out and settle reservations past their deadline, without waiting for a claim. */
@@ -152,17 +185,21 @@ function createPostgresBenchmarkWorker({pool, config}) {
       return system(sweepExpired);
     },
 
-    async renew(attemptId, fence) {
-      return fenced(attemptId, fence, async (client, attempt) => {
+    async renew(userId, attemptId, fence) {
+      return fenced(userId, attemptId, fence, async (client, attempt) => {
         if (attempt.cancel_requested || attempt.canceled_at) throw new BenchmarkError(409, 'canceled', 'The run was canceled');
         const renewed = (await client.query(`update benchmark_attempt set lease_expires_at = ${lease} where attempt_id = $1 returning lease_expires_at`, [attemptId])).rows[0];
+        // A worker busy on one long attempt claims nothing, so renewing is what keeps it advertised as live.
+        await client.query(
+          'update benchmark_worker_capability set updated_at = now() where user_id = $1 and endpoint_label = $2', [userId, attempt.endpoint_label],
+        );
         return {...renewed, lease_seconds: Number(config.leaseSeconds)};
       });
     },
 
     /** The source ZIP or the package of a leased attempt: `{data, sha256}`. */
-    async artifact(attemptId, fence, which) {
-      return fenced(attemptId, fence, async (client, attempt) => {
+    async artifact(userId, attemptId, fence, which) {
+      return fenced(userId, attemptId, fence, async (client, attempt) => {
         const row = which === 'source'
           ? (await client.query(
             `select s.data, s.sha256 from benchmark_run r join benchmark_source s on s.workspace_id = r.workspace_id and s.user_id = r.user_id and s.sha256 = r.source_sha256
@@ -175,8 +212,8 @@ function createPostgresBenchmarkWorker({pool, config}) {
     },
 
     /** Reserve `reserveUsd` for model call `callId` against the attempt, member and workspace. */
-    async admit(attemptId, fence, callId, reserveUsd) {
-      return fenced(attemptId, fence, async (client, attempt) => {
+    async admit(userId, attemptId, fence, callId, reserveUsd) {
+      return fenced(userId, attemptId, fence, async (client, attempt) => {
         if (attempt.cancel_requested || attempt.canceled_at) throw new BenchmarkError(409, 'canceled', 'The run was canceled');
         if ((await client.query('select 1 from benchmark_admission where attempt_id = $1 and call_id = $2', [attemptId, callId])).rowCount) {
           throw new BenchmarkError(409, 'duplicate_call', `Call ${callId} was already admitted`);
@@ -207,11 +244,11 @@ function createPostgresBenchmarkWorker({pool, config}) {
      * Settle a call at `costUsd`, or mark it uncertain, which keeps its reservation. Allowed after the
      * lease is lost: the spend is real either way. Throws unknown_call or already_settled.
      */
-    async settle(attemptId, callId, {outcome, costUsd, provenance}) {
+    async settle(userId, attemptId, callId, {outcome, costUsd, provenance}) {
       return system(async client => {
         const attempt = (await client.query(
           `select a.attempt_id, r.user_id, r.workspace_id from benchmark_attempt a join benchmark_run r on r.run_id = a.run_id
-            where a.attempt_id = $1 for update of a`, [attemptId],
+            where a.attempt_id = $1 and r.user_id = $2 for update of a`, [attemptId, userId],
         )).rows[0];
         if (!attempt) throw new BenchmarkError(404, 'unknown_attempt', 'No such attempt');
         const admission = (await client.query(
@@ -241,8 +278,8 @@ function createPostgresBenchmarkWorker({pool, config}) {
     },
 
     /** Commit `events` in order, each with the next cursor, or the cursor an identical earlier one got. */
-    async appendEvents(attemptId, fence, events) {
-      return fenced(attemptId, fence, async (client, attempt) => {
+    async appendEvents(userId, attemptId, fence, events) {
+      return fenced(userId, attemptId, fence, async (client, attempt) => {
         let next = Number(attempt.next_cursor);
         const receipts = [];
         for (const event of events) {
@@ -271,8 +308,8 @@ function createPostgresBenchmarkWorker({pool, config}) {
       });
     },
 
-    async putPayload(attemptId, fence, {sha256, data, redaction, contentType}) {
-      return fenced(attemptId, fence, async client => {
+    async putPayload(userId, attemptId, fence, {sha256, data, redaction, contentType}) {
+      return fenced(userId, attemptId, fence, async client => {
         const inserted = await client.query(
           `insert into benchmark_payload (attempt_id, sha256, size, redaction, content_type, data) values ($1, $2, $3, $4, $5, $6)
            on conflict do nothing`, [attemptId, sha256, data.length, redaction, contentType, data],
@@ -281,8 +318,8 @@ function createPostgresBenchmarkWorker({pool, config}) {
       });
     },
 
-    async putSpans(attemptId, fence, spans, links) {
-      return fenced(attemptId, fence, async client => {
+    async putSpans(userId, attemptId, fence, spans, links) {
+      return fenced(userId, attemptId, fence, async client => {
         for (const span of spans) {
           // A later report of a span fills what the earlier one lacked and keeps what it had.
           await client.query(
@@ -313,9 +350,9 @@ function createPostgresBenchmarkWorker({pool, config}) {
      * gave it (or the verifier's error), coverage and metrics, in one transaction. A retry
      * of the same finalize answers the same; a different one is a conflicting_duplicate.
      */
-    async finalize(attemptId, fence, body) {
+    async finalize(userId, attemptId, fence, body) {
       const digest = sha256Hex(canonicalJson(body));
-      return fenced(attemptId, fence, async (client, attempt) => {
+      return fenced(userId, attemptId, fence, async (client, attempt) => {
         if (attempt.state === 'final') {
           if (attempt.finalize_digest === digest) return {attempt_id: attemptId, sealed: true, final_cursor: Number(attempt.final_cursor), replayed: true};
           throw new BenchmarkError(409, 'conflicting_duplicate', 'The attempt was finalized with different content');
@@ -336,9 +373,9 @@ function createPostgresBenchmarkWorker({pool, config}) {
     },
 
     /** Late accounting for a call, a new `version` of its record; allowed on a sealed attempt. */
-    async putAccounting(attemptId, callId, version, record) {
+    async putAccounting(userId, attemptId, callId, version, record) {
       return system(async client => {
-        if (!(await client.query('select 1 from benchmark_attempt where attempt_id = $1', [attemptId])).rowCount) {
+        if (!(await client.query('select 1 from benchmark_attempt a join benchmark_run r on r.run_id = a.run_id where a.attempt_id = $1 and r.user_id = $2', [attemptId, userId])).rowCount) {
           throw new BenchmarkError(404, 'unknown_attempt', 'No such attempt');
         }
         if (!(await client.query('select 1 from benchmark_admission where attempt_id = $1 and call_id = $2', [attemptId, callId])).rowCount) {

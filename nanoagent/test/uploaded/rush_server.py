@@ -34,17 +34,32 @@ from nanoagent.uploaded.compare_view import compare_attempts
 
 NANOAGENT = Path(__file__).resolve().parents[2]
 HELPINGHANDS = NANOAGENT.parent / "helpinghands"
-POSTGRES = Path("/opt/homebrew/opt/postgresql@18/bin")
 PORT = 55432
 OWNER = "neondb_owner"
 RUNTIME = "mochi_runtime"
 FAKE_GITHUB = HELPINGHANDS / "tests" / "integration" / "postgres" / "_fake-github.mjs"
 
 
+def postgres_bin() -> Path | None:
+    """Homebrew's PostgreSQL 18 programs, found as helpinghands' scripts/db/local.mjs finds them: /opt/homebrew on Apple silicon,
+    /usr/local on Intel. None when they are not installed."""
+    brew = shutil.which("brew")
+    if brew is None:
+        return None
+    prefix = subprocess.run([brew, "--prefix", "postgresql@18"], capture_output=True, text=True)
+    folder = Path(prefix.stdout.strip()) / "bin"
+    return folder if prefix.returncode == 0 and (folder / "psql").is_file() else None
+
+
+POSTGRES = postgres_bin()
+
+
 def unavailable() -> str | None:
     """Why the real server cannot run here, or None."""
     if shutil.which("node") is None:
         return "node is not installed"
+    if POSTGRES is None:
+        return "PostgreSQL 18 from Homebrew is not installed (brew install postgresql@18)"
     if not (HELPINGHANDS / "src" / "server" / "index.js").is_file() or not FAKE_GITHUB.is_file():
         return f"helpinghands is not at {HELPINGHANDS}"
     if not (HELPINGHANDS / "node_modules").is_dir():
@@ -104,6 +119,18 @@ class StubNanoAgent(BaseHTTPRequestHandler):
         pass
 
 
+def worker_credential(origin: str, session_token: str) -> str:
+    """A worker credential minted through the server for the member whose Better Auth session is ``session_token``: the bearer a worker
+    (RUSH_WORKER_TOKEN) claims that member's runs with, and no one else's."""
+    response = httpx.post(
+        f"{origin}/api/benchmark/worker-credentials",
+        json={"name": "acceptance"},
+        headers={"authorization": f"Bearer {session_token}", "origin": origin, "x-real-ip": "203.0.113.7"},
+    )
+    response.raise_for_status()
+    return response.json()["token"]
+
+
 @dataclass
 class RushServer:
     base_url: str
@@ -114,15 +141,16 @@ class RushServer:
     logs: list[str]
     worker_token: str
 
-    def advertise(self, label: str, internet_access: bool = True, models: tuple[str, ...] = ("test/model",)) -> None:
-        """Tell the server a worker serves endpoint profile ``label`` with the capabilities of its defaults and prices for ``models``, as a claim does (nothing is queued, so it answers 204)."""
+    def advertise(self, label: str, internet_access: bool = True, models: tuple[str, ...] = ("test/model",), *, credential: str | None = None) -> None:
+        """Tell the server a worker serves endpoint profile ``label`` with the capabilities of its defaults and prices for ``models``, as a claim does (nothing is queued, so it answers 204).
+        It is the capability of the member ``credential`` was minted for (alice, the workspace's creator, unless given): a member's runs are previewed only against their own worker's."""
         capabilities = {
             "wall_time_ms": 600_000, "max_model_calls": 50, "max_output_tokens_per_call": 4096, "max_cost_usd": 1.5, "concurrency": 4, "cpus": 1,
             "memory_mb": 1024, "pids": 256, "workspace_bytes": 268_435_456, "workspace_files": 20_000, "tmp_bytes": 67_108_864, "build_wall_ms": 600_000,
             "build_memory_mb": 3072, "build_output_bytes": 1 << 30, "build_files": 100_000, "build_tmp_bytes": 512 << 20, "internet_access": internet_access, "models": list(models),
         }  # fmt: skip
         body = {"worker_id": "smoke", "endpoint_profile": {"label": label, "mode": "mock"}, "capabilities": capabilities}
-        httpx.post(f"{self.base_url}/api/benchmark-worker/claim", json=body, headers={"authorization": f"Bearer {self.worker_token}"}).raise_for_status()
+        httpx.post(f"{self.base_url}/api/benchmark-worker/claim", json=body, headers={"authorization": f"Bearer {credential or self.worker_token}"}).raise_for_status()
 
     def seed_plugin(self, package: bytes) -> dict[str, Any]:
         """Publish ``package`` to the marketplace as the member and install it for them; its catalog entry."""
@@ -169,8 +197,6 @@ def rush_server(extra_users: tuple[str, ...] = ()) -> Iterator[RushServer]:
     if reason:
         raise RuntimeError(reason)
     suffix = secrets.token_hex(6)
-    # A worker started with the environment's token (the acceptance gates set it) talks to this server.
-    worker_token = os.environ.get("BENCHMARK_WORKER_TOKEN") or f"worker-{suffix}"
     database = f"bench_smoke_{suffix}"
     port = free_port()
     origin = f"http://127.0.0.1:{port}"
@@ -191,7 +217,6 @@ def rush_server(extra_users: tuple[str, ...] = ()) -> Iterator[RushServer]:
             "DATABASE_URL": f"postgres://{RUNTIME}@127.0.0.1:{PORT}/{database}",
             "DATABASE_MIGRATION_URL": f"postgres://{OWNER}@127.0.0.1:{PORT}/{database}",
             "NODE_ENV": "test",
-            "BENCHMARK_WORKER_TOKEN": worker_token,
             "OPENROUTER_MANAGEMENT_KEY": "acceptance-unused",
             "NODE_OPTIONS": f"--import={FAKE_GITHUB}",
             "FAKE_GITHUB_USERS": json.dumps(users),
@@ -230,7 +255,7 @@ def rush_server(extra_users: tuple[str, ...] = ()) -> Iterator[RushServer]:
         with httpx.Client(base_url=origin, headers={"authorization": f"Bearer {token}", "origin": origin, "x-real-ip": "203.0.113.7"}) as http:
             created = http.post("/api/workspaces", json={"name": "Smoke", "slug": f"smoke-{suffix}"})
             created.raise_for_status()
-        rush = RushServer(origin, created.json()["workspace"]["id"], token, user_id, database, logs, worker_token)
+        rush = RushServer(origin, created.json()["workspace"]["id"], token, user_id, database, logs, worker_credential(origin, token))
         # A worker serving the acceptance endpoint label has advertised before any member previews; real workers refresh it at each claim.
         for label in ("mock", "mock-a", "mock-b"):
             rush.advertise(label, internet_access=False)

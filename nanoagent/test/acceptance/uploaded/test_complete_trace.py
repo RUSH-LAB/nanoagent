@@ -2,7 +2,7 @@
 
 One scripted harness (harnesses/scripted) creates a subagent span, two parallel hosted tool calls, direct and managed nested commands
 with bounded streams and a timeout, a workspace edit and a verified answer. It also tries to forge usage and to run a managed command
-outside the workspace. The real worker in the Lima VM `gvisor-dev` records it all; every assertion reads the sealed trace through
+outside the workspace. The real worker in the worker container records it all; every assertion reads the sealed trace through
 step 3: event origins, the span tree, the correlation links, process evidence joined to managed commands, recorded usage against the
 scripted upstream's ledger, and (with the process collector stopped while a managed command runs) a partial trace that keeps its
 existing evidence.
@@ -44,7 +44,6 @@ from nanoagent.plugin.package import pack  # noqa: E402
 
 pytestmark = [pytest.mark.gvisor, pytest.mark.uploaded_acceptance]
 
-WORKER_TOKEN = "worker-acceptance-token"
 TRACED = ("trace.txt", "traced")
 ANSWER = {"path": "trace.txt", "bytes": 6}
 FORGED = {"input": 999_999, "output": 999_999, "total": 1_999_998, "cache_read": 999_999}
@@ -111,14 +110,12 @@ def loss_script() -> list[dict[str, Any]]:
 
 @pytest.fixture(scope="module")
 def rush() -> Iterator[RushServer]:
-    reason = unavailable() or support.vm_available()
+    reason = unavailable() or support.container_unavailable()
     if reason:
         pytest.skip(reason)
-    with pytest.MonkeyPatch.context() as env:
-        env.setenv("BENCHMARK_WORKER_TOKEN", WORKER_TOKEN)
-        with rush_server() as server:
-            server.seed_plugin(pack(gt.note_plugin(support.SCRATCH / f"note-plugin-{uuid.uuid4().hex[:8]}")))
-            yield server
+    with rush_server() as server:
+        server.seed_plugin(pack(gt.note_plugin(support.SCRATCH / f"note-plugin-{uuid.uuid4().hex[:8]}")))
+        yield server
 
 
 @pytest.fixture(scope="module")
@@ -163,7 +160,7 @@ def traced(rush: RushServer, cli: Cli, run_dir: Path, registry: int) -> Iterator
     """One worker, built on the collector-loss launcher, takes the full-trace run and then the run whose collector is stopped."""
     for suite, key in KEYS.items():
         gt.publish_note_benchmark(cli, run_dir, suite, *TRACED, key)
-    trigger = f"/tmp/rush-lose-collector-{uuid.uuid4().hex[:8]}"  # noqa: S108 - a path in the VM, outside the repository
+    trigger = f"/tmp/rush-lose-collector-{uuid.uuid4().hex[:8]}"  # noqa: S108 - a path in the worker container, outside the repository
     with MockProvider() as provider:
         members = {key: (load_scenario(support.SCENARIOS / "trace-complete.yaml"), {}) for key in KEYS.values()}
         base, handles = provider.register_pool(members, harness="probe", model=support.MODEL)
@@ -194,7 +191,7 @@ def traced(rush: RushServer, cli: Cli, run_dir: Path, registry: int) -> Iterator
                 assert time.monotonic() < deadline, worker.text()
                 time.sleep(0.5)
             assert "exec.completed" not in kinds, "the command must still be running when the collector is lost"
-            assert support.vm("touch", trigger).returncode == 0
+            assert support.inside("touch", trigger).returncode == 0
             while True:
                 final = gt.read_trace(cli, attempt, run_dir / "trace-loss-final")
                 if final.sealed:
@@ -203,7 +200,7 @@ def traced(rush: RushServer, cli: Cli, run_dir: Path, registry: int) -> Iterator
                 time.sleep(1)
         finally:
             worker.stop()
-            support.vm("rm", "-f", trigger)
+            support.inside("rm", "-f", trigger)
     reopened = gt.read_trace(cli, attempt, run_dir / "trace-loss-reopened")
     yield Traced(full, forge, handles[KEYS["tr-trace"]], handles[KEYS["tr-forge"]], midway, final, reopened, attempt)
 

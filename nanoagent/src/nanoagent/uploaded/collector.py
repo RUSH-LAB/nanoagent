@@ -21,7 +21,7 @@ import socket
 import stat
 import struct
 import threading
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -186,20 +186,6 @@ class ProcessEvidence:
     def root(self) -> ProcessLifetime | None:
         """The container's init process: the one container/start describes."""
         return next((p for p in self.lifetimes() if any(e.kind is ProcessEventKind.CONTAINER_START for e in p.execs)), None)
-
-    def descendants_with_argv(self, ancestor: Identity, argv: tuple[str, ...]) -> tuple[ProcessLifetime, ...]:
-        """Processes below `ancestor` that exec'd `argv`: how a managed command is found beneath `timeout`."""
-        everyone = self.lifetimes()
-        parents = {p.identity: p.parent for p in everyone}
-
-        def below(identity: Identity | None) -> bool:
-            while identity is not None:
-                if identity == ancestor:
-                    return True
-                identity = parents.get(identity)
-            return False
-
-        return tuple(p for p in everyone if p.identity != ancestor and p.argv == argv and below(p.parent))
 
     def find_exec(self, argv: tuple[str, ...], *, exec_session: bool | None = None) -> tuple[ProcessLifetime, ...]:
         return tuple(
@@ -651,7 +637,3 @@ def launched_processes(evidence: ProcessEvidence) -> dict[Identity, str]:
             if root is not None and root.is_exec_session and root.parent is None:
                 found.setdefault(marker[2].removeprefix(LAUNCH_MARKER), []).append(process.identity)
     return {identities[0]: launch_id for launch_id, identities in found.items() if len(identities) == 1}
-
-
-def iter_events(evidence: ProcessEvidence, kind: ProcessEventKind) -> Iterator[ProcessEvent]:
-    return (e for e in evidence.events if e.kind is kind)

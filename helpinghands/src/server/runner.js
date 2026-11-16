@@ -49,6 +49,31 @@ function keyList(value) {
     }));
 }
 
+const WORKER_STATES = new Set(['ready', 'starting', 'pulling', 'no-key', 'no-docker', 'failed']);
+const CHECK_STATES = new Set(['pending', 'running', 'pass', 'warn', 'wait', 'fail']);
+const text = (value, max) => (typeof value === 'string' ? value.slice(0, max) : null);
+
+/**
+ * The computer's `hello` worker: its benchmark worker's health (runner/worker.mjs) as {state, message, platform, progress, checks, log}, each
+ * check {id, label, state, message, fix}; anything else is dropped, and null when it says none.
+ */
+function workerState(value) {
+  if (!WORKER_STATES.has(value?.state)) return null;
+  const count = number => (Number.isInteger(number) && number >= 0 ? number : 0);
+  return {
+    state: value.state,
+    message: text(value.message, 1000),
+    platform: text(value.platform, 20),
+    concurrency: value.concurrency && typeof value.concurrency === 'object'
+      ? {setting: count(value.concurrency.setting) || 1, cpus: count(value.concurrency.cpus) || null, effective: count(value.concurrency.effective) || null} : null,
+    progress: value.progress && typeof value.progress === 'object' ? {done: count(value.progress.done), total: count(value.progress.total)} : null,
+    checks: (Array.isArray(value.checks) ? value.checks : []).slice(0, 20)
+      .filter(check => typeof check?.id === 'string' && CHECK_STATES.has(check.state))
+      .map(check => ({id: check.id.slice(0, 40), label: text(check.label, 100), state: check.state, message: text(check.message, 1000), fix: text(check.fix, 1000)})),
+    log: (Array.isArray(value.log) ? value.log : []).slice(-10).filter(line => typeof line === 'string').map(line => line.slice(0, 300)),
+  };
+}
+
 /** An error of the member's computer or its connection, which a run reports as it is. */
 const gone = message => Object.assign(new Error(message), {code: 'runner'});
 
@@ -138,7 +163,7 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
   function attach(userId, socket) {
     // `runs`: the held requests the computer said it has, once it has said hello.
     // `files`: whether it keeps plugin runs' files (runner/run-files.mjs), once it has said hello.
-    const entry = {socket, page: crypto.randomUUID(), device: null, since: new Date().toISOString(), keys: [], pending: new Map(), closed: false, runs: null, files: null};
+    const entry = {socket, page: crypto.randomUUID(), device: null, since: new Date().toISOString(), keys: [], worker: null, pending: new Map(), closed: false, runs: null, files: null};
     entry.gateway = createNanoAgentGateway({endpoint: {url: 'http://runner'}, fetchImpl: socketFetch(entry), local: true});
     // The connection before is done with now, not once its socket closes: one that died closes
     // only after a while, and the hello this one sends takes up its held calls (claimAway).
@@ -163,6 +188,7 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
         entry.greeted = true;
         entry.device = typeof frame.device === 'string' ? frame.device.slice(0, 100) : null;
         entry.keys = keyList(frame.keys);
+        entry.worker = workerState(frame.worker);
         entry.files = frame.files === true;
         if (first) giveKey(userId, entry);
         const runs = Array.isArray(frame.runs) ? frame.runs.filter(id => typeof id === 'string') : [];
@@ -291,7 +317,20 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
     /** Whether the member's computer is connected, what it calls itself, and which keys it holds. */
     status(userId) {
       const entry = connected.get(userId);
-      return entry ? {connected: true, device: entry.device, since: entry.since, keys: entry.keys} : {connected: false, device: null, since: null, keys: []};
+      return entry ? {connected: true, device: entry.device, since: entry.since, keys: entry.keys, worker: entry.worker} : {connected: false, device: null, since: null, keys: [], worker: null};
+    },
+
+    /**
+     * Ask the member's computer to `recheck` or `restart` its benchmark worker, or to set its runner `concurrency` to `value` (a whole
+     * number of at least 1): it answers by saying hello with the new state.
+     */
+    workerAction(userId, action, value) {
+      const entry = connected.get(userId);
+      if (!entry) return {error: 'RUSH Lab is not connected', status: 409};
+      if (!['recheck', 'restart', 'concurrency'].includes(action)) return {error: 'action must be recheck, restart or concurrency', status: 400};
+      if (action === 'concurrency' && (!Number.isSafeInteger(value) || value < 1)) return {error: 'value must be a whole number of at least 1', status: 400};
+      entry.socket.send(JSON.stringify({type: 'worker', action, ...(action === 'concurrency' ? {value} : {})}));
+      return {value: {sent: true}};
     },
 
     /**

@@ -1,6 +1,7 @@
 """Linux integration tests: brokered tools in their own gVisor container, sharing the case workspace with the harness.
 
-    limactl shell gvisor-dev -- bash deploy/gvisor/vm-test.sh test/uploaded/test_tool_sandbox_gvisor.py
+    docker run --rm --init --privileged --cgroupns=private -v rush-worker-docker:/var/lib/docker rush-benchmark-worker:dev \
+        python -m pytest -p no:cacheprovider -o addopts= -m 'gvisor or not gvisor' test/uploaded/test_tool_sandbox_gvisor.py
 
 The `workspace-tools` fixture plugin is prepared inside the pinned prep image, then its MCP server runs in the tool
 container through `docker exec -i`. A small harness polls the shared workspace volume.

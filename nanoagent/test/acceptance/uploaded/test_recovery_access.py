@@ -1,6 +1,6 @@
 """CLI acceptance gate: recovery and access.
 
-Run on the macOS host (workers run in the Lima VM `gvisor-dev`, see support.py):
+Run on the host (workers run in the worker container, see support.py):
 
     .venv/bin/python -m pytest test/acceptance/uploaded -m uploaded_acceptance -k recovery
 
@@ -48,7 +48,6 @@ import step3_trace  # noqa: E402
 import support  # noqa: E402
 from mockllm import MockProvider, load_scenario  # noqa: E402
 from recovery_support import (  # noqa: E402
-    WORKER_TOKEN,
     db,
     Member,
     WorkerApi,
@@ -62,8 +61,8 @@ from recovery_support import (  # noqa: E402
     signal_worker,
     wait_until,
 )
-from rush_server import RushServer, rush_server, unavailable  # noqa: E402
-from support import REFERENCE, Cli, VmWorker  # noqa: E402
+from rush_server import RushServer, rush_server, unavailable, worker_credential  # noqa: E402
+from support import REFERENCE, Cli, Worker  # noqa: E402
 
 from nanoagent.plugin.package import pack  # noqa: E402
 
@@ -87,12 +86,11 @@ LOGS = support.FINAL / "recovery-access"
 
 @pytest.fixture(scope="module")
 def rush() -> Iterator[RushServer]:
-    """The server the workers in the VM talk to: short leases and reconciliation deadline so faults resolve in seconds."""
+    """The server the workers in the worker container talk to: short leases and reconciliation deadline so faults resolve in seconds."""
     reason = unavailable()
     if reason:
         pytest.skip(reason)
     with pytest.MonkeyPatch.context() as env:
-        env.setenv("BENCHMARK_WORKER_TOKEN", WORKER_TOKEN)
         env.setenv("BENCHMARK_LEASE_SECONDS", str(LEASE_S))
         env.setenv("BENCHMARK_UNCERTAIN_DEADLINE_SECONDS", str(DEADLINE_S))
         with rush_server(extra_users=("bob",)) as server:
@@ -115,7 +113,6 @@ def capped() -> Iterator[RushServer]:
     if reason:
         pytest.skip(reason)
     with pytest.MonkeyPatch.context() as env:
-        env.setenv("BENCHMARK_WORKER_TOKEN", WORKER_TOKEN)
         env.setenv("BENCHMARK_MEMBER_BUDGET_USD", "1.0")
         env.setenv("BENCHMARK_WORKSPACE_BUDGET_USD", "1.5")
         env.setenv("BENCHMARK_LEASE_SECONDS", "120")
@@ -205,18 +202,18 @@ def trace(cli: Cli, run_dir: Path, name: str, attempt: str, *overrides: str) -> 
     return load_layout(home, step3_trace.TraceLayout).trace
 
 
-def start_worker(name: str, rush: RushServer, cli: Cli, run_dir: Path, *, upstream: str, index: int, entry: tuple[str, ...] = ("-m", "nanoagent.uploaded.worker")) -> VmWorker:
-    """The real worker in the VM with a short renewal interval."""
-    if reason := support.vm_available():
+def start_worker(name: str, rush: RushServer, cli: Cli, run_dir: Path, *, upstream: str, index: int, entry: tuple[str, ...] = ("-m", "nanoagent.uploaded.worker")) -> Worker:
+    """The real worker in the worker container with a short renewal interval."""
+    if reason := support.container_unavailable():
         pytest.skip(reason)
     config = run_dir / f"{name}.yaml"
-    worker = VmWorker(name, config, cli.logs / f"{name}-worker.log", entry=entry)
+    worker = Worker(name, config, cli.logs / f"{name}-worker.log", credential=worker_credential(cli.base_url, cli.token), entry=entry)
     text = support.worker_yaml(
         base_url=host_url(rush),
         upstream=upstream.replace("127.0.0.1", support.HOST),
         index=f"http://{support.HOST}:{index}/simple",
         socket=SOCKET,
-        scratch=f"{worker.vm_home}/scratch",
+        scratch=f"{worker.home}/scratch",
     )
     assert "renew_interval_s: 15" in text
     config.write_text(text.replace("renew_interval_s: 15", f"renew_interval_s: {RENEW_S}"))
@@ -300,9 +297,11 @@ def test_concurrent_admissions_never_exceed_the_attempt_member_or_workspace_cap(
     owner = alice(capped)
     bob = join_workspace(capped, "bob", capped.workspace_id, ["acceptance-probe"])
     owner_cli, bob_cli = Cli(capped.base_url, capped.workspace_id, owner.token, logs, owner.user_id), Cli(capped.base_url, capped.workspace_id, bob.token, logs, bob.user_id)
-    api = WorkerApi(capped.base_url)
+    # Each member's attempts are claimed, and then admitted against, only with that member's own worker credential.
+    api, bob_api = WorkerApi(capped.base_url, capped.worker_token), WorkerApi(capped.base_url, worker_credential(capped.base_url, bob.token))
+    capped.advertise(HAND_LABEL, internet_access=False, credential=bob_api.token)
 
-    def queue(cli: Cli, name: str, cost: float) -> tuple[str, int]:
+    def queue(cli: Cli, name: str, cost: float, api: WorkerApi) -> tuple[str, int]:
         # The attempt's cap is its benchmark's: one benchmark per cost.
         publish(owner_cli, run_dir, f"cap-{name}", endpoint=HAND_LABEL, limits={"max_cost_usd": cost})
         submit(cli, run_dir, f"cap-{name}", RECOVERY_HARNESS, f"cap-{name}", f"cap-{name}", follow=False)
@@ -311,20 +310,20 @@ def test_concurrent_admissions_never_exceed_the_attempt_member_or_workspace_cap(
         return job["attempt_id"], job["fence"]
 
     # Two callers racing for one call id: exactly one reservation, the other is a duplicate.
-    attempt, fence = queue(bob_cli, "bob-attempt", 0.6)
-    twins = race(api, attempt, fence, ["same-call"] * 6, 0.01)
+    attempt, fence = queue(bob_cli, "bob-attempt", 0.6, bob_api)
+    twins = race(bob_api, attempt, fence, ["same-call"] * 6, 0.01)
     assert sorted(response.status_code for response in twins) == [201] + [409] * 5 and {r.json()["code"] for r in twins if r.status_code == 409} == {"duplicate_call"}
     assert reservations(capped, attempt) == ["same-call"]
-    assert api.settle(attempt, "same-call", "settled", 0.0).status_code == 200
+    assert bob_api.settle(attempt, "same-call", "settled", 0.0).status_code == 200
 
     # The attempt's own cap: 0.60 holds two 0.25 reservations and no third.
-    answers = race(api, attempt, fence, [f"a-{n}" for n in range(8)], 0.25)
+    answers = race(bob_api, attempt, fence, [f"a-{n}" for n in range(8)], 0.25)
     assert sorted(response.status_code for response in answers) == [201, 201] + [402] * 6
     assert {r.json()["scope"] for r in answers if r.status_code == 402} == {"attempt"}
     assert len(reservations(capped, attempt)) == 3 and committed(capped, "member", bob.user_id) == pytest.approx(0.5)
 
     # The member's cap: 1.00 holds four 0.25 reservations.
-    owner_attempt, owner_fence = queue(owner_cli, "alice-attempt", 1.5)
+    owner_attempt, owner_fence = queue(owner_cli, "alice-attempt", 1.5, api)
     answers = race(api, owner_attempt, owner_fence, [f"m-{n}" for n in range(8)], 0.25)
     assert sorted(response.status_code for response in answers) == [201] * 4 + [402] * 4
     assert {r.json()["scope"] for r in answers if r.status_code == 402} == {"member"}
@@ -334,8 +333,8 @@ def test_concurrent_admissions_never_exceed_the_attempt_member_or_workspace_cap(
     assert totals["calls"] == 4 and totals["settled_usd"] is None and totals["reserved_usd"] == pytest.approx(1.0)
 
     # The workspace's cap: 1.50 is reserved (1.0 by alice, 0.5 by bob), so bob, with member room left, is refused by the workspace.
-    second_attempt, second_fence = queue(bob_cli, "bob-second", 1.5)
-    answers = race(api, second_attempt, second_fence, [f"w-{n}" for n in range(4)], 0.25)
+    second_attempt, second_fence = queue(bob_cli, "bob-second", 1.5, bob_api)
+    answers = race(bob_api, second_attempt, second_fence, [f"w-{n}" for n in range(4)], 0.25)
     assert [response.status_code for response in answers] == [402] * 4 and {r.json()["scope"] for r in answers} == {"workspace"}
     assert reservations(capped, second_attempt) == []
     assert committed(capped, "workspace", capped.workspace_id) == pytest.approx(1.5)
@@ -372,7 +371,7 @@ def lease(rush: RushServer, cli: Cli, run_dir: Path, core_source: Path, registry
     """The core engine on a case whose tool runs 12 s; its worker is paused past the lease and resumed."""
     publish(cli, run_dir, "lease-suite")
     owner = alice(rush)
-    api = WorkerApi(rush.base_url)
+    api = WorkerApi(rush.base_url, rush.worker_token)
     with MockProvider() as provider:
         handle = provider.register(load_scenario(support.SCENARIOS / "core-engine-long-wait.yaml"), harness="nanoagent", model=support.MODEL, refs={"reference": REFERENCE})
         worker = start_worker("lease", rush, cli, run_dir, upstream=handle.base_url, index=registry)
@@ -469,7 +468,7 @@ class Crash:
 @pytest.fixture(scope="module")
 def crash(rush: RushServer, cli: Cli, run_dir: Path, registry: int) -> Iterator[Crash]:
     publish(cli, run_dir, "crash-suite", token="slow")
-    api = WorkerApi(rush.base_url)
+    api = WorkerApi(rush.base_url, rush.worker_token)
     owner = alice(rush)
     with MockProvider() as provider:
         handle = provider.register(load_scenario(support.SCENARIOS / "recovery-slow.yaml"), harness="nanoagent", model=support.MODEL)
@@ -569,7 +568,7 @@ class Canceled:
 @pytest.fixture(scope="module")
 def canceled(rush: RushServer, cli: Cli, run_dir: Path, registry: int) -> Iterator[Canceled]:
     publish(cli, run_dir, "cancel-suite", plugin="slow-writer", token="hold")
-    api = WorkerApi(rush.base_url)
+    api = WorkerApi(rush.base_url, rush.worker_token)
     with MockProvider() as provider:
         handle = provider.register(load_scenario(support.SCENARIOS / "recovery-hold.yaml"), harness="nanoagent", model=support.MODEL)
         worker = start_worker("cancel", rush, cli, run_dir, upstream=handle.base_url, index=registry)
@@ -582,7 +581,11 @@ def canceled(rush: RushServer, cli: Cli, run_dir: Path, registry: int) -> Iterat
             before = wait_for_kind(cli, run_dir, attempt, "model_call.admitted", "cancel-before", count=2)
             ledger_before = len(handle.ledger.calls)
             act(cli, run_dir, "cancel", "cancel", f"run_id={run.run_id}")
-            final = wait_until(lambda: (lambda t: t if t.sealed else None)(trace(cli, run_dir, "cancel-final", attempt)), "the canceled attempt to seal", 180, interval=1.0)
+            # Sealed and finalized: the seal lands with the last events, a moment before finalize records the execution.
+            final = wait_until(
+                lambda: (lambda t: t if t.sealed and t.attempt["execution"] is not None else None)(trace(cli, run_dir, "cancel-final", attempt)),
+                "the canceled attempt to seal and finalize", 180, interval=1.0,
+            )
             time.sleep(3)
             stale = api.stale_calls(attempt, 1)
             reopened = trace(cli, run_dir, "cancel-reopened", attempt)

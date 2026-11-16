@@ -88,7 +88,7 @@ describe('GET /api/benchmark/compare/attempts', () => {
 });
 
 // Runs as repository.run shows them.
-const limits = {wall_time_ms: 600000, max_model_calls: 50, max_output_tokens_per_call: 4096, max_cost_usd: 1.5, concurrency: 4, cpus: 1, memory_mb: 1024, pids: 256,
+const limits = {wall_time_ms: 600000, max_model_calls: 50, max_output_tokens_per_call: 4096, max_cost_usd: 1.5, cpus: 1, memory_mb: 1024, pids: 256,
   workspace_bytes: 1, workspace_files: 1, tmp_bytes: 1, build_wall_ms: 1, build_memory_mb: 1, build_output_bytes: 1, build_files: 1, build_tmp_bytes: 1, internet_access: true};
 const prompt = (system, user) => ({system, user, sha256: `${system}|${user}`});
 const caseOf = (id, digest, position, user, attempt = {}) => ({

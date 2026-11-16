@@ -1,9 +1,11 @@
 """Pieces of the uploaded-harness CLI acceptance tests: the pinned NanoAgent source, the mocked dependency registry, the
-CLI steps as subprocesses and the real worker running in the Linux VM.
+CLI steps as subprocesses and the real worker running in the benchmark worker image.
 
-Hosts and ports: the RUSH server, the scripted OpenRouter upstream and the dependency index all listen on the macOS host's
-loopback; the VM reaches them as `host.lima.internal`. The worker, its gVisor sandboxes and the process collector run in the
-VM (`limactl shell gvisor-dev`). The checkout, and so everything under `build/`, is mounted read-only at the same path there.
+Hosts and ports: the RUSH server, the scripted OpenRouter upstream and the dependency index all listen on the host's
+loopback; the container reaches them as `host.docker.internal`. The worker, its gVisor sandboxes and the process collector run in
+one long-lived container of the image (`rush-benchmark-worker:dev`, built as deploy/gvisor/Dockerfile says; `RUSH_WORKER_IMAGE`
+names another) and each worker is a `docker exec` in it. The checkout, and so everything under `build/`, is mounted read-only at
+the same path there. The container is left running between runs (it keeps its inner image cache); `docker rm -f` it to stop it.
 """
 
 from __future__ import annotations
@@ -35,8 +37,10 @@ SCRATCH = NANOAGENT / "build" / "uploaded_acceptance"
 OUTPUTS = NANOAGENT / "outputs" / "uploaded_acceptance"
 # Everything a run of this suite keeps (logs, step outputs, traces, comparisons, worker logs): one folder per module, never emptied.
 FINAL = OUTPUTS / "final"
-VM = "gvisor-dev"
-HOST = "host.lima.internal"
+IMAGE = os.environ.get("RUSH_WORKER_IMAGE", "rush-benchmark-worker:dev")
+CONTAINER = "rush-acceptance-worker"
+WORKER_HOME = "/home/rush/rush-worker"
+HOST = "host.docker.internal"
 MODEL = "test/model"
 # What the plugin's reference tool and the scripted answer both compute for the probe's first case.
 TOKEN = "alpha"
@@ -150,18 +154,47 @@ class Cli:
         return done
 
 
-# -- the worker in the VM -----------------------------------------------------------------------------------------------
+# -- the worker in the container --------------------------------------------------------------------------------------
 
 
-def vm(*command: str, timeout: float = 120) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["limactl", "shell", VM, "--", *command], capture_output=True, text=True, timeout=timeout)
+def docker(*args: str, timeout: float = 120) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
 
 
-def vm_available() -> str | None:
-    if shutil.which("limactl") is None:
-        return "limactl is not installed"
-    done = vm("true", timeout=60)
-    return None if done.returncode == 0 else f"the Lima VM {VM} is not running: {done.stderr.strip()}"
+def inside(*command: str, timeout: float = 120) -> subprocess.CompletedProcess[str]:
+    """``command`` in the worker container, as the worker's own user."""
+    return docker("exec", "-u", "rush", CONTAINER, *command, timeout=timeout)
+
+
+def container_unavailable() -> str | None:
+    """Why the worker container cannot run here, or None once it is running with dockerd and the egress filter up."""
+    if shutil.which("docker") is None:
+        return "docker is not installed"
+    if docker("info", timeout=60).returncode != 0:
+        return "docker is not running (docker info failed)"
+    image = docker("image", "inspect", "--format", "{{.Id}}", IMAGE)
+    if image.returncode != 0:
+        return f"the image {IMAGE} is not built: docker buildx build --load -t {IMAGE} -f deploy/gvisor/Dockerfile . (from nanoagent/)"
+    current = docker("inspect", "--format", "{{.Image}}", CONTAINER)
+    if current.returncode == 0 and current.stdout.strip() != image.stdout.strip():
+        docker("rm", "-f", CONTAINER, timeout=180)  # built again since it started
+    if docker("inspect", "--format", "{{.State.Running}}", CONTAINER).stdout.strip() != "true":
+        docker("rm", "-f", CONTAINER, timeout=180)
+        started = docker(
+            "run", "-d", "--init", "--privileged", "--cgroupns=private", "--name", CONTAINER,
+            "--add-host", "host.docker.internal:host-gateway",
+            "-v", "rush-acceptance-docker:/var/lib/docker", "-v", f"rush-acceptance-home:{WORKER_HOME}",
+            "-v", f"{NANOAGENT}:{NANOAGENT}:ro", IMAGE, "sleep", "infinity",
+        )  # fmt: skip
+        if started.returncode != 0:
+            return f"could not start {CONTAINER}: {started.stderr.strip()}"
+    # The entrypoint hands over to `sleep` once dockerd is up and the egress filter installed.
+    deadline = time.monotonic() + 180
+    while inside("pgrep", "-x", "sleep").returncode != 0:
+        if time.monotonic() > deadline:
+            return f"{CONTAINER} did not come up in 180s:\n{docker('logs', '--tail', '40', CONTAINER).stdout}"
+        time.sleep(1)
+    return None
 
 
 def worker_yaml(*, base_url: str, upstream: str, index: str, socket: str, scratch: str, egress: bool = False, models: tuple[str, ...] = ()) -> str:
@@ -183,24 +216,26 @@ def worker_yaml(*, base_url: str, upstream: str, index: str, socket: str, scratc
     return text + ("\negress > nanoagent.uploaded.worker.EgressConfig:\n  enabled: true\n" if egress else "")
 
 
-class VmWorker:
-    """`python -m nanoagent.uploaded.worker` (or a launcher) in the VM, its log streamed to ``log`` on the host."""
+class Worker:
+    """`python -m nanoagent.uploaded.worker` (or a launcher) in the worker container, its log streamed to ``log`` on the host. It claims
+    for the member ``credential`` was minted for (rush_server.worker_credential); workers take turns, as one collector socket serves the container."""
 
-    def __init__(self, name: str, config: Path, log: Path, *, entry: tuple[str, ...] = ("-m", "nanoagent.uploaded.worker"), env: dict[str, str] | None = None) -> None:
+    def __init__(self, name: str, config: Path, log: Path, *, credential: str, entry: tuple[str, ...] = ("-m", "nanoagent.uploaded.worker"), env: dict[str, str] | None = None) -> None:
         self.name, self.config, self.log, self.entry = name, config, log, entry
-        self.env = {"BENCHMARK_WORKER_TOKEN": "worker-acceptance-token", "RUSH_BENCHMARK_MOCK_API_KEY": "synthetic-acceptance-key", **(env or {})}
-        home = vm("bash", "-c", "echo /home/$(id -un).guest/rush-worker").stdout.strip()
-        self.vm_home = f"{home}/acceptance/{name}"
-        self.pidfile = f"{self.vm_home}/worker.pid"
+        self.env = {"RUSH_WORKER_TOKEN": credential, "OPENROUTER_API_KEY": "synthetic-acceptance-key", **(env or {})}
+        self.home = f"{WORKER_HOME}/acceptance/{name}"
+        self.pidfile = f"{self.home}/worker.pid"
         self.process: subprocess.Popen[bytes] | None = None
 
     def start(self) -> None:
-        assert vm("bash", "-c", f"rm -rf {self.vm_home} && mkdir -p {self.vm_home}").returncode == 0
+        assert inside("bash", "-c", f"rm -rf {self.home} && mkdir -p {self.home}").returncode == 0
         self.log.parent.mkdir(parents=True, exist_ok=True)
-        env = " ".join(f"{key}={value}" for key, value in {**self.env, "RUSH_WORKER_PIDFILE": self.pidfile}.items())
-        script = NANOAGENT / "deploy" / "gvisor" / "vm-worker.sh"
+        # Values reach the process through this client's environment (`-e NAME`), never its command line.
+        flags = [flag for key in self.env for flag in ("-e", key)]
+        launch = f'echo $$ > {self.pidfile}; exec 9>{WORKER_HOME}/collector.lock; flock 9; exec python "$@"'
         self.process = subprocess.Popen(
-            ["limactl", "shell", VM, "--", "env", *env.split(), "bash", str(script), *self.entry, f"config={self.config}", f"home={self.vm_home}/run"],
+            ["docker", "exec", "-u", "rush", "-w", WORKER_HOME, *flags, CONTAINER, "bash", "-c", launch, "worker", *self.entry, f"config={self.config}", f"home={self.home}/run"],
+            env={**os.environ, **self.env},
             stdout=self.log.open("wb"),
             stderr=subprocess.STDOUT,
         )
@@ -222,11 +257,11 @@ class VmWorker:
         if self.process is None:
             return None
         if self.process.poll() is None:
-            vm("bash", "-c", f"kill -INT $(cat {self.pidfile}) 2>/dev/null || true")
+            inside("bash", "-c", f"kill -INT $(cat {self.pidfile}) 2>/dev/null || true")
             try:
                 self.process.wait(timeout=90)
             except subprocess.TimeoutExpired:
-                vm("bash", "-c", f"kill -KILL $(cat {self.pidfile}) 2>/dev/null || true")
+                inside("bash", "-c", f"kill -KILL $(cat {self.pidfile}) 2>/dev/null || true")
                 self.process.kill()
                 self.process.wait()
         return self.process.returncode

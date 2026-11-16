@@ -48,9 +48,6 @@ export function scoreText(score) {
   return `Unavailable: ${SCORE_REASONS[score.unavailable_reason] ?? score.unavailable_reason ?? 'no reason given'}`;
 }
 
-/** The score as a short value for a table cell. */
-export const scoreValue = score => (Number.isFinite(score?.value) ? String(Number(score.value.toFixed(4))) : 'n/a');
-
 /** Every attempt of a run, flat, with where it sits: `{case, attempt}`. */
 export const attemptsOf = run => run.cases.flatMap(item => item.attempts.map(attempt => ({case: item, attempt})));
 
@@ -63,15 +60,13 @@ export const runIsActive = run => run.status === 'queued' || run.status === 'run
 /** A person as the marketplace shows an owner: their name, and their GitHub login when they have one. */
 export const personLabel = person => (person ? `${person.name}${person.github ? ` (@${person.github})` : ''}` : '');
 
-const live = run => run.status === 'queued' || run.status === 'running';
-
 /** A run summary's status line: `{text, tone}`, the score as `Passed 8/10` once final and `3/10 passed so far` while it runs. */
 function statusLine(run) {
   const {score} = run;
   if (run.status === 'queued') return {text: 'Queued', tone: 'pending'};
   if (run.status === 'canceled') return {text: 'Canceled', tone: 'bad'};
-  if (!Number.isFinite(score?.value)) return {text: live(run) ? 'Running' : 'Score unavailable', tone: live(run) ? 'pending' : 'bad'};
-  if (live(run) || !score.complete) return {text: `Running · ${score.passed}/${score.total} passed so far`, tone: 'pending'};
+  if (!Number.isFinite(score?.value)) return {text: runIsActive(run) ? 'Running' : 'Score unavailable', tone: runIsActive(run) ? 'pending' : 'bad'};
+  if (runIsActive(run) || !score.complete) return {text: `Running · ${score.passed}/${score.total} passed so far`, tone: 'pending'};
   return {text: `Passed ${score.passed}/${score.total}`, tone: score.passed === score.total ? 'good' : score.passed === 0 ? 'bad' : 'partial'};
 }
 
@@ -79,7 +74,7 @@ function statusLine(run) {
 function metricText(run, key, unit) {
   const row = primaryMetrics(run.metrics).find(item => item.key === key);
   const value = row.value === null ? `${unit ? `${unit} ` : ''}unknown` : `${row.text}${unit ? ` ${unit}` : ''}`;
-  return `${value}${live(run) && row.value !== null ? ' so far' : ''}${row.missing ? ` (partial: ${row.missing})` : ''}`;
+  return `${value}${runIsActive(run) && row.value !== null ? ' so far' : ''}${row.missing ? ` (partial: ${row.missing})` : ''}`;
 }
 
 /**

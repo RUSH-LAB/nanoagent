@@ -24,8 +24,12 @@ from nanoagent.uploaded.rush_worker import (
     RushWorkerClient,
     Sealed,
 )
+from nanoagent.uploaded.dockercli import DockerResult
+from nanoagent.uploaded.sandbox import reap_leftovers
+from nanoagent.uploaded.worker import Machine, WorkerConfigError, machine_of
 from slimconfig import load_config
 
+MACHINE = Machine(cpus=8, memory_bytes=16 << 30)
 DEPLOY = Path(__file__).resolve().parents[2] / "deploy" / "gvisor"
 
 
@@ -207,8 +211,15 @@ def test_shipped_worker_configs_validate(name: str, tmp_path: Path, monkeypatch:
     from nanoagent.uploaded.worker import WorkerConfig, runner_config
 
     config = load_config(WorkerConfig, [str(DEPLOY / name), f"scratch={tmp_path / 'scratch'}"])
-    settings = runner_config(config, {"RUSH_BENCHMARK_MOCK_API_KEY": "k", "OPENROUTER_API_KEY": "k"})
+    settings = runner_config(config, {"OPENROUTER_API_KEY": "k"}, MACHINE)
     assert settings.endpoint.mode in ("mock", "openrouter") and settings.prices and settings.reference_tokens_per_second == 100
+
+
+def test_the_openrouter_worker_advertises_internet_access_which_benchmarks_default_to(tmp_path: Path) -> None:
+    from nanoagent.uploaded.worker import WorkerConfig, runner_config
+
+    config = load_config(WorkerConfig, [str(DEPLOY / "worker.openrouter.yaml"), f"scratch={tmp_path}"])
+    assert runner_config(config, {"OPENROUTER_API_KEY": "k"}, MACHINE).capabilities["internet_access"] is True
 
 
 def test_worker_config_without_the_credential_fails_at_startup(tmp_path: Path) -> None:
@@ -217,4 +228,163 @@ def test_worker_config_without_the_credential_fails_at_startup(tmp_path: Path) -
 
     config = load_config(WorkerConfig, [str(DEPLOY / "worker.openrouter.yaml"), f"scratch={tmp_path}"])
     with pytest.raises(EndpointConfigError, match="credential_missing"):
-        runner_config(config, {})
+        runner_config(config, {}, MACHINE)
+
+
+def _config(tmp_path: Path, *overrides: str) -> Any:
+    from nanoagent.uploaded.worker import WorkerConfig
+
+    return load_config(WorkerConfig, [str(DEPLOY / "worker.openrouter.yaml"), f"scratch={tmp_path}", *overrides])
+
+
+def test_capabilities_come_from_the_machine_and_concurrency_defaults_low(tmp_path: Path) -> None:
+    from nanoagent.uploaded.worker import runner_config
+
+    caps = runner_config(_config(tmp_path), {"OPENROUTER_API_KEY": "k"}, MACHINE).capabilities
+    assert (caps["cpus"], caps["memory_mb"], caps["concurrency"]) == (8, 16384, 1)
+
+
+def test_configured_maxima_only_lower_what_the_machine_has(tmp_path: Path) -> None:
+    from nanoagent.uploaded.worker import runner_config
+
+    env = {"OPENROUTER_API_KEY": "k"}
+    lowered = runner_config(_config(tmp_path, "limits.max_cpus=2", "limits.max_memory_mb=4096", "limits.concurrency=3"), env, MACHINE).capabilities
+    assert (lowered["cpus"], lowered["memory_mb"], lowered["concurrency"]) == (2, 4096, 3)
+    raised = runner_config(_config(tmp_path, "limits.max_cpus=64", "limits.max_memory_mb=999999", "limits.concurrency=64"), env, MACHINE).capabilities
+    assert (raised["cpus"], raised["memory_mb"], raised["concurrency"]) == (8, 16384, 8)
+    small = runner_config(_config(tmp_path), env, Machine(cpus=2, memory_bytes=2 << 30)).capabilities
+    assert small["build_memory_mb"] == 2048
+
+
+class ScriptedDocker:
+    def __init__(self, listings: dict[str, str], info: str = "", returncode: int = 0) -> None:
+        self.listings, self.info, self.returncode, self.calls = listings, info, returncode, []
+
+    def run(self, args: Any, **_: Any) -> DockerResult:
+        self.calls.append(list(args))
+        if args[0] == "info":
+            return DockerResult(self.returncode, self.info.encode(), b"boom")
+        kind = "container" if args[0] == "ps" else args[0]
+        return DockerResult(self.returncode, self.listings.get(kind, "").encode() if args[-2] == "--format" or "--format" in args else b"", b"boom")
+
+
+def test_machine_is_read_from_docker_info() -> None:
+    assert machine_of(ScriptedDocker({}, info='{"NCPU": 6, "MemTotal": 8589934592}')) == Machine(6, 8 << 30)
+    with pytest.raises(WorkerConfigError, match="NCPU"):
+        machine_of(ScriptedDocker({}, info="{}"))
+    with pytest.raises(WorkerConfigError, match="docker info failed"):
+        machine_of(ScriptedDocker({}, returncode=1))
+
+
+def test_reaping_removes_only_names_starting_with_rush_dash() -> None:
+    docker = ScriptedDocker({"container": "rush-case-1\nnot-rush-case\nmyrush-x\n", "network": "bridge\nrush-net-a\n", "volume": "rush-ws-1\nrush-out-1\nother\n"})
+    reaped = reap_leftovers(docker)
+    assert reaped == [("container", "rush-case-1"), ("network", "rush-net-a"), ("volume", "rush-ws-1"), ("volume", "rush-out-1")]
+    removals = [call for call in docker.calls if call[0] in ("rm",) or call[:2] in (["network", "rm"], ["volume", "rm"])]
+    assert removals == [["rm", "-f", "-v", "rush-case-1"], ["network", "rm", "rush-net-a"], ["volume", "rm", "-f", "rush-ws-1"], ["volume", "rm", "-f", "rush-out-1"]]
+
+
+def test_reaping_fails_clearly_when_docker_does() -> None:
+    from nanoagent.uploaded.sandbox import SandboxError
+
+    with pytest.raises(SandboxError, match="reap_failed"):
+        reap_leftovers(ScriptedDocker({}, returncode=1))
+
+
+def test_the_worker_has_no_other_key_path(tmp_path: Path) -> None:
+    from nanoagent.uploaded.endpoint import EndpointConfigError
+    from nanoagent.uploaded.worker import runner_config
+
+    with pytest.raises(EndpointConfigError, match="OPENROUTER_API_KEY"):
+        runner_config(_config(tmp_path), {"RUSH_BENCHMARK_MOCK_API_KEY": "k"}, MACHINE)
+    assert runner_config(_config(tmp_path), {"OPENROUTER_API_KEY": "k"}, MACHINE).endpoint.api_key == "k"
+
+
+async def test_losing_rush_is_waited_out_with_one_outage_log_and_one_recovery_log(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    import anyio
+    from nanoagent.uploaded import worker as worker_module
+    from nanoagent.uploaded.worker import runner_config
+
+    settings = runner_config(_config(tmp_path, "poll.idle_s=1", "poll.max_outage_s=4"), {"OPENROUTER_API_KEY": "k"}, MACHINE)
+    sleeps: list[float] = []
+
+    class Stop(Exception):
+        pass
+
+    class Rush:
+        calls = 0
+
+        async def claim(self, *_: Any) -> None:
+            self.calls += 1
+            if self.calls <= 5:
+                raise RushUnavailable("down")
+            if self.calls == 6:
+                return None
+            raise Stop
+
+    async def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    real_sleep = anyio.sleep
+    worker_module.anyio.sleep = sleep  # type: ignore[assignment]
+    try:
+        with caplog.at_level("INFO", logger=worker_module.LOG.name), pytest.raises(BaseExceptionGroup):
+            async with anyio.create_task_group() as group:
+                await worker_module.poll(_config(tmp_path, "poll.idle_s=1", "poll.max_outage_s=4"), settings, Rush(), None, None, group)  # type: ignore[arg-type]
+    finally:
+        worker_module.anyio.sleep = real_sleep
+    assert sleeps[:5] == [1, 2, 4, 4, 4]  # capped exponential
+    assert [r.getMessage() for r in caplog.records if "RUSH" in r.getMessage()] == [
+        "RUSH is unreachable, retrying until it returns: down", "RUSH is reachable again", f"claiming from RUSH: {settings.endpoint.label}",
+    ]  # the claiming line follows the recovery once, and is not repeated by the claims after it
+
+
+def test_a_lease_that_ran_out_while_the_computer_slept_is_lost_on_waking() -> None:
+    mono = [0]
+    wall = [0]
+    lease = Lease("a", 1, lease_s=60, clock_ns=lambda: mono[0], wall_clock_ns=lambda: wall[0])
+    wall[0] = 3600 * 10**9  # the monotonic clock stood still while asleep; the wall clock did not
+    assert lease.lapsed() and lease.reason == "lease_lost"
+
+
+def test_a_renewal_keeps_the_wall_clock_expiry_in_step() -> None:
+    mono = [0]
+    wall = [0]
+    lease = Lease("a", 1, lease_s=60, clock_ns=lambda: mono[0], wall_clock_ns=lambda: wall[0])
+    mono[0] = wall[0] = 50 * 10**9
+    lease.extend(60, 50 * 10**9)
+    mono[0] = wall[0] = 100 * 10**9
+    assert not lease.lapsed()
+
+
+async def test_claiming_from_rush_is_logged_once_at_startup_not_per_poll(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    import anyio
+    from nanoagent.uploaded import worker as worker_module
+    from nanoagent.uploaded.worker import runner_config
+
+    settings = runner_config(_config(tmp_path, "poll.idle_s=1"), {"OPENROUTER_API_KEY": "k"}, MACHINE)
+
+    class Stop(Exception):
+        pass
+
+    class Rush:
+        calls = 0
+
+        async def claim(self, *_: Any) -> None:
+            self.calls += 1
+            if self.calls <= 3:
+                return None  # 204 each time
+            raise Stop
+
+    async def sleep(_: float) -> None:
+        return None
+
+    real_sleep = anyio.sleep
+    worker_module.anyio.sleep = sleep  # type: ignore[assignment]
+    try:
+        with caplog.at_level("INFO", logger=worker_module.LOG.name), pytest.raises(BaseExceptionGroup):
+            async with anyio.create_task_group() as group:
+                await worker_module.poll(_config(tmp_path, "poll.idle_s=1"), settings, Rush(), None, None, group)  # type: ignore[arg-type]
+    finally:
+        worker_module.anyio.sleep = real_sleep
+    assert [r.getMessage() for r in caplog.records if "RUSH" in r.getMessage()] == [f"claiming from RUSH: {settings.endpoint.label}"]

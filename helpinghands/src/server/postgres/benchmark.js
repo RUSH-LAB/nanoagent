@@ -23,11 +23,11 @@ function attemptView(row) {
 /** A run as the API summarizes it, from a `benchmark_run_summary` row: the caller's own runs and other members' alike. */
 function runSummary(row) {
   const latest = latestByCase(row.attempts);
-  const {total_tokens: totalTokens, elapsed_ms: elapsedMs} = sumMetrics([...latest.values()].map(attempt => attempt.metrics));
   return {
     run_id: row.run_id, harness: {name: row.harness_name, version: row.harness_version}, benchmark: {name: row.benchmark_name},
     plugin: {id: row.plugin_id, name: row.plugin_name, version: row.plugin_version}, model: row.model, policy: row.policy,
-    user: {id: row.user_id, name: row.user_name, github: row.user_github}, metrics: {total_tokens: totalTokens, elapsed_ms: elapsedMs},
+    // The detail's own sum (GET /runs/{run_id}), so a list row's metrics equal it.
+    user: {id: row.user_id, name: row.user_name, github: row.user_github}, metrics: sumMetrics([...latest.values()].map(attempt => attempt.metrics)),
     status: runStatus(row, row.attempts), score: runScore(row.case_ids, row.attempts), created_at: row.created_at,
   };
 }
@@ -195,19 +195,19 @@ function createPostgresBenchmark({pool}) {
       });
     },
 
-    /** What the workers of endpoint profile `label` last advertised within the capability window, or null when none has. */
-    async capabilities(label) {
+    /** What member `userId`'s worker last advertised for endpoint profile `label` within the capability window, or null when it has not. */
+    async capabilities(userId, label) {
       return inTransaction(pool, {system: true}, async client => (await client.query(
-        `select capabilities from benchmark_worker_capability where endpoint_label = $1 and updated_at > now() - make_interval(secs => $2)`,
-        [label, CAPABILITY_WINDOW_S],
+        `select capabilities from benchmark_worker_capability where user_id = $1 and endpoint_label = $2 and updated_at > now() - make_interval(secs => $3)`,
+        [userId, label, CAPABILITY_WINDOW_S],
       )).rows[0]?.capabilities ?? null);
     },
-    /** Every endpoint profile a worker has advertised for within the capability window, with its capabilities: `[{label, capabilities, updated_at, expires_at}]`. */
-    async endpoints() {
+    /** Every endpoint profile member `userId`'s worker has advertised for within the capability window, with its capabilities: `[{label, capabilities, updated_at, expires_at}]`. */
+    async endpoints(userId) {
       return inTransaction(pool, {system: true}, async client => (await client.query(
         `select endpoint_label as label, capabilities, updated_at, updated_at + make_interval(secs => $1) as expires_at
-           from benchmark_worker_capability where updated_at > now() - make_interval(secs => $1) order by endpoint_label`,
-        [CAPABILITY_WINDOW_S],
+           from benchmark_worker_capability where user_id = $2 and updated_at > now() - make_interval(secs => $1) order by endpoint_label`,
+        [CAPABILITY_WINDOW_S, userId],
       )).rows);
     },
 

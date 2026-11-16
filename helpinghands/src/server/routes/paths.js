@@ -15,6 +15,8 @@ const APP_UI_ROUTE = /^\/api\/apps\/([^/]+)\/ui\/([^/]+)\/([^/]+)\/(.+)$/;
 
 // A member's benchmark publication (benchmark.js), and the benchmark worker's API, which has no member session (benchmark-worker.js).
 const BENCHMARK_PUBLISH_ROUTE = /^\/api\/benchmark\/benchmarks$/;
+// A member's worker credentials (benchmark.js), which belong to the member and no workspace.
+const BENCHMARK_CREDENTIAL_ROUTE = /^\/api\/benchmark\/worker-credentials(?:\/[^/]+)?$/;
 const BENCHMARK_WORKER_ROUTE = /^\/api\/benchmark-worker\/.+$/;
 
-module.exports = {MARKET_ROUTE, LAB_ROUTE, APP_UI_ROUTE, BENCHMARK_PUBLISH_ROUTE, BENCHMARK_WORKER_ROUTE};
+module.exports = {MARKET_ROUTE, LAB_ROUTE, APP_UI_ROUTE, BENCHMARK_PUBLISH_ROUTE, BENCHMARK_CREDENTIAL_ROUTE, BENCHMARK_WORKER_ROUTE};

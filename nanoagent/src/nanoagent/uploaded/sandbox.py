@@ -266,18 +266,6 @@ class CaseHandle(Protocol):
     def close(self) -> None: ...
 
 
-class SandboxSupervisor(Protocol):
-    def build(self, spec: BuildSpec) -> BuildArtifact: ...
-
-    def start_case(self, spec: CaseSpec) -> CaseHandle: ...
-
-    def create_case(self, spec: CaseSpec) -> CaseHandle: ...
-
-    def prepare_plugin(self, root: Path, timeout_s: float) -> None: ...
-
-    def tool_launcher(self, name: str) -> ToolLauncher: ...
-
-
 class EvidenceSource(Protocol):
     """The part of the collector the supervisor uses."""
 
@@ -452,6 +440,30 @@ class ToolLauncher:
             yield directory
         finally:
             shutil.rmtree(directory, ignore_errors=True)
+
+
+# Every container, network and volume the supervisor creates is named `rush-…` (rush-net-, rush-ws-, rush-out-, rush-buildout-,
+# rush-case-, rush-hold-, rush-prep-, rush-*-relay-, rush-egress-probe-), so that prefix is exactly what a dead run leaves behind.
+RESOURCE_PREFIX = "rush-"
+
+
+def reap_leftovers(docker: DockerRunner) -> list[tuple[str, str]]:
+    """Remove the `rush-*` containers, networks and volumes a previous run left; returns (kind, name) of each.
+
+    Docker's name filter matches anywhere in the name, so the listing is filtered again to names that start with the prefix.
+    Run it before any attempt exists, and never against a daemon another worker is using."""
+    reaped: list[tuple[str, str]] = []
+    for kind, list_args, remove_args in (
+        ("container", ["ps", "-a", "--format", "{{.Names}}"], ["rm", "-f", "-v"]),
+        ("network", ["network", "ls", "--format", "{{.Name}}"], ["network", "rm"]),
+        ("volume", ["volume", "ls", "--format", "{{.Name}}"], ["volume", "rm", "-f"]),
+    ):
+        listed = _checked(docker.run([*list_args[:-2], "--filter", f"name={RESOURCE_PREFIX}", *list_args[-2:]], timeout_s=60), "reap_failed", f"list {kind}s")
+        for name in listed.text().splitlines():
+            if name.startswith(RESOURCE_PREFIX):
+                _checked(docker.run([*remove_args, name], timeout_s=120), "reap_failed", f"remove {kind} {name}")
+                reaped.append((kind, name))
+    return reaped
 
 
 class DockerSandboxSupervisor:

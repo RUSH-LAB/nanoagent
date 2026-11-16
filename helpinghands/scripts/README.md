@@ -20,6 +20,7 @@ production's data into it:
 brew install postgresql@18
 npm ci
 railway login
+railway link  # once per checkout: the mochi-lab service, production environment
 npm run db:setup
 npm run db:pull
 ```

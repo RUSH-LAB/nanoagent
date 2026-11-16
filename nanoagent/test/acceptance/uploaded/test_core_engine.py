@@ -1,11 +1,11 @@
 """CLI acceptance gate 1: the NanoAgent core engine uploaded as a Python harness, and the process collector's startup and loss.
 
-Run on the macOS host (the worker itself runs in the Lima VM `gvisor-dev`, see support.py):
+Run on the host (the worker itself runs in the worker container, see support.py):
 
     .venv/bin/python -m pytest test/acceptance/uploaded -m uploaded_acceptance
 
 Everything is driven through the CLI steps in subprocesses with YAML configuration plus overrides: a scratch RUSH server, step 1
-(publish the probe suite), step 2 (submit the source and follow the run), the real worker in the VM with the real source build,
+(publish the probe suite), step 2 (submit the source and follow the run), the real worker in the worker container with the real source build,
 gVisor sandbox, gateway, tool broker, process collector and plugin verifier, and step 3 to read the saved trace, in a fresh process
 with the scripted upstream and the worker stopped. Assertions use the CLI's machine-readable output and stored evidence.
 """
@@ -37,8 +37,8 @@ import step2_submit_run  # noqa: E402
 import step3_trace  # noqa: E402
 import support  # noqa: E402
 from mockllm import MockProvider, RunHandle, load_scenario  # noqa: E402
-from rush_server import RushServer, rush_server, unavailable  # noqa: E402
-from support import REFERENCE, Cli, VmWorker  # noqa: E402
+from rush_server import RushServer, rush_server, unavailable, worker_credential  # noqa: E402
+from support import REFERENCE, Cli, Worker  # noqa: E402
 
 from nanoagent.plugin.package import pack  # noqa: E402
 
@@ -46,20 +46,17 @@ pytestmark = [pytest.mark.gvisor, pytest.mark.uploaded_acceptance]
 
 PROBE = NANOAGENT / "test" / "plugins" / "acceptance-probe"
 SUITE = "core-engine-probe"
-WORKER_TOKEN = "worker-acceptance-token"
 SOCKET = "/run/rush-gvisor/seccheck.sock"
 
 
 @pytest.fixture(scope="module")
 def rush() -> Iterator[RushServer]:
-    reason = unavailable() or support.vm_available()
+    reason = unavailable() or support.container_unavailable()
     if reason:
         pytest.skip(reason)
-    with pytest.MonkeyPatch.context() as env:
-        env.setenv("BENCHMARK_WORKER_TOKEN", WORKER_TOKEN)
-        with rush_server() as server:
-            server.seed_plugin(pack(PROBE))
-            yield server
+    with rush_server() as server:
+        server.seed_plugin(pack(PROBE))
+        yield server
 
 
 @pytest.fixture(scope="module")
@@ -101,6 +98,8 @@ def submit(cli: Cli, run_dir: Path, folder: Path, suite: str, *, follow: bool) -
     home = run_dir / f"step2-{suite}"
     cli.step("2", "submit_run", home, *support.submit_args(suite, plugin="acceptance-probe", key=suite, source=folder, follow=follow, follow_timeout=900))
     return load_layout(home, step2_submit_run.RunLayout).run
+
+
 def read_trace(cli: Cli, attempt: str, home: Path, *payloads: str) -> Any:
     cli.step("3", "trace", home, f"attempt_id={attempt}", *([f"payloads=[{','.join(payloads)}]"] if payloads else []))
     return load_layout(home, step3_trace.TraceLayout).trace
@@ -117,17 +116,17 @@ def fetch_payloads(cli: Cli, attempt: str, digests: list[str], folder: Path) -> 
     return found
 
 
-def start_worker(name: str, rush: RushServer, cli: Cli, run_dir: Path, *, upstream: str, index: int, socket: str = SOCKET, **options: Any) -> VmWorker:
-    """The real worker in the VM, reaching the host's RUSH server, scripted upstream and dependency index as host.lima.internal."""
+def start_worker(name: str, rush: RushServer, cli: Cli, run_dir: Path, *, upstream: str, index: int, socket: str = SOCKET, **options: Any) -> Worker:
+    """The real worker in the worker container, reaching the host's RUSH server, scripted upstream and dependency index as host.docker.internal."""
     config = run_dir / f"{name}.yaml"
-    worker = VmWorker(name, config, cli.logs / f"{name}-worker.log", **options)
+    worker = Worker(name, config, cli.logs / f"{name}-worker.log", credential=worker_credential(cli.base_url, cli.token), **options)
     config.write_text(
         support.worker_yaml(
             base_url=f"http://{support.HOST}:{rush.base_url.rsplit(':', 1)[1]}",
             upstream=upstream.replace("127.0.0.1", support.HOST),
             index=f"http://{support.HOST}:{index}/simple",
-            socket=socket.replace("<home>", worker.vm_home),
-            scratch=f"{worker.vm_home}/scratch",
+            socket=socket.replace("<home>", worker.home),
+            scratch=f"{worker.home}/scratch",
         )
     )
     worker.start()
@@ -367,7 +366,7 @@ def loss(rush: RushServer, cli: Cli, run_dir: Path, source: tuple[Path, str], re
     with MockProvider() as provider:
         scenario = load_scenario(support.SCENARIOS / "core-engine-long-wait.yaml")
         handle = provider.register(scenario, harness="nanoagent", model=support.MODEL, refs={"reference": REFERENCE})
-        trigger = f"/tmp/rush-lose-collector-{uuid.uuid4().hex[:8]}"  # noqa: S108 - a path in the VM, outside the repository
+        trigger = f"/tmp/rush-lose-collector-{uuid.uuid4().hex[:8]}"  # noqa: S108 - a path in the worker container, outside the repository
         worker = start_worker(
             "collector-loss",
             rush,
@@ -389,7 +388,7 @@ def loss(rush: RushServer, cli: Cli, run_dir: Path, source: tuple[Path, str], re
                 assert time.monotonic() < deadline, worker.text()
                 time.sleep(0.5)
             assert not any(event["kind"] == "tool.completed" for event in midway.events), "the tool must still be running when the collector is lost"
-            assert support.vm("touch", trigger).returncode == 0
+            assert support.inside("touch", trigger).returncode == 0
             while True:
                 final = read_trace(cli, attempt, run_dir / "trace-loss-final")
                 if final.sealed:
@@ -398,7 +397,7 @@ def loss(rush: RushServer, cli: Cli, run_dir: Path, source: tuple[Path, str], re
                 time.sleep(1)
         finally:
             worker.stop()
-            support.vm("rm", "-f", trigger)
+            support.inside("rm", "-f", trigger)
         yield Loss(attempt, midway, final, worker.text())
 
 

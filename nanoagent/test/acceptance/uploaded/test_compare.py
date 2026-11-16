@@ -35,14 +35,12 @@ SCRIPT = {"dialect": "chat_completions", "instrument": False, "retries": 2, "bac
 
 @pytest.fixture(scope="module")
 def rush() -> Iterator[RushServer]:
-    reason = unavailable() or support.vm_available()
+    reason = unavailable() or support.container_unavailable()
     if reason:
         pytest.skip(reason)
-    with pytest.MonkeyPatch.context() as env:
-        env.setenv("BENCHMARK_WORKER_TOKEN", "worker-acceptance-token")
-        with rush_server() as server:
-            server.seed_plugin(pack(PROBE))
-            yield server
+    with rush_server() as server:
+        server.seed_plugin(pack(PROBE))
+        yield server
 
 
 def attempt_turns(*, pair: tuple[float, float], changed: float, retry: bool = False, extra: bool = False) -> list[Any]:

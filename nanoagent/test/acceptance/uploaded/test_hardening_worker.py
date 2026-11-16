@@ -1,6 +1,6 @@
 """CLI acceptance gate: worker hardening.
 
-Run on the macOS host (the worker runs in the Lima VM `gvisor-dev`, see support.py):
+Run on the host (the worker runs in the worker container, see support.py):
 
     .venv/bin/python -m pytest test/acceptance/uploaded/test_hardening_worker.py -m uploaded_acceptance
 
@@ -46,11 +46,10 @@ NATIVE_PROMPT, NATIVE_COMPLETION = 410, 61
 
 @pytest.fixture(scope="module")
 def rush() -> Iterator[RushServer]:
-    reason = unavailable() or support.vm_available()
+    reason = unavailable() or support.container_unavailable()
     if reason:
         pytest.skip(reason)
     with pytest.MonkeyPatch.context() as env:
-        env.setenv("BENCHMARK_WORKER_TOKEN", "worker-acceptance-token")
         env.setenv("BENCHMARK_LEASE_SECONDS", str(LEASE_S))
         env.setenv("BENCHMARK_SWEEP_SECONDS", "2")
         with rush_server() as server:
@@ -151,8 +150,8 @@ def test_a_tool_container_launch_failure_ends_only_that_attempt_and_the_worker_r
             time.sleep(1)
         assert state == "final|interrupted", state
         assert "attempt.started" in {e["kind"] for e in client.events(attempt).events}
-        # Nothing of the faulted attempt is left in the VM: containers, volumes, network.
+        # Nothing of the faulted attempt is left in the worker container: containers, volumes, network.
         assert attempt_containers(attempt) == []
-        leftovers = support.vm("bash", "-c", f"docker volume ls -q --filter name={attempt}; docker network ls -q --filter name={attempt}", timeout=120).stdout.split()
+        leftovers = support.inside("bash", "-c", f"docker volume ls -q --filter name={attempt}; docker network ls -q --filter name={attempt}", timeout=120).stdout.split()
         assert leftovers == [], leftovers
         assert "Traceback" in sess.worker.text() and "injected launch failure" in sess.worker.text()

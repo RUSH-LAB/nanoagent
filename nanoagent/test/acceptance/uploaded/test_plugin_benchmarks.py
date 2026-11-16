@@ -1,6 +1,6 @@
 """CLI acceptance gate: plugin benchmarks, harness identity and everyone's results (docs/plans/plugin-benchmarks.md, step 13).
 
-One probe plugin at 0.1.0 and 0.2.0, two members (A and B) of one workspace, one real worker in the VM and one scripted upstream. Every
+One probe plugin at 0.1.0 and 0.2.0, two members (A and B) of one workspace, one real worker in the worker container and one scripted upstream. Every
 member action goes through the CLI steps (1: publish a benchmark, 2: submit a run, 4: compare, 5: results); the member API is read
 directly only for what the CLI does not surface (the case set view, 404s for another member's records, raw responses).
 
@@ -51,7 +51,7 @@ import step5_results  # noqa: E402
 import support  # noqa: E402
 from mockllm import MockProvider, RunHandle, Scenario  # noqa: E402
 from recovery_support import Member, alice, join_workspace  # noqa: E402
-from rush_server import RushServer, rush_server, unavailable  # noqa: E402
+from rush_server import RushServer, rush_server, unavailable, worker_credential  # noqa: E402
 from scripted import ANSWER, turn  # noqa: E402
 from slimconfig import load_layout  # noqa: E402
 from support import Cli  # noqa: E402
@@ -64,7 +64,6 @@ from nanoagent.uploaded.reference import build_reference  # noqa: E402
 
 pytestmark = [pytest.mark.gvisor, pytest.mark.uploaded_acceptance]
 
-WORKER_TOKEN = "worker-acceptance-token"
 PLUGIN = "bench-probe"
 HARNESS = "bench-loop"
 # A worker prices only the models of nanoagent.uploaded.worker.Model; the gate's worker prices this one beside test/model, and the
@@ -113,15 +112,13 @@ class Evidence:
 
 @pytest.fixture(scope="module")
 def rush() -> Iterator[RushServer]:
-    reason = unavailable() or support.vm_available()
+    reason = unavailable() or support.container_unavailable()
     if reason:
         pytest.skip(reason)
-    with pytest.MonkeyPatch.context() as env:
-        env.setenv("BENCHMARK_WORKER_TOKEN", WORKER_TOKEN)
-        with rush_server(extra_users=("bob",)) as server:
-            # Publishing happens before the worker starts: the models it will price are advertised now, as its claims will.
-            server.advertise("mock", internet_access=False, models=(support.MODEL, BENCHMARK_MODEL))
-            yield server
+    with rush_server(extra_users=("bob",)) as server:
+        # Publishing happens before the worker starts: the models it will price are advertised now, as its claims will.
+        server.advertise("mock", internet_access=False, models=(support.MODEL, BENCHMARK_MODEL))
+        yield server
 
 
 def harness(
@@ -264,7 +261,15 @@ def evidence(rush: RushServer) -> Iterator[Evidence]:
             failures["changed-v1"] = submit(cli, "changed-v1", "main", "pb-changed-v1", "changed-v1", check=False)
             runs["tools-2"] = submit(cli, "tools-2", "main", "pb-tools-2", "a-v1", policy="task_tools")
             runs["coding"] = submit(cli, "coding", "main", "pb-coding", "a-v2", policy="coding")
+            # A worker claims only its own member's runs, and a member's run is previewed only against their own worker's capabilities: bob's
+            # run needs a worker with bob's credential. The container serves one worker at a time, so alice's stops while bob's runs.
+            worker.stop()
+            rush.advertise("mock", internet_access=False, models=(support.MODEL, BENCHMARK_MODEL), credential=worker_credential(rush.base_url, bob.token))
+            worker = gate.start_worker("plugin-benchmarks-bob", rush.base_url, cli_b, run_dir, upstream=handle.base_url, index=index, models=(BENCHMARK_MODEL,))
             runs["bob"] = submit(cli_b, "bob", "main", "pb-bob", "b-v1", policy="coding")
+            worker.stop()
+            rush.advertise("mock", internet_access=False, models=(support.MODEL, BENCHMARK_MODEL))
+            worker = gate.start_worker("plugin-benchmarks-alice", rush.base_url, cli, run_dir, upstream=handle.base_url, index=index, models=(BENCHMARK_MODEL,))
             runs["classroom-0.2.0"] = submit(cli, "classroom-0.2.0", "classroom", "pb-c02", "a-v1", plugin_version="0.2.0", policy="task_tools")
             runs["dialect"] = submit(cli, "dialect", "classroom", "pb-dialect", "dialect", plugin_version="0.2.0", policy="task_tools")
             runs["classroom-0.1.0"] = submit(cli, "classroom-0.1.0", "classroom", "pb-c01", "a-v1", plugin_version="0.1.0", policy="task_tools")
@@ -599,13 +604,19 @@ def test_compare_accepts_runs_of_one_benchmark_and_refuses_other_plugin_versions
 @pytest.fixture(scope="module")
 def references(evidence: Evidence) -> dict[str, Any]:
     """Step 2 with ``reference:`` twice, and with a plain upload named like a reference, on a benchmark of its own. The worker is stopped by
-    now, so the two runs stay queued: a reference is built by the worker in the VM only when it runs, and these gates check the upload and the
+    now, so the two runs stay queued: a reference is built by the worker in the worker container only when it runs, and these gates check the upload and the
     preview. The capabilities are advertised again, as the worker's claims did before it stopped."""
     evidence.rush.advertise("mock", internet_access=False, models=(support.MODEL, BENCHMARK_MODEL))
-    gate.publish_benchmark(evidence.cli, evidence.run_dir / "step1-reference", name="reference-probe", cases=evidence.run_dir / "main.json", model=BENCHMARK_MODEL)
+    # The market's latest is 0.2.0 by now (the classroom runs published it), and step 1 publishes for the latest package.
+    version = "0.2.0"
+    gate.publish_benchmark(
+        evidence.cli, evidence.run_dir / "step1-reference", name="reference-probe", cases=evidence.run_dir / "main.json", model=BENCHMARK_MODEL, plugin_version=version
+    )
 
     def submit(name: str, key: str, **options: Any) -> Any:
-        return gate.submit(evidence.cli, evidence.run_dir / f"step2-{name}", "reference-probe", plugin=PLUGIN, key=key, follow=False, policy="coding", **options)
+        return gate.submit(
+            evidence.cli, evidence.run_dir / f"step2-{name}", "reference-probe", plugin=PLUGIN, plugin_version=version, key=key, follow=False, policy="coding", **options
+        )
 
     return {
         "reserved": submit("reserved", "pb-reserved", source=evidence.run_dir / "reserved", check=False),

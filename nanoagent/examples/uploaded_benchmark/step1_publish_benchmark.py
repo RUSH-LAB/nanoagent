@@ -49,7 +49,6 @@ class Limits(Config):
     max_output_tokens_per_call: int | None = None
     max_cost_usd: float | None = None
     internet_access: bool | None = None
-    concurrency: int | None = None
     cpus: float | None = None
     memory_mb: int | None = None
     pids: int | None = None

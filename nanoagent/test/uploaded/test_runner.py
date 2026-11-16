@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -157,6 +158,36 @@ async def test_cancel_stops_the_case_and_finalizes_canceled_without_a_score(tmp_
     assert rig.supervisor.case.closed and rig.verified == []
 
 
+async def test_cancel_during_the_build_stops_the_attempt_before_any_case_runs_and_finalizes_canceled(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, case_error=RuntimeError("a case must not be created for a canceled attempt"))
+    build = rig.supervisor.build
+
+    def canceled_while_building(spec: Any) -> Any:
+        rig.rush.canceled = True
+        time.sleep(0.3)  # six renewal intervals: the renewal answers 409 canceled while the build runs
+        return build(spec)
+
+    rig.supervisor.build = canceled_while_building  # type: ignore[method-assign]
+    result = await rig.run()
+    assert result.outcome == "canceled"
+    assert rig.rush.finalized[0]["execution"] == {"status": "canceled", "reason": None} and rig.rush.finalized[0]["verdict"] is None
+    assert rig.supervisor.specs == [] and rig.verified == []
+
+
+async def test_lease_loss_during_the_build_finalizes_nothing_and_runs_no_case(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, case_error=RuntimeError("a case must not be created for an attempt that lost its lease"))
+    build = rig.supervisor.build
+
+    def lease_lost_while_building(spec: Any) -> Any:
+        rig.rush.renew_error = LeaseLost(409, "lease_lost", "expired")
+        time.sleep(0.3)
+        return build(spec)
+
+    rig.supervisor.build = lease_lost_while_building  # type: ignore[method-assign]
+    result = await rig.run()
+    assert result.outcome == "lease_lost" and rig.rush.finalized == [] and rig.supervisor.specs == []
+
+
 async def test_lease_loss_with_a_model_stream_in_flight_revokes_and_keeps_the_call_reserved(tmp_path: Path) -> None:
     hold = anyio.Event()
     rig = Rig(tmp_path, script=fx.CaseScript(block=True), transport=sf.ScriptedTransport(sf.stream_script(hold=hold)))
@@ -255,6 +286,18 @@ async def test_a_fault_after_launch_stops_the_case_and_commits_the_process_evide
     assert not rig.rush.finalized and rig.supervisor.case.closed and rig.supervisor.networks[0].removed
     assert rig.rush.of("collector.health"), "the evidence the collector had is kept on the interrupted attempt"
     assert rig.services[0].attempt.revoked
+
+
+@pytest.mark.parametrize("tools", [[], [fx.WAIT_TOOL]], ids=["coding", "task_tools"])
+async def test_a_worker_shutdown_mid_case_still_closes_the_case_and_removes_its_network_and_relay(tmp_path: Path, tools: list) -> None:
+    rig = Rig(tmp_path, script=fx.CaseScript(block=True))
+    with anyio.fail_after(10):
+        async with anyio.create_task_group() as group:
+            group.start_soon(rig.run, fx.parse_job(fx.job_body(tools=tools)))
+            while "case.launched" not in rig.rush.kinds():
+                await anyio.sleep(0.01)
+            group.cancel_scope.cancel()  # what Ctrl-C, or another attempt's fault, does to every attempt in flight
+    assert rig.supervisor.case.closed and rig.supervisor.networks[0].removed and rig.relay.handle.closed
 
 
 async def test_the_worker_goes_on_to_its_next_job_after_a_platform_fault(tmp_path: Path) -> None:
@@ -477,3 +520,27 @@ async def test_the_worker_runs_at_most_its_advertised_concurrency_of_attempts_at
             await worker.poll(stub, rig.runner.config, rig.rush, rig.runner, None, background)  # type: ignore[arg-type]
     assert peak == 2 and finished == 5
     assert all(claim["concurrency"] == 2 for claim in rig.rush.claims)
+
+
+async def test_an_error_escaping_one_attempt_leaves_the_worker_running_the_others(tmp_path: Path) -> None:
+    from nanoagent.uploaded import worker
+
+    rig = Rig(tmp_path)
+    rig.rush.jobs = [fx.parse_job(fx.job_body(attempt_id=f"{n}1111111-1111-4111-8111-111111111111")) for n in range(3)]
+    outcomes: list[str] = []
+
+    async def run(job: Any) -> Any:
+        if job.attempt_id.startswith("0"):
+            raise RushUnavailable("POST /renew failed after 6 attempts")  # e.g. a renewal the runner does not handle
+        result = await original(job)
+        outcomes.append(result.outcome)
+        return result
+
+    original = rig.runner.run
+    rig.runner.run = run  # type: ignore[method-assign]
+    stub = type("Config", (), {"poll": worker.PollConfig(idle_s=0.01, max_idle_s=0.01)})()
+    with pytest.raises(BaseExceptionGroup) as raised:
+        async with anyio.create_task_group() as background:
+            await worker.poll(stub, rig.runner.config, rig.rush, rig.runner, None, background)  # type: ignore[arg-type]
+    assert len(outcomes) == 2, "both other attempts ran"
+    assert not raised.group_contains(RushUnavailable), "the failed attempt's error stays with it"

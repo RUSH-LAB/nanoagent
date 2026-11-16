@@ -148,7 +148,7 @@ def test_uploaded_python_wire_contract_with_mock_provider_and_real_verifier(
     }
     prompt = "\n\n".join(f"{heading}\n{value}" for heading, value in values.items()) + "\n"
     limits = {
-        "wall_time_ms": 10000, "max_model_calls": 1, "max_output_tokens_per_call": 80, "max_cost_usd": 0.5, "internet_access": False, "concurrency": 1, "cpus": 1,
+        "wall_time_ms": 10000, "max_model_calls": 1, "max_output_tokens_per_call": 80, "max_cost_usd": 0.5, "internet_access": False, "cpus": 1,
         "memory_mb": 512, "pids": 128, "workspace_bytes": 1 << 20, "workspace_files": 100, "tmp_bytes": 1 << 20, "build_wall_ms": 60000, "build_memory_mb": 512,
         "build_output_bytes": 1 << 20, "build_files": 100, "build_tmp_bytes": 1 << 20,
     }

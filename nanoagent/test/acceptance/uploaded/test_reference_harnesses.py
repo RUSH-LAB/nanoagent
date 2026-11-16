@@ -34,7 +34,7 @@ import gate_support as gate  # noqa: E402
 import plugins  # noqa: E402
 import support  # noqa: E402
 from mockllm import MockProvider, RunHandle, load_scenario  # noqa: E402
-from rush_server import RushServer, rush_server, unavailable  # noqa: E402
+from rush_server import RushServer, rush_server, unavailable, worker_credential  # noqa: E402
 from support import REFERENCE, Cli  # noqa: E402
 
 from nanoagent.plugin.package import pack  # noqa: E402
@@ -43,7 +43,6 @@ from nanoagent.uploaded.contract import contains_first_prompt  # noqa: E402
 
 pytestmark = [pytest.mark.gvisor, pytest.mark.uploaded_acceptance]
 
-WORKER_TOKEN = "worker-acceptance-token"
 PLUGIN = "probe-ref"
 # harness folder -> (the dialect it speaks, the mock's action renderer for it)
 HARNESSES = {"claude-code": ("anthropic_messages", "claude"), "codex": ("responses", "codex")}
@@ -80,13 +79,11 @@ class Harness:
 
 @pytest.fixture(scope="module")
 def rush() -> Iterator[RushServer]:
-    reason = unavailable() or support.vm_available()
+    reason = unavailable() or support.container_unavailable()
     if reason:
         pytest.skip(reason)
-    with pytest.MonkeyPatch.context() as env:
-        env.setenv("BENCHMARK_WORKER_TOKEN", WORKER_TOKEN)
-        with rush_server() as server:
-            yield server
+    with rush_server() as server:
+        yield server
 
 
 @pytest.fixture(scope="module")
@@ -96,7 +93,7 @@ def benchmark(rush: RushServer) -> Iterator[tuple[str, Path, Cli]]:
     cli = Cli(rush.base_url, rush.workspace_id, rush.token, support.FINAL / "reference-harnesses" / run_dir.name, rush.user_id)
     rush.seed_plugin(pack(plugins.variant(run_dir / "plugin", plugin_id=PLUGIN)))
     gate.cases_file(run_dir / "cases.json", PLUGIN, ["alpha"], ["refuse-me"], "Synthetic.")
-    gate.publish_benchmark(cli, run_dir / "step1", name="reference", cases=run_dir / "cases.json", limits={"concurrency": 1})
+    gate.publish_benchmark(cli, run_dir / "step1", name="reference", cases=run_dir / "cases.json")
     yield "reference", run_dir, cli
 
 
@@ -107,14 +104,14 @@ def run_harness(name: str, rush: RushServer, benchmark: tuple[str, Path, Cli]) -
     with MockProvider() as provider:
         handle = provider.register(load_scenario(support.SCENARIOS / "reference-harness.yaml"), harness=renderer, model=support.MODEL, refs={"reference": REFERENCE})
         config = run_dir / f"{name}-worker.yaml"
-        worker = support.VmWorker(f"reference-{name}", config, cli.logs / f"{name}-worker.log")
+        worker = support.Worker(f"reference-{name}", config, cli.logs / f"{name}-worker.log", credential=worker_credential(cli.base_url, cli.token))
         config.write_text(
             support.worker_yaml(
                 base_url=f"http://{support.HOST}:{rush.base_url.rsplit(':', 1)[1]}",
                 upstream=handle.base_url.replace("127.0.0.1", support.HOST),
                 index="https://pypi.org/simple",
                 socket=gate.SOCKET,
-                scratch=f"{worker.vm_home}/scratch",
+                scratch=f"{worker.home}/scratch",
             )
         )
         worker.start()

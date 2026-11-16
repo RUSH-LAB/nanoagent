@@ -1,5 +1,5 @@
 # The acceptance worker: inference goes to the scripted OpenRouter mock, with a synthetic credential.
-#   export BENCHMARK_WORKER_TOKEN=...  RUSH_BENCHMARK_MOCK_API_KEY=...
+#   export RUSH_WORKER_TOKEN=...  OPENROUTER_API_KEY=... (a synthetic key)
 #   python -m nanoagent.uploaded.worker config=deploy/gvisor/worker.mock.yaml home=<run folder>
 _ > nanoagent.uploaded.worker.WorkerConfig:
 
@@ -8,13 +8,12 @@ scratch: /home/worker/rush-worker/scratch/attempts
 
 rush > nanoagent.uploaded.worker.RushConfig:
   base_url: http://127.0.0.1:3000
-  token_env: BENCHMARK_WORKER_TOKEN
+  token_env: RUSH_WORKER_TOKEN
 
 openrouter > nanoagent.uploaded.worker.OpenRouterConfig:
   label: mock
   mode: mock
   upstream_base_url: http://openrouter-mock:8080/api/v1
-  api_key_env: RUSH_BENCHMARK_MOCK_API_KEY
   mock_hosts: [openrouter-mock]
 
 # USD per token; the acceptance mock reports its own usage.
@@ -35,6 +34,10 @@ sandbox > nanoagent.uploaded.worker.SandboxConfig:
   # /tmp holds the Go build cache (the standard library is compiled into it).
   tmp_bytes: 402653184
   build_wall_s: 600
+
+# The acceptance runs several attempts at once: the worker's own concurrency (a run has none) is what bounds them.
+limits > nanoagent.uploaded.worker.LimitsConfig:
+  concurrency: 4
 
 collector > nanoagent.uploaded.worker.CollectorConfig:
   socket: /run/rush-gvisor/seccheck.sock

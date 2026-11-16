@@ -31,6 +31,10 @@
  * relay has a request of RUSH's going, a held run included: the app updates itself only while it
  * is not (desktop/src-tauri/src/update.rs). SIGTERM stops every connection, cleanly.
  *
+ * Each connection also runs the member's benchmark worker (worker.mjs) in a container on their Docker, its checks starting
+ * with the connection: its state goes to the relay, so to RUSH and the Benchmark screens, its log is logs/worker.log, and a
+ * change of the OpenRouter key in the settings restarts it (applyKeys). It is stopped when the connection ends.
+ *
  * At each start it writes the app's command (config.command, rushlab; rushlab-dev in RUSH Lab Dev)
  * into ~/.local/bin/ for the build it runs (installCommand), which the member runs in whatever
  * terminal they use: `<command> new <id>` makes a plugin there for their AI CLI to design with
@@ -48,6 +52,7 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import {fileURLToPath} from 'node:url';
+import {benchmarkWorker} from './worker.mjs';
 
 const NANOAGENT_TIMEOUT_MS = 60_000;
 const STOP_TIMEOUT_MS = 10_000;
@@ -258,6 +263,23 @@ function readSettings(file) {
   } catch (error) {
     throw new Error(`${file}: ${error.message}`);
   }
+}
+
+/** The runner concurrency kept in `file` (the attempts the member lets their worker run at once): 1 until they set it. */
+export function readConcurrency(file) {
+  try {
+    const {concurrency} = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return Number.isSafeInteger(concurrency) && concurrency >= 1 ? concurrency : 1;
+  } catch {
+    return 1;
+  }
+}
+
+/** Keep the runner concurrency `value` (a whole number of at least 1) in `file`. */
+export function writeConcurrency(file, value) {
+  if (!Number.isSafeInteger(value) || value < 1) throw new Error('Runner concurrency must be a whole number of at least 1');
+  fs.mkdirSync(path.dirname(file), {recursive: true});
+  fs.writeFileSync(file, `${JSON.stringify({concurrency: value})}\n`);
 }
 
 /** Each provider's key in `settings`, set or not, and how it begins and ends: never its value. */
@@ -578,6 +600,43 @@ async function main() {
     }
   }
 
+  // The member's own PATH, which finds docker where their terminal does: asked once, when the first worker needs it.
+  let memberDockerPath = null;
+  const dockerEnv = async () => {
+    memberDockerPath ??= memberPath(os.userInfo().shell).catch(() => system.PATH);
+    return {...system, PATH: await memberDockerPath};
+  };
+
+  /** The connection's worker (worker.mjs): started with the connection, its state told to its relay. */
+  function startWorker(connection, logs) {
+    const {id, folder, settingsFile} = connection;
+    const readSession = () => {
+      try {
+        return JSON.parse(fs.readFileSync(path.join(folder, 'runner-credentials.json'), 'utf8')).token ?? null;
+      } catch {
+        return null;
+      }
+    };
+    connection.worker = benchmarkWorker({
+      id,
+      site: connection.site,
+      device: os.hostname(),
+      product: config.product_name,
+      logFile: path.join(logs, 'worker.log'),
+      readKey: () => readSettings(settingsFile).OPENROUTER_API_KEY,
+      readConcurrency: () => readConcurrency(path.join(folder, 'worker.json')),
+      writeConcurrency: value => writeConcurrency(path.join(folder, 'worker.json'), value),
+      readSession,
+      dockerEnv,
+      report: snapshot => {
+        connection.workerState = snapshot;
+        tellRelay(connection, {worker: snapshot});
+      },
+      log: message => log(`Benchmark worker: ${message}`, id),
+    });
+    connection.worker.start().catch(error => log(`Benchmark worker: ${error.message}`, id));
+  }
+
   /** Stop everything and exit with `code`, once. */
   async function shutdown(code, message) {
     if (stopping) return;
@@ -677,7 +736,7 @@ async function main() {
     connection.state = 'stopped';
     connection.relayStdin = null;
     connection.token = null;
-    await stopServices(connection.services);
+    await Promise.all([stopServices(connection.services), connection.worker?.stop()]);
     countRequests(connection, 0);
   }
 
@@ -705,7 +764,7 @@ async function main() {
     log(replaced ? 'Another computer took this member\'s runs; stopping until connected again.' : `${message}\nStarting again in ${RESTART_MS / 1000}s.`, connection.id);
     connection.relayStdin = null;
     connection.token = null;
-    await stopServices(connection.services);
+    await Promise.all([stopServices(connection.services), connection.worker?.stop()]);
     countRequests(connection, 0);
   }
 
@@ -719,6 +778,7 @@ async function main() {
       const settingsFile = path.join(folder, 'settings.env');
       const settings = readSettings(settingsFile);
       Object.assign(connection, {site, login: member.login, settingsFile, port: await freePort()});
+      startWorker(connection, logs);
       log(`Starting NanoAgent for @${member.login} on ${site}…`, id);
       connection.stage = 'nanoagent';
       setupStage(connection.stage);
@@ -746,6 +806,7 @@ async function main() {
       connection.relayStdin = relay.child.stdin;
       // Writing to a relay that has just exited fails; its exit is what ends the connection.
       connection.relayStdin.on('error', () => {});
+      if (connection.workerState) tellRelay(connection, {worker: connection.workerState});
       followRelay(connection, relay);
       connection.state = 'running';
       // From here, either service exiting stops the other; a relay that ends cleanly was replaced by another computer.
@@ -772,6 +833,8 @@ async function main() {
       throw new Error('changes must be {NAME: key or null}');
     }
     writeKeys(connection.settingsFile, changes);
+    // An OpenRouter key added, changed or removed starts, restarts or stops the worker, without waiting for NanoAgent.
+    connection.worker?.keysChanged().catch(error => log(`Benchmark worker: ${error.message}`, connection.id));
     if (!connection.token) throw new Error('NanoAgent is not running');
     const answer = await nanoagentRequest(connection.port, 'PUT', '/v1/keys', connection.token, JSON.stringify({changes}));
     if (!answer) throw new Error('NanoAgent did not answer');
@@ -809,6 +872,12 @@ async function main() {
         openPage(keyless ? `${site.replace(/\/$/, '')}/settings#ai` : site);
       } else if (event.event === 'disconnected') {
         log(`Disconnected from ${site}: ${event.reason}`, id);
+      } else if (event.event === 'worker' && event.action === 'concurrency') {
+        // Runner concurrency on the Benchmark worker panel's advanced settings.
+        connection.worker?.setConcurrency(event.value).catch(error => log(`Benchmark worker: ${error.message}`, id));
+      } else if (event.event === 'worker' && ['recheck', 'restart'].includes(event.action)) {
+        // Re-check and Restart on the Benchmark worker panel.
+        connection.worker?.[event.action]().catch(error => log(`Benchmark worker: ${error.message}`, id));
       } else if (event.event === 'keys') {
         applyKeys(connection, event.changes).then(
           () => tellRelay(connection, {id: event.id, error: null}),

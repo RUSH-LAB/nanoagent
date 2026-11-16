@@ -7,3 +7,16 @@ js/*/node_modules
 js/*/dist
 tests
 docs
+.pytest_cache
+.ruff_cache
+.coverage
+htmlcov
+build
+dist
+outputs
+**/outputs
+**/__pycache__
+node_modules
+*.egg-info
+.env
+.env.*

@@ -28,14 +28,12 @@ SCRIPT = {"dialect": "chat_completions", "instrument": False}
 
 @pytest.fixture(scope="module")
 def rush() -> Iterator[RushServer]:
-    reason = unavailable() or support.vm_available()
+    reason = unavailable() or support.container_unavailable()
     if reason:
         pytest.skip(reason)
-    with pytest.MonkeyPatch.context() as env:
-        env.setenv("BENCHMARK_WORKER_TOKEN", "worker-acceptance-token")
-        with rush_server() as server:
-            server.seed_plugin(pack(PROBE))
-            yield server
+    with rush_server() as server:
+        server.seed_plugin(pack(PROBE))
+        yield server
 
 
 @dataclass
@@ -117,4 +115,6 @@ def test_a_selected_span_and_its_payloads_are_read_back_identically(reopen: Reop
 
 def test_nothing_new_is_asked_of_the_model(reopen: Reopened) -> None:
     assert reopen.served == reopen.served_after == 2
-    assert "model_call" not in reopen.restart_log and "finalized" not in reopen.restart_log and "attempt " not in reopen.restart_log.replace("attempts/", "")
+    # The startup line listing the advertised capabilities names `max_model_calls`; it is not a model call.
+    log = "\n".join(line for line in reopen.restart_log.splitlines() if "advertised capabilities:" not in line)
+    assert "model_call" not in log and "finalized" not in log and "attempt " not in log.replace("attempts/", "")

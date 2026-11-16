@@ -149,10 +149,6 @@ class DependencyClosure:
         return not self.files
 
 
-class DependencyResolver(Protocol):
-    def stage(self, profile: ToolchainProfile, source_root: Path, lockfiles: tuple[str, ...], destination: Path) -> DependencyClosure: ...
-
-
 @dataclass(frozen=True)
 class PinnedRequirement:
     name: str  # canonical

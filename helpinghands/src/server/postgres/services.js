@@ -20,18 +20,14 @@ const {createCrdt} = require('../fs/crdt');
 const {createFsHub} = require('../fs/events');
 const {createFsRecords} = require('../fs/records');
 const {createFsChat} = require('../fs/chat');
+const {positiveSetting} = require('../benchmark/limits');
 
 // Spend caps in USD per UTC day, and lease timing, for the benchmark worker API (docs/contracts/rush-benchmark-api.md).
-const positive = (name, fallback) => {
-  const value = process.env[name] === undefined ? fallback : Number(process.env[name]);
-  if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number`);
-  return value;
-};
 const benchmarkConfig = Object.freeze({
-  leaseSeconds: positive('BENCHMARK_LEASE_SECONDS', 60),
-  uncertainDeadlineSeconds: positive('BENCHMARK_UNCERTAIN_DEADLINE_SECONDS', 3600),
-  memberBudgetUsd: positive('BENCHMARK_MEMBER_BUDGET_USD', 25),
-  workspaceBudgetUsd: positive('BENCHMARK_WORKSPACE_BUDGET_USD', 100),
+  leaseSeconds: positiveSetting('BENCHMARK_LEASE_SECONDS', 60),
+  uncertainDeadlineSeconds: positiveSetting('BENCHMARK_UNCERTAIN_DEADLINE_SECONDS', 3600),
+  memberBudgetUsd: positiveSetting('BENCHMARK_MEMBER_BUDGET_USD', 25),
+  workspaceBudgetUsd: positiveSetting('BENCHMARK_WORKSPACE_BUDGET_USD', 100),
 });
 
 if (!database.pool) throw new Error('PostgreSQL services require DATABASE_URL');

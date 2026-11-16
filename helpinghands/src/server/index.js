@@ -608,12 +608,11 @@ const ctx = {
   // Plugin sessions and what their runs cost; PostgreSQL only.
   sessions: postgresServices?.sessions ?? null,
   // Uploaded harness benchmarks (routes/benchmark.js, routes/benchmark-worker.js); PostgreSQL only. The
-  // worker API is off until BENCHMARK_WORKER_TOKEN is set.
+  // worker API takes the worker credentials members mint.
   benchmark: postgresServices ? {
     repository: postgresServices.benchmark,
     worker: postgresServices.benchmarkWorker,
     service: createBenchmarkService({repository: postgresServices.benchmark}),
-    workerToken: process.env.BENCHMARK_WORKER_TOKEN || null,
   } : null,
   // The plugins each member installed from the marketplace, run from NanoAgent's installs; PostgreSQL only.
   workspaceApps: postgresServices

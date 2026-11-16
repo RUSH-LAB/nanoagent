@@ -393,7 +393,12 @@ const CATEGORIES = [
       },
       {
         method: 'GET', path: '/api/runner/status', description: 'Whether RUSH Lab is connected for you and since when, what it calls your computer, and which API keys it holds (never their values).',
-        response: '{ "connected": true, "device": "laptop", "keys": [{ "env": "OPENROUTER_API_KEY", "label": "OpenRouter", "set": true }] }',
+        response: '{ "connected": true, "device": "laptop", "keys": [{ "env": "OPENROUTER_API_KEY", "label": "OpenRouter", "set": true }], "worker": { "state": "ready", "checks": [{ "id": "docker-cli", "label": "Docker installed", "state": "pass" }] } }',
+      },
+      {
+        method: 'POST', path: '/api/runner/worker', description: 'Ask RUSH Lab to re-check or restart your benchmark worker; its new state arrives in /api/runner/status.',
+        request: '{ "action": "recheck" }',
+        response: '{ "sent": true }',
       },
       {
         method: 'GET', path: '/api/runner/credit', description: 'What the OpenRouter key in RUSH Lab has spent, in dollars, as OpenRouter says: `you`, what you have spent (on every key RUSH gave you, when it is RUSH\'s key); `total`, what everyone has spent against the cap, the workspace\'s lifetime budget, or the key\'s own spend against its limit (null for none). Null while RUSH Lab holds no OpenRouter key.',

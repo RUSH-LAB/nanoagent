@@ -1,6 +1,6 @@
 """CLI acceptance gate: token and timing metrics, from real worker runs of the scripted-loop harness.
 
-Run on the macOS host (the worker runs in the Lima VM `gvisor-dev`, see support.py):
+Run on the host (the worker runs in the worker container, see support.py):
 
     .venv/bin/python -m pytest test/acceptance/uploaded/test_metrics.py -m uploaded_acceptance
 
@@ -42,14 +42,12 @@ FIELDS = ("total_tokens", "input_tokens", "output_tokens", "cache_read_tokens", 
 
 @pytest.fixture(scope="module")
 def rush() -> Iterator[RushServer]:
-    reason = unavailable() or support.vm_available()
+    reason = unavailable() or support.container_unavailable()
     if reason:
         pytest.skip(reason)
-    with pytest.MonkeyPatch.context() as env:
-        env.setenv("BENCHMARK_WORKER_TOKEN", "worker-acceptance-token")
-        with rush_server() as server:
-            server.seed_plugin(pack(PROBE))
-            yield server
+    with rush_server() as server:
+        server.seed_plugin(pack(PROBE))
+        yield server
 
 
 @dataclass

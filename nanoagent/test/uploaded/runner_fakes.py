@@ -37,7 +37,7 @@ def source_zip(toolchain: str = "python-3", manifest: bool = True) -> bytes:
 
 
 LIMITS = {
-    "wall_time_ms": 60000, "max_model_calls": 5, "max_output_tokens_per_call": 100, "max_cost_usd": 1.0, "internet_access": False, "concurrency": 2,
+    "wall_time_ms": 60000, "max_model_calls": 5, "max_output_tokens_per_call": 100, "max_cost_usd": 1.0, "internet_access": False,
     "cpus": 1.0, "memory_mb": 1024, "pids": 256, "workspace_bytes": 268435456, "workspace_files": 20000, "tmp_bytes": 67108864, "build_wall_ms": 600000,
     "build_memory_mb": 3072, "build_output_bytes": 1 << 30, "build_files": 100000, "build_tmp_bytes": 512 << 20,
 }
@@ -302,11 +302,16 @@ class FakeRelay:
 
 
 class FakeTools:
+    """Holds a task group open while entered, as the plugin's MCP stdio session does: its cancel scope must unwind in order."""
+
     async def __aenter__(self) -> FakeTools:
+        self._group = anyio.create_task_group()
+        await self._group.__aenter__()
         return self
 
     async def __aexit__(self, *exc: object) -> None:
-        return None
+        self._group.cancel_scope.cancel()
+        await self._group.__aexit__(*exc)
 
     async def run(self, name: str, arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
         return {"waited": 0.0}

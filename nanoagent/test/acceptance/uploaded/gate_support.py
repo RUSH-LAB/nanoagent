@@ -11,7 +11,8 @@ from typing import Any
 
 import support
 from slimconfig import load_layout
-from support import Cli, VmWorker
+from rush_server import worker_credential
+from support import Cli, Worker
 
 NANOAGENT = support.NANOAGENT
 BEHAVIORS = Path(__file__).resolve().parent / "harnesses" / "probe_behaviors"
@@ -27,17 +28,17 @@ def behaviors_source(destination: Path) -> Path:
     return support.stamp(destination)
 
 
-def start_worker(name: str, base_url: str, cli: Cli, run_dir: Path, *, upstream: str, index: int, egress: bool = False, models: tuple[str, ...] = ()) -> VmWorker:
-    """The real worker in the VM, reaching the host's RUSH server, scripted upstream and (empty) dependency index."""
+def start_worker(name: str, base_url: str, cli: Cli, run_dir: Path, *, upstream: str, index: int, egress: bool = False, models: tuple[str, ...] = ()) -> Worker:
+    """The real worker in the worker container, reaching the host's RUSH server, scripted upstream and (empty) dependency index."""
     config = run_dir / f"{name}.yaml"
-    worker = VmWorker(name, config, cli.logs / f"{name}-worker.log")
+    worker = Worker(name, config, cli.logs / f"{name}-worker.log", credential=worker_credential(cli.base_url, cli.token))
     config.write_text(
         support.worker_yaml(
             base_url=f"http://{support.HOST}:{base_url.rsplit(':', 1)[1]}",
             upstream=upstream.replace("127.0.0.1", support.HOST),
             index=f"http://{support.HOST}:{index}/simple",
             socket=SOCKET,
-            scratch=f"{worker.vm_home}/scratch",
+            scratch=f"{worker.home}/scratch",
             egress=egress,
             models=models,
         )

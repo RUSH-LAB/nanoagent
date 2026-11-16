@@ -1,6 +1,6 @@
 _ > mockllm.engine.Scenario:
 name: reference-harness
-# A coding reference harness (Claude Code, Codex) on two cases, one after the other (the run's concurrency is 1): the answer case,
+# A coding reference harness (Claude Code, Codex) on two cases, one after the other: the answer case,
 # then the refusal case. Each is a shell call that writes answer.json (the mock renders it per harness: see mockllm/actions.py),
 # and the closing turn the harness asks for after that call.
 turns:

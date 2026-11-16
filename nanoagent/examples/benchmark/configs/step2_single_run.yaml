@@ -2,7 +2,8 @@ _ > step2_single_run.SingleRunConfig:
 
 # The local RUSH database that helpinghands' `npm run local` makes and fills with production's.
 database: postgres://neondb_owner@127.0.0.1:55432/mochi
-psql: /opt/homebrew/opt/postgresql@18/bin/psql
+# Homebrew's keg-only postgresql@18, which the run scripts put on PATH (/opt/homebrew or /usr/local).
+psql: psql
 # The plugin task's cases, and the one this run works: <plugin>-<n>, the cases to answer first.
 cases: examples/benchmark/configs/step1_city_weather_cases.json
 case: city-weather-01

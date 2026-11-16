@@ -117,7 +117,9 @@ def main() -> None:
     runtimes[RUNTIME] = entry
     if changed:
         write_if_changed(DAEMON_JSON, json.dumps(daemon, indent=2) + "\n")
-        subprocess.run(["systemctl", "restart", "docker"], check=True)
+        # Without systemd (the worker image) nothing is running yet: the caller starts dockerd afterwards.
+        if Path("/run/systemd/system").exists():
+            subprocess.run(["systemctl", "restart", "docker"], check=True)
     print(f"runtime {RUNTIME}: {'registered' if changed else 'already registered'}; socket {SOCKET}")
 
 

@@ -14,7 +14,6 @@ adapters that let the attempt-scoped services use it.
 from __future__ import annotations
 
 import hashlib
-import json
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -283,15 +282,23 @@ class Lease:
     from when the request was sent on the injected monotonic clock. Once that passes without a renewal ``lapsed`` fails the
     lease as `lease_lost`, so the attempt's services refuse new work between renewals, as the server already does. A lease built
     without ``lease_s`` has no known expiry and is only ever failed by an answer from the server.
+
+    With ``wall_clock_ns`` the expiry is also kept on the wall clock. A computer that sleeps stops the monotonic clock (or the
+    VM that Docker runs in), so the lease looks alive on waking although the server expired it: the wall clock sees the sleep.
     """
 
-    def __init__(self, attempt_id: str, fence: int, *, lease_s: float | None = None, clock_ns: Callable[[], int] = time.monotonic_ns) -> None:
+    def __init__(
+        self, attempt_id: str, fence: int, *, lease_s: float | None = None, clock_ns: Callable[[], int] = time.monotonic_ns,
+        wall_clock_ns: Callable[[], int] | None = None,
+    ) -> None:
         self.attempt_id = attempt_id
         self.fence = fence
         self.reason: str | None = None  # `lease_lost`, `canceled` or `sealed`
         self.revoked = anyio.Event()
         self._clock_ns = clock_ns
+        self._wall_clock_ns = wall_clock_ns
         self.valid_until_ns: int | None = None if lease_s is None else clock_ns() + round(lease_s * 1e9)
+        self.valid_until_wall_ns: int | None = None if lease_s is None or wall_clock_ns is None else wall_clock_ns() + round(lease_s * 1e9)
 
     @property
     def active(self) -> bool:
@@ -301,11 +308,16 @@ class Lease:
         """A renewal sent at ``requested_ns`` succeeded: the lease is valid for ``lease_s`` from then."""
         until = requested_ns + round(lease_s * 1e9)
         self.valid_until_ns = until if self.valid_until_ns is None else max(self.valid_until_ns, until)
+        if self._wall_clock_ns is not None:
+            wall_until = self._wall_clock_ns() - (self._clock_ns() - requested_ns) + round(lease_s * 1e9)  # the request's wall time, plus the lease
+            self.valid_until_wall_ns = wall_until if self.valid_until_wall_ns is None else max(self.valid_until_wall_ns, wall_until)
 
     def lapsed(self) -> bool:
         """Whether the lease can no longer be used: failed already, or its known expiry passed without a renewal (which fails it)."""
         if self.reason is None and self.valid_until_ns is not None and self._clock_ns() >= self.valid_until_ns:
             self.fail(LeaseLost(409, "lease_lost", "the lease expired without a successful renewal"))
+        elif self.reason is None and self.valid_until_wall_ns is not None and self._wall_clock_ns() >= self.valid_until_wall_ns:  # type: ignore[misc]
+            self.fail(LeaseLost(409, "lease_lost", "the lease expired on the wall clock: the computer slept"))
         return self.reason is not None
 
     def fail(self, error: RushError) -> None:
@@ -455,10 +467,3 @@ class Emitter:
 
     async def emit_many(self, facts: Sequence[Fact], occurred_ns: Sequence[int]) -> None:
         await self._journal.append_records(self.records(facts, occurred_ns=occurred_ns))
-
-
-def loads_object(data: bytes) -> dict[str, Any]:
-    value = json.loads(data)
-    if not isinstance(value, dict):
-        raise ValueError("expected a JSON object")
-    return value

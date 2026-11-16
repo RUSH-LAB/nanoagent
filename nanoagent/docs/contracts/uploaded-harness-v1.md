@@ -60,7 +60,7 @@ The process decodes one UTF-8 JSON object from `RUSH_REQUEST`. Reject duplicate 
 }
 ```
 
-`task` and `case` are the public task and case; `case.kind` and the private reference stay on the worker. `prompt` is the run's pinned rendered prompt for the case, `sha256` its digest. `limits` are the run's effective limits, as the worker applies them (`concurrency`, a run-level limit, may also appear). The guest can read its task workspace and receives no private verifier inputs.
+`task` and `case` are the public task and case; `case.kind` and the private reference stay on the worker. `prompt` is the run's pinned rendered prompt for the case, `sha256` its digest. `limits` are the run's effective limits, as the worker applies them. The guest can read its task workspace and receives no private verifier inputs.
 
 ### Participant policies and results
 

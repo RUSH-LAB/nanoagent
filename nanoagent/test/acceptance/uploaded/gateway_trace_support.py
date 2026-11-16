@@ -14,7 +14,8 @@ from typing import TYPE_CHECKING, Any
 from slimconfig import load_layout
 
 import support
-from support import Cli, VmWorker
+from rush_server import worker_credential
+from support import Cli, Worker
 
 NANOAGENT = support.NANOAGENT
 SCRIPTED = Path(__file__).resolve().parent / "harnesses" / "scripted"
@@ -117,17 +118,17 @@ def observations(trace: Any, payloads: dict[str, bytes]) -> list[dict[str, Any]]
 
 def start_worker(
     name: str, rush_url: str, cli: Cli, run_dir: Path, *, upstream: str, index: int, label: str = "mock", entry: tuple[str, ...] | None = None, env: dict[str, str] | None = None
-) -> VmWorker:
-    """The real worker in the VM; only its YAML (upstream, label) differs between workers."""
+) -> Worker:
+    """The real worker in the worker container; only its YAML (upstream, label) differs between workers."""
     config = run_dir / f"{name}.yaml"
     options: dict[str, Any] = {} if entry is None else {"entry": entry}
-    worker = VmWorker(name, config, cli.logs / f"{name}-worker.log", env=env, **options)
+    worker = Worker(name, config, cli.logs / f"{name}-worker.log", credential=worker_credential(cli.base_url, cli.token), env=env, **options)
     text = support.worker_yaml(
         base_url=f"http://{support.HOST}:{rush_url.rsplit(':', 1)[1]}",
         upstream=upstream.replace("127.0.0.1", support.HOST),
         index=f"http://{support.HOST}:{index}/simple",
         socket=SOCKET,
-        scratch=f"{worker.vm_home}/scratch",
+        scratch=f"{worker.home}/scratch",
     )
     assert "  label: mock\n" in text
     config.write_text(text.replace("  label: mock\n", f"  label: {label}\n", 1))

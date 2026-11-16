@@ -1,6 +1,7 @@
 """Linux integration test: the NanoAgent task tools harness builds in the worker's network-less python-3 build.
 
-    limactl shell gvisor-dev -- bash deploy/gvisor/vm-test.sh test/test_nanoagent_task_harness_gvisor.py
+    docker run --rm --init --privileged --cgroupns=private -v rush-worker-docker:/var/lib/docker rush-benchmark-worker:dev \
+        python -m pytest -p no:cacheprovider -o addopts= -m 'gvisor or not gvisor' test/test_nanoagent_task_harness_gvisor.py
 
 The worker stages the hashed wheels of requirements.txt from PyPI (host side, every sha256 verified), then the sandbox
 builds with no network and /deps as the only package source; the built artifact must import the harness.

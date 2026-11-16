@@ -28,6 +28,8 @@
  *                      {type: 'release', id}        RUSH has kept what the held request did
  *                      {type: 'abort', id}
  *                      {type: 'keys', id, changes}  {ENV_NAME: key, or null to remove it}
+ *                      {type: 'worker', action, value?}  recheck or restart the benchmark worker, or `concurrency` with a whole number `value` (runner/worker.mjs)
+ * The hello also carries `worker`: the benchmark worker's health, {state, message, platform, concurrency, progress, checks, log}.
  */
 
 const PATH = '/api/runner';

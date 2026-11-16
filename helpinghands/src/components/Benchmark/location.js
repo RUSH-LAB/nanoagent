@@ -26,10 +26,10 @@ export function screenOf(search) {
   const view = params.get('view');
   const initialSelection = view === 'new' && params.has('benchmark') ? {plugin: params.get('plugin'), benchmark: params.get('benchmark')} : undefined;
   if (initialSelection) return {screen: 'new', run: null, runs: null, attempt: null, compare: null, initialSelection};
-  return {screen: view === 'new' || view === 'publish' || view === 'all' ? view : 'runs', run: null, runs: null, attempt: null, compare: null};
+  return {screen: view === 'new' || view === 'publish' || view === 'all' || view === 'worker' ? view : 'runs', run: null, runs: null, attempt: null, compare: null};
 }
 
-/** The search string for a screen: `{}` is the runs list, `{view: 'all'}` everyone's results, `{view: 'new'}` the form, `{view: 'publish'}` Create Plugin Benchmark. */
+/** The search string for a screen: `{}` is the runs list, `{view: 'all'}` everyone's results, `{view: 'new'}` the form, `{view: 'publish'}` Create Plugin Benchmark, `{view: 'worker'}` the benchmark worker's health. */
 export function searchFor({view, run, runs, attempt, compare, plugin, benchmark, caseKey}) {
   const params = new URLSearchParams();
   if (view) params.set('view', view);

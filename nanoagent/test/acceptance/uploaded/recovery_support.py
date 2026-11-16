@@ -1,5 +1,5 @@
 """Pieces of the recovery-and-access acceptance test: members and workspaces on a scratch RUSH server, the worker API as a
-direct client (for the faults only a hand-driven worker can inject), server-sent events read by hand, and the worker in the VM
+direct client (for the faults only a hand-driven worker can inject), server-sent events read by hand, and the worker in the worker container
 with signals and cleanup."""
 
 from __future__ import annotations
@@ -14,12 +14,11 @@ import httpx
 
 from nanoagent.uploaded.client import sse_frames
 from rush_server import RushServer, psql, sign_in
-from support import HOST, VmWorker, vm
+from support import HOST, Worker, inside
 
-WORKER_TOKEN = "worker-acceptance-token"
 # What a hand-driven worker offers: the defaults of a run's limits, with no internet access.
 CAPABILITIES = {
-    "wall_time_ms": 600_000, "max_model_calls": 50, "max_output_tokens_per_call": 4096, "max_cost_usd": 1.5, "concurrency": 4, "cpus": 1, "memory_mb": 1024,
+    "wall_time_ms": 600_000, "max_model_calls": 50, "max_output_tokens_per_call": 4096, "max_cost_usd": 1.5, "cpus": 1, "memory_mb": 1024,
     "pids": 256, "workspace_bytes": 268_435_456, "workspace_files": 20_000, "tmp_bytes": 67_108_864, "build_wall_ms": 600_000, "build_memory_mb": 3072,
     "build_output_bytes": 1 << 30, "build_files": 100_000, "build_tmp_bytes": 512 << 20, "internet_access": False,
     "models": ["test/model"],
@@ -84,7 +83,8 @@ def new_workspace(rush: RushServer, owner: Member, slug: str) -> str:
 class WorkerApi:
     """The worker API as a hand-driven worker: every call returns the response, so tests assert status and code."""
 
-    def __init__(self, base_url: str, token: str = WORKER_TOKEN) -> None:
+    def __init__(self, base_url: str, token: str) -> None:
+        self.token = token
         self.http = httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {token}"}, timeout=60)
 
     def request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
@@ -148,14 +148,14 @@ def read_stream(member: Member, attempt: str, after: int, *, stop_after: int | N
     return got, sealed
 
 
-def signal_worker(worker: VmWorker, name: str) -> None:
-    """Send ``name`` (STOP, CONT, KILL) to the worker process in the VM (its pid is the launcher's: the script execs the worker)."""
+def signal_worker(worker: Worker, name: str) -> None:
+    """Send ``name`` (STOP, CONT, KILL) to the worker process in the worker container (its pid is the launcher's: the script execs the worker)."""
     done = vm("bash", "-c", f"kill -{name} $(cat {worker.pidfile})")
     assert done.returncode == 0, done.stderr
 
 
 def remove_attempt_leftovers(attempt: str) -> None:
-    """What a killed worker leaves in the VM for ``attempt``: its containers, volumes and network."""
+    """What a killed worker leaves in the worker container for ``attempt``: its containers, volumes and network."""
     vm("bash", "-c", f"docker ps -aq --filter label=rush.attempt={attempt} | xargs -r docker rm -f; docker ps -aq --filter name={attempt} | xargs -r docker rm -f", timeout=180)
     vm("bash", "-c", f"docker volume ls -q --filter name={attempt} | xargs -r docker volume rm -f; docker network rm rush-net-{attempt}", timeout=180)
 

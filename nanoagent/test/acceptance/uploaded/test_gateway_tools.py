@@ -1,7 +1,7 @@
 """CLI acceptance gate: the gateway and hosted tools.
 
 The scripted harness (harnesses/scripted) drives the attempt's gateway, tool broker, command service and event intake exactly as its
-script says and reports what each answered. Everything runs through the CLI steps with the real worker in the Lima VM `gvisor-dev`
+script says and reports what each answered. Everything runs through the CLI steps with the real worker in the worker container
 (see support.py), the real plugin tools in their own sandbox, the published case set, and the plugin verifier:
 
 * the same source against two explicitly configured scripted upstreams by changing only the worker YAML (destination and endpoint
@@ -48,7 +48,6 @@ from nanoagent.plugin.package import pack  # noqa: E402
 
 pytestmark = [pytest.mark.gvisor, pytest.mark.uploaded_acceptance]
 
-WORKER_TOKEN = "worker-acceptance-token"
 NOTE = ("note.txt", "hello gateway")
 ANSWER = {"path": "note.txt", "bytes": 13}
 CHAT, RESPONSES, ANTHROPIC = "chat_completions", "responses", "anthropic_messages"
@@ -170,14 +169,12 @@ def foreign_token_script(token: str) -> list[dict[str, Any]]:
 
 @pytest.fixture(scope="module")
 def rush() -> Iterator[RushServer]:
-    reason = unavailable() or support.vm_available()
+    reason = unavailable() or support.container_unavailable()
     if reason:
         pytest.skip(reason)
-    with pytest.MonkeyPatch.context() as env:
-        env.setenv("BENCHMARK_WORKER_TOKEN", WORKER_TOKEN)
-        with rush_server() as server:
-            server.seed_plugin(pack(gt.note_plugin(support.SCRATCH / f"note-plugin-{uuid.uuid4().hex[:8]}")))
-            yield server
+    with rush_server() as server:
+        server.seed_plugin(pack(gt.note_plugin(support.SCRATCH / f"note-plugin-{uuid.uuid4().hex[:8]}")))
+        yield server
 
 
 @pytest.fixture(scope="module")
@@ -513,32 +510,32 @@ STARTUP_REFUSALS = [
     ("production-lookalike", {"mode": "openrouter", "upstream": "https://openrouter.ai.example.invalid/api/v1"}, "upstream_not_allowed"),
     ("production-local-mock", {"mode": "openrouter", "upstream": "http://127.0.0.1:9/api/v1"}, "upstream_not_allowed"),
     ("production-with-mock-hosts", {"mode": "openrouter", "upstream": "https://openrouter.ai/api/v1", "keep_mock_hosts": True}, "unexpected_key"),
-    ("production-no-credential", {"mode": "openrouter", "upstream": "https://openrouter.ai/api/v1", "key_env": "OPENROUTER_API_KEY_UNSET"}, "credential_missing"),
+    ("production-no-credential", {"mode": "openrouter", "upstream": "https://openrouter.ai/api/v1", "no_key": True}, "credential_missing"),
     ("mock-unlisted-host", {"mock_hosts": "[some-other-host]"}, "upstream_not_allowed"),
     ("mock-no-hosts", {"mock_hosts": None}, "missing_key"),
-    ("mock-no-credential", {"key_env": "RUSH_BENCHMARK_MOCK_API_KEY_UNSET"}, "credential_missing"),
+    ("mock-no-credential", {"no_key": True}, "credential_missing"),
     ("unknown-mode", {"mode": "staging"}, "invalid_mode"),
 ]
 
 
 @pytest.mark.parametrize(("name", "change", "code"), STARTUP_REFUSALS, ids=[case[0] for case in STARTUP_REFUSALS])
 def test_worker_startup_refuses_an_invalid_endpoint_profile_or_a_missing_credential(name: str, change: dict[str, Any], code: str, tmp_path: Path) -> None:
-    """The profile is validated before the worker touches Docker, the collector or the RUSH server, so this needs no VM."""
+    """The profile is validated before the worker touches Docker, the collector or the RUSH server, so this needs no container."""
     text = support.worker_yaml(base_url="http://127.0.0.1:9", upstream=f"http://{support.HOST}:9/api/v1", index="http://127.0.0.1:9/simple", socket="/nonexistent/seccheck.sock", scratch=str(tmp_path / "scratch"))
     text = text.replace("  mode: mock\n", f"  mode: {change['mode']}\n") if "mode" in change else text
     if "upstream" in change:
         text = text.replace(f"upstream_base_url: http://{support.HOST}:9/api/v1", f"upstream_base_url: {change['upstream']}")
-    if "key_env" in change:
-        text = text.replace("api_key_env: RUSH_BENCHMARK_MOCK_API_KEY", f"api_key_env: {change['key_env']}")
     if "mock_hosts" in change or change.get("mode") == "openrouter" and not change.get("keep_mock_hosts"):
         hosts = change.get("mock_hosts")
         lines = [line for line in text.splitlines() if "mock_hosts:" not in line]
         if hosts is not None:
-            lines.insert(next(i for i, line in enumerate(lines) if "api_key_env" in line) + 1, f"  mock_hosts: {hosts}")
+            lines.insert(next(i for i, line in enumerate(lines) if "upstream_base_url" in line) + 1, f"  mock_hosts: {hosts}")
         text = "\n".join(lines) + "\n"
     config = tmp_path / f"{name}.yaml"
     config.write_text(text)
-    env = {"PATH": "/usr/bin:/bin", "BENCHMARK_WORKER_TOKEN": WORKER_TOKEN, "RUSH_BENCHMARK_MOCK_API_KEY": UPSTREAM_KEY}
+    env = {"PATH": "/usr/bin:/bin", "RUSH_WORKER_TOKEN": "unused-the-worker-never-claims", "OPENROUTER_API_KEY": UPSTREAM_KEY}
+    if change.get("no_key"):
+        del env["OPENROUTER_API_KEY"]
     done = subprocess.run(
         [str(NANOAGENT / ".venv" / "bin" / "python"), "-m", "nanoagent.uploaded.worker", f"config={config}", f"home={tmp_path / 'home'}"],
         cwd=NANOAGENT, env={**env, "PYTHONPATH": str(NANOAGENT / "src")}, capture_output=True, text=True, timeout=120, check=False,

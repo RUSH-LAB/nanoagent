@@ -1,6 +1,7 @@
 """Linux integration test: the real supervisor, relay, attempt services, plugin tools and verifier, with a fake worker API.
 
-    limactl shell gvisor-dev -- bash deploy/gvisor/vm-test.sh test/uploaded/test_runner_gvisor.py
+    docker run --rm --init --privileged --cgroupns=private -v rush-worker-docker:/var/lib/docker rush-benchmark-worker:dev \
+        python -m pytest -p no:cacheprovider -o addopts= -m 'gvisor or not gvisor' test/uploaded/test_runner_gvisor.py
 
 A tiny Python harness reads its request, calls `/chat/completions` with the exact prompt through the relay, calls the
 probe plugin's `wait` tool through `/tools` with the model's `cause`, tries direct egress and writes `result.json`. The
@@ -136,7 +137,7 @@ async def test_attempt_runs_through_relay_gateway_tools_and_verifier(policy: str
             supervisor.startup(toolchain("python-3"))
             endpoint = EndpointProfile("mock", "mock", handle.base_url, "MOCK_KEY", ("127.0.0.1",), "synthetic-key")
             config = RunnerConfig(
-                "vm-worker", endpoint, {MODEL: (Decimal("0.000001"), Decimal("0.000004"))}, root, capabilities={**fx.CAPABILITIES, "wall_time_ms": 600_000}, drain_timeout_s=20
+                "image-worker", endpoint, {MODEL: (Decimal("0.000001"), Decimal("0.000004"))}, root, capabilities={**fx.CAPABILITIES, "wall_time_ms": 600_000}, drain_timeout_s=20
             )
             isolate()  # the host sandbox the verifier runs in
             runner = AttemptRunner(config, supervisor=supervisor, worker=rush, relay=DockerRelay(docker), plugins=SyncedPlugins())  # type: ignore[arg-type]

@@ -23,8 +23,8 @@ function createBenchmarkService({repository}) {
     return benchmark;
   };
 
-  async function resolveRequest(benchmark, request) {
-    const capabilities = await repository.capabilities(benchmark.endpoint_profile);
+  async function resolveRequest(context, benchmark, request) {
+    const capabilities = await repository.capabilities(context.userId, benchmark.endpoint_profile);
     return {capabilities, resolved: resolve({benchmark, policy: request.policy, capabilities})};
   }
 
@@ -36,27 +36,27 @@ function createBenchmarkService({repository}) {
   });
 
   return Object.freeze({
-    /** What a publication starts from: the default limits, the default coding template and its placeholders, and each endpoint's worker capabilities; and the reference harnesses a run may use. */
-    async defaults() {
+    /** What a publication starts from: the default limits, the default coding template and its placeholders, and the capabilities of the member's own worker for each endpoint; and the reference harnesses a run may use. */
+    async defaults(userId) {
       return {
         limits: DEFAULT_LIMITS, coding_template: DEFAULT_CODING_TEMPLATE, placeholders: PLACEHOLDERS, renderer_version: RENDERER_VERSION,
-        endpoints: await repository.endpoints(), reference_harnesses: REFERENCE_HARNESSES,
+        endpoints: await repository.endpoints(userId), reference_harnesses: REFERENCE_HARNESSES,
       };
     },
 
     /**
-     * Publish a validated benchmark (`benchmarkPublication`) as `userId`, once the endpoint's workers can give its limits: `{created, benchmark}`.
+     * Publish a validated benchmark (`benchmarkPublication`) as `userId`, once the member's own worker can give its limits: `{created, benchmark}`.
      * Nothing is stored when it is refused.
      */
     async publish(userId, publication) {
-      checkWorkers(publication.limits, publication.model, await repository.capabilities(publication.endpoint_profile), publication.endpoint_profile);
+      checkWorkers(publication.limits, publication.model, await repository.capabilities(userId, publication.endpoint_profile), publication.endpoint_profile);
       const {created, benchmark_id: id} = await repository.publishBenchmark(userId, publication);
       return {created, benchmark: summaryOf(await repository.benchmark({userId}, id))};
     },
 
     async preview(context, request) {
       const benchmark = await benchmarkOf(context, request.benchmark_id);
-      const {resolved, capabilities} = await resolveRequest(benchmark, request);
+      const {resolved, capabilities} = await resolveRequest(context, benchmark, request);
       const previewId = await repository.savePreview(context, keptPlan(resolved.plan), resolved.digest);
       return {preview_id: previewId, ...view(resolved, benchmark, capabilities)};
     },
@@ -73,7 +73,7 @@ function createBenchmarkService({repository}) {
       if (!stored) throw new BenchmarkError(404, 'unknown_preview', 'No such preview');
       const source = await repository.source(context, request.source_sha256);
       if (!source) throw new BenchmarkError(404, 'unknown_source', 'Upload the source first');
-      const {capabilities, resolved} = await resolveRequest(benchmark, request);
+      const {capabilities, resolved} = await resolveRequest(context, benchmark, request);
       if (resolved.digest !== stored.plan_digest) {
         const stale = changedParts(stored.plan, keptPlan(resolved.plan));
         throw new BenchmarkError(409, 'stale_preview', 'The request no longer resolves to what was previewed; review the current setup and preview again', {stale, current: view(resolved, benchmark, capabilities)});

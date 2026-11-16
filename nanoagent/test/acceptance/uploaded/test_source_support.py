@@ -1,6 +1,6 @@
 """CLI acceptance gate: source support for all toolchains.
 
-Run on the macOS host (the worker runs in the Lima VM `gvisor-dev`, see support.py):
+Run on the host (the worker runs in the worker container, see support.py):
 
     .venv/bin/python -m pytest test/acceptance/uploaded -m uploaded_acceptance -k source_support
 
@@ -40,7 +40,7 @@ import step3_trace  # noqa: E402
 import support  # noqa: E402
 from mockllm import MockProvider, load_scenario  # noqa: E402
 from rush_server import RushServer, rush_server, unavailable  # noqa: E402
-from support import Cli, VmWorker  # noqa: E402
+from support import Cli, Worker  # noqa: E402
 
 from nanoagent.plugin.package import pack  # noqa: E402
 
@@ -48,7 +48,6 @@ pytestmark = [pytest.mark.gvisor, pytest.mark.uploaded_acceptance]
 
 PROBE = NANOAGENT / "test" / "plugins" / "acceptance-probe"
 SUITE = "source-support-probe"
-WORKER_TOKEN = "worker-acceptance-token"
 SOCKET = "/run/rush-gvisor/seccheck.sock"
 FIXTURES = {
     "python_local": "python-3",
@@ -83,7 +82,7 @@ class Outcome:
 class Rig:
     """The RUSH server, the CLI, the registries and the one worker of this module."""
 
-    def __init__(self, rush: RushServer, run_dir: Path, worker: VmWorker, upstream_calls: Any) -> None:
+    def __init__(self, rush: RushServer, run_dir: Path, worker: Worker, upstream_calls: Any) -> None:
         self.run_dir = run_dir
         self.cli = Cli(rush.base_url, rush.workspace_id, rush.token, OUT, rush.user_id)
         self.worker = worker
@@ -104,54 +103,52 @@ class Rig:
 
 @pytest.fixture(scope="module")
 def rig() -> Iterator[Rig]:
-    reason = unavailable() or support.vm_available()
+    reason = unavailable() or support.container_unavailable()
     if reason:
         pytest.skip(reason)
     run_dir = support.SCRATCH / f"source-{uuid.uuid4().hex[:8]}"
     run_dir.mkdir(parents=True)
-    with pytest.MonkeyPatch.context() as env:
-        env.setenv("BENCHMARK_WORKER_TOKEN", WORKER_TOKEN)
-        with rush_server() as server, support.serve_directory(registries.registry(run_dir / "registry")) as port, MockProvider() as provider:
-            server.seed_plugin(pack(PROBE))
-            cli = Cli(server.base_url, server.workspace_id, server.token, OUT, server.user_id)
-            cases = json.loads((NANOAGENT / "test" / "acceptance" / "benchmark" / "cases" / "probe_cases.json").read_text())
-            cases |= {"answer": cases["answer"][:1], "refuse": []}
-            (run_dir / "cases.json").write_text(json.dumps(cases))
-            cli.step("1", "publish_benchmark", run_dir / "step1", *support.publish_args(name=SUITE, cases=run_dir / "cases.json"))
-            # Never consumed: the fixtures make no model calls. The worker still needs an endpoint profile.
-            handle = provider.register(
-                load_scenario(support.SCENARIOS / "core-engine.yaml"), harness="nanoagent", model=support.MODEL, refs={"reference": support.REFERENCE}
-            )
-            host = f"http://{support.HOST}:{port}"
-            config = run_dir / "worker.yaml"
-            worker = VmWorker("source-support", config, OUT / "worker.log")
-            indexes = {
-                "python-3": f"{host}/simple",
-                "go-1": f"{host}/go",
-                "rust-1": f"{host}/crates",
-                "typescript-5": f"{host}/npm",
-                "javascript-22": f"{host}/npm",
-                "java-21": f"{host}/maven",
-            }
-            text = support.worker_yaml(
-                base_url=f"http://{support.HOST}:{server.base_url.rsplit(':', 1)[1]}",
-                upstream=handle.base_url.replace("127.0.0.1", support.HOST),
-                index=indexes["python-3"],
-                socket=SOCKET,
-                scratch=f"{worker.vm_home}/scratch",
-            )
-            first = f"    python-3: {indexes['python-3']}\n"
-            assert first in text
-            # The mock worker config already points javascript-22 at the real npm registry: the mock registry replaces it.
-            text = text.replace("    javascript-22: https://registry.npmjs.org\n", "")
-            text = text.replace(first, "".join(f"    {key}: {value}\n" for key, value in indexes.items()))
-            config.write_text(text)
-            worker.start()
-            try:
-                worker.wait_for("/claim", 900)
-                yield Rig(server, run_dir, worker, handle.ledger)
-            finally:
-                worker.stop()
+    with rush_server() as server, support.serve_directory(registries.registry(run_dir / "registry")) as port, MockProvider() as provider:
+        server.seed_plugin(pack(PROBE))
+        cli = Cli(server.base_url, server.workspace_id, server.token, OUT, server.user_id)
+        cases = json.loads((NANOAGENT / "test" / "acceptance" / "benchmark" / "cases" / "probe_cases.json").read_text())
+        cases |= {"answer": cases["answer"][:1], "refuse": []}
+        (run_dir / "cases.json").write_text(json.dumps(cases))
+        cli.step("1", "publish_benchmark", run_dir / "step1", *support.publish_args(name=SUITE, cases=run_dir / "cases.json"))
+        # Never consumed: the fixtures make no model calls. The worker still needs an endpoint profile.
+        handle = provider.register(
+            load_scenario(support.SCENARIOS / "core-engine.yaml"), harness="nanoagent", model=support.MODEL, refs={"reference": support.REFERENCE}
+        )
+        host = f"http://{support.HOST}:{port}"
+        config = run_dir / "worker.yaml"
+        worker = Worker("source-support", config, OUT / "worker.log", credential=server.worker_token)
+        indexes = {
+            "python-3": f"{host}/simple",
+            "go-1": f"{host}/go",
+            "rust-1": f"{host}/crates",
+            "typescript-5": f"{host}/npm",
+            "javascript-22": f"{host}/npm",
+            "java-21": f"{host}/maven",
+        }
+        text = support.worker_yaml(
+            base_url=f"http://{support.HOST}:{server.base_url.rsplit(':', 1)[1]}",
+            upstream=handle.base_url.replace("127.0.0.1", support.HOST),
+            index=indexes["python-3"],
+            socket=SOCKET,
+            scratch=f"{worker.home}/scratch",
+        )
+        first = f"    python-3: {indexes['python-3']}\n"
+        assert first in text
+        # The mock worker config already points javascript-22 at the real npm registry: the mock registry replaces it.
+        text = text.replace("    javascript-22: https://registry.npmjs.org\n", "")
+        text = text.replace(first, "".join(f"    {key}: {value}\n" for key, value in indexes.items()))
+        config.write_text(text)
+        worker.start()
+        try:
+            worker.wait_for("/claim", 900)
+            yield Rig(server, run_dir, worker, handle.ledger)
+        finally:
+            worker.stop()
 
 
 def assert_not_executed(outcome: Outcome, rig: Rig) -> None:

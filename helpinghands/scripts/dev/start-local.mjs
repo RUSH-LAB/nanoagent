@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import {spawn} from 'node:child_process';
+import {spawn, spawnSync} from 'node:child_process';
 import net from 'node:net';
 import {fileURLToPath} from 'node:url';
 import {parseEnv} from '../db/postgres.mjs';
@@ -92,6 +92,64 @@ export function nanoagentWebArgs(env = process.env) {
     `installs=${JSON.stringify(path.join(root, 'var', 'nanoagent-installs'))}`,
     `uv_cache=${JSON.stringify(path.join(root, 'var', 'nanoagent-uv-cache'))}`,
   ];
+}
+
+/** The benchmark worker's image (nanoagent/deploy/gvisor/Dockerfile), built from the checkout, and the container npm start runs from it. */
+export const BENCHMARK_WORKER_IMAGE = 'rush-benchmark-worker:dev';
+export const BENCHMARK_WORKER_CONTAINER = 'rush-dev-worker';
+
+/**
+ * Why the benchmark worker cannot run beside the local site, or null. It runs in a container of the worker image, so Docker must be
+ * running, and its models are OpenRouter's, with OPENROUTER_API_KEY from .env or the shell.
+ */
+export function benchmarkWorkerUnavailable(env, {spawnSyncImpl = spawnSync} = {}) {
+  if (!env.OPENROUTER_API_KEY?.trim()) return 'OPENROUTER_API_KEY is not in .env or the shell';
+  const info = spawnSyncImpl('docker', ['info'], {encoding: 'utf8', stdio: 'ignore'});
+  if (info.error?.code === 'ENOENT') return 'docker is not installed: install Docker Desktop, Colima or Docker Engine';
+  return info.status === 0 ? null : 'docker is not running: start Docker Desktop, Colima or Docker Engine';
+}
+
+/** `docker build` arguments for the worker image from the NanoAgent checkout (its Dockerfile takes that folder as its context). */
+export function benchmarkWorkerBuildArgs(nanoagentRoot) {
+  return ['build', '-t', BENCHMARK_WORKER_IMAGE, '-f', path.join(nanoagentRoot, 'deploy', 'gvisor', 'Dockerfile'), nanoagentRoot];
+}
+
+/**
+ * `docker run` arguments that run the OpenRouter worker in the image, claiming from the API on `apiPort` of this computer. Its
+ * credential and key are passed by name (`-e NAME`), taken from the environment of the docker process, never in a command line.
+ */
+export function benchmarkWorkerArgs(apiPort) {
+  return [
+    'run', '--rm', '--init', '--privileged', '--cgroupns=private', '--name', BENCHMARK_WORKER_CONTAINER,
+    '--add-host', 'host.docker.internal:host-gateway',
+    '-v', 'rush-worker-docker:/var/lib/docker', '-v', 'rush-worker-home:/home/rush/rush-worker',
+    '-e', 'RUSH_WORKER_TOKEN', '-e', 'OPENROUTER_API_KEY',
+    BENCHMARK_WORKER_IMAGE,
+    'python', '-m', 'nanoagent.uploaded.worker',
+    'config=/opt/nanoagent/deploy/gvisor/worker.openrouter.yaml', 'home=/home/rush/rush-worker/run',
+    '--', `rush.base_url=http://host.docker.internal:${apiPort}`, 'worker_id=dev-worker',
+  ];
+}
+
+/** Stop the worker's container and remove it; one a crashed start left is removed too. Leases the worker held run out on their own. */
+function stopBenchmarkWorker() {
+  spawnSync('docker', ['stop', '--timeout', '30', BENCHMARK_WORKER_CONTAINER], {stdio: 'ignore'});
+  spawnSync('docker', ['rm', '--force', BENCHMARK_WORKER_CONTAINER], {stdio: 'ignore'});
+}
+
+/** Wait until the local API answers, which is when its migrations and the root account are done. */
+async function waitForApi(apiPort, apiChild, {timeoutMs = 120_000} = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (apiChild.exitCode !== null) throw new Error(`the API exited during startup with status ${apiChild.exitCode}`);
+    try {
+      if ((await fetch(`http://127.0.0.1:${apiPort}/api/health`)).ok) return;
+    } catch {
+      // not listening yet
+    }
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  throw new Error(`the API did not answer on port ${apiPort} within ${timeoutMs / 1000}s`);
 }
 
 function nanoagentUrl(env) {
@@ -288,6 +346,9 @@ export async function startLocal(argv = process.argv.slice(2)) {
     const ready = await waitForNanoAgent(env);
     console.log(`NanoAgent ready: ${ready.profile.id} (${ready.profile.model})`);
   }
+  // The uploaded-harness benchmark worker runs in the worker image, started once the API is up (startBenchmarkWorker below).
+  const workerUnavailable = benchmarkWorkerUnavailable(env);
+  if (workerUnavailable) console.log(`Benchmark worker not started: ${workerUnavailable}`);
   // Restarts when the server's code changes, so the API is never older than the checkout the site and the apps are built from.
   const api = spawn(process.execPath, ['--watch-path=src/server', '--watch-preserve-output', 'src/server/index.js'], options(root));
   processes.push(
@@ -299,6 +360,7 @@ export async function startLocal(argv = process.argv.slice(2)) {
   function stop(exitCode, signal = 'SIGTERM') {
     if (stopping) return;
     stopping = true;
+    if (!workerUnavailable) stopBenchmarkWorker();
     for (const {child} of processes) signalTree(child, signal);
     const force = setTimeout(() => {
       for (const {child} of processes) signalTree(child, 'SIGKILL');
@@ -325,6 +387,31 @@ export async function startLocal(argv = process.argv.slice(2)) {
   }
 
   processes.forEach(watch);
+
+  async function startBenchmarkWorker() {
+    stopBenchmarkWorker();
+    console.log(`Benchmark worker: building ${BENCHMARK_WORKER_IMAGE} from ${nanoagentRoot} ...`);
+    await run('docker', benchmarkWorkerBuildArgs(nanoagentRoot), {cwd: root, env, stdio: 'inherit'});
+    // The credential is the root account's, minted in the database the API has just migrated.
+    await waitForApi(apiPort, api);
+    const minted = spawnSync(process.execPath, ['scripts/dev/mint-worker-credential.mjs'], {cwd: root, env, encoding: 'utf8'});
+    if (minted.status !== 0) throw new Error(`minting the worker credential failed:\n${minted.stdout}${minted.stderr}`);
+    if (stopping) return;
+    console.log(`Benchmark worker starting in the ${BENCHMARK_WORKER_IMAGE} container (endpoint openrouter)`);
+    const worker = {
+      name: 'benchmark worker',
+      child: spawn('docker', benchmarkWorkerArgs(apiPort), {cwd: root, env: {...env, RUSH_WORKER_TOKEN: minted.stdout.trim()}, stdio: 'inherit'}),
+    };
+    processes.push(worker);
+    watch(worker);
+  }
+
+  if (!workerUnavailable) {
+    startBenchmarkWorker().catch(error => {
+      console.error(`Benchmark worker startup failed: ${error.message}`);
+      stop(1);
+    });
+  }
   process.once('SIGINT', () => stop(0, 'SIGINT'));
   process.once('SIGTERM', () => stop(0, 'SIGTERM'));
 }

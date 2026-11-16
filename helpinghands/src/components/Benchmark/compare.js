@@ -15,8 +15,9 @@ export function isEqualRow(row) {
   if (row.status !== 'same') return false;
   if ([row.input_diff, row.output_diff, row.status_diff].some(changed)) return false;
   if (isUnknown(row.sequence_changed) || row.sequence_changed || row.concurrency_changed) return false;
-  // An unrecorded token or cost count is Unknown, never a difference: only a recorded change in either one differs.
-  return ![row.token_delta, row.cost_delta].some(delta => !isUnknown(delta) && delta);
+  // An unrecorded token or cost count is Unknown, never a difference: only a recorded change in either one differs. The cost
+  // delta is a Decimal sent as text, so "0" (truthy) is compared as the number it is.
+  return ![row.token_delta, row.cost_delta].some(delta => !isUnknown(delta) && delta != null && Number(delta) !== 0);
 }
 
 /** The rows to list: all of them, or with Show differences only those that differ, each keeping its index in the full list. */

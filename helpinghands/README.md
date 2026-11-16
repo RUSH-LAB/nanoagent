@@ -72,6 +72,15 @@ repository. To have the local NanoAgent publish plugin packages too, set
 each one does and run its tasks. A `NANOAGENT_PLUGINS_DIR` that is missing or
 holds no plugin stops the launch.
 
+Benchmark runs need a worker. `npm start` runs one, on OpenRouter, in a container
+of the worker image (`nanoagent/deploy/gvisor/Dockerfile`, built from your
+NanoAgent checkout at each start) when Docker is running and `OPENROUTER_API_KEY`
+is in `.env`, and otherwise says why it did not. The worker claims the root
+account's runs with a credential minted at each start, and the container is
+stopped when `npm start` stops. Any Docker will do (Docker Desktop, Colima,
+Docker Engine); the first start builds the image and pulls its toolchain images,
+which takes a few minutes.
+
 All local secrets and connection settings live in the single git-ignored
 `.env` file.
 

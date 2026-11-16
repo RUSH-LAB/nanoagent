@@ -318,7 +318,7 @@ def test_the_request_is_closed_and_complete(changes: dict[str, Any]) -> None:
     assert raised.value.code == "schema_violation"
 
 
-@pytest.mark.parametrize("changes", [{"policy": "task_tools"}, {"prompt__system": "s"}, {"prompt__user": None, "prompt__system": "s"}, {"limits__concurrency": 4}])
+@pytest.mark.parametrize("changes", [{"policy": "task_tools"}, {"prompt__system": "s"}, {"prompt__user": None, "prompt__system": "s"}])
 def test_the_request_accepts_both_policies_and_either_prompt_part(changes: dict[str, Any]) -> None:
     validate("Request", broken(**changes))
 

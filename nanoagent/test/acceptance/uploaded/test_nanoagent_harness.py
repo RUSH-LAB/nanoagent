@@ -1,7 +1,7 @@
 """CLI acceptance gate: the real NanoAgent harness (the reference harness nanoagent, assembled by its assemble.py from the working tree)
 works task_tools attempts against the scripted mock provider: an agent task, and a decide task.
 
-Everything goes through the CLI steps with the real worker in the Lima VM: the worker builds the assembled source offline from
+Everything goes through the CLI steps with the real worker in the worker container: the worker builds the assembled source offline from
 its hashed lock (the dependency registry is PyPI's, read-only and hash-verified, as deploy/gvisor/worker.openrouter.yaml does),
 runs it in gVisor against the attempt's gateway and tool broker, and the plugin's task verifier judges the result.
 
@@ -33,7 +33,7 @@ import gate_support as gate  # noqa: E402
 import plugins  # noqa: E402
 import support  # noqa: E402
 from mockllm import MockProvider, RunHandle, load_scenario  # noqa: E402
-from rush_server import RushServer, rush_server, unavailable  # noqa: E402
+from rush_server import RushServer, rush_server, unavailable, worker_credential  # noqa: E402
 from support import REFERENCE, Cli  # noqa: E402
 
 from nanoagent.plugin import load_manifest  # noqa: E402
@@ -43,7 +43,6 @@ from nanoagent.uploaded.client import BenchmarkClient  # noqa: E402
 
 pytestmark = [pytest.mark.gvisor, pytest.mark.uploaded_acceptance]
 
-WORKER_TOKEN = "worker-acceptance-token"
 AGENT, DECIDE = "na-agent", "na-decide"
 PYPI = "https://pypi.org/simple"
 
@@ -74,13 +73,11 @@ class Evidence:
 
 @pytest.fixture(scope="module")
 def rush() -> Iterator[RushServer]:
-    reason = unavailable() or support.vm_available()
+    reason = unavailable() or support.container_unavailable()
     if reason:
         pytest.skip(reason)
-    with pytest.MonkeyPatch.context() as env:
-        env.setenv("BENCHMARK_WORKER_TOKEN", WORKER_TOKEN)
-        with rush_server() as server:
-            yield server
+    with rush_server() as server:
+        yield server
 
 
 def collect(client: BenchmarkClient, report: Any) -> Run:
@@ -107,14 +104,14 @@ def evidence(rush: RushServer) -> Iterator[Evidence]:
     with MockProvider() as provider:
         handle = provider.register(load_scenario(support.SCENARIOS / "nanoagent-harness.yaml"), harness="nanoagent", model=support.MODEL, refs={"reference": REFERENCE})
         config = run_dir / "worker.yaml"
-        worker = support.VmWorker("nanoagent-harness", config, cli.logs / "worker.log")
+        worker = support.Worker("nanoagent-harness", config, cli.logs / "worker.log", credential=worker_credential(cli.base_url, cli.token))
         config.write_text(
             support.worker_yaml(
                 base_url=f"http://{support.HOST}:{rush.base_url.rsplit(':', 1)[1]}",
                 upstream=handle.base_url.replace("127.0.0.1", support.HOST),
                 index=PYPI,
                 socket=gate.SOCKET,
-                scratch=f"{worker.vm_home}/scratch",
+                scratch=f"{worker.home}/scratch",
             )
         )
         worker.start()

@@ -10,6 +10,8 @@ root="$(git rev-parse --show-toplevel)"
 set -a
 source "$root/.env"
 set +a
+# The psql the configs name: Homebrew's keg-only postgresql@18, wherever Homebrew lives.
+export PATH="$(brew --prefix postgresql@18)/bin:$PATH"
 cd "$root/nanoagent"
 .venv/bin/python \
     examples/benchmark/step3_batch_runs.py \

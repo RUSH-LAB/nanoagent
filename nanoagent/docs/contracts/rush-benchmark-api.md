@@ -1,6 +1,6 @@
 # RUSH benchmark API
 
-The RUSH server side of [uploaded harness benchmarks](../plans/uploaded-harness-benchmarks.md): a member publishes a **benchmark** for a plugin version, any member runs a harness against it, and everyone sees every run's summary. The [harness contract](uploaded-harness-v1.md) defines the harness protocol, prompt and replay rules this API stores. Code: `helpinghands/src/server/routes/benchmark.js` (member), `routes/benchmark-worker.js` (worker), `benchmark/` (pure rules: `prompt.js`, `limits.js`, `plan.js`, `compare.js`, `rules.js`, `validate.js`, `harness.js`), `postgres/benchmark*.js`, migration `0052_benchmark.sql`.
+The RUSH server side of [uploaded harness benchmarks](../plans/uploaded-harness-benchmarks.md): a member publishes a **benchmark** for a plugin version, any member runs a harness against it, and everyone sees every run's summary. The [harness contract](uploaded-harness-v1.md) defines the harness protocol, prompt and replay rules this API stores. Code: `helpinghands/src/server/routes/benchmark.js` (member), `routes/benchmark-worker.js` (worker), `benchmark/` (pure rules: `prompt.js`, `limits.js`, `plan.js`, `compare.js`, `rules.js`, `validate.js`, `harness.js`), `postgres/benchmark*.js`, migrations `0052_benchmark.sql` and `0054_benchmark_worker_credential.sql`.
 
 ## Conventions
 
@@ -17,9 +17,10 @@ The RUSH server side of [uploaded harness benchmarks](../plans/uploaded-harness-
 | --- | --- |
 | Member API | Better Auth session: the session cookie, or `Authorization: Bearer <session token>`. The path names the workspace (`/api/workspaces/{wid}/benchmark/...`); a non-member gets `404`. Reads need `content:read`, writes `apps:use` (every role has both). |
 | Benchmark publishing | The same session, no workspace: `POST /api/benchmark/benchmarks`. Any signed-in member may publish, for any published plugin version. |
-| Worker API | `Authorization: Bearer $BENCHMARK_WORKER_TOKEN` on every `/api/benchmark-worker/...` request. Unset token: `503 worker_api_disabled`. Missing or wrong: `401 unauthorized`. |
+| Worker credentials | The member's session, no workspace: `POST /api/benchmark/worker-credentials` with `{"name": "…"}` (1 to 100 characters) mints a credential: `201 {"credential_id", "name", "token", "created_at"}`. The token is random (`rwk_` and 256 bits) and shown only in that response; the server keeps its SHA-256. `GET /api/benchmark/worker-credentials` lists the member's credentials (`credential_id`, `name`, `created_at`, `last_used_at`, `revoked_at`, never the token). `DELETE /api/benchmark/worker-credentials/{credential_id}` revokes one (`200 {"credential_id", "revoked_at"}`, `404 unknown_credential` for another member's or an unknown id); a revoked credential never works again. |
+| Worker API | `Authorization: Bearer <worker credential>` on every `/api/benchmark-worker/...` request. A worker runs on its member's computer and acts only for that member: the credential is good for these routes and nothing else. Missing, unknown or revoked: `401 unauthorized`. |
 
-Everything a member creates (sources, previews, runs and all their attempts, events, payloads, accounting) belongs to that member in that workspace. Another member, even of the same workspace, another workspace, or a member who left gets `404` for it: the run, attempt, event, span, payload, accounting, rerun, cancel, compare and source routes are **owner-only** and never answer for another member's rows. Private references appear in no member response.
+Everything a member creates (sources, previews, runs and all their attempts, events, payloads, accounting) belongs to that member in that workspace. Another member, even of the same workspace, another workspace, or a member who left gets `404` for it: the run, attempt, event, span, payload, accounting, rerun, cancel, compare and source routes are **owner-only** and never answer for another member's rows. No member response carries references; a worker does receive them (see `POST /claim`).
 
 Benchmarks are the exception: they belong to no workspace, and every signed-in member reads every benchmark. Through `GET /benchmarks/{id}/results` a member also sees a **run summary** of every other member's runs of that benchmark. A row from another member carries no evidence (no events, spans, payloads, attempts or cases) and no source sha256, and its `run_id` opens nothing: `GET /runs/{run_id}` and everything below it answer `404` for it.
 
@@ -27,7 +28,6 @@ Benchmarks are the exception: they belong to no workspace, and every signed-in m
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `BENCHMARK_WORKER_TOKEN` | unset | Bearer token of the worker API; unset disables it. |
 | `BENCHMARK_MEMBER_BUDGET_USD` | `25` | Most one member may have reserved or spent per UTC day across all attempts. |
 | `BENCHMARK_WORKSPACE_BUDGET_USD` | `100` | The same, per workspace. |
 | `BENCHMARK_LEASE_SECONDS` | `60` | Lease length at claim and at each renewal. |
@@ -48,7 +48,7 @@ Prefix `/api/workspaces/{wid}/benchmark`.
 What a benchmark publication starts from: the defaults its `limits` overrides sit under, the default coding template, and the endpoints a benchmark may name.
 
 ```json
-{"limits": {"wall_time_ms": 600000, "max_model_calls": 50, "max_output_tokens_per_call": 4096, "max_cost_usd": 1.5, "concurrency": 4,
+{"limits": {"wall_time_ms": 600000, "max_model_calls": 50, "max_output_tokens_per_call": 4096, "max_cost_usd": 1.5,
             "cpus": 1, "memory_mb": 1024, "pids": 256, "workspace_bytes": 268435456, "workspace_files": 20000, "tmp_bytes": 67108864, "build_wall_ms": 600000,
             "build_memory_mb": 3072, "build_output_bytes": 1073741824, "build_files": 100000, "build_tmp_bytes": 536870912, "internet_access": true},
  "coding_template": "<the default coding template>", "placeholders": ["description", "context", "arguments", "input_schema", "output_schema", "workspace"],
@@ -56,7 +56,7 @@ What a benchmark publication starts from: the defaults its `limits` overrides si
  "endpoints": [{"label": "mock", "capabilities": {"<every limit>": 0, "internet_access": true, "models": ["vendor/model"]}, "updated_at": "…", "expires_at": "…"}]}
 ```
 
-`endpoints` are the endpoint labels a worker has claimed for within the last 300 seconds (the capability window), with the latest capabilities (see `POST /claim`) and when they expire. A label whose workers have not claimed within the window is no longer listed and counts as `worker_unavailable`.
+`endpoints` are the endpoint labels the caller's own worker has claimed for within the last 300 seconds (the capability window), with its latest capabilities (see `POST /claim`) and when they expire. Another member's worker is never listed. A label the caller's worker has not claimed for within the window is no longer listed and counts as `worker_unavailable`.
 
 ## Benchmarks
 
@@ -87,7 +87,7 @@ Every published benchmark (any publisher, any workspace), newest first. `plugin_
 
 ### `GET /benchmarks/{benchmark_id}`
 
-`{"benchmark": <benchmark summary> + {"task": {kind, description, instructions, input_schema, output_schema, tools, egress_hosts}, "context": "…", "cases": [{"case_id": "c1", "position": 0, "kind": "answer|refuse", "arguments": {}, "expected_error": null, "content_digest": "…"}]}}` or `404 unknown_benchmark`. The task, context and cases are the benchmark's case set for viewing, in the case set's order. Private references are never returned. Any signed-in member reads it, not only the publisher.
+`{"benchmark": <benchmark summary> + {"task": {kind, description, instructions, input_schema, output_schema, tools, egress_hosts}, "context": "…", "cases": [{"case_id": "c1", "position": 0, "kind": "answer|refuse", "arguments": {}, "expected_error": null, "content_digest": "…"}]}}` or `404 unknown_benchmark`. The task, context and cases are the benchmark's case set for viewing, in the case set's order. References are never returned by this route. Any signed-in member reads it, not only the publisher.
 
 ### `GET /benchmarks/{benchmark_id}/results?limit=&before=`
 
@@ -110,7 +110,7 @@ One shape, returned by `GET /runs` (the caller's own runs) and `GET /benchmarks/
  "plugin": {"id": "classroom", "name": "Classroom", "version": "0.1.0"},
  "model": "vendor/model", "policy": "coding",
  "user": {"id": "u1", "name": "Jane Doe", "github": "jdoe"},
- "metrics": {"total_tokens": {"total": 48210, "missing_attempts": 0}, "elapsed_ms": {"total": 134000, "missing_attempts": 1}},
+ "metrics": {"total_tokens": {"total": 48210, "missing_attempts": 0}, "…": {}, "elapsed_ms": {"total": 134000, "missing_attempts": 1}},
  "status": "queued|running|complete|canceled",
  "score": {"value": 0.8, "passed": 8, "scored": 10, "total": 10, "unscored": 0, "verifier_errors": 0, "complete": true, "unavailable_reason": null},
  "created_at": "…"}
@@ -129,7 +129,7 @@ Resolves a run without queueing anything. The benchmark fixes everything but the
 ```
 
 - `policy` is `coding` or `task_tools`. Under `coding` the prompt is the benchmark's `coding_template`, under `task_tools` its `task_instructions`, rendered per case by the renderer below. No other field is accepted: a model, limits, dialects, selection, prompt or endpoint is `400 invalid_request`. Every case of the benchmark runs.
-- Errors: `404 unknown_benchmark`; `400 invalid_request`; `409 worker_unavailable` (no worker has claimed for the benchmark's `endpoint_profile` within the capability window); `400 limit_exceeds_worker` with `exceeded: [{field, limit, max}]` (the benchmark's pinned limits are above what the latest advertised capabilities allow, or `internet_access: true` where unsupported); `400 unknown_model` with `model` and `models` (no worker for the endpoint prices the benchmark's pinned model: the latest advertised capabilities do not list it); `400 invalid_template` (the pinned template fails to render; publishing already refuses one).
+- Errors: `404 unknown_benchmark`; `400 invalid_request`; `409 worker_unavailable` (the caller's own worker has not claimed for the benchmark's `endpoint_profile` within the capability window; the message tells the member to start RUSH Lab with Docker running); `400 limit_exceeds_worker` with `exceeded: [{field, limit, max}]` (the benchmark's pinned limits are above what the latest advertised capabilities allow, or `internet_access: true` where unsupported); `400 unknown_model` with `model` and `models` (the caller's worker does not price the benchmark's pinned model: its latest advertised capabilities do not list it); `400 invalid_template` (the pinned template fails to render; publishing already refuses one).
 
 `200`:
 
@@ -177,7 +177,7 @@ NanoAgent ships the reference harnesses `claude-code`, `codex`, `dsh`, `hermes`,
 {"benchmark_id": "…", "policy": "coding", "preview_id": "…", "source_sha256": "…", "idempotency_key": "any string up to 200 chars"}
 ```
 
-All five are required; any other field is `400 invalid_request`. The model, endpoint, limits, prompt and cases come from the benchmark and the harness name, version and dialects from the uploaded source's manifest. Only a worker claiming with the benchmark's `endpoint_profile` label receives the run's work.
+All five are required; any other field is `400 invalid_request`. The model, endpoint, limits, prompt and cases come from the benchmark and the harness name, version and dialects from the uploaded source's manifest. Only the submitting member's own worker, claiming with the benchmark's `endpoint_profile` label, receives the run's work.
 
 The server, in this order:
 
@@ -187,7 +187,7 @@ The server, in this order:
    ```json
    {"error": "…", "code": "stale_preview", "stale": ["prompt", "cases"], "current": <the preview body, without preview_id>}
    ```
-4. In one transaction pins the run: source and package bytes (content-addressed, retained after uninstall; the benchmark's stored package is used, so a benchmark of an older plugin version still runs after a newer one is installed), the benchmark id and name, the harness owner, name and version, the case set id and digest, the task and context as published, the cases with their content digests and rendered prompts, the policy, the prompt text, the effective limits, the model, endpoint and the manifest's dialects, and the case set's private references; creates one attempt per case; only then are attempts claimable. `409 package_unavailable` if the plugin version is no longer published and no run kept its package.
+4. In one transaction pins the run: source and package bytes (content-addressed, retained after uninstall; the benchmark's stored package is used, so a benchmark of an older plugin version still runs after a newer one is installed), the benchmark id and name, the harness owner, name and version, the case set id and digest, the task and context as published, the cases with their content digests and rendered prompts, the policy, the prompt text, the effective limits, the model, endpoint and the manifest's dialects, and the case set's references; creates one attempt per case; only then are attempts claimable. `409 package_unavailable` if the plugin version is no longer published and no run kept its package.
 
 `201 {"replayed": false, "run": <run>}`. Errors: `400 invalid_request`.
 
@@ -357,10 +357,10 @@ Any signed-in member's session, no workspace. Publishes a benchmark bound to one
 }
 ```
 
-- `version` is the plugin version the benchmark is tied to. `task.tools` is what `run_task` gives the agent (the reference tool excluded); `egress_hosts` is sorted without repeats (`400 invalid_request` otherwise; `[]` is none). `private` has exactly one reference per case: for an answer case the pinned output object, or `null` for a task the verifier judges without one; for a refusal case the pinned error string (and `expected_error` is required). Private references are stored where only the worker API reads them.
+- `version` is the plugin version the benchmark is tied to. `task.tools` is what `run_task` gives the agent (the reference tool excluded); `egress_hosts` is sorted without repeats (`400 invalid_request` otherwise; `[]` is none). `private` has exactly one reference per case: for an answer case the pinned output object, or `null` for a task the verifier judges without one; for a refusal case the pinned error string (and `expected_error` is required). References are stored where only the worker API reads them. The worker runs on the member's computer, so a member who runs a benchmark receives its references with each claim and can read them: references are not hidden from whoever runs the benchmark. (The wire keeps the names `private` and `private_reference`.)
 - `model` and `endpoint_profile` are required. `limits` holds overrides only (`null` is the default); an unknown name or an invalid value is `400 invalid_request`. The effective limits, `internet_access` included, are the defaults under the overrides, and are pinned and shown.
 - `coding_template` and `task_instructions` are strings or `null` for the default (the server's coding template; the task's `instructions`). Both are pinned as text, because the runner picks the policy. CRLF and CR become LF; blank is `400 empty_template|empty_instructions`; over 100000 characters is refused; a template that fails to render is `400 invalid_template`.
-- `endpoint_profile` must have been advertised for by a worker within the capability window, else `409 worker_unavailable` (an unknown endpoint is refused). A limit above what the latest advertised capabilities allow, or `internet_access: true` where they say it is unsupported, is `400 limit_exceeds_worker` with `exceeded: [{field, limit, max}]`. A `model` that the latest advertised capabilities do not list (`capabilities.models`) is `400 unknown_model` with `{model, models}`, so no benchmark can pin a model whose attempts the endpoint's workers could not price. A refused publication stores nothing.
+- `endpoint_profile` must have been advertised for by the publishing member's own worker within the capability window, else `409 worker_unavailable` (an unknown endpoint is refused). A limit above what the latest advertised capabilities allow, or `internet_access: true` where they say it is unsupported, is `400 limit_exceeds_worker` with `exceeded: [{field, limit, max}]`. A `model` that the latest advertised capabilities do not list (`capabilities.models`) is `400 unknown_model` with `{model, models}`, so no benchmark can pin a model whose attempts the publisher's worker could not price. A refused publication stores nothing.
 
 The server computes each case's `reference_sha256` (SHA-256 of the compact canonical JSON of its reference) and `content_digest` (SHA-256 of the compact canonical JSON of `{kind, arguments, expected_error, reference_sha256}`), the case set's digest (SHA-256 of the compact canonical JSON of `{package_sha256, task_id, task, context, cases: [{case_id, content_digest}]}`), and the benchmark's `digest` (see Benchmarks). It creates the case set, or reuses an identical one.
 
@@ -390,7 +390,7 @@ Prefix `/api/benchmark-worker`. All bodies are JSON unless noted. A **fence** is
 | Fence is not the attempt's current fence, or the attempt was interrupted | `409 lease_lost` |
 | Lease expired (the attempt becomes `interrupted`, evidence kept) | `409 lease_lost` |
 | Attempt already finalized by this fence | `409 sealed` |
-| Unknown attempt | `404 unknown_attempt` |
+| Unknown attempt, or an attempt of another member's run | `404 unknown_attempt` |
 
 An interrupted attempt is final: a retry needs a new attempt, which only a member's rerun creates.
 
@@ -404,9 +404,9 @@ An interrupted attempt is final: a retry needs a new attempt, which only a membe
                   "models": ["vendor/model"]}}
 ```
 
-`capabilities` is required (`400 invalid_request` if any limit is missing or invalid): the maximum the worker applies for each numeric limit and whether it can give a harness `internet_access`, and `models`, the names of the models it prices (the keys of its `prices`; a non-empty list of strings, else `400 invalid_request`). Every claim stores them as the latest for the endpoint `label`; previews and runs for that label are checked against them (`409 worker_unavailable` before any worker has advertised, or when none has claimed for the label within the last 300 seconds, `400 limit_exceeds_worker`, `400 unknown_model`).
+`capabilities` is required (`400 invalid_request` if any limit is missing or invalid): the maximum the worker applies for each numeric limit (and `concurrency`, how many attempts the worker runs at once: it sizes the worker's own slots and is never compared with a run; a run has no concurrency limit, and a request that sends `limits.concurrency` is `400 invalid_request`) and whether it can give a harness `internet_access`, and `models`, the names of the models it prices (the keys of its `prices`; a non-empty list of strings, else `400 invalid_request`). Every claim stores them as the latest for the credential's member and the endpoint `label`; that member's previews and runs for that label are checked against them (`409 worker_unavailable` before their worker has advertised, or when it has not claimed for the label within the last 300 seconds, `400 limit_exceeds_worker`, `400 unknown_model`).
 
-The claim first expires stale leases (attempts become `interrupted`, sealed at their last committed cursor) and settles reservations past their deadline at the reserved bound. Then it leases the oldest queued attempt of a run whose `endpoint_profile` equals `label`, whose pinned limits are all within the claiming worker's `capabilities`, and which has fewer than `limits.concurrency` attempts leased; a canceled run's queued work is never leased. `204` for none.
+The claim first expires stale leases (attempts become `interrupted`, sealed at their last committed cursor) and settles reservations past their deadline at the reserved bound. Then it leases the oldest queued attempt of a run whose `user_id` is the credential's member and whose `endpoint_profile` equals `label` (a worker never receives another member's run), whose pinned limits are all within the claiming worker's `capabilities`; a canceled run's queued work is never leased. `204` for none.
 
 Job (`200`):
 
@@ -424,7 +424,7 @@ Job (`200`):
 }
 ```
 
-`task.instructions` is the instructions the run works: under `task_tools` the benchmark's pinned `task_instructions`, under `coding` the task's default. `task.egress_hosts` is the tool container's network under `task_tools`; the worker applies it only for that policy. `case.input_schema` / `output_schema` are the task's. `case.kind` and `private_reference` stay on the worker: `private_reference` is the pinned output object (or `null`) of an answer case and the pinned error string of a refusal case. A run's scoring is computed by the server from the attempts' verdicts; there are no scoring jobs.
+`task.instructions` is the instructions the run works: under `task_tools` the benchmark's pinned `task_instructions`, under `coding` the task's default. `task.egress_hosts` is the tool container's network under `task_tools`; the worker applies it only for that policy. `case.input_schema` / `output_schema` are the task's. `case.kind` and `private_reference` stay on the worker, which is the member's own computer; the claim hands them to the member's machine, so the references are not private from the member running the benchmark. `private_reference` is the pinned output object (or `null`) of an answer case and the pinned error string of a refusal case. A run's scoring is computed by the server from the attempts' verdicts; there are no scoring jobs.
 
 ## `POST /attempts/{id}/renew`
 

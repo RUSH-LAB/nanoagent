@@ -1,0 +1,439 @@
+/**
+ * The benchmark worker RUSH Lab runs for a connection (docs/plans/local-benchmark-worker.md, Phase 6): the golden image
+ * (nanoagent/deploy/gvisor/Dockerfile) in a privileged container on the member's Docker, claiming that member's benchmark
+ * runs from the connection's site with a worker credential minted for this device, on the OpenRouter key in the member's
+ * settings. lab.mjs owns one per connection: start() once the member is signed in, keysChanged() when settings change, stop()
+ * when the connection ends or the app quits, and recheck() / restart() when the member asks from the Benchmark worker panel.
+ *
+ * Starting it is a chain of health checks (CHECKS), each with a clear pass, warn or fail and a fix the member can act on;
+ * the first failure stops the chain, and later checks stay pending. Every change is handed to `report` as one object,
+ * {state, message, progress, checks, log}: lab.mjs gives it to the relay, which sends it to RUSH in its `hello`, and the
+ * Benchmark screens read it from GET /api/runner/status. `state` is ready, starting, pulling, no-key, no-docker or failed.
+ * Docker is never installed for the member: it needs administrator rights and a license choice, so the fix only says how.
+ */
+import {spawn} from 'node:child_process';
+import fs from 'node:fs';
+import readline from 'node:readline';
+import {LINK} from './docker-help.js';
+
+// The one place the image is named. RUSH Lab never pulls a tag: each build pins the digest it was tested with.
+export const WORKER_IMAGE = 'ghcr.io/hosung-k1m/benchmark-worker@sha256:810a1bd9c476b672fd231fc0877da02491ff173845e939c02d25b45b8f2c4cdb';
+
+// What Docker's VM should have (docker info): the worker's sandboxes and the toolchain images need room. Below either, the
+// resources check warns and the worker still starts.
+export const MIN_CPUS = 2;
+export const MIN_MEMORY_BYTES = 4 * 1024 ** 3;
+
+const STOP_SECONDS = 10;
+const DOCKER_RETRY_MS = 10_000;
+// A worker that ran this long before exiting gets its one automatic restart again.
+const STABLE_MS = 10 * 60_000;
+const LOG_LINES = 10;
+
+export const CHECKS = [
+  ['docker-cli', 'Docker installed'],
+  ['docker-daemon', 'Docker running'],
+  ['privileged', 'Privileged containers'],
+  ['resources', 'Docker resources'],
+  ['image', 'Worker image'],
+  ['key', 'OpenRouter key'],
+  ['proofs', 'Worker startup proofs'],
+  ['claims', 'Worker reaches RUSH'],
+];
+
+// The proofs the worker logs once each (nanoagent/uploaded/worker.py), in the order it makes them; the last ends startup.
+const PROOFS = [
+  ['leftover reaping passed', 'leftover cleanup'],
+  ['collector probe passed', 'toolchain probes'],
+  ['egress filter verified', 'egress filter'],
+];
+const PROOFS_DONE = 'advertised capabilities';
+// The worker logs this once on its first answer from RUSH (a claim answered, with or without a job), and again after an outage.
+const CLAIMING = 'claiming from RUSH';
+
+/** Where to get Docker on `platform`, with links. */
+export function installAdvice(platform) {
+  if (platform === 'darwin') return `Install Docker Desktop (${LINK.desktop}) or Colima (${LINK.colima}), then open RUSH Lab again or press Re-check.`;
+  if (platform === 'win32') return `Install Docker Desktop with the WSL 2 backend (${LINK.desktop}), then press Re-check.`;
+  return `Install Docker Engine (${LINK.engine}), then press Re-check.`;
+}
+
+/** The container's name for a connection: Docker's names take letters, digits, underscores, dots and hyphens. */
+export const containerName = id => `rush-lab-worker-${id.replace(/[^A-Za-z0-9_.-]/g, '-')}`;
+
+/** `docker args`, in `env`, each output line given to `onLine`: {code, error, tail} (the last lines). A missing docker is error.code ENOENT. */
+export function dockerRun(args, {env, onLine} = {}) {
+  return new Promise(resolve => {
+    const tail = [];
+    const child = spawn('docker', args, {env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true});
+    for (const stream of [child.stdout, child.stderr]) {
+      readline.createInterface({input: stream}).on('line', line => {
+        tail.push(line);
+        if (tail.length > LOG_LINES) tail.shift();
+        onLine?.(line);
+      });
+    }
+    child.once('error', error => resolve({code: null, error, tail}));
+    child.once('close', code => resolve({code, tail}));
+  });
+}
+
+/**
+ * The member's worker credential for this device, over their RUSH session `token`: those already named `name` are revoked first, so a
+ * restart replaces the credential rather than adding one. {credential_id, name, token, created_at}.
+ */
+export async function mintCredential({site, token, name, fetchImpl = fetch}) {
+  const call = async (method, route, body) => {
+    const response = await fetchImpl(`${site}/api/benchmark${route}`, {
+      method,
+      headers: {Authorization: `Bearer ${token}`, Origin: site, ...(body ? {'Content-Type': 'application/json'} : {})},
+      body: body && JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error ?? `${site} answered ${response.status}`);
+    return data;
+  };
+  for (const credential of (await call('GET', '/worker-credentials')).credentials) {
+    if (credential.name === name && !credential.revoked_at) await call('DELETE', `/worker-credentials/${credential.credential_id}`);
+  }
+  return call('POST', '/worker-credentials', {name});
+}
+
+/** The origin the container reaches RUSH at: a site on this computer is reached as the host. */
+export function containerSite(site) {
+  const url = new URL(site);
+  if (['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) url.hostname = 'host.docker.internal';
+  return url.origin;
+}
+
+/** `docker run` arguments for the worker (secrets by name only: they are in the environment of the docker process). */
+export function workerArgs({name, id, site, worker, concurrency = 1}) {
+  return [
+    'run', '-d', '--init', '--privileged', '--cgroupns=private', '--name', name,
+    '--add-host', 'host.docker.internal:host-gateway',
+    // Volumes of this connection's own (its name has the site and member, so RUSH Lab and RUSH Lab Dev never share): two dockerds on one
+    // /var/lib/docker corrupt it, and `npm start` and the acceptance suite have theirs (rush-worker-*, rush-acceptance-*).
+    '-v', `${name}-docker:/var/lib/docker`, '-v', `${name}-home:/home/rush/rush-worker`,
+    '-e', 'RUSH_WORKER_TOKEN', '-e', 'OPENROUTER_API_KEY',
+    WORKER_IMAGE,
+    'python', '-m', 'nanoagent.uploaded.worker',
+    'config=/opt/nanoagent/deploy/gvisor/worker.openrouter.yaml', 'home=/home/rush/rush-worker/run',
+    '--', `rush.base_url=${containerSite(site)}`, `worker_id=${worker}`,
+    // The attempts the member lets it run at once; the worker clamps it to the machine's CPUs.
+    `limits.concurrency=${concurrency}`,
+  ];
+}
+
+const blank = ([id, label]) => ({id, label, state: 'pending', message: null, fix: null});
+const clip = text => (text.length > 300 ? `${text.slice(0, 300)}…` : text);
+
+/**
+ * The worker for one connection. `readKey()` is the OpenRouter key in the settings now, `readSession()` the member's RUSH session
+ * token (null until they have signed in), `dockerEnv()` the environment docker runs in (the member's PATH), `report(snapshot)` hears
+ * every change and `log(message)` the connection's log; `readConcurrency()` and `writeConcurrency(n)` are the member's runner concurrency in RUSH Lab's local settings; `docker`, `mint`, `sleep` and `platform` are what tests replace.
+ */
+export function benchmarkWorker({
+  id, site, device, product, logFile, readKey, readConcurrency = () => 1, writeConcurrency = () => {}, readSession, dockerEnv, report, log,
+  docker = dockerRun, mint = mintCredential, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
+  platform = process.platform, retryMs = DOCKER_RETRY_MS, now = Date.now,
+}) {
+  const name = containerName(id);
+  const credentialName = `${product} on ${device}`.slice(0, 100);
+  let checks = CHECKS.map(blank);
+  let progress = null;
+  let logTail = [];
+  // Which start is current: stop() and each new start move it on, and an older one that wakes up leaves quietly.
+  let generation = 0;
+  let container = false;
+  let keyInUse;
+  let concurrencyInUse;
+  // What the worker advertised once its proofs passed (its concurrency is already clamped to the machine's CPUs), null until then.
+  let advertised = null;
+  let autoRestarts = 0;
+  let info = null;
+  let stopped = false;
+
+  const check = checkId => checks.find(entry => entry.id === checkId);
+  const summary = () => {
+    const failed = checks.find(entry => entry.state === 'fail');
+    if (failed) {
+      const state = ['docker-cli', 'docker-daemon', 'privileged'].includes(failed.id) ? 'no-docker' : 'failed';
+      return {state, message: [failed.message, failed.fix].filter(Boolean).join(' ')};
+    }
+    if (check('key').state === 'wait') return {state: 'no-key', message: [check('key').message, check('key').fix].join(' ')};
+    if (check('image').state === 'running') return {state: 'pulling', message: null};
+    if (checks.every(entry => entry.state === 'pass' || entry.state === 'warn')) return {state: 'ready', message: null};
+    return {state: 'starting', message: null};
+  };
+  const concurrency = () => ({setting: readConcurrency(), cpus: info?.NCPU ?? null, effective: advertised?.concurrency ?? null});
+  const publish = () => report({...summary(), platform, concurrency: concurrency(), progress, checks, log: logTail});
+  const mark = (checkId, state, message = null, fix = null) => {
+    Object.assign(check(checkId), {state, message, fix});
+    if (state === 'fail' || state === 'wait') log(`${check(checkId).label}: ${message}${fix ? ` ${fix}` : ''}`);
+    publish();
+  };
+
+  const env = async () => dockerEnv();
+  const removeContainer = async () => {
+    container = false;
+    await docker(['rm', '--force', name], {env: await env()});
+  };
+
+  const checkers = {
+    async 'docker-cli'() {
+      const result = await docker(['--version'], {env: await env()});
+      if (result.error?.code === 'ENOENT') return ['fail', 'Docker is not installed.', installAdvice(platform)];
+      if (result.error || result.code !== 0) return ['fail', `docker did not run: ${result.error?.message ?? result.tail.at(-1)}`, installAdvice(platform)];
+      return ['pass', result.tail.at(-1) ?? 'docker found'];
+    },
+    async 'docker-daemon'() {
+      const result = await docker(['info', '--format', '{{json .}}'], {env: await env()});
+      if (result.code !== 0) {
+        return ['fail', 'Docker is installed but not running.',
+          platform === 'darwin' ? 'Start Docker Desktop, or run `colima start`, then press Re-check.' : 'Start Docker Desktop, then press Re-check.'];
+      }
+      try {
+        info = JSON.parse(result.tail.join('\n'));
+      } catch {
+        return ['fail', 'Docker answered `docker info` with something that is not its information.', 'Update Docker, then press Re-check.'];
+      }
+      return ['pass', `Docker ${info.ServerVersion ?? ''}`.trim()];
+    },
+    async privileged() {
+      // The worker runs its own Docker and gVisor inside: it needs `--privileged --cgroupns=private`, which a rootless daemon refuses.
+      // The container's own startup (proofs) is what shows the rest.
+      if ((info.SecurityOptions ?? []).some(option => String(option).includes('rootless'))) {
+        return ['fail', 'Docker runs rootless here, which cannot run the privileged containers the benchmark worker needs.',
+          'Use Docker Desktop, Colima, or a rootful Docker Engine, then press Re-check.'];
+      }
+      return ['pass', 'Allowed.'];
+    },
+    async resources() {
+      const gib = (info.MemTotal ?? 0) / 1024 ** 3;
+      const summaryText = `${info.NCPU ?? '?'} CPUs, ${gib.toFixed(1)} GiB memory`;
+      if ((info.NCPU ?? 0) < MIN_CPUS || (info.MemTotal ?? 0) < MIN_MEMORY_BYTES) {
+        return ['warn', `Docker has ${summaryText}; the worker wants at least ${MIN_CPUS} CPUs and ${MIN_MEMORY_BYTES / 1024 ** 3} GiB, and may be slow or fail.`,
+          'Give Docker more in Docker Desktop (Settings, Resources) or Colima (`colima start --cpu 4 --memory 8`).'];
+      }
+      return ['pass', summaryText];
+    },
+    async image() {
+      const present = await docker(['image', 'inspect', WORKER_IMAGE], {env: await env()});
+      if (present.code === 0) return ['pass', 'Present.'];
+      const layers = new Set();
+      const done = new Set();
+      progress = {done: 0, total: 0};
+      const pulled = await docker(['pull', WORKER_IMAGE], {
+        env: await env(),
+        onLine(line) {
+          const layer = line.match(/^([0-9a-f]{12}): (.+)$/);
+          if (!layer) return;
+          if (layer[2].startsWith('Pulling fs layer')) layers.add(layer[1]);
+          if (/^(Pull complete|Already exists)/.test(layer[2])) done.add(layer[1]);
+          progress = {done: done.size, total: Math.max(layers.size, done.size)};
+          publish();
+        },
+      });
+      progress = null;
+      if (pulled.code !== 0) {
+        return ['fail', `Could not pull the worker image: ${pulled.error?.message ?? clip(pulled.tail.join(' '))}`, 'Check your internet connection, then press Re-check.'];
+      }
+      return ['pass', 'Pulled.'];
+    },
+    async key() {
+      keyInUse = readKey() || null;
+      // Not a failure: the member may add it later, and everything before it has run by then.
+      return keyInUse ? ['pass', 'Set.'] : ['wait', 'Add your OpenRouter key in Settings to run benchmarks.', 'It is under API keys; the worker starts as soon as it is saved.'];
+    },
+  };
+
+  /** Run `ids` in order, stopping at the first failure: whether all of them passed (or warned). `mine` is the start they belong to. */
+  async function chain(mine, ids) {
+    for (const checkId of ids) {
+      mark(checkId, 'running');
+      let result;
+      try {
+        result = await checkers[checkId]();
+      } catch (error) {
+        result = ['fail', error.message, null];
+      }
+      if (mine !== generation) return false;
+      mark(checkId, ...result);
+      if (result[0] === 'fail' || result[0] === 'wait') return false;
+    }
+    return true;
+  }
+
+  const appendLog = line => {
+    fs.appendFileSync(logFile, `${line}\n`);
+    logTail = [...logTail, clip(line)].slice(-LOG_LINES);
+  };
+
+  /** Mint a credential and run the container, then follow it until it exits. */
+  async function launch(mine) {
+    await removeContainer();
+    mark('proofs', 'running', 'Starting the worker.');
+    // The relay signs in on its own, in the member's browser; the worker waits for that.
+    let session = readSession();
+    while (!session) {
+      await sleep(1000);
+      if (mine !== generation) return;
+      session = readSession();
+    }
+    let credential;
+    try {
+      credential = await mint({site, token: session, name: credentialName});
+    } catch (error) {
+      if (mine === generation) mark('proofs', 'fail', `Could not get a worker credential from ${site}: ${error.message}`, 'Check that RUSH is reachable, then press Re-check.');
+      return;
+    }
+    if (mine !== generation) return;
+    fs.writeFileSync(logFile, '');
+    logTail = [];
+    advertised = null;
+    concurrencyInUse = readConcurrency();
+    const started = await docker(workerArgs({name, id, site, worker: `lab-${device.replace(/[^A-Za-z0-9_-]/g, '-')}`, concurrency: concurrencyInUse}), {
+      env: {...await env(), RUSH_WORKER_TOKEN: credential.token, OPENROUTER_API_KEY: keyInUse},
+    });
+    if (mine !== generation) {
+      await removeContainer();
+      return;
+    }
+    if (started.code !== 0) {
+      mark('proofs', 'fail', `Docker could not start the worker: ${started.error?.message ?? clip(started.tail.join(' '))}`,
+        'Docker must allow privileged containers (`--privileged --cgroupns=private`); then press Re-check.');
+      return;
+    }
+    container = true;
+    const startedAt = now();
+    log(`Benchmark worker running in container ${name}`);
+    follow(mine, startedAt).catch(error => log(`could not follow the worker: ${error.message}`));
+  }
+
+  /** The container's log into the connection's log and the checks 7 and 8, until it exits: then its one automatic restart, or failed. */
+  async function follow(mine, startedAt) {
+    const seen = new Set();
+    let proofsDone = false;
+    const proofText = () => `Passed: ${[...seen].join(', ') || 'none yet'}.`;
+    const logs = docker(['logs', '--follow', name], {
+      env: await env(),
+      onLine(line) {
+        if (mine !== generation) return;
+        appendLog(line);
+        for (const [needle, label] of PROOFS) if (line.includes(needle)) seen.add(label);
+        if (!proofsDone && line.includes(PROOFS_DONE)) {
+          proofsDone = true;
+          try {
+            advertised = JSON.parse(line.slice(line.indexOf(PROOFS_DONE) + PROOFS_DONE.length + 1));
+          } catch {
+            advertised = null;
+          }
+          mark('proofs', 'pass', `${proofText()} The worker's startup proofs passed.`);
+          mark('claims', 'running', 'Waiting for RUSH to answer a claim.');
+        } else if (!proofsDone) {
+          mark('proofs', 'running', proofText());
+        }
+        if (proofsDone && line.includes('RUSH is unreachable')) {
+          mark('claims', 'warn', 'The worker cannot reach RUSH and is retrying.', 'Check your internet connection.');
+        } else if (proofsDone && line.includes(CLAIMING)) {
+          mark('claims', 'pass', 'The worker reaches RUSH and is polling for your runs.');
+        }
+      },
+    });
+    const exited = await docker(['wait', name], {env: await env()});
+    await logs;
+    if (mine !== generation) return;
+    container = false;
+    const code = exited.tail.at(-1);
+    const unauthorized = logTail.some(line => /\b401\b|unauthori[sz]ed|revoked/i.test(line));
+    const reason = unauthorized ? 'RUSH rejected the worker\'s credential' : `The worker exited (status ${code ?? exited.error?.message ?? 'unknown'})`;
+    if (now() - startedAt > STABLE_MS) autoRestarts = 0;
+    if (autoRestarts < 1) {
+      autoRestarts += 1;
+      log(`${reason}; starting it once more${unauthorized ? ' with a new credential' : ''}.`);
+      await start(false);
+      return;
+    }
+    mark(proofsDone ? 'claims' : 'proofs', 'fail', `${reason}. Last log lines: ${clip(logTail.slice(-3).join(' | '))}`, 'Press Restart to try again.');
+  }
+
+  /** Check, then launch. Resolves once the container is started or a check has failed; Docker missing is checked again until it is there. */
+  async function start(manual = true) {
+    const mine = ++generation;
+    stopped = false;
+    if (manual) autoRestarts = 0;
+    checks = CHECKS.map(blank);
+    progress = null;
+    publish();
+    try {
+      for (;;) {
+        if (await chain(mine, ['docker-cli', 'docker-daemon', 'privileged', 'resources', 'image', 'key'])) break;
+        if (mine !== generation) return;
+        // A member who installs or starts Docker meanwhile is found without pressing anything; a missing key waits for keysChanged.
+        if (!['docker-cli', 'docker-daemon'].includes(checks.find(entry => entry.state === 'fail')?.id)) return;
+        await sleep(retryMs);
+        if (mine !== generation) return;
+        checks = CHECKS.map(blank);
+      }
+      await launch(mine);
+    } catch (error) {
+      if (mine === generation) mark(checks.find(entry => entry.state === 'running')?.id ?? 'proofs', 'fail', error.message);
+    }
+  }
+
+  /** Stop the container (docker's own timeout first), and any start in the middle of its checks. */
+  async function halt() {
+    generation += 1;
+    if (!container) return;
+    await docker(['stop', '--time', String(STOP_SECONDS), name], {env: await env()});
+    await removeContainer();
+  }
+
+  return {
+    start,
+    /** The connection ends or the app quits. */
+    async stop() {
+      stopped = true;
+      await halt();
+      checks = CHECKS.map(blank);
+      progress = null;
+    },
+    /**
+     * The settings changed (the key, or the runner concurrency). A key added starts the worker from the key check on; another key restarts it with that one, and a key
+     * removed stops it and waits again. A restart interrupts the attempts in flight, whose leases then expire. Called by lab.mjs's
+     * updateKeys, so no polling. Before the machine's own checks have passed there is nothing to resume: start reads the key itself.
+     */
+    async keysChanged() {
+      if (stopped || generation === 0) return;
+      if ((readKey() || null) === (keyInUse ?? null) && (concurrencyInUse === undefined || readConcurrency() === concurrencyInUse)) return;
+      if (!CHECKS.slice(0, 5).every(([checkId]) => ['pass', 'warn'].includes(check(checkId).state))) return;
+      log('The OpenRouter key or the runner concurrency changed; restarting the worker from the key check.');
+      await halt();
+      for (const checkId of ['key', 'proofs', 'claims']) Object.assign(check(checkId), blank([checkId, check(checkId).label]));
+      logTail = [];
+      const mine = generation;
+      if (await chain(mine, ['key'])) await launch(mine);
+    },
+    /** The member set the runner concurrency: kept in the local settings, and the worker restarted with it as a key change does. */
+    async setConcurrency(value) {
+      if (!Number.isSafeInteger(value) || value < 1) throw new Error('Runner concurrency must be a whole number of at least 1');
+      writeConcurrency(value);
+      publish();
+      await this.keysChanged();
+    },
+    /** The member pressed Restart. */
+    async restart() {
+      await halt();
+      start();
+    },
+    /** The member pressed Re-check: a running worker is left alone and the checks before it run again; one that is not is started. */
+    async recheck() {
+      if (!container) return this.restart();
+      const mine = generation;
+      await chain(mine, ['docker-cli', 'docker-daemon', 'privileged', 'resources', 'key']);
+      return undefined;
+    },
+    snapshot: () => ({...summary(), platform, concurrency: concurrency(), progress, checks, log: logTail}),
+  };
+}

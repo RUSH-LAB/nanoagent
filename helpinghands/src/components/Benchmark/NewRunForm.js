@@ -135,7 +135,11 @@ export default function NewRun({go, initialSelection}) {
   };
   const chooseReference = name => {
     setReference(name);
-    return name ? take(() => benchmarkApi.referenceSource(name), `Reference harness ${name}`) : undefined;
+    if (!name) {
+      setSource(null);  // no harness chosen: Run must not send the one built before
+      return undefined;
+    }
+    return take(() => benchmarkApi.referenceSource(name), `Reference harness ${name}`);
   };
 
   const run = runBody({key: 'pending', preview: current?.preview_id, setup: request.body, source: source?.source_sha256});
@@ -156,6 +160,8 @@ export default function NewRun({go, initialSelection}) {
   // The setup reviewed after a stale answer: a new preview is made.
   const reviewSetup = () => {
     setStale(null);
+    setPreview(null);  // the stale one's preview_id would be refused again
+    setPreviewError(null);
     setTick(count => count + 1);
   };
 

@@ -228,3 +228,9 @@ ol.actions button { width: 100%; padding: 0.3rem 0.6rem; border: 0; background: 
 
 .cardGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 0.5rem; margin-top: 0.4rem; }
 .benchmarkCard span { min-width: 0; }
+
+.workerBad { color: var(--ifm-color-danger-dark); }
+.workerChecks { list-style: none; padding: 0; margin: 0.75rem 0; }
+.workerChecks li { padding: 0.4rem 0; border-bottom: 1px solid var(--site-hairline); }
+.workerChecks li[data-state='fail'] strong { color: var(--ifm-color-danger-dark); }
+.workerChecks li[data-state='warn'] strong, .workerChecks li[data-state='wait'] strong { color: var(--ifm-color-warning-darkest); }

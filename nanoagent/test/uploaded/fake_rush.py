@@ -97,7 +97,7 @@ def make_run(run_id: str, benchmark: dict[str, Any] | None = None, harness: dict
         },
         "policy": policy,
         "prompt": {"source": "default", "text": "Solve {description}"},
-        "limits": {"wall_time_ms": 600000, "max_model_calls": 50, "internet_access": True, "concurrency": 4},
+        "limits": {"wall_time_ms": 600000, "max_model_calls": 50, "internet_access": True},
         "metrics": metrics,
         "score": {"value": 1, "passed": 1, "scored": 1, "total": 1, "unscored": 0, "verifier_errors": 0, "complete": True, "unavailable_reason": None},
         "cases": [{"case_id": "c1", "kind": "answer", "content_digest": "cd1", "prompt": {"system": None, "user": "u"}, "attempts": [attempt]}],

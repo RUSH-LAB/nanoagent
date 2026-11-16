@@ -1,6 +1,5 @@
 'use strict';
 
-const crypto = require('crypto');
 const {BenchmarkError} = require('./errors');
 const {parseJson} = require('./json');
 
@@ -46,16 +45,10 @@ function rawBody(req, max, code) {
   });
 }
 
-/** Whether `header` is `Bearer <token>`, compared in constant time. */
-function bearerIs(header, token) {
-  const digest = value => crypto.createHash('sha256').update(String(value)).digest();
-  return crypto.timingSafeEqual(digest(header ?? ''), digest(`Bearer ${token}`));
-}
-
 /** Answer a BenchmarkError as `{error, code, ...extra}`, or rethrow anything else. */
 function sendFailure(json, res, error) {
   if (!(error instanceof BenchmarkError)) throw error;
   return json(res, error.status, {error: error.message, code: error.code, ...error.extra});
 }
 
-module.exports = {UUID, jsonBody, losslessBody, rawBody, bearerIs, sendFailure};
+module.exports = {UUID, jsonBody, losslessBody, rawBody, sendFailure};

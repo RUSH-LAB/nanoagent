@@ -311,5 +311,5 @@ function claimBody(body) {
 
 module.exports = {
   benchmarkPublication, previewBody, runBody, eventsBody, spansBody, finalizeBody, admissionBody, settleBody, accountingBody,
-  claimBody, SHA256, fenceOf, object, string, integer, POLICIES,
+  claimBody, SHA256, fenceOf, object, string,
 };

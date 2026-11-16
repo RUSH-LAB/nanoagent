@@ -1,6 +1,6 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
-import {attemptStatus, explanationText, liveAttempts, outcomeText, runIsActive, runPairProblem, runSummary, personLabel, scoreText, scoreValue, toggleRun, verdictText} from '../../../../src/components/Benchmark/runs.js';
+import {attemptStatus, explanationText, liveAttempts, outcomeText, runIsActive, runPairProblem, runSummary, personLabel, scoreText, toggleRun, verdictText} from '../../../../src/components/Benchmark/runs.js';
 import {screenOf, searchFor} from '../../../../src/components/Benchmark/location.js';
 
 const attempt = (id, state, extra = {}) => ({attempt_id: id, state, sealed: state === 'final', execution: state === 'final' ? {status: 'answered', reason: null} : null, cancel_requested: false, ...extra});
@@ -35,7 +35,6 @@ describe('benchmark run view', () => {
     assert.equal(scoreText({value: null, unavailable_reason: 'verifier_error'}), 'Unavailable: the verifier reported an error');
     assert.equal(scoreText({value: null, unavailable_reason: 'no_scored_cases'}), 'Unavailable: no case has a verdict');
     assert.equal(scoreText(undefined), 'Unavailable');
-    assert.deepEqual([scoreValue({value: 0.25}), scoreValue({value: null})], ['0.25', 'n/a']);
   });
 
   it('labels a case\'s verdict, its explanation code and its outcome for people', () => {

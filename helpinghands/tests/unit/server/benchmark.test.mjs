@@ -114,7 +114,7 @@ describe('benchmark prompt renderer', () => {
 describe('benchmark limits', () => {
   it('defaults to today\'s per-attempt budgets and worker sandbox limits, internet on', () => {
     assert.deepEqual(DEFAULT_LIMITS, {
-      wall_time_ms: 600000, max_model_calls: 50, max_output_tokens_per_call: 4096, max_cost_usd: 1.5, concurrency: 4,
+      wall_time_ms: 600000, max_model_calls: 50, max_output_tokens_per_call: 4096, max_cost_usd: 1.5,
       cpus: 1, memory_mb: 1024, pids: 256, workspace_bytes: 268435456, workspace_files: 20000, tmp_bytes: 67108864, build_wall_ms: 600000,
       build_memory_mb: 3072, build_output_bytes: 1073741824, build_files: 100000, build_tmp_bytes: 536870912, internet_access: true,
     });
@@ -279,7 +279,7 @@ describe('benchmark publication', () => {
   });
 });
 
-const capabilities = {...DEFAULT_LIMITS, concurrency: 8, models: ['vendor/model']};
+const capabilities = {...DEFAULT_LIMITS, models: ['vendor/model']};
 
 describe('benchmark run resolution', () => {
   it('renders every case of the benchmark under the coding policy with its pinned template, pinning prompt text, model and limits', () => {
@@ -320,6 +320,12 @@ describe('benchmark run resolution', () => {
     assert.throws(() => resolve({benchmark: benchmarkFor(), policy: 'coding', capabilities: null}), {code: 'worker_unavailable', status: 409});
     assert.throws(() => checkWorkers(DEFAULT_LIMITS, 'vendor/model', {...capabilities, internet_access: false}, 'mock'), {code: 'limit_exceeds_worker'});
     assert.doesNotThrow(() => checkWorkers({...DEFAULT_LIMITS, memory_mb: 512}, 'vendor/model', capabilities, 'mock'));
+  });
+
+  it('has no concurrency of a run\'s own: a request that sends one is refused as an unknown limit, naming where it is set', () => {
+    assert.ok(!LIMIT_FIELDS.includes('concurrency'));
+    assert.throws(() => limitOverrides({concurrency: 4}), {code: 'invalid_request', message: /limits\.concurrency is not a limit.*local runner/});
+    assert.throws(() => benchmarkPublication(publication({limits: {concurrency: 4}})), {code: 'invalid_request', message: /limits\.concurrency/});
   });
 
   it('refuses a model no worker of the endpoint prices, naming what they price', () => {

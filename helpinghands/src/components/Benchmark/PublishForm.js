@@ -179,7 +179,7 @@ export default function PublishBenchmark({go}) {
 
       <section className={styles.section}>
         <h3 className={styles.sectionHeading}>Name and publish</h3>
-        <p className={styles.fieldHint}>Publishing checks your inputs and saves the private reference data. The plugin’s deterministic verifier scores each run. A published benchmark never changes.</p>
+        <p className={styles.fieldHint}>Publishing checks your inputs and saves the reference data, which whoever runs the benchmark can read because the worker runs on their computer. The plugin’s deterministic verifier scores each run. A published benchmark never changes.</p>
         <div className={styles.form}><label>Benchmark name <input value={name} placeholder="e.g. classroom-v1" onChange={event => { setName(event.target.value); edited(); }} /></label></div>
         <p className={styles.fieldHint}>Use up to 128 lowercase letters, digits, periods, underscores or hyphens. Start with a letter or digit. The name is unique per plugin version.</p>
         {failure && <Failure failure={failure} />}

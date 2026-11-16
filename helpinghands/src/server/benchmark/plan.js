@@ -11,20 +11,20 @@ function renderCase({benchmark, policy, text, c}) {
     : renderTaskTools({pluginName: benchmark.plugin.name, task: benchmark.task, instructions: text, args: c.arguments});
 }
 
-/** Throws unless the endpoint's workers (`capabilities`, null when none has advertised) can give `limits` and price `model`. */
+/** Throws unless the member's own worker (`capabilities`, null when it has not advertised lately) can give `limits` and price `model`. */
 function checkWorkers(limits, model, capabilities, endpointProfile) {
-  if (!capabilities) throw new BenchmarkError(409, 'worker_unavailable', `No worker has advertised for endpoint profile ${endpointProfile}`);
+  if (!capabilities) throw new BenchmarkError(409, 'worker_unavailable', `Your benchmark worker is not running for endpoint profile ${endpointProfile}: start RUSH Lab with Docker running, and add your OpenRouter key in Settings`);
   const over = exceeded(limits, capabilities);
   if (over.length) {
-    throw new BenchmarkError(400, 'limit_exceeds_worker', `The workers for ${endpointProfile} cannot give ${over.map(o => `${o.field} ${o.limit} (at most ${o.max})`).join(', ')}`, {exceeded: over});
+    throw new BenchmarkError(400, 'limit_exceeds_worker', `Your worker for ${endpointProfile} cannot give ${over.map(o => `${o.field} ${o.limit} (at most ${o.max})`).join(', ')}`, {exceeded: over});
   }
   if (!capabilities.models.includes(model)) {
-    throw new BenchmarkError(400, 'unknown_model', `No worker for ${endpointProfile} prices model ${model}; it prices ${capabilities.models.join(', ')}`, {model, models: capabilities.models});
+    throw new BenchmarkError(400, 'unknown_model', `Your worker for ${endpointProfile} does not price model ${model}; it prices ${capabilities.models.join(', ')}`, {model, models: capabilities.models});
   }
 }
 
 /**
- * What a run of `benchmark` (with its cases, public parts only) under `policy` resolves to against the endpoint's worker `capabilities`:
+ * What a run of `benchmark` (with its cases, public parts only) under `policy` resolves to against the member's worker `capabilities`:
  * the benchmark's id and digest, every case with its rendered prompt, the prompt text the policy takes from the benchmark, and the
  * benchmark's limits. Throws when the workers cannot give the limits or the pinned template fails to render.
  */

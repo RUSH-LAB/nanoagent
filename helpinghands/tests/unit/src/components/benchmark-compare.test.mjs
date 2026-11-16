@@ -19,6 +19,10 @@ describe('benchmark compare display', () => {
     assert.deepEqual(rows.map(isEqualRow), [true, false, false, false, false, false, true]);
   });
 
+  it('reads the cost delta, a Decimal sent as text, by its value: "0.0000" is no difference', () => {
+    assert.deepEqual([{...same(0), cost_delta: '0.0000'}, {...same(1), cost_delta: '0'}, {...same(2), cost_delta: '0.0012'}].map(isEqualRow), [true, true, false]);
+  });
+
   it('Show differences collapses the equal rows, keeping each row\'s index in the full list', () => {
     assert.deepEqual(visibleRows(rows, true).map(row => row.index), [1, 2, 3, 4, 5]);
     assert.equal(visibleRows(rows, false).length, 7);
