@@ -94,7 +94,7 @@ from nanoagent.plugin.manifest import (
 )
 from nanoagent.plugin.v0001.contract import CONTRACT, contract_module, contract_problems, read_contract
 from nanoagent.plugin.v0001.dataflow import unfillable
-from nanoagent.plugin.v0001.verifier import ALLOWED_IMPORTS, verifier_problems
+from nanoagent.plugin.v0001.verifier import ALLOWED_IMPORTS, benchmark_hooks, verifier_problems  # noqa: F401 - benchmark_hooks is the spec's API
 
 SPEC = "nanoagent.plugin/v0001"
 # The page every v0001 plugin is shown in: index.html and the UI kit, kit/ (rule 7).

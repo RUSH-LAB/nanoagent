@@ -3,7 +3,8 @@
 It runs as ``nanoagent helper verifier``, writes no bytecode, and imports only the standard library
 and slimconfig beyond NanoAgent's package itself. stdin is ``{"verifier", "contract", "function",
 "arguments", "classes", "modules"}`` (``verifier``: the package folder; ``contract``: the plugin's
-``contract.py``; ``classes``: for each argument, the contract class it is built into, or null);
+``contract.py``; ``classes``: for each argument, the contract class it is built into, or null, or
+for a mapping argument a mapping of its keys to classes, each value built into its class);
 stdout is the function's JSON result.
 """
 
@@ -78,12 +79,16 @@ def main(argv: list[str]) -> int:
     sys.meta_path.insert(0, _NoNewImports())
     function_name, arguments, classes = request["function"], request["arguments"], request["classes"]
 
+    def build(value, name):
+        if name is None or value is None:
+            return value
+        if isinstance(name, dict):
+            return {key: build(item, name.get(key)) for key, item in value.items()}
+        return build_output(value, getattr(contract, name))
+
     def typed():
         """The arguments, each with a class built afresh into it, so no call sees another's."""
-        return [
-            value if name is None or value is None else build_output(value, getattr(contract, name))
-            for value, name in zip(arguments, classes, strict=True)
-        ]
+        return [build(value, name) for value, name in zip(arguments, classes, strict=True)]
 
     # A verifier's prints go to stderr so stdout stays the result.
     with contextlib.redirect_stdout(sys.stderr):

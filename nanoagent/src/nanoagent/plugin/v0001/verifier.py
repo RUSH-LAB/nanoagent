@@ -94,6 +94,8 @@ FORBIDDEN_ATTRIBUTES = frozenset(
 )
 # The two functions and their positional parameters.
 SIGNATURES = {"verify_input": 2, "verify_output": 4, "verify_task": 5}
+# The two optional hooks of a benchmark suite (see the uploaded harness contract's "Benchmark scoring").
+BENCHMARK_SIGNATURES = {"verify_benchmark_case": 6, "score_benchmark_suite": 3}
 
 
 def verifier_problems(folder: Path) -> list[str]:
@@ -144,10 +146,18 @@ def _problems(tree: ast.Module) -> list[str]:
     return problems
 
 
-def _missing_functions(tree: ast.Module) -> list[str]:
+def benchmark_hooks(folder: Path) -> bool:
+    """Whether ``folder`` is a deterministic verifier defining both benchmark hooks with their signatures."""
+    if verifier_problems(folder):
+        return False
+    tree = ast.parse((folder / "__init__.py").read_text(encoding="utf-8"))
+    return not _missing_functions(tree, BENCHMARK_SIGNATURES)
+
+
+def _missing_functions(tree: ast.Module, signatures: dict[str, int] = SIGNATURES) -> list[str]:
     functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
     problems: list[str] = []
-    for name, count in SIGNATURES.items():
+    for name, count in signatures.items():
         function = functions.get(name)
         if function is None:
             problems.append(f"defines no {name}()")

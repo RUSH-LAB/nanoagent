@@ -10,6 +10,7 @@ classes its files name, and the page it is shown in. A spec's package defines:
     PAGE              its page folder: index.html and the UI kit, kit/
     VERIFIER_IMPORTS  the modules a call of the plugin's verifier may import
     verifier_problems(folder)  every way the plugin's verifier/ breaks the spec's rules
+    benchmark_hooks(folder)  whether the verifier also defines both benchmark hooks
     load(root)        the plugin folder as a PluginManifest, or PluginError
 
 and imports nothing of NanoAgent's but this module. So a plugin keeps loading, running and
