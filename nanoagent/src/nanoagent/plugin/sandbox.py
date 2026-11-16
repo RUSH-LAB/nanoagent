@@ -7,8 +7,8 @@ made once with :func:`configure`, with the Python plugins run on (nanoagent.plug
 - ``none``: the process runs as itself, with the environment it is given. For running your own
   plugins on your own machine.
 - ``bwrap``: the process runs in new namespaces (``bwrap --unshare-all``) with an empty
-  environment but the one it is given. It sees the system's programs, the Python plugins run on
-  and NanoAgent's helpers (nanoagent.helpers) read-only, the plugin's own folder read-only, and
+  environment but the one it is given. It sees the system's programs, uv and git, the Python
+  plugins run on and NanoAgent's helpers (nanoagent.helpers) read-only, the plugin's own folder read-only, and
   only the folders it is given to write; ``/tmp`` is its own. Its only network is the egress proxy
   (``nanoagent.plugin.egress``), which reaches the hosts the plugin declared, over HTTPS. :func:`check` proves all of that on this
   machine before a host serves anything.
@@ -108,11 +108,17 @@ def _bwrap(
     writable: Sequence[Path],
     socket: Path,
 ) -> list[str]:
+    # uv and the git it builds a git source (slimconfig) with, wherever they are installed (setup-uv
+    # puts uv under /opt/hostedtoolcache, a user's under ~/.local/bin); git runs its helpers from
+    # <root>/libexec/git-core, so the sandbox reads all of <root>.
+    git = shutil.which("git")
+    tools = [Path(found).resolve().parent for found in [shutil.which("uv"), git] if found]
+    git_roots = [Path(git).resolve().parents[1]] if git else []
     args = ["bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--clearenv"]
     args += ["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]
     for path in SYSTEM:
         args += ["--ro-bind-try", path, path]
-    for path in _runtime():
+    for path in [*_runtime(), *tools, *git_roots]:
         args += ["--ro-bind", str(path), str(path)]
     for path in [root, *readable]:
         args += ["--ro-bind", str(path), str(path)]
@@ -121,7 +127,7 @@ def _bwrap(
     args += ["--bind", str(socket), "/run/nanoagent/egress.sock"]
     proxy = f"http://127.0.0.1:{PROXY_PORT}"
     inside = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "PATH": ":".join([*(str(path) for path in tools), "/usr/local/bin", "/usr/bin", "/bin"]),
         "HOME": "/tmp",
         "HTTPS_PROXY": proxy,
         "https_proxy": proxy,
