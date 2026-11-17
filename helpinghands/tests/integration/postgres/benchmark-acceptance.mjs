@@ -984,6 +984,22 @@ try {
   const secondPage = (await api(`${base}/attempts/${bounded.attempt_id}/events?limit=1000&after=${firstPage.events.at(-1).cursor}`, {cookie: alice.cookie})).body;
   check('an events page ends at its byte limit, not only its count, and the pages together hold every event',
     firstPage.events.length > 0 && firstPage.events.length < 40 && firstPage.has_more === true && !secondPage.has_more && firstPage.events.length + secondPage.events.length === 40);
+  const storedBytes = async id => Number((await asSystem('select stored_bytes from benchmark_attempt where attempt_id = $1', [id])).rows[0].stored_bytes);
+  check('the events an attempt stores are charged to its owner\'s storage', await storedBytes(bounded.attempt_id) >= 40 * 250_000);
+  await asSystem('update benchmark_attempt set stored_bytes = $2 where attempt_id = $1', [bounded.attempt_id, 5 * 1024 * 1024 * 1024]);
+  check('events past the member\'s storage quota are 413 storage_quota_exceeded', (await post(bounded.attempt_id, 1, [event('quota', 41)])).body.code === 'storage_quota_exceeded');
+  await asSystem('update benchmark_attempt set stored_bytes = 0 where attempt_id = $1', [bounded.attempt_id]);
+  check('a NUL character in an event is 400, not a database error',
+    (await worker(`attempts/${bounded.attempt_id}/events`, {method: 'POST', headers: {'content-type': 'application/json'},
+      raw: '{"fence":1,"events":[{"event_id":"nul","source":"s","kind":"k","sequence":41,"occurred_ns":"1","data":{"a":"x\\u0000y"}}]}'})).status === 400);
+  // A trace read is cut at its byte budget: 400 spans of 30 KB are about 12 MB.
+  await asSystem(`insert into benchmark_span (attempt_id, span_id, kind, name, attributes)
+    select $1, 'fat-' || g, 'tool', 'n', jsonb_build_object('pad', repeat('x', 30000)) from generate_series(1, 400) g`, [bounded.attempt_id]);
+  const fatTrace = await api(`${base}/attempts/${bounded.attempt_id}/spans?limit=5000`, {cookie: alice.cookie});
+  check('a trace read stops at its byte budget and says it is truncated', fatTrace.status === 200 && fatTrace.body.truncated === true
+    && fatTrace.body.spans.length > 0 && fatTrace.body.spans.length < 400 && fatTrace.text.length < 9 * 1024 * 1024);
+  await asSystem("delete from benchmark_span where attempt_id = $1 and span_id like 'fat-%'", [bounded.attempt_id]);
+  check('a trace under the budget is not truncated', (await api(`${base}/attempts/${bounded.attempt_id}/spans`, {cookie: alice.cookie})).body.truncated === false);
   await asSystem('update benchmark_attempt set next_cursor = 100000 where attempt_id = $1', [bounded.attempt_id]);
   check('an attempt keeps a bounded number of events', (await post(bounded.attempt_id, 1, [event('over-1', 1), event('over-2', 2)])).body.code === 'too_many_events');
   await asSystem('update benchmark_attempt set next_cursor = 41 where attempt_id = $1', [bounded.attempt_id]);
@@ -1018,10 +1034,34 @@ try {
   check('the schema holds no suite, scoring or hook table', (await asSystem(
     "select count(*)::int as n from information_schema.tables where table_name like 'benchmark_suite%' or table_name = 'benchmark_scoring' or table_name = 'benchmark_run_suite'")).rows[0].n === 0);
 
+  // ── Bounded run reads ──
+  // 300 reruns of 60 KB metrics must not reach the summary: it holds each case's newest attempt and the metric fields the sum reads.
+  await asSystem(`insert into benchmark_attempt (attempt_id, run_id, case_id, attempt_no, state, execution_status, metrics)
+    select gen_random_uuid(), $1, 'c1', 3 + g, 'final', 'answered', jsonb_build_object('total_tokens', g, 'pad', repeat('x', 60000)) from generate_series(1, 300) g`, [run.run_id]);
+  const runSummaryRow = (await as({userId: alice.id, workspaceId: w1.id},
+    `select jsonb_array_length(attempts) as n, octet_length(attempts::text) as size, attempts::text like '%pad%' as padded,
+       (select count(*)::int from benchmark_run_case where run_id = $1) as cases, attempts
+       from benchmark_run_summary where run_id = $1`, [run.run_id])).rows[0];
+  check('a run summary holds one attempt per case and only the metrics the sum reads', runSummaryRow.n === runSummaryRow.cases && runSummaryRow.size < 5000 && !runSummaryRow.padded
+    && runSummaryRow.attempts.find(attempt => attempt.case_id === 'c1').metrics.total_tokens === 300);
+  const bobsResults = await api(`${base}/benchmarks/${run.benchmark.benchmark_id}/results`, {cookie: bob.cookie});
+  check('every member\'s results still read a run with 300 reruns', bobsResults.status === 200 && bobsResults.body.runs.find(entry => entry.run_id === run.run_id).metrics.total_tokens.total >= 300);
+  check('a case takes no rerun past its attempt cap, 409 too_many_attempts',
+    (await api(`${base}/runs/${run.run_id}/cases/c1/rerun`, {method: 'POST', cookie: alice.cookie, body: {}})).body.code === 'too_many_attempts');
+  await asSystem("delete from benchmark_attempt where run_id = $1 and case_id = 'c1' and attempt_no > 3", [run.run_id]);
+
   // ── Previews ──
   // Previews pile up to a bound: a member keeps their newest 50.
   for (let n = 0; n < 52; n += 1) await preview(mainId);
   check('a member keeps at most 50 previews', (await asSystem('select count(*)::int as n from benchmark_preview where user_id = $1', [alice.id])).rows[0].n === 50);
+  // Previews of a workspace the member has left are pruned too: they are old rows in another workspace than the one saving.
+  await migrationPool.query('alter table benchmark_preview no force row level security');
+  await migrationPool.query(
+    `insert into benchmark_preview (preview_id, workspace_id, user_id, plan, plan_digest, created_at)
+     select gen_random_uuid(), $1, $2, '{}'::jsonb, 'old', now() - interval '1 day' from generate_series(1, 60)`, [w2.id, alice.id]);
+  await migrationPool.query('alter table benchmark_preview force row level security');
+  await preview(mainId);
+  check('a member keeps at most 50 previews across every workspace', (await asSystem('select count(*)::int as n from benchmark_preview where user_id = $1', [alice.id])).rows[0].n === 50);
 
   console.log(JSON.stringify({ok: true, checks: checks.length}, null, 2));
 } catch (error) {

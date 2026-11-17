@@ -535,3 +535,31 @@ test('a removal that failed stays queued and is retried until it succeeds, then 
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), []);
   assert.ok(calls.includes('volume'));
 });
+
+test('a stop during a Restart is not undone: no new container, no credential, no run', async () => {
+  const t = setup({stopMs: 100});
+  await t.worker.start();
+  await settle();
+  const runs = () => t.calls.filter(call => call.args[0] === 'run').length;
+  const mintedBefore = t.minted.length;
+  const runsBefore = runs();
+  const restarting = t.worker.restart();
+  await settle();
+  await t.worker.stop();
+  await restarting;
+  await settle();
+  assert.equal(runs(), runsBefore);
+  assert.equal(t.minted.length, mintedBefore);
+});
+
+test('a queued removal for a connection that is present again is dropped without touching its container', async () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pending-')), 'pending-removals.json');
+  const calls = [];
+  const docker = async args => { calls.push(args); return {code: 0, tail: []}; };
+  queueRemoval(file, 'back');
+  queueRemoval(file, 'gone');
+  assert.deepEqual(await retryRemovals(file, {dockerEnv: async () => ({}), docker, present: new Set(['back'])}), []);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), []);
+  assert.ok(calls.length > 0);
+  assert.ok(calls.every(args => args.some(arg => String(arg).includes(containerName('gone')))));
+});

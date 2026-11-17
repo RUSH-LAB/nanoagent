@@ -6,7 +6,7 @@ const {overBudget} = require('../benchmark/rules');
 const {
   capabilitiesOf, exceeded, MAX_ATTEMPT_EVENTS, MAX_ATTEMPT_SPANS, MAX_ATTEMPT_LINKS, MAX_SPAN_ATTRIBUTES_BYTES, MAX_LINK_ATTRIBUTES_BYTES, SETTLE_RESERVE_FACTOR,
 } = require('../benchmark/limits');
-const {chargeStorage, inTransaction} = require('./benchmark-context');
+const {chargeAttemptStorage, chargeStorage, inTransaction} = require('./benchmark-context');
 const {sweepExpired} = require('./benchmark-sweep');
 
 const TODAY = "(now() at time zone 'utc')::date";
@@ -270,6 +270,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
         if (outcome === 'settled' && costUsd > admission.reserve * SETTLE_RESERVE_FACTOR) {
           throw new BenchmarkError(400, 'cost_exceeds_reserve', `Call ${callId} cannot settle at ${costUsd} USD: it reserved ${admission.reserve} USD`);
         }
+        await chargeAttemptStorage(client, userId, attemptId, Buffer.byteLength(JSON.stringify(provenance)));
         if (outcome === 'uncertain') {
           await client.query(
             `update benchmark_admission set status = 'uncertain', provenance = $3 where attempt_id = $1 and call_id = $2`,
@@ -293,6 +294,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
         let next = Number(attempt.next_cursor);
         if (next - 1 + events.length > MAX_ATTEMPT_EVENTS) throw new BenchmarkError(413, 'too_many_events', `An attempt keeps ${MAX_ATTEMPT_EVENTS} events at most`);
         const receipts = [];
+        let stored = 0;
         for (const event of events) {
           const digest = sha256Hex(canonicalJson({
             source: event.source, kind: event.kind, sequence: event.sequence, occurred_ns: event.occurred_ns,
@@ -311,10 +313,12 @@ function createPostgresBenchmarkWorker({pool, config}) {
              values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
             [attemptId, next, event.event_id, event.source, event.kind, event.sequence, event.occurred_ns, JSON.stringify(event.data), event.payload_sha256s, digest],
           );
+          stored += Buffer.byteLength(JSON.stringify(event.data));
           receipts.push({event_id: event.event_id, cursor: next, duplicate: false});
           next += 1;
         }
         await client.query('update benchmark_attempt set next_cursor = $2 where attempt_id = $1', [attemptId, next]);
+        if (stored) await chargeAttemptStorage(client, userId, attemptId, stored);
         return {receipts, high_water_cursor: next - 1};
       });
     },
@@ -366,6 +370,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
           [attemptId, MAX_SPAN_ATTRIBUTES_BYTES, MAX_LINK_ATTRIBUTES_BYTES],
         );
         if (grown.rowCount) throw new BenchmarkError(413, 'too_large', 'A span or link\'s merged attributes pass their byte limit');
+        await chargeAttemptStorage(client, userId, attemptId, [...spans, ...links].reduce((sum, item) => sum + Buffer.byteLength(JSON.stringify(item.attributes)), 0));
         return {spans: spans.length, links: links.length};
       });
     },
@@ -410,7 +415,10 @@ function createPostgresBenchmarkWorker({pool, config}) {
           `insert into benchmark_accounting (attempt_id, call_id, version, record) values ($1, $2, $3, $4) on conflict do nothing`,
           [attemptId, callId, version, JSON.stringify(record)],
         );
-        if (inserted.rowCount) return {call_id: callId, version, created: true};
+        if (inserted.rowCount) {
+          await chargeAttemptStorage(client, userId, attemptId, Buffer.byteLength(JSON.stringify(record)));
+          return {call_id: callId, version, created: true};
+        }
         const existing = (await client.query('select record from benchmark_accounting where attempt_id = $1 and call_id = $2 and version = $3', [attemptId, callId, version])).rows[0];
         if (canonicalJson(existing.record) !== canonicalJson(record)) {
           throw new BenchmarkError(409, 'conflicting_duplicate', `Version ${version} of call ${callId} was recorded with different content`);

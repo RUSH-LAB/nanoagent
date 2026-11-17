@@ -7,9 +7,11 @@ const {BenchmarkError} = require('./errors');
  * how it is checked. `capability` fields are the ones a worker advertises a maximum for; `internet_access` is a boolean
  * a worker advertises support for.
  */
+/** The most model calls a run may allow one attempt: each call is a stored admission and accounting row. */
+const MAX_MODEL_CALLS = 10_000;
 const NUMBER_LIMITS = Object.freeze({
   wall_time_ms: {default: 600_000, integer: true, min: 1},
-  max_model_calls: {default: 50, integer: true, min: 0},
+  max_model_calls: {default: 50, integer: true, min: 0, max: MAX_MODEL_CALLS},
   max_output_tokens_per_call: {default: 4096, integer: true, min: 1},
   max_cost_usd: {default: 1.5, integer: false, min: 0},
   cpus: {default: 1, integer: false, min: Number.MIN_VALUE},
@@ -44,8 +46,8 @@ function limitValue(name, value, what) {
     return value;
   }
   const rule = NUMBER_LIMITS[name];
-  const ok = typeof value === 'number' && Number.isFinite(value) && value >= rule.min && (!rule.integer || Number.isSafeInteger(value));
-  if (!ok) throw bad('invalid_request', `${what}.${name} must be ${rule.integer ? 'an integer' : 'a number'} of at least ${rule.min === Number.MIN_VALUE ? 'more than 0' : rule.min}`);
+  const ok = typeof value === 'number' && Number.isFinite(value) && value >= rule.min && value <= (rule.max ?? Infinity) && (!rule.integer || Number.isSafeInteger(value));
+  if (!ok) throw bad('invalid_request', `${what}.${name} must be ${rule.integer ? 'an integer' : 'a number'} of at least ${rule.min === Number.MIN_VALUE ? 'more than 0' : rule.min}${rule.max === undefined ? '' : ` and at most ${rule.max}`}`);
   return value;
 }
 
@@ -95,12 +97,16 @@ const MAX_LINK_ATTRIBUTES_BYTES = 8 * 1024;
 const MAX_ACCOUNTING_RECORD_BYTES = 64 * 1024;
 /** The metrics and the coverage an attempt is finalized with are a handful of counters and statuses. */
 const MAX_RESULT_BYTES = 64 * 1024;
+/** The attempts one case of a run keeps (the first and its reruns). */
+const MAX_ATTEMPTS_PER_CASE = 20;
 const MAX_ATTEMPT_EVENTS = 100_000;
 const MAX_ATTEMPT_SPANS = 10_000;
 const MAX_ATTEMPT_LINKS = 20_000;
 /** Versions of one call's accounting record. */
 const MAX_ACCOUNTING_VERSION = 10;
 const MAX_EVENT_PAGE_BYTES = 8 * 1024 * 1024;
+/** The bytes of spans, and of links, one trace read returns; a trace past it is cut (`truncated`). */
+const MAX_TRACE_PAGE_BYTES = 8 * 1024 * 1024;
 /** The most USD one call may settle at beyond what it reserved: the reserve is the gateway's upper bound on the cost, so honest calls stay under it. */
 const SETTLE_RESERVE_FACTOR = 2;
 /** The columns' ranges: numeric(20,8) holds below 1e12, integer below 2^31, bigint below 2^63. */
@@ -117,5 +123,5 @@ function positiveSetting(name, fallback) {
 
 module.exports = {
   CAPABILITY_WINDOW_S, MEMBER_STORAGE_BYTES, MAX_EVENT_DATA_BYTES, MAX_SPAN_ATTRIBUTES_BYTES, MAX_LINK_ATTRIBUTES_BYTES, MAX_ACCOUNTING_RECORD_BYTES,
-  MAX_RESULT_BYTES, MAX_ATTEMPT_EVENTS, MAX_ATTEMPT_SPANS, MAX_ATTEMPT_LINKS, MAX_ACCOUNTING_VERSION, MAX_EVENT_PAGE_BYTES, SETTLE_RESERVE_FACTOR, MAX_USD,
+  MAX_RESULT_BYTES, MAX_MODEL_CALLS, MAX_ATTEMPTS_PER_CASE, MAX_ATTEMPT_EVENTS, MAX_ATTEMPT_SPANS, MAX_ATTEMPT_LINKS, MAX_ACCOUNTING_VERSION, MAX_EVENT_PAGE_BYTES, MAX_TRACE_PAGE_BYTES, SETTLE_RESERVE_FACTOR, MAX_USD,
   MAX_INTEGER, MAX_BIGINT, DEFAULT_LIMITS, LIMIT_FIELDS, limitOverrides, effectiveLimits, capabilitiesOf, exceeded, positiveSetting};

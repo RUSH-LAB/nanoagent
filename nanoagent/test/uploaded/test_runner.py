@@ -710,3 +710,111 @@ async def test_a_snapshot_event_carries_the_diff_that_fits_and_says_when_it_is_c
         assert snapshot["diff"] == [] and snapshot["diff_truncated"] is True
     else:
         assert [entry["path"] for entry in snapshot["diff"]] == ["out.txt"] and snapshot["diff_truncated"] is False
+
+
+async def _with_harness(rig: Rig, post: Any) -> Any:
+    """Runs the attempt with a blocked case; `post(client)` is the harness talking to its /events, then the harness exits."""
+
+    async def harness() -> None:
+        while not rig.services or rig.supervisor.case is None or not rig.supervisor.case.launched:
+            await anyio.sleep(0.01)
+        services = rig.services[0]
+        headers = {"authorization": f"Bearer {services.attempt.policy.token}"}
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=services.app), base_url="http://svc.test", headers=headers) as client:
+            await post(client)
+        await anyio.sleep(0.2)
+        rig.supervisor.case.released.set()
+
+    async with anyio.create_task_group() as group:
+        group.start_soon(harness)
+        return await rig.run()
+
+
+async def test_a_huge_refusal_in_answer_json_is_still_scored_on_the_whole_answer(tmp_path: Path) -> None:
+    reason = "x" * 300_000
+    script = fx.CaseScript(result=fx.SandboxError("missing_result", "ignored"), workspace={"answer.json": json.dumps({"refused": reason}).encode()})
+    rush = fx.StrictRush()
+    rig = Rig(tmp_path, rush=rush, script=script, verify=CaseVerdict("fail", 0.0, "refused_answer_case"))
+    result = await rig.run(fx.parse_job(fx.job_body("coding")))
+    assert result.outcome == "finalized" and rush.refusals == []
+    assert rig.verified == [{"status": "refused", "reason": reason}]  # the verifier saw the whole reason
+    [final] = rush.finalized
+    assert final["verdict"] == "fail"
+    [read] = rush.of("result.read")
+    assert read["outcome"]["status"] == "refused" and read["outcome"]["reason"] == reason[:64] and read["data_truncated"]
+    assert json.loads(rush.payloads[read["data_payload_sha256"]])["outcome"]["reason"] == reason
+
+
+async def test_a_long_argv_does_not_unscore_the_case(tmp_path: Path) -> None:
+    argv = ("/bin/true", *(["A" * 4096] * 80))
+    events = (
+        ProcessEvent(0, ProcessEventKind.EXEC, 1_000_000, "c1", 100, 5000, 100, 5000, 1, "true", "/", False, argv),
+        ProcessEvent(1, ProcessEventKind.TASK_EXIT, 1_000_500, "c1", 100, 5000, 100, 5000, 1, "true", "/", False, exit_code=0),
+    )
+    rush = fx.StrictRush()
+    rig = Rig(tmp_path, rush=rush, script=fx.CaseScript(evidence=ProcessEvidence("c1", events, True, (), 2, 0, 0, 0, 1, 0)), verify=CaseVerdict("fail", 0.0, None))
+    result = await rig.run()
+    assert result.outcome == "finalized" and rush.refusals == [] and rush.finalized[0]["verdict"] == "fail"
+    [exec_record] = [e for e in rush.events if e["kind"] == "process.exec"]
+    assert exec_record["data"]["data_truncated"] and len(exec_record["data"]["argv"]) < len(argv)
+
+
+async def test_one_event_with_a_huge_unknown_key_does_not_unscore_the_case(tmp_path: Path) -> None:
+    rush = fx.StrictRush()
+    rig = Rig(tmp_path, rush=rush, script=fx.CaseScript(block=True), verify=CaseVerdict("fail", 0.0, None))
+
+    async def post(client: httpx.AsyncClient) -> None:
+        body = {"protocol": "rush.harness.v1", "event": "log", "emitter_id": "e", "sequence": 1, "span_id": "s", "message": "m", "k" * 300_000: 1}
+        assert (await client.post("/events", json=body)).status_code == 400
+
+    result = await _with_harness(rig, post)
+    assert result.outcome == "finalized" and rush.refusals == [] and rush.finalized[0]["verdict"] == "fail"
+    [rejected] = rush.of("harness.rejected")
+    assert rejected["data_truncated"] and rejected["http_status"] == 400
+
+
+async def test_harness_event_spam_past_the_event_budget_is_dropped_and_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("nanoagent.uploaded.rush_worker.EVENT_BUDGET", 40)
+    rush = fx.StrictRush(max_events=60)
+    rig = Rig(tmp_path, rush=rush, script=fx.CaseScript(block=True), verify=CaseVerdict("fail", 0.0, None))
+    rig.runner.project = default_project
+
+    async def post(client: httpx.AsyncClient) -> None:
+        for _ in range(80):
+            await client.post("/events", content=b"not json")  # a rejected post is journaled too
+
+    result = await _with_harness(rig, post)
+    assert result.outcome == "finalized" and rush.refusals == [] and len(rush.events) <= 60
+    [final] = rush.finalized
+    assert final["verdict"] == "fail" and final["coverage"]["status"] == "partial" and "event_budget" in final["coverage"]["loss_reasons"]
+    assert any(reason.startswith("event_budget_exceeded") for reason in final["coverage"]["reasons"])
+    assert "result.read" in rush.kinds() and "case.quiesced" in rush.kinds()  # the worker's closing records still fit
+
+
+async def test_fifty_thousand_short_processes_stay_under_the_real_event_cap(tmp_path: Path) -> None:
+    events = []
+    for i in range(50_001):
+        pid = 100 + i
+        events.append(ProcessEvent(2 * i, ProcessEventKind.EXEC, 1_000_000 + i, "c1", pid, 5000 + i, pid, 5000 + i, 1, "true", "/", False, ("/bin/true",)))
+        events.append(ProcessEvent(2 * i + 1, ProcessEventKind.TASK_EXIT, 1_000_500 + i, "c1", pid, 5000 + i, pid, 5000 + i, 1, "true", "/", False, exit_code=0))
+    rush = fx.StrictRush()
+    rig = Rig(tmp_path, rush=rush, script=fx.CaseScript(evidence=ProcessEvidence("c1", tuple(events), True, (), len(events), 0, 0, 0, 1, 0)), verify=CaseVerdict("fail", 0.0, None))
+    rig.runner.project = default_project
+    result = await rig.run()
+    assert result.outcome == "finalized" and rush.refusals == [] and len(rush.events) <= 100_000
+    [final] = rush.finalized
+    assert final["verdict"] == "fail" and "result.read" in rush.kinds() and "event_budget" in final["coverage"]["loss_reasons"]
+
+
+async def test_rejection_messages_do_not_overflow_the_finalize_coverage(tmp_path: Path) -> None:
+    rush = fx.StrictRush()
+    rig = Rig(tmp_path, rush=rush, script=fx.CaseScript(block=True), verify=CaseVerdict("fail", 0.0, None))
+    rig.runner.project = default_project
+
+    async def post(client: httpx.AsyncClient) -> None:
+        for sequence in range(3):
+            body = {"protocol": "rush.harness.v1", "event": "log", "emitter_id": "e", "sequence": sequence, "span_id": "s", "message": "m", "k" * 100_000: 1}
+            await client.post("/events", json=body)
+
+    result = await _with_harness(rig, post)
+    assert result.outcome == "finalized" and rush.refusals == [] and rush.finalized[0]["verdict"] == "fail"

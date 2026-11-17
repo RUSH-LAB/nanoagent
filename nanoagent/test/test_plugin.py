@@ -689,6 +689,115 @@ def test_contract_still_accepts_both_dataclass_decorator_spellings(tmp_path: Pat
     assert contract_problems(contract) == []
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        # the reviewer's payload: a re-exported sys reached through an allowed module, then a dunder hook
+        'from typing import sys\n\nclass Boom:\n    __class_getitem__ = sys.modules["builtins"].exec\n\nPWNED = Boom["open(1)"]\n',
+        "from typing import sys\n",
+        "from dataclasses import sys\n",
+        "from typing import TYPE_CHECKING\n",
+        "from typing import cast\n",
+        "from enum import sys\n",
+        "from slimconfig import sys\n",
+        "from typing import Annotated as Hook\n",
+        "import typing as t\n",
+        "import slimconfig.sys\n",
+        'import dataclasses\n\nX = dataclasses.sys.modules["builtins"].exec\n',
+        "import dataclasses\n\nclass A:\n    x: dataclasses.sys\n",
+        "import typing\n\nclass A:\n    x: typing.sys.modules\n",
+        "class Boom:\n    __class_getitem__ = 1\n",
+        "__class_getitem__ = 1\n",
+        "__builtins__ = 1\n",
+        "class _A:\n    x: int\n",
+        "class A:\n    x: int\n\nA.__doc__\n",
+        "class A:\n    x: int\n\nX = A.__init__\n",
+        "class A:\n    x: int\n\nX = A['code']\n",
+        "class A:\n    x: A['code']\n",
+        "class A:\n    x: int\n\nclass B:\n    y: A['code']\n",
+        "class A:\n    x: int\n\nclass B:\n    y = A['code']\n",
+        "class A:\n    x: 'exec(1)'\n",
+        "from typing import Annotated\n\nclass A:\n    x: Annotated['exec(1)', f'{1}']\n",
+        "from typing import Literal\n\nclass A:\n    x: Literal[print(1)]\n",
+        "X = open\n",
+        "X = exec\n",
+        "from enum import Enum\n\nclass A(Enum):\n    x = exec\n",
+        "class A(exec):\n    x: int\n",
+        "class A(type):\n    x: int\n",
+        "class A(object):\n    x: int\n",
+        "class A:\n    x: int\n\nA = 1\n",
+        "from enum import Enum\nfrom enum import Enum\n",
+        "from typing import Annotated\n\nAnnotated = 1\n",
+        "import dataclasses\n\ndataclasses = 1\n",
+        "from dataclasses import dataclass\n\ndataclass = 1\n\n@dataclass\nclass A:\n    x: int\n",
+        "@dataclass\nclass A:\n    x: int\n",
+        "class A:\n    x: int\n    y: int = 1\n",
+        "class A:\n    x = [1]\n",
+        "class A:\n    x = (lambda: 1)\n",
+        "class A:\n    x = a.b\n",
+        "class A:\n    x: int\n    x.y = 1\n",
+        "class A:\n    (x): int\n",
+        "x: int\n",
+        "X = {**{}}\n",
+        "class A:\n    x: list[__import__('os')]\n",
+        "import dataclasses\n\nX = dataclasses\n",
+        "class A:\n    def f(self):\n        pass\n",
+        "class A:\n    class B:\n        x: int\n",
+        "if True:\n    pass\n",
+        "from . import x\n",
+        "from .typing import Annotated\n",
+    ],
+)
+def test_contract_rejects_everything_outside_the_declaration_grammar(tmp_path: Path, source: str) -> None:
+    from nanoagent.plugin.v0001.contract import contract_problems
+
+    contract = tmp_path / "contract.py"
+    contract.write_text(source, encoding="utf-8")
+    assert contract_problems(contract)
+
+
+def test_contract_accepts_the_declaration_grammar(tmp_path: Path) -> None:
+    from nanoagent.plugin.v0001.contract import contract_problems
+
+    contract = tmp_path / "contract.py"
+    contract.write_text(
+        '"""Doc."""\n'
+        "import typing\n"
+        "from dataclasses import dataclass\n"
+        "from enum import Enum, StrEnum\n"
+        "from typing import Annotated, Literal, Optional\n"
+        "from slimconfig import Output\n\n\n"
+        "class Tool(Enum):\n    A = 'a'\n    B = ('b', 1)\n\n\n"
+        "class Task(StrEnum):\n    A = 'a'\n\n\n"
+        "@dataclass\nclass Item(Output):\n    x: Annotated[str | None, 'x']\n"
+        "    y: typing.Annotated[list[int], 'y']\n    z: Literal['a', 'b']\n    w: Optional[Tool]\n\n\n"
+        "@dataclass\nclass Empty(Output):\n    pass\n\n\n"
+        "class Sub(Item):\n    pass\n\n\n"
+        "TOOLS = {Tool.A: (Item, Empty)}\nTASKS = {Task.A: (Item, Empty)}\nNAMES = [Tool.B, 'c', 1]\n",
+        encoding="utf-8",
+    )
+    assert contract_problems(contract) == []
+
+
+REPO_CONTRACTS = sorted(
+    path
+    for root in (Path(__file__).parent, Path(__file__).parent.parent / "src" / "nanoagent" / "plugin" / "template")
+    for path in root.rglob("contract.py")
+    if "plugins" in path.parts or "template" in path.parts
+)
+
+
+def test_the_repo_contracts_are_found() -> None:
+    assert len(REPO_CONTRACTS) >= 5
+
+
+@pytest.mark.parametrize("path", REPO_CONTRACTS, ids=lambda path: path.parent.name)
+def test_every_repo_contract_passes_the_contract_gate(path: Path) -> None:
+    from nanoagent.plugin.v0001.contract import contract_problems
+
+    assert contract_problems(path) == []
+
+
 def test_a_session_bounds_its_concurrent_workspace_copies(monkeypatch: pytest.MonkeyPatch) -> None:
     import threading
     import time

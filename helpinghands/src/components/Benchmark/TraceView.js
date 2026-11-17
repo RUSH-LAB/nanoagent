@@ -4,7 +4,7 @@ import {benchmarkApi} from './api';
 import {attemptStatus, explanationText, verdictText} from './runs';
 import {followStream} from './sse';
 import {buildTrace} from './traceModel';
-import {SPAN_LIMIT, spansCut} from './pagination';
+import {spansCut} from './pagination';
 import useLoad from './useLoad';
 import TraceActivity from './TraceActivity';
 import Metrics from './MetricsPanel';
@@ -59,7 +59,7 @@ export default function TraceView({attemptId, onBack, backLabel = 'All runs'}) {
           </details>
         </header>
       )}
-      {spansCut(spans.data) && <p className={styles.muted}>This trace has more than {SPAN_LIMIT.toLocaleString('en-US')} spans; only the first {SPAN_LIMIT.toLocaleString('en-US')} are shown.</p>}
+      {spansCut(spans.data) && <p className={styles.muted}>This trace is too large to show whole; only its first {spans.data.spans.length.toLocaleString('en-US')} spans are shown.</p>}
       {a && !spans.error && <TraceActivity attemptId={attemptId} model={model} loading={spans.loading} />}
     </div>
   );

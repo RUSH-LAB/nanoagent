@@ -146,8 +146,8 @@ describe('the events page and the links read are bounded', () => {
     const pool = recordingPool({'select 1 from benchmark_attempt': [{}]});
     await createPostgresBenchmark({pool}).spans({userId: 'u', workspaceId: 'w'}, 'a', {kind: null, status: null, q: null, limit: 10});
     const links = pool.statements.find(s => s.text.includes('from benchmark_link'));
-    assert.match(links.text, /limit \$2$/);
-    assert.deepEqual(links.params, ['a', limits.MAX_ATTEMPT_LINKS]);
+    assert.match(links.text, /limit \$2\) page\) sized where before_bytes < \$3/);
+    assert.deepEqual(links.params, ['a', limits.MAX_ATTEMPT_LINKS, limits.MAX_TRACE_PAGE_BYTES]);
   });
 
   test('a member keeps their newest previews: saving one prunes the rest', async () => {
@@ -162,6 +162,7 @@ describe('settling and numeric ranges', () => {
     config, pool: recordingPool({
       'select a.attempt_id, r.user_id': [{attempt_id: 'a', user_id: 'u', workspace_id: 'w'}],
       'select status, reserve_usd': [{status: 'reserved', reserve, cost: null, day: '2026-01-01'}],
+      'select coalesce(current_setting': [{prior: 'off'}], 'select (select coalesce(sum(size)': [{used: 0}],
     }),
   }).settle('u', 'a', 'call', {outcome: 'settled', costUsd: cost, provenance: {}});
 

@@ -34,7 +34,7 @@ async function inTransaction(pool, {userId = null, workspaceId = null, system = 
 }
 
 /**
- * Refuse `bytes` more of member `userId`'s storage (source ZIPs and attempt payloads) if it would pass MEMBER_STORAGE_BYTES. Call it in the
+ * Refuse `bytes` more of member `userId`'s storage (source ZIPs, attempt payloads and the evidence an attempt stores) if it would pass MEMBER_STORAGE_BYTES. Call it in the
  * transaction that inserts: the advisory lock makes concurrent uploads of one member count each other. The total spans all the member's
  * workspaces, so it alone is read as the system; the transaction's own rights are restored for the insert that follows.
  */
@@ -45,12 +45,22 @@ async function chargeStorage(client, userId, bytes) {
   const {used} = (await client.query(
     `select (select coalesce(sum(size), 0) from benchmark_source where user_id = $1)
           + (select coalesce(sum(p.size), 0) from benchmark_payload p join benchmark_attempt a on a.attempt_id = p.attempt_id
-              join benchmark_run r on r.run_id = a.run_id where r.user_id = $1) as used`, [userId],
+              join benchmark_run r on r.run_id = a.run_id where r.user_id = $1)
+          + (select coalesce(sum(a.stored_bytes), 0) from benchmark_attempt a join benchmark_run r on r.run_id = a.run_id where r.user_id = $1) as used`, [userId],
   )).rows[0];
   await client.query("select set_config('app.benchmark_system', $1, true)", [prior]);
   if (Number(used) + bytes > MEMBER_STORAGE_BYTES) {
     throw new BenchmarkError(413, 'storage_quota_exceeded', `This would pass the ${MEMBER_STORAGE_BYTES} bytes of benchmark storage a member may keep (${used} in use)`);
   }
+}
+
+/**
+ * Charge `bytes` of evidence (events, spans, links, accounting, provenance) stored for attempt `attemptId` to member `userId`'s storage, once per
+ * request with the request's total. The attempt keeps the count, so deleting its run frees it.
+ */
+async function chargeAttemptStorage(client, userId, attemptId, bytes) {
+  await chargeStorage(client, userId, bytes);
+  await client.query('update benchmark_attempt set stored_bytes = stored_bytes + $2 where attempt_id = $1', [attemptId, bytes]);
 }
 
 /** Nanosecond values are bigints; JSON carries them as decimal strings. */
@@ -63,4 +73,4 @@ function nanoseconds(value) {
   return undefined;
 }
 
-module.exports = {chargeStorage, inTransaction, nanoseconds};
+module.exports = {chargeAttemptStorage, chargeStorage, inTransaction, nanoseconds};

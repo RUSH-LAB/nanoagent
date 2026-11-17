@@ -334,3 +334,25 @@ def test_the_snapshot_diff_comes_from_its_payload_not_the_event() -> None:
         if record["kind"] == "snapshot.taken":
             record["data"]["diff"] = []
     assert len(run(t).workspace_diff) == 2
+
+
+def test_coverage_and_metrics_stay_under_the_servers_64_kib_for_adversarial_input() -> None:
+    import json
+
+    from nanoagent.uploaded.projection_model import Metrics, Rejection, TraceCoverage
+    from nanoagent.uploaded.timing import TimingMethod
+    from nanoagent.uploaded.usage import aggregate
+
+    sha = "ab" * 32
+    coverage = TraceCoverage(
+        expected_sources=("worker",), observed_sources=("worker",), missing_sources=(), collector_complete=False,
+        loss_reasons=tuple(f"loss {i} " + "é" * 500 for i in range(500)),
+        truncated=tuple(f"{i:064x}" for i in range(5000)), redacted=tuple(f"{i:064x}" for i in range(5000)),
+        rejected=tuple(Rejection("harness", "harness.rejected", "invalid", "\x01" * 100_000, (sha,) * 100) for _ in range(500)),
+        partial=True, reasons=tuple("reason " + "\x01" * 1000 for _ in range(500)),
+    )  # fmt: skip
+    out = coverage.to_dict()
+    assert len(json.dumps(out, separators=(",", ":"), ensure_ascii=False).encode()) <= 64 * 1024
+    assert out["omitted"]["rejected"] > 0 and out["omitted"]["redacted"] > 0 and out["status"] == "partial"
+    metrics = Metrics(aggregate([]), True, None, None, "é" * 100_000, TimingMethod(1.0, 1)).to_dict()
+    assert len(json.dumps(metrics, separators=(",", ":"), ensure_ascii=False).encode()) <= 64 * 1024

@@ -6,7 +6,7 @@ const {CAPABILITY_WINDOW_S} = require('../benchmark/limits');
 const {stringifyJson} = require('../benchmark/json');
 const {RENDERER_VERSION, sha256Hex} = require('../benchmark/prompt');
 const {latestByCase, runScore, sumMetrics} = require('../benchmark/rules');
-const {MAX_ATTEMPT_LINKS, MAX_EVENT_PAGE_BYTES} = require('../benchmark/limits');
+const {MAX_ATTEMPT_LINKS, MAX_ATTEMPTS_PER_CASE, MAX_EVENT_PAGE_BYTES, MAX_TRACE_PAGE_BYTES} = require('../benchmark/limits');
 const {chargeStorage, inTransaction} = require('./benchmark-context');
 const {sweepExpired} = require('./benchmark-sweep');
 
@@ -221,7 +221,8 @@ function createPostgresBenchmark({pool}) {
     /** Keep a preview's resolved `plan` and its `digest`: the new preview's id. */
     async savePreview(context, plan, digest) {
       const previewId = crypto.randomUUID();
-      await member(context, async client => {
+      // As the system (still the member's own rows), so the prune sees the member's previews of every workspace, not only this one's.
+      await memberWrite(context, async client => {
         await client.query(
           'insert into benchmark_preview (preview_id, workspace_id, user_id, plan, plan_digest) values ($1, $2, $3, $4, $5)',
           [previewId, context.workspaceId, context.userId, JSON.stringify(plan), digest],
@@ -398,16 +399,26 @@ function createPostgresBenchmark({pool}) {
       return member(context, async client => {
         if (!(await client.query('select 1 from benchmark_attempt where attempt_id = $1', [attemptId])).rowCount) return null;
         const escaped = q ? `%${q.replace(/[\\%_]/g, '\\$&')}%` : null;
-        const spans = (await client.query(
-          `select span_id as id, kind, name, parent_id as parent, scope, status, start_ns::text, end_ns::text, provenance, target, attributes
-             from benchmark_span where attempt_id = $1 and ($2::text is null or kind = $2) and ($3::text is null or status = $3)
-              and ($4::text is null or name ilike $4 or target ilike $4 or scope ilike $4 or span_id ilike $4)
-            order by start_ns nulls last, span_id limit $5`, [attemptId, kind, status, escaped, limit],
+        // Each read ends at its row limit or once its bytes pass MAX_TRACE_PAGE_BYTES, whichever comes first (it always holds one row).
+        const spanRows = (await client.query(
+          `select id, kind, name, parent, scope, status, start_ns, end_ns, provenance, target, attributes, fetched from (
+             select *, count(*) over () as fetched, sum(octet_length(attributes::text) + octet_length(name) + 512) over (order by order_ns nulls last, id) - octet_length(attributes::text) - octet_length(name) - 512 as before_bytes from (
+               select span_id as id, kind, name, parent_id as parent, scope, status, start_ns::text, end_ns::text, start_ns as order_ns, provenance, target, attributes
+                 from benchmark_span where attempt_id = $1 and ($2::text is null or kind = $2) and ($3::text is null or status = $3)
+                  and ($4::text is null or name ilike $4 or target ilike $4 or scope ilike $4 or span_id ilike $4)
+                order by order_ns nulls last, id limit $5) page) sized
+            where before_bytes < $6 order by order_ns nulls last, id`, [attemptId, kind, status, escaped, limit, MAX_TRACE_PAGE_BYTES],
         )).rows;
-        const links = (await client.query(
-          'select kind, from_id as "from", to_id as "to", method, attributes from benchmark_link where attempt_id = $1 order by kind, from_id, to_id limit $2', [attemptId, MAX_ATTEMPT_LINKS],
+        const linkRows = (await client.query(
+          `select kind, "from", "to", method, attributes, fetched from (
+             select *, sum(octet_length(attributes::text) + 512) over (order by kind, "from", "to") - octet_length(attributes::text) - 512 as before_bytes from (
+               select kind, from_id as "from", to_id as "to", method, attributes, count(*) over () as fetched
+                 from benchmark_link where attempt_id = $1 order by kind, from_id, to_id limit $2) page) sized
+            where before_bytes < $3 order by kind, "from", "to"`, [attemptId, MAX_ATTEMPT_LINKS, MAX_TRACE_PAGE_BYTES],
         )).rows;
-        return {spans, links};
+        const cut = rows => rows.length > 0 && rows.length < Number(rows[0].fetched);
+        const strip = ({fetched, ...row}) => row;
+        return {spans: spanRows.map(strip), links: linkRows.map(strip), truncated: cut(spanRows) || cut(linkRows)};
       });
     },
     async payload(context, attemptId, sha256) {
@@ -459,6 +470,8 @@ function createPostgresBenchmark({pool}) {
         )).rows[0];
         if (!latest) throw new BenchmarkError(404, 'unknown_case', `Run ${runId} has no case ${caseId}`);
         if (latest.state !== 'final') throw new BenchmarkError(409, 'attempt_active', 'The case has an attempt that is not final yet');
+        // Run detail and comparison load every attempt of a run, so a case's attempts are capped.
+        if (latest.attempt_no >= MAX_ATTEMPTS_PER_CASE) throw new BenchmarkError(409, 'too_many_attempts', `A case keeps ${MAX_ATTEMPTS_PER_CASE} attempts at most`);
         const attemptId = crypto.randomUUID();
         await client.query(
           'insert into benchmark_attempt (attempt_id, run_id, case_id, attempt_no, rerun_of) values ($1, $2, $3, $4, $5)',

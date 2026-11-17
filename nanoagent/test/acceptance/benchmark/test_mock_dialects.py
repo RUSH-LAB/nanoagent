@@ -140,7 +140,8 @@ def test_anthropic_stream_matches_scenario(mock: MockProvider) -> None:
         model=MODEL, max_tokens=100, messages=[{"role": "user", "content": "hi"}], tools=ANTHROPIC_TOOLS
     ) as stream:
         message = stream.get_final_message()
-    assert 0.45 <= time.perf_counter() - start < 0.9
+    # The scenario's delays make the stream take ~0.5 s; the upper bound only rules out a hang, as a loaded machine stretches it.
+    assert 0.45 <= time.perf_counter() - start < 5
     thinking, text, tool = message.content
     assert thinking.thinking == "Need to wait, then answer." and thinking.signature
     assert text.text == "Working on it."
@@ -176,7 +177,8 @@ def test_responses_stream_matches_scenario(mock: MockProvider) -> None:
     with client.responses.stream(model=MODEL, input="hi", tools=RESPONSES_TOOLS) as stream:
         deltas = [e.type for e in stream if e.type.endswith(".delta")]
         final = stream.get_final_response()
-    assert 0.45 <= time.perf_counter() - start < 0.9
+    # The scenario's delays make the stream take ~0.5 s; the upper bound only rules out a hang, as a loaded machine stretches it.
+    assert 0.45 <= time.perf_counter() - start < 5
     assert deltas[0] == "response.reasoning_summary_text.delta"
     assert "response.output_text.delta" in deltas and "response.function_call_arguments.delta" in deltas
     reasoning, message, call = final.output

@@ -1,6 +1,7 @@
 /** The most spans one attempt's trace request returns (the server's cap); a trace that reaches it may be cut. */
 export const SPAN_LIMIT = 5000;
-export const spansCut = data => (data?.spans?.length ?? 0) >= SPAN_LIMIT;
+// Cut by the span count asked for, or by the server's byte budget for one read (`truncated`).
+export const spansCut = data => data?.truncated === true || (data?.spans?.length ?? 0) >= SPAN_LIMIT;
 
 /** Overlap the last millisecond so timestamp ties are not silently skipped. Runs page by `created_at`; `{key, time}` pages other rows (benchmarks: `benchmark_id`, `published_at`). */
 export async function allPages(read, {key = 'run_id', time = 'created_at'} = {}) {

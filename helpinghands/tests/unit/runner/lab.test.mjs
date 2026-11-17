@@ -9,7 +9,7 @@ import {spawnSync} from 'node:child_process';
 import {
   addConnection, adoptLegacy, bundledCommand, commandLauncher, connectableSite, connectionId, installCommand, installsFolder, linkMember,
   linkSession, keyHint, keyStatus, memberFiles, nanoagentCommand, newPlugin, onPath, parseEnv, pathAdvice, providerKeys, relayEnv,
-  removeOtherSites, rushlab, rushlabCommand, systemEnv, writeKeys,
+  removeOtherSites, rushlab, rushlabCommand, shellVars, systemEnv, writeKeys,
 } from '../../../src/runner/lab.mjs';
 
 const CONFIG = {product_name: 'RUSH Lab', site_url: 'https://rush-lab.org', command: 'rushlab'};
@@ -427,4 +427,19 @@ test('refuses an id no plugin has, and removes a plugin it could not finish, say
   const noSkill = {...fakeBuild('mkdir "$6"'), skill: path.join(cwd, 'missing', 'SKILL.md')};
   await assert.rejects(newPlugin(noSkill, 'my-plugin', cwd), /no such file or directory/);
   assert.deepEqual(fs.readdirSync(cwd), []);
+});
+
+test('shellVars carries DOCKER_HOST, DOCKER_CONTEXT and DOCKER_CONFIG from the shell, and leaves unset ones out', {skip: process.platform === 'win32'}, async () => {
+  const saved = {...process.env};
+  Object.assign(process.env, {DOCKER_HOST: 'unix:///tmp/docker.sock', DOCKER_CONTEXT: 'colima'});
+  delete process.env.DOCKER_CONFIG;
+  try {
+    const vars = await shellVars('/bin/sh', ['PATH', 'DOCKER_HOST', 'DOCKER_CONTEXT', 'DOCKER_CONFIG']);
+    assert.equal(vars.DOCKER_HOST, 'unix:///tmp/docker.sock');
+    assert.equal(vars.DOCKER_CONTEXT, 'colima');
+    assert.ok(vars.PATH);
+    assert.equal('DOCKER_CONFIG' in vars, false);
+  } finally {
+    process.env = saved;
+  }
 });

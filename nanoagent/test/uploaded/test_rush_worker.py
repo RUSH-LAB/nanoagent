@@ -388,3 +388,48 @@ async def test_claiming_from_rush_is_logged_once_at_startup_not_per_poll(tmp_pat
     finally:
         worker_module.anyio.sleep = real_sleep
     assert [r.getMessage() for r in caplog.records if "RUSH" in r.getMessage()] == [f"claiming from RUSH: {settings.endpoint.label}"]
+
+
+async def test_a_record_whose_data_is_over_the_event_limit_is_committed_as_a_stub_with_the_data_as_a_payload() -> None:
+    from nanoagent.uploaded import records as rec
+    from nanoagent.uploaded.rush_worker import MAX_EVENT_DATA_BYTES, Emitter
+
+    sent: list[dict[str, Any]] = []
+    payloads: dict[str, bytes] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "PUT":
+            payloads[request.url.path.rsplit("/", 1)[1]] = request.content
+            return httpx.Response(200, json={})
+        sent.extend(json.loads(request.content)["events"])
+        return httpx.Response(200, json={"receipts": [], "high_water_cursor": len(sent)})
+
+    journal = RushJournal(client_for(handler), Lease("a", 1))
+    argv = ["A" * 4096] * 128  # a valid harness.yaml run.argv
+    await Emitter(journal, lambda: 1).emit(rec.CaseLaunched("c1", 5, argv))
+    [event] = sent
+    assert len(json.dumps(event["data"])) < MAX_EVENT_DATA_BYTES and event["data"]["container_id"] == "c1" and event["data"]["data_truncated"]
+    sha = event["data"]["data_payload_sha256"]
+    assert sha in event["payload_sha256s"] and json.loads(payloads[sha])["argv"] == argv
+
+
+async def test_events_past_the_budget_are_dropped_and_counted_but_the_worker_records_still_commit(monkeypatch: pytest.MonkeyPatch) -> None:
+    from nanoagent.uploaded import records as rec
+    from nanoagent.uploaded.rush_worker import Emitter
+
+    monkeypatch.setattr("nanoagent.uploaded.rush_worker.EVENT_BUDGET", 3)
+    sent: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.extend(json.loads(request.content)["events"])
+        return httpx.Response(200, json={"receipts": [], "high_water_cursor": len(sent)})
+
+    journal = RushJournal(client_for(handler), Lease("a", 1))
+    for sequence in range(1, 6):
+        await journal.append(EvidenceEvent(f"harness-{sequence:06d}", "harness", "k", sequence, sequence, {}))
+    # The gateway's records of an admitted (paid) call always get through; a refused call is the harness's to multiply.
+    await journal.append(EvidenceEvent("gateway-000001", "gateway", "model_call.response", 6, 6, {"call_id": "c"}))
+    await journal.append(EvidenceEvent("gateway-000002", "gateway", "model_call.rejected", 7, 7, {}))
+    await Emitter(journal, lambda: 1).emit(rec.CaseQuiesced(9))
+    assert [event["event_id"] for event in sent] == ["harness-000001", "harness-000002", "harness-000003", "gateway-000001", "worker-000001"]
+    assert journal.over_budget == 3 and not journal.closed

@@ -78,10 +78,14 @@ export function queueRemoval(file, id) {
   fs.writeFileSync(file, JSON.stringify([...new Set([...pendingIds(file), id])]));
 }
 
-/** Try each removal queued in `file`, dropping an id only once its removal succeeded: the failures, {id, error}. */
-export async function retryRemovals(file, {dockerEnv, docker = dockerRun}) {
+/**
+ * Try each removal queued in `file`, dropping an id only once its removal succeeded: the failures, {id, error}. An id in `present` is a connection that
+ * is back (its container name is the same), so it is dropped without removing anything.
+ */
+export async function retryRemovals(file, {dockerEnv, docker = dockerRun, present = new Set()}) {
   const failed = [];
   for (const id of pendingIds(file)) {
+    if (present.has(id)) continue;
     try {
       await removeWorkerData(id, {dockerEnv, docker});
     } catch (error) {
@@ -476,8 +480,9 @@ export function benchmarkWorker({
     },
     /** The member pressed Restart. */
     async restart() {
-      await halt();
-      start();
+      const mine = await halt();
+      // A stop or another start during the stop supersedes this restart, as in keysChanged.
+      if (mine === generation) start();
     },
     /** The member pressed Re-check: a running worker is left alone and the checks before it run again; one that is not is started. */
     async recheck() {

@@ -73,6 +73,7 @@ describe('multi-benchmark workflow', () => {
     assert.deepEqual(calls, [undefined, '2026-01-02T00:00:00.001Z']);
     assert.equal(spansCut({spans: new Array(SPAN_LIMIT - 1)}), false);
     assert.equal(spansCut({spans: new Array(SPAN_LIMIT)}), true);
+    assert.equal(spansCut({spans: [], links: [], truncated: true}), true, 'the server cut the read by bytes');
     assert.equal(spansCut(undefined), false);
   });
 

@@ -14,7 +14,7 @@ from typing import Any
 import anyio
 from nanoagent.plugin.manifest import load_manifest
 from nanoagent.uploaded.collector import ProcessEvidence
-from nanoagent.uploaded.rush_worker import Canceled, LeaseLost, Sealed, parse_job
+from nanoagent.uploaded.rush_worker import Canceled, LeaseLost, RushError, Sealed, parse_job
 from nanoagent.uploaded.sandbox import BuildArtifact, CaseOutcome, SandboxError, Termination, TerminationKind, WorkspaceSnapshot
 
 PROBE = Path(__file__).resolve().parents[1] / "plugins" / "acceptance-probe"
@@ -85,6 +85,7 @@ class FakeRush:
     def __init__(self, source: bytes | None = None) -> None:
         self.source_bytes = source if source is not None else source_zip()
         self.events: list[dict[str, Any]] = []
+        self.event_ids: set[str] = set()
         self.payloads: dict[str, bytes] = {}
         self.admissions: dict[str, float] = {}
         self.settles: list[tuple[str, str, float | None, dict[str, Any]]] = []
@@ -144,9 +145,9 @@ class FakeRush:
         if self.lost:
             self.events_after_loss += 1
         self._fenced()
-        known = {event["event_id"]: event for event in self.events}
         for event in events:
-            if event["event_id"] not in known:
+            if event["event_id"] not in self.event_ids:
+                self.event_ids.add(event["event_id"])
                 self.events.append(event)
         return {"receipts": [], "high_water_cursor": len(self.events)}
 
@@ -187,6 +188,37 @@ class FakeNetwork:
 
 def evidence(complete: bool = True, reasons: tuple[str, ...] = ()) -> ProcessEvidence:
     return ProcessEvidence("c1", (), complete, reasons, 0, 0, 0, 0, 1, 0)
+
+
+class StrictRush(FakeRush):
+    """The worker API with RUSH's size limits (validate.js, limits.js, appendEvents): a 413 for an event whose data is over
+    256 KiB, past `max_events` events in an attempt, or finalize coverage or metrics over 64 KiB."""
+
+    MAX_EVENT_DATA_BYTES = 256 * 1024
+    MAX_RESULT_BYTES = 64 * 1024
+
+    def __init__(self, *args: Any, max_events: int = 100_000, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.max_events = max_events
+        self.refusals: list[str] = []
+
+    def _refuse(self, code: str, message: str) -> RushError:
+        self.refusals.append(code)
+        return RushError(413, "too_large", message)
+
+    async def append_events(self, attempt_id: str, fence: int, events: list[dict[str, Any]]) -> dict[str, Any]:
+        for event in events:
+            if len(json.dumps(event["data"], separators=(",", ":"), ensure_ascii=False).encode()) > self.MAX_EVENT_DATA_BYTES:
+                raise self._refuse(f"event_data {event['kind']}", "data is too large")
+        if len(self.events) + len([event for event in events if event["event_id"] not in self.event_ids]) > self.max_events:
+            raise self._refuse("too_many_events", "too many events")
+        return await super().append_events(attempt_id, fence, events)
+
+    async def finalize(self, attempt_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        for key in ("coverage", "metrics"):
+            if len(json.dumps(body[key], separators=(",", ":"), ensure_ascii=False).encode()) > self.MAX_RESULT_BYTES:
+                raise self._refuse(f"finalize {key}", f"{key} is too large")
+        return await super().finalize(attempt_id, body)
 
 
 @dataclass

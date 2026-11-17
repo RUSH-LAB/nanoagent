@@ -718,7 +718,11 @@ class AttemptRunner:
             coverage = {"status": "partial", "reasons": [reason], "expected_sources": [], "observed_sources": [], "missing_sources": [], "collector_complete": None,
                         "loss_reasons": [], "truncated": [], "redacted": [], "rejected": []}  # fmt: skip
             return coverage, {"usage_complete": False, "timing_unavailable": reason}
-        return projection.coverage.to_dict(), projection.metrics.to_dict("the source did not build, so no case ran" if status == "build_failed" else None)
+        coverage = projection.coverage.to_dict()
+        if journal.over_budget:  # evidence past the event budget was never journaled: the trace is partial, and says why
+            coverage |= {"status": "partial", "reasons": [*coverage["reasons"], f"event_budget_exceeded: {journal.over_budget} events dropped"],
+                         "loss_reasons": [*coverage["loss_reasons"], "event_budget"]}  # fmt: skip
+        return coverage, projection.metrics.to_dict("the source did not build, so no case ran" if status == "build_failed" else None)
 
     async def _finalize(
         self, job: AttemptJob, journal: RushJournal, status: str, reason: str | None, *, verdict: Mapping[str, Any] | None = None,

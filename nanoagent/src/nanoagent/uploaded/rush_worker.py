@@ -23,14 +23,25 @@ from typing import Any
 import anyio
 import httpx
 
-from nanoagent.uploaded.evidence import EvidenceEvent, json_bytes, sha256_hex
+from nanoagent.uploaded.evidence import MAX_PAYLOAD_BYTES, EvidenceEvent, json_bytes, sha256_hex
 from nanoagent.uploaded.gateway import AdmissionDenied
-from nanoagent.uploaded.records import Fact, make_record
+from nanoagent.uploaded.records import WORKER, Fact, make_record
 
 FENCE_HEADER = "X-Rush-Fence"
 REDACTION_HEADER = "X-Rush-Redaction"
 MAX_EVENTS_PER_BATCH = 500
 RETRYABLE_STATUS = frozenset({502, 503, 504})
+# RUSH refuses an event whose data is over 256 KiB and an attempt's 100,001st event with a 413, which would fault the attempt
+# unscored, so both are kept below by construction: the journal stubs the former and drops the latter.
+MAX_EVENT_DATA_BYTES = 200 * 1024
+# Records the harness can multiply (its events, commands, tools, processes, refused calls) are dropped past EVENT_BUDGET. The
+# worker's and the gateway's records of admitted calls always get through: at most ~4 per call under RUSH's 10,000-call bound
+# (MAX_MODEL_CALLS), so 40,000, which with the budget and the worker's few records stays under RUSH's 100,000.
+EVENT_BUDGET = 55_000
+KEPT_SOURCES = frozenset({WORKER, "gateway"})
+DROPPABLE_KINDS = frozenset({"model_call.rejected"})
+STUB_KEYS = (16, 8, 4)  # entries a stub keeps per nesting level; deeper levels are dropped
+STUB_STRING = 64  # characters a stub keeps of a string
 
 
 class RushError(Exception):
@@ -372,6 +383,17 @@ def wire_event(event: EvidenceEvent) -> dict[str, Any]:
     }
 
 
+def _shrink(value: Any, depth: int) -> Any:
+    """``value`` cut to a bounded size: long strings clipped, only the first few entries of each level kept, deeper levels None."""
+    if isinstance(value, str):
+        return value[:STUB_STRING]
+    if isinstance(value, Mapping):
+        return None if depth >= len(STUB_KEYS) else {str(key)[:STUB_STRING]: _shrink(item, depth + 1) for key, item in list(value.items())[: STUB_KEYS[depth]]}
+    if isinstance(value, (list, tuple)):
+        return None if depth >= len(STUB_KEYS) else [_shrink(item, depth + 1) for item in value[: STUB_KEYS[depth]]]
+    return value
+
+
 @dataclass
 class RushJournal:
     """The gateway's `Journal` over the worker API, and the local mirror of what was committed.
@@ -386,6 +408,8 @@ class RushJournal:
     redactions: dict[str, str] = field(default_factory=dict)  # payload digest -> none, redacted or truncated
     high_water: int = 0
     dropped: int = 0  # events not sent because the lease was lost or the stream sealed
+    over_budget: int = 0  # non-worker events not sent because the attempt is at its event budget
+    accepted: int = 0  # events taken for sending, which count against the budget
     closed: bool = False
     _queue: list[dict[str, Any]] = field(default_factory=list)
     _sent: set[str] = field(default_factory=set)
@@ -404,6 +428,12 @@ class RushJournal:
         if self.closed:
             self.dropped += 1
             return
+        droppable = record["source"] not in KEPT_SOURCES or record["kind"] in DROPPABLE_KINDS
+        if droppable and self.accepted >= EVENT_BUDGET:
+            self.over_budget += 1  # reported in the coverage
+            return
+        self.accepted += 1
+        record = await self._within_data_limit(record)
         self._queue.append(dict(record))
         async with self._lock:
             while record["event_id"] not in self._sent:
@@ -411,6 +441,18 @@ class RushJournal:
                 if not await self._commit(batch):
                     self.dropped += len(batch)
                     self._sent.update(item["event_id"] for item in batch)
+
+    async def _within_data_limit(self, record: Mapping[str, Any]) -> Mapping[str, Any]:
+        """``record``, or when its data is over the event limit a stub of it: the data whole is a payload, the event keeps its short fields."""
+        data = json_bytes(record["data"])
+        if len(data) <= MAX_EVENT_DATA_BYTES:
+            return record
+        sha = await self.put_payload(data[:MAX_PAYLOAD_BYTES], "clean" if len(data) <= MAX_PAYLOAD_BYTES else "truncated")
+        marks = {"data_truncated": True, "data_payload_sha256": sha}
+        stub = {**_shrink(record["data"], 0), **marks}
+        if len(json_bytes(stub)) > MAX_EVENT_DATA_BYTES:  # a multi-byte or heavily escaped string can outgrow the character caps
+            stub = marks
+        return {**record, "data": stub, "payload_sha256s": [*record["payload_sha256s"], sha]}
 
     async def _commit(self, batch: list[dict[str, Any]]) -> bool:
         if self.closed:

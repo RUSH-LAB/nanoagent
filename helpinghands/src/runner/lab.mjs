@@ -607,15 +607,15 @@ async function main() {
     }
   }
 
-  // The member's own PATH, which finds docker where their terminal does: asked once, when the first worker needs it, and
-  // again after a failure, which fails the check that needed it.
-  let memberDockerPath = null;
+  // The member's own PATH and Docker variables, which find docker where their terminal does: asked once, when the first worker needs
+  // them, and again after a failure, which fails the check that needed it.
+  let memberDockerVars = null;
   const dockerEnv = async () => {
-    memberDockerPath ??= memberPath(os.userInfo().shell).catch(error => {
-      memberDockerPath = null;
+    memberDockerVars ??= shellVars(os.userInfo().shell, ['PATH', ...DOCKER_VARS]).catch(error => {
+      memberDockerVars = null;
       throw new Error(`Could not read your terminal's PATH, where docker is found: ${error.message}`);
     });
-    return {...system, PATH: await memberDockerPath};
+    return {...system, ...await memberDockerVars};
   };
 
   /** The connection's worker (worker.mjs): started with the connection, its state told to its relay. */
@@ -719,19 +719,25 @@ async function main() {
 
   /** Try the removals still queued: a failure stays queued for the next pass, and is logged when `report` is set. */
   async function removePending(report) {
-    for (const {id, error} of await retryRemovals(pendingRemovals, {dockerEnv})) {
+    for (const {id, error} of await retryRemovals(pendingRemovals, {dockerEnv, present: new Set(installedConnections().keys())})) {
       if (report) log(`Benchmark worker: ${error.message}`, id);
     }
   }
 
-  /** Start the connections that are new, written again, or due to start again after failing; stop the removed ones. */
-  async function watch() {
+  /** The connections on this computer: id to what its `installed` file says. */
+  function installedConnections() {
     const present = new Map();
     for (const id of fs.readdirSync(connectionsFolder)) {
       const folder = path.join(connectionsFolder, id);
       const installed = path.join(folder, 'installed');
       if (fs.existsSync(installed)) present.set(id, fs.readFileSync(installed, 'utf8'));
     }
+    return present;
+  }
+
+  /** Start the connections that are new, written again, or due to start again after failing; stop the removed ones. */
+  async function watch() {
+    const present = installedConnections();
     // Removals that failed before (Docker down) are tried again, quietly: a connection's own first try is logged.
     await removePending(false);
     let removed = false;
@@ -959,25 +965,33 @@ export function pathAdvice(shell, windows) {
   return `add this line to ${file}: export PATH="$HOME/.local/bin:$PATH"`;
 }
 
+const DOCKER_VARS = ['DOCKER_HOST', 'DOCKER_CONTEXT', 'DOCKER_CONFIG'];
+
 /**
- * The PATH the member's terminal has: on macOS their login `shell`'s once their startup files have
- * run, as this app's own is launchd's; on Windows this process's, as Explorer gives every program.
+ * The variables `names` the member's terminal has that are set: on macOS their login `shell`'s once their startup files have
+ * run, as this app's own are launchd's; on Windows this process's, as Explorer gives every program. PATH must be among them.
  */
-function memberPath(shell) {
-  if (WINDOWS) return Promise.resolve(process.env.PATH ?? '');
+export function shellVars(shell, names) {
+  const pick = values => Object.fromEntries(names.filter(name => values[name]).map(name => [name, values[name]]));
+  if (WINDOWS) return Promise.resolve(pick(process.env));
   return new Promise((resolve, reject) => {
-    const child = spawn(shell, ['-ilc', 'printf "\\n%s%s" RUSH_LAB_PATH= "$PATH"'], {stdio: ['ignore', 'pipe', 'ignore'], timeout: 15_000});
+    const child = spawn(shell, ['-ilc', `printf "\\nRUSH_LAB_VARS"; printf "\\n%s=%s" ${names.map(name => `${name} "$${name}"`).join(' ')}`], {stdio: ['ignore', 'pipe', 'ignore'], timeout: 15_000});
     let out = '';
     child.stdout.on('data', chunk => { out += chunk; });
     child.once('error', reject);
     child.once('close', (code, signal) => {
       // Its startup files may print anything before it.
-      const at = out.lastIndexOf('RUSH_LAB_PATH=');
-      if (at < 0) reject(new Error(`${shell} printed no PATH (${describeExit({code, signal})})`));
-      else resolve(out.slice(at + 'RUSH_LAB_PATH='.length));
+      const marker = '\nRUSH_LAB_VARS\n';
+      const at = out.lastIndexOf(marker);
+      const lines = at < 0 ? [] : out.slice(at + marker.length).split('\n');
+      const values = Object.fromEntries(lines.map(line => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]));
+      if (!values.PATH) reject(new Error(`${shell} printed no PATH (${describeExit({code, signal})})`));
+      else resolve(pick(values));
     });
   });
 }
+
+const memberPath = async shell => (await shellVars(shell, ['PATH'])).PATH;
 
 /**
  * Write the app's command for the build at `root` (commandLauncher), and log whether the member's

@@ -58,9 +58,12 @@ function finite(value, what, {min = 0, max = MAX_USD} = {}) {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) throw bad('invalid_request', `${what} must be a number from ${min} to ${max}`);
   return value;
 }
-/** `value` (an object) if its JSON text is at most `max` bytes. */
+/** `value` (an object) if its JSON text is at most `max` bytes and holds no NUL character, which PostgreSQL's jsonb cannot store. */
 function bounded(value, what, max) {
-  if (Buffer.byteLength(stringifyJson(object(value, what))) > max) throw new BenchmarkError(413, 'too_large', `${what} may be ${max} bytes at most`);
+  const text = stringifyJson(object(value, what));
+  if (Buffer.byteLength(text) > max) throw new BenchmarkError(413, 'too_large', `${what} may be ${max} bytes at most`);
+  // The text spells a NUL in a string as \u0000, and a backslash that is itself escaped as \\ must not count.
+  if (/(?<!\\)(?:\\\\)*\\u0000/.test(text)) throw bad('invalid_request', `${what} may not contain the character \\u0000`);
   return value;
 }
 function array(value, what, {max = 1000, optional = false} = {}) {
@@ -305,7 +308,7 @@ function settleBody(body) {
   return {
     outcome: body.outcome,
     costUsd: body.outcome === 'settled' ? finite(body.cost_usd, 'cost_usd') : null,
-    provenance: object(body.provenance, 'provenance'),
+    provenance: bounded(body.provenance, 'provenance', MAX_ACCOUNTING_RECORD_BYTES),
   };
 }
 

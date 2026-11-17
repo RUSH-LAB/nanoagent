@@ -9,6 +9,10 @@ const PAGE = 1000;
 // What one attempt's comparison loads into memory: its events' data and its payloads' bytes.
 const MAX_EVIDENCE_EVENT_BYTES = 64 * 1024 * 1024;
 const MAX_EVIDENCE_PAYLOAD_BYTES = 64 * 1024 * 1024;
+// Myers' diff is quadratic in the edits: past this many, a text shows as wholly replaced instead of line by line.
+const MAX_DIFF_EDITS = 2000;
+// How many shared cases' rendered prompts one comparison diffs line by line; the rest show as wholly replaced.
+const MAX_RENDERED_DIFFS = 50;
 
 const tooLarge = (attemptId, what) => new BenchmarkError(413, 'evidence_too_large', `Attempt ${attemptId} is too large to compare: it has over ${what}`);
 
@@ -82,9 +86,15 @@ async function compareAttempts({repository, ai, context, a, b}) {
   };
 }
 
-/** `a` against `b` line by line, as `[{type: 'same' | 'removed' | 'added', text}]`. */
-const textDiff = (a, b) => diffLines(a ?? '', b ?? '').filter(part => part.value)
-  .map(part => ({type: part.added ? 'added' : part.removed ? 'removed' : 'same', text: part.value}));
+/**
+ * `a` against `b` line by line, as `[{type: 'same' | 'removed' | 'added', text}]`. A text with more than MAX_DIFF_EDITS edits, or any
+ * when `line` is false, is one removed part and one added part.
+ */
+function textDiff(a, b, line = true) {
+  const parts = (line && diffLines(a ?? '', b ?? '', {maxEditLength: MAX_DIFF_EDITS}))
+    || [{removed: true, value: a ?? ''}, {added: true, value: b ?? ''}];
+  return parts.filter(part => part.value).map(part => ({type: part.added ? 'added' : part.removed ? 'removed' : 'same', text: part.value}));
+}
 
 /** What one side of an aligned case shows: its newest attempt's outcome, verdict, tokens, cost and latency. */
 function sideOf(c, costs) {
@@ -150,6 +160,7 @@ async function compareRuns({repository, context, a, b}) {
   }
   const onlyB = [...waiting.values()].flat().sort((x, y) => x.position - y.position)
     .map(c => ({content_digest: c.content_digest, kind: c.kind, ...sideOf(c, second.costs)}));
+  let diffed = 0;
   return {
     verifier: verifier(first.run),
     a: summaryOf(first.run), b: summaryOf(second.run),
@@ -159,9 +170,10 @@ async function compareRuns({repository, context, a, b}) {
       text: textDiff(first.run.prompt.text, second.run.prompt.text),
       rendered: shared.map(({content_digest: digest, a: left_, b: right_, prompts: [pa, pb]}) => {
         const identical = pa.sha256 === pb.sha256 && pa.system === pb.system && pa.user === pb.user;
+        const line = identical || (diffed += 1) <= MAX_RENDERED_DIFFS;
         return {
           content_digest: digest, a_case_id: left_.case_id, b_case_id: right_.case_id, identical,
-          ...(identical ? {} : {system: textDiff(pa.system, pb.system), user: textDiff(pa.user, pb.user)}),
+          ...(identical ? {} : {system: textDiff(pa.system, pb.system, line), user: textDiff(pa.user, pb.user, line)}),
         };
       }),
     },

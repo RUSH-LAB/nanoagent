@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from nanoagent.uploaded.evidence import json_bytes
 from nanoagent.uploaded.timing import TimingMethod, TimingReport
 from nanoagent.uploaded.usage import NormalizedUsage, UsageAggregate
 
@@ -21,11 +22,21 @@ MAX_LINKS_PER_REQUEST = 4000
 MAX_REQUEST_BYTES = 8 << 20
 MAX_SPAN_ATTRIBUTES_BYTES = 32 * 1024
 MAX_LINK_ATTRIBUTES_BYTES = 8 * 1024
+MAX_COVERAGE_BYTES = 60 * 1024  # the server refuses coverage and metrics past 64 KiB each; the runner adds a few lines of its own to coverage
+COVERAGE_ITEMS = 32  # entries kept of each coverage list
+COVERAGE_TEXT_BYTES = 300
+COVERAGE_EVIDENCE = 4  # digests kept of a rejection's evidence
+MAX_METRIC_TEXT_BYTES = 500
 
 
 def _clip(text: str | None, limit: int) -> str | None:
     """`text` cut to `limit` UTF-16 units, which is how the server counts characters."""
     return text if text is None else text.encode("utf-16-le")[: 2 * limit].decode("utf-16-le", "ignore")
+
+
+def _clip_bytes(text: str, limit: int) -> str:
+    """`text` cut to `limit` bytes of UTF-8, which is how the server counts a result's size."""
+    return text.encode("utf-8")[:limit].decode("utf-8", "ignore")
 
 
 def _bounded(attributes: Mapping[str, Any], limit: int) -> dict[str, Any]:
@@ -248,18 +259,39 @@ class TraceCoverage:
     reasons: tuple[str, ...]
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        """The coverage as finalize takes it, which the server refuses past 64 KiB: lists are capped with a count of what was left
+        out, messages clipped, and whatever still does not fit is shed from the longest list."""
+        omitted: dict[str, int] = {}
+
+        def capped(name: str, items: Sequence[Any], limit: int, clip: Callable[[Any], Any]) -> list[Any]:
+            if len(items) > limit:
+                omitted[name] = len(items) - limit
+            return [clip(item) for item in items[:limit]]
+
+        def text(limit: int) -> Callable[[str], str | None]:
+            return lambda value: _clip_bytes(value, limit)
+
+        out: dict[str, Any] = {
             "status": "partial" if self.partial else "complete",
-            "reasons": list(self.reasons),
-            "expected_sources": list(self.expected_sources),
-            "observed_sources": list(self.observed_sources),
-            "missing_sources": list(self.missing_sources),
+            "reasons": capped("reasons", self.reasons, COVERAGE_ITEMS, text(COVERAGE_TEXT_BYTES)),
+            "expected_sources": capped("expected_sources", self.expected_sources, COVERAGE_ITEMS, text(COVERAGE_TEXT_BYTES)),
+            "observed_sources": capped("observed_sources", self.observed_sources, COVERAGE_ITEMS, text(COVERAGE_TEXT_BYTES)),
+            "missing_sources": capped("missing_sources", self.missing_sources, COVERAGE_ITEMS, text(COVERAGE_TEXT_BYTES)),
             "collector_complete": self.collector_complete,
-            "loss_reasons": list(self.loss_reasons),
-            "truncated": list(self.truncated),
-            "redacted": list(self.redacted),
-            "rejected": [{"source": r.source, "kind": r.kind, "code": r.code, "message": r.message, "evidence": list(r.evidence)} for r in self.rejected],
-        }
+            "loss_reasons": capped("loss_reasons", self.loss_reasons, COVERAGE_ITEMS, text(COVERAGE_TEXT_BYTES)),
+            "truncated": capped("truncated", self.truncated, COVERAGE_ITEMS, text(COVERAGE_TEXT_BYTES)),
+            "redacted": capped("redacted", self.redacted, COVERAGE_ITEMS, text(COVERAGE_TEXT_BYTES)),
+            "rejected": capped("rejected", self.rejected, COVERAGE_ITEMS, lambda r: {
+                "source": _clip_bytes(r.source, 100), "kind": _clip_bytes(r.kind, 100), "code": _clip_bytes(r.code, 100),
+                "message": _clip_bytes(r.message, COVERAGE_TEXT_BYTES), "evidence": [_clip_bytes(e, 100) for e in r.evidence[:COVERAGE_EVIDENCE]],
+            }),
+        }  # fmt: skip
+        while len(json_bytes(out | {"omitted": omitted})) > MAX_COVERAGE_BYTES:
+            name = max((key for key, value in out.items() if isinstance(value, list) and value), key=lambda key: len(json_bytes(out[key])))
+            keep = len(out[name]) // 2
+            omitted[name] = omitted.get(name, 0) + len(out[name]) - keep
+            out[name] = out[name][:keep]
+        return out | {"omitted": omitted} if omitted else out
 
 
 @dataclass(frozen=True)
@@ -314,7 +346,8 @@ class Metrics:
                 out[name] = None if isinstance(value, Unknown) else value
                 if isinstance(value, Unknown):
                     out[f"{name}_unknown"] = value.reason
-        return out
+        # The server refuses metrics past 64 KiB: every figure is a number but the reasons, which are clipped.
+        return {key: _clip_bytes(value, MAX_METRIC_TEXT_BYTES) if isinstance(value, str) else value for key, value in out.items()}
 
 
 @dataclass(frozen=True)
