@@ -152,6 +152,13 @@ def _bwrap(
     return [*args, "--chdir", str(root), "--", *bridge, *argv]
 
 
+def _refuse_home(folders: Sequence[Path]) -> None:
+    """A folder of the tools a container reads (its git's whole tree, as MinGit needs) must not be the member's home or hold it."""
+    home = Path.home().resolve()
+    if exposed := [folder for folder in folders if home.is_relative_to(folder)]:
+        raise RuntimeError(f"the sandbox would let a plugin read your home folder through {exposed[0]}: install uv and git outside {home}")
+
+
 def _quoted(path: Path | str) -> str:
     return '"' + str(path).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
@@ -166,13 +173,15 @@ def _seatbelt(
     port: int,
 ) -> tuple[list[str], dict[str, str]]:
     # uv, the git it builds a git source (slimconfig) with, and the Python plugins run on, which a
-    # plugin's environment is built from. Git runs the helpers in its <root>/libexec/git-core, so
-    # the sandbox reads all of <root>: the git the app bundles, as a Mac may have no other.
+    # plugin's environment is built from. Git runs its helpers from its exec path (the git the app
+    # bundles keeps them in <root>/libexec/git-core, as a Mac may have no other git). Only the two
+    # binaries and that folder are readable: never a parent folder, which can be the member's home.
     git = shutil.which("git")
-    tools = [Path(found).resolve().parent for found in [shutil.which("uv"), git] if found]
-    tools.append(_plugin_python().executable.parent)
-    git_roots = [Path(git).resolve().parents[1]] if git else []
-    reads = [*MACOS_SYSTEM, *_runtime(), *tools, *git_roots, root, *readable, *writable, home]
+    binaries = [Path(found).resolve() for found in [shutil.which("uv"), git] if found]
+    git_exec = [Path(subprocess.run([git, "--exec-path"], capture_output=True, text=True, check=True).stdout.strip())] if git else []
+    python = _plugin_python().executable.parent
+    tools = [*(binary.parent for binary in binaries), python]
+    reads = [*MACOS_SYSTEM, *_runtime(), python, *git_exec, root, *readable, *writable, home]
     profile = "\n".join(
         [
             "(version 1)",
@@ -183,7 +192,9 @@ def _seatbelt(
             "(deny process-info*)",
             "(allow process-info* (target self))",
             "(allow file-read-metadata)",
-            '(allow file-read* (literal "/") ' + " ".join(f"(subpath {_quoted(path)})" for path in reads) + ")",
+            '(allow file-read* (literal "/") '
+            + " ".join([*(f"(subpath {_quoted(path)})" for path in reads), *(f"(literal {_quoted(path)})" for path in binaries)])
+            + ")",
             '(allow file-write* (literal "/dev/null") ' + " ".join(f"(subpath {_quoted(path)})" for path in [*writable, home]) + ")",
             '(allow sysctl-read (sysctl-name-prefix "hw.") (sysctl-name-prefix "machdep.") (sysctl-name-prefix "kern.os") '
             + " ".join(f'(sysctl-name "{name}")' for name in MACOS_SYSCTLS)
@@ -249,6 +260,7 @@ def _appcontainer(
     tools = [Path(found).resolve().parent for found in [shutil.which("uv"), git] if found]
     tools.append(_plugin_python().executable.parent)
     git_roots = [Path(git).resolve().parents[1]] if git else []
+    _refuse_home([*tools, *git_roots])
     granted: list[Path] = []
     try:
         with TemporaryDirectory(prefix="nanoagent-sandbox-", dir=appcontainer.homes()) as folder, egress_pipe(hosts, sid) as pipe:

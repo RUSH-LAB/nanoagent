@@ -211,6 +211,33 @@ def test_bwrap_never_binds_the_home_of_a_uv_and_git_installed_under_it(tmp_path:
     assert ["--ro-bind", str(home / "bin" / "uv"), "/nanoagent-bin/uv"] == argv[argv.index("/nanoagent-bin/uv") - 2 :][:3]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="seatbelt is macOS's; its profile is built anywhere")
+def test_seatbelt_reads_only_the_uv_and_git_binaries_of_a_home_they_are_installed_under(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    (home / "bin").mkdir(parents=True)
+    for name in ("uv", "git"):
+        (home / "bin" / name).write_text(f"#!/bin/sh\necho {tmp_path}/libexec/git-core\n")
+        (home / "bin" / name).chmod(0o755)
+    monkeypatch.setenv("PATH", f"{home / 'bin'}:/usr/bin:/bin")
+    sandbox.configure("seatbelt", plugin_python(sys.executable))
+    try:
+        argv, _ = sandbox._seatbelt(["run"], tmp_path / "plugin", {}, [], [], tmp_path / "sandbox-home", 1)
+    finally:
+        sandbox.configure("none")
+    profile = argv[argv.index("-p") + 1]
+    assert f'(subpath "{home}")' not in profile and f'(subpath "{home / "bin"}")' not in profile
+    assert f'(literal "{home / "bin" / "git"}")' in profile and f'(subpath "{tmp_path / "libexec" / "git-core"}")' in profile
+
+
+@pytest.mark.parametrize("folder", ["home", "parent"])
+def test_a_container_never_reads_a_tool_folder_that_is_or_holds_the_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, folder: str) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    exposed = tmp_path / "home" if folder == "home" else tmp_path
+    with pytest.raises(RuntimeError, match="read your home folder through"):
+        sandbox._refuse_home([tmp_path / "tools", exposed])
+    sandbox._refuse_home([tmp_path / "tools", tmp_path / "home" / "bin"])
+
+
 @unix_sockets
 def test_the_egress_bridge_helper_runs_the_command_and_exits_with_its_status(tmp_path: Path) -> None:
     command = helpers.command("egress-bridge", str(tmp_path / "egress.sock"), "0", "--", sys.executable, "-c", "raise SystemExit(3)")
