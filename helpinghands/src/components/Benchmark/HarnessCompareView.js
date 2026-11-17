@@ -11,7 +11,7 @@ import styles from './styles.module.css';
 const label = item => `${item.harness.name} v${item.harness.version}`;
 
 async function loadResults() {
-  const [benchmarks, account, ownRuns] = await Promise.all([benchmarkApi.benchmarks(), benchmarkApi.account(), benchmarkApi.allRuns()]);
+  const [benchmarks, account, ownRuns] = await Promise.all([benchmarkApi.allBenchmarks(), benchmarkApi.account(), benchmarkApi.allRuns()]);
   // A bounded pool avoids flooding the server when the marketplace has many benchmarks.
   const results = new Array(benchmarks.length);
   let next = 0;

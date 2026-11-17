@@ -26,7 +26,8 @@ SPAN_HEADER = "x-rush-span-id"
 CALL_HEADER = "X-Rush-Call-Id"
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
-MAX_BODY_BYTES = 32 << 20
+# Far enough under evidence.MAX_PAYLOAD_BYTES that the journaled request and its effective twin (a few hundred bytes more) fit whole.
+MAX_BODY_BYTES = 8 << 20
 
 
 class ServiceError(Exception):

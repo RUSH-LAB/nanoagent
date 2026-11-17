@@ -113,9 +113,9 @@ describe('GET /api/benchmark/compare/attempts bounds what it loads', () => {
     }}, ai: {benchmarkCompare: async () => ({value: {}})}}),
   });
 
-  test('refuses an attempt with more events than the cap, 413 evidence_too_large', async () => {
-    const {status, payload} = await compare({page: async (_c, _id, after, limit) => ({
-      events: Array.from({length: limit}, (_, i) => event(after + i + 1)), has_more: true, sealed: true, final_cursor: 0, high_water_cursor: 0,
+  test('refuses an attempt whose events\' data total more than the byte cap, 413 evidence_too_large', async () => {
+    const {status, payload} = await compare({page: async (_c, _id, after) => ({
+      events: [{...event(after + 1), data: {pad: 'x'.repeat(33 * 1024 * 1024)}}], has_more: true, sealed: true, final_cursor: 0, high_water_cursor: 0,
     })});
     assert.deepEqual([status, payload.code], [413, 'evidence_too_large']);
   });

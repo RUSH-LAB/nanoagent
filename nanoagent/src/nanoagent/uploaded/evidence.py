@@ -21,6 +21,7 @@ SOURCES: tuple[Source, ...] = ("gateway", "tool_broker", "exec", "harness")
 
 CLEAN = "clean"
 REDACTED = "redacted"
+TRUNCATED = "truncated"
 REPLACEMENT = b"[REDACTED]"
 
 
@@ -42,7 +43,7 @@ class Journal(Protocol):
         """Persist ``event``; identified by ``event_id``."""
 
     async def put_payload(self, data: bytes, redaction: str) -> str:
-        """Store already-redacted bytes with their redaction status (``clean`` or ``redacted``); return their SHA-256 hex."""
+        """Store already-redacted bytes with their redaction status (``clean``, ``redacted`` or ``truncated``); return their SHA-256 hex."""
 
 
 def redact(data: bytes, secrets: Sequence[str]) -> tuple[bytes, str]:
@@ -65,6 +66,7 @@ def sha256_hex(data: bytes) -> str:
 
 
 MAX_QUEUED_BYTES = 64 << 20
+MAX_PAYLOAD_BYTES = 16 << 20  # what the RUSH server accepts for one payload; a larger one fails the journal for good
 MAX_QUEUED_ITEMS = 4096
 
 
@@ -134,6 +136,8 @@ class Recorder:
 
     async def payload(self, data: bytes) -> str:
         cleaned, status = redact(data, self._secrets)
+        if len(cleaned) > MAX_PAYLOAD_BYTES:
+            cleaned, status = cleaned[:MAX_PAYLOAD_BYTES], TRUNCATED
         sha = sha256_hex(cleaned)
         if (sha, status) not in self._queued_payloads:
             self._queued_payloads.add((sha, status))

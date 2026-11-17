@@ -76,7 +76,8 @@ class Trace:
             self.fact(R.CpuCounters([{"identity": "p1", "user_ns": cpu[0], "system_ns": cpu[1]}]), T0 + sec(quiesce))
 
     def finish(self, at: float) -> None:
-        self.fact(R.SnapshotTaken([{"path": "config.yaml", "change": "modified", "sha256": "a" * 64, "size": 10}, {"path": "new.txt", "change": "added"}], "d" * 64), T0 + sec(at))
+        diff = [{"path": "config.yaml", "change": "modified", "sha256": "a" * 64, "size": 10}, {"path": "new.txt", "change": "added"}]
+        self.fact(R.SnapshotTaken([], self.payload({"files": {}, "skipped": {}, "diff": diff})), T0 + sec(at))
         self.fact(R.ResultRead({"status": "answered", "answer": "done"}), T0 + sec(at + 0.1))
 
     # ---- gateway -------------------------------------------------------------------------------------------------

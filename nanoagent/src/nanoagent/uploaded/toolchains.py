@@ -39,6 +39,9 @@ MAX_WHEEL_BYTES = 512 << 20
 MAX_LOCKFILE_BYTES = 8 << 20
 DEPENDENCY_MOUNT = "/deps"
 DOWNLOAD_ATTEMPTS = 3
+MAX_CLOSURE_BYTES = 2 << 30  # per build: bytes downloaded, and separately bytes installed, across the whole closure
+MAX_CLOSURE_FILES = 20_000  # per build: artifacts downloaded, and separately artifacts installed
+DEFAULT_RESOLVE_TIMEOUT_S = 1800.0
 
 
 class ToolchainError(ContractError):
@@ -165,6 +168,28 @@ class DependencyClosure:
     @property
     def empty(self) -> bool:
         return not self.files
+
+
+class ResolveBudget:
+    """One build's wall-clock deadline and closure caps; `tick` runs between downloads, `charge` after each download or install."""
+
+    def __init__(self, timeout_s: float) -> None:
+        self._deadline = time.monotonic() + timeout_s
+        self._timeout_s = timeout_s
+        self._used = {"downloaded": [0, 0], "installed": [0, 0]}  # kind -> [bytes, files]
+
+    def tick(self) -> None:
+        if time.monotonic() > self._deadline:
+            raise ToolchainError("dependency_timeout", f"resolving dependencies exceeded {self._timeout_s}s")
+
+    def charge(self, kind: str, size: int) -> None:
+        used = self._used[kind]
+        used[0] += size
+        used[1] += 1
+        if used[0] > MAX_CLOSURE_BYTES or used[1] > MAX_CLOSURE_FILES:
+            raise ToolchainError(
+                "dependency_too_large", f"the closure {kind} more than {MAX_CLOSURE_BYTES} bytes or {MAX_CLOSURE_FILES} artifacts"
+            )
 
 
 @dataclass(frozen=True)
@@ -443,17 +468,22 @@ class PythonWheelResolver:
                 raise ToolchainError("unsupported_lockfile", f"{relative}: python-3 reads requirements.txt files and uv.lock")
         return pins
 
-    def stage(self, profile: ToolchainProfile, source_root: Path, lockfiles: tuple[str, ...], destination: Path) -> DependencyClosure:
-        pins = self._pins(source_root, lockfiles)
+    def stage(
+        self, profile: ToolchainProfile, source_root: Path, lockfiles: tuple[str, ...], destination: Path,
+        timeout_s: float = DEFAULT_RESOLVE_TIMEOUT_S,
+    ) -> DependencyClosure:
+        pins = set(self._pins(source_root, lockfiles))  # a pin repeated across lockfile lines is fetched once
         destination.mkdir(parents=True, exist_ok=True)
         compatible = self._target.compatible_tags()
+        budget = ResolveBudget(timeout_s)
         staged: dict[str, str] = {}
-        for pin in sorted(pins, key=lambda p: (p.name, p.version)):
-            files = self._stage_one(pin, compatible, destination)
-            staged.update(files)
+        for pin in sorted(pins, key=lambda p: (p.name, p.version, sorted(p.hashes))):
+            staged.update(self._stage_one(pin, compatible, destination, budget))
         return DependencyClosure(destination, dict(sorted(staged.items())))
 
-    def _stage_one(self, pin: PinnedRequirement, compatible: frozenset[tags.Tag], destination: Path) -> dict[str, str]:
+    def _stage_one(
+        self, pin: PinnedRequirement, compatible: frozenset[tags.Tag], destination: Path, budget: ResolveBudget
+    ) -> dict[str, str]:
         candidates = self._index.candidates(pin.name, pin.version)
         if not candidates:
             raise ToolchainError("dependency_unavailable", f"{pin.name}=={pin.version} is not on the index")
@@ -471,7 +501,9 @@ class PythonWheelResolver:
             )
         staged: dict[str, str] = {}
         for filename, fetch in usable:
+            budget.tick()
             data = fetch()
+            budget.charge("downloaded", len(data))
             digest = hashlib.sha256(data).hexdigest()
             if digest not in pin.hashes:
                 raise ToolchainError(
@@ -487,7 +519,10 @@ class PythonWheelResolver:
 class NoDependencyResolver:
     """For a project with `lockfiles: []`: the closure is empty and nothing is fetched."""
 
-    def stage(self, profile: ToolchainProfile, source_root: Path, lockfiles: tuple[str, ...], destination: Path) -> DependencyClosure:
+    def stage(
+        self, profile: ToolchainProfile, source_root: Path, lockfiles: tuple[str, ...], destination: Path,
+        timeout_s: float = DEFAULT_RESOLVE_TIMEOUT_S,
+    ) -> DependencyClosure:
         if lockfiles:
             raise ToolchainError("unsupported_lockfile", "internal: the empty resolver was given lockfiles")
         destination.mkdir(parents=True, exist_ok=True)
@@ -502,8 +537,12 @@ def resolve_dependencies(
     *,
     index_url: str | None,
     target: PythonTarget | None = None,
+    timeout_s: float = DEFAULT_RESOLVE_TIMEOUT_S,
 ) -> DependencyClosure:
-    """Stages the closure for a profile. An empty `lockfiles` needs no index; any other needs `index_url`."""
+    """Stages the closure for a profile. An empty `lockfiles` needs no index; any other needs `index_url`.
+
+    Resolution is bounded: `timeout_s` of wall clock (checked between downloads, `dependency_timeout`) and `MAX_CLOSURE_BYTES` /
+    `MAX_CLOSURE_FILES` of artifacts (`dependency_too_large`)."""
     if not lockfiles:
         return NoDependencyResolver().stage(profile, source_root, lockfiles, destination)
     if index_url is None:
@@ -513,7 +552,7 @@ def resolve_dependencies(
     from nanoagent.uploaded.resolvers import ECOSYSTEMS, stage_ecosystem
 
     if profile.resolver in ECOSYSTEMS:
-        return stage_ecosystem(profile, source_root, lockfiles, destination, index_url)
+        return stage_ecosystem(profile, source_root, lockfiles, destination, index_url, timeout_s)
     if profile.resolver == "python-hashed-wheels":
-        return PythonWheelResolver(open_index(index_url), target).stage(profile, source_root, lockfiles, destination)
+        return PythonWheelResolver(open_index(index_url), target).stage(profile, source_root, lockfiles, destination, timeout_s)
     raise ToolchainError("unknown_resolver", f"toolchain {profile.id} names resolver {profile.resolver!r}")

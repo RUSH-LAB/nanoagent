@@ -2,7 +2,7 @@ import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {defaultPolicy, maximumCost, submitBatch} from '../../../../src/components/Benchmark/batch.js';
 import {comparisonRows, comparisonTotals, harnessKey, harnessesOf} from '../../../../src/components/Benchmark/harnessComparison.js';
-import {allPages} from '../../../../src/components/Benchmark/pagination.js';
+import {allPages, SPAN_LIMIT, spansCut} from '../../../../src/components/Benchmark/pagination.js';
 import {screenOf, searchFor} from '../../../../src/components/Benchmark/location.js';
 
 const score = (passed, total = 2) => ({passed, total, scored: total, unscored: 0, verifier_errors: 0, complete: true, value: passed / total});
@@ -62,6 +62,18 @@ describe('multi-benchmark workflow', () => {
     assert.equal(runs.length, 201);
     assert.deepEqual(calls, [undefined, '2026-01-02T00:00:00.001Z']);
     await assert.rejects(allPages(async () => first), /share a timestamp/);
+  });
+
+  it('pages benchmarks by published_at and benchmark_id, and flags a trace that reached the span limit', async () => {
+    const at = '2026-01-02T00:00:00.000Z';
+    const first = Array.from({length: 200}, (_, i) => ({benchmark_id: String(i), published_at: at}));
+    const calls = [];
+    const all = await allPages(async before => {calls.push(before); return before ? [{benchmark_id: 'older', published_at: '2026-01-01T00:00:00.000Z'}] : first;}, {key: 'benchmark_id', time: 'published_at'});
+    assert.equal(all.length, 201);
+    assert.deepEqual(calls, [undefined, '2026-01-02T00:00:00.001Z']);
+    assert.equal(spansCut({spans: new Array(SPAN_LIMIT - 1)}), false);
+    assert.equal(spansCut({spans: new Array(SPAN_LIMIT)}), true);
+    assert.equal(spansCut(undefined), false);
   });
 
   it('preserves missing benchmark selections and their harness across navigation', () => {

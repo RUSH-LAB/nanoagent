@@ -65,5 +65,20 @@ export function payloadView(text, redaction = 'none') {
   return {text: cut ? text.slice(0, DISPLAY_LIMIT) : text, redaction, cut, length: text.length};
 }
 
+const MESSAGE_LIMIT = 500;
+
+/** The readable messages of a payload, cut to a count and a total of characters so a huge payload cannot freeze the page: {messages, cut}. */
+export function capMessages(messages) {
+  let budget = DISPLAY_LIMIT;
+  const kept = [];
+  for (const message of messages) {
+    if (budget <= 0 || kept.length >= MESSAGE_LIMIT) return {messages: kept, cut: true};
+    kept.push(message.text.length > budget ? {...message, text: message.text.slice(0, budget)} : message);
+    if (message.text.length > budget) return {messages: kept, cut: true};
+    budget -= message.text.length;
+  }
+  return {messages: kept, cut: false};
+}
+
 /** A note about what a payload's redaction status means. */
 export const redactionNote = redaction => (redaction === 'redacted' ? 'Credentials or private material were removed before it was stored.' : redaction === 'truncated' ? 'Stored cut short; the rest was not kept.' : null);

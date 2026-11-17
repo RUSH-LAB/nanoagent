@@ -143,6 +143,10 @@ def decode_json_object(data: bytes, max_bytes: int = DEFAULT_MAX_BYTES) -> dict[
         raise ContractError("invalid_json", "nesting is too deep") from error
     if not isinstance(value, dict):
         raise ContractError("invalid_json", f"top level is {type(value).__name__}, not an object")
+    try:
+        json.dumps(value, ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError as error:  # an escaped lone surrogate (keys or values) cannot be sent on or journaled as UTF-8
+        raise ContractError("invalid_json", f"not encodable as UTF-8: {error.reason}") from error
     return value
 
 

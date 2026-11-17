@@ -71,6 +71,27 @@ export async function removeWorkerData(id, {dockerEnv, docker = dockerRun}) {
   }
 }
 
+const pendingIds = file => (fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : []);
+
+/** Remember in `file` that connection `id`'s container and volumes are still to be removed: removal can fail (Docker down) after its folder is gone. */
+export function queueRemoval(file, id) {
+  fs.writeFileSync(file, JSON.stringify([...new Set([...pendingIds(file), id])]));
+}
+
+/** Try each removal queued in `file`, dropping an id only once its removal succeeded: the failures, {id, error}. */
+export async function retryRemovals(file, {dockerEnv, docker = dockerRun}) {
+  const failed = [];
+  for (const id of pendingIds(file)) {
+    try {
+      await removeWorkerData(id, {dockerEnv, docker});
+    } catch (error) {
+      failed.push({id, error});
+    }
+  }
+  fs.writeFileSync(file, JSON.stringify(failed.map(({id}) => id)));
+  return failed;
+}
+
 /** `docker args`, in `env`, each output line given to `onLine`: {code, error, tail} (the last lines). A missing docker is error.code ENOENT. */
 function dockerRun(args, {env, onLine} = {}) {
   return new Promise(resolve => {
@@ -160,6 +181,8 @@ export function benchmarkWorker({
   // Which start is current: stop() and each new start move it on, and an older one that wakes up leaves quietly.
   let generation = 0;
   let container = false;
+  // The `docker run` in flight, if any.
+  let starting = null;
   let keyInUse;
   let concurrencyInUse;
   // The member's setting as last read (at start, a settings change, or set), so publishing never reads the file.
@@ -309,13 +332,17 @@ export function benchmarkWorker({
     logTail = [];
     advertised = null;
     concurrencySetting = concurrencyInUse = readConcurrency();
-    const started = await docker(workerArgs({name, site, worker: `lab-${device.replace(/[^A-Za-z0-9_-]/g, '-')}`, concurrency: concurrencyInUse}), {
-      env: {...await env(), RUSH_WORKER_TOKEN: credential.token, OPENROUTER_API_KEY: keyInUse},
-    });
-    if (mine !== generation) {
-      await removeContainer();
-      return;
-    }
+    // halt() waits for this, so a stop or restart in the middle of `docker run` never leaves its container behind.
+    starting = (async () => {
+      const result = await docker(workerArgs({name, site, worker: `lab-${device.replace(/[^A-Za-z0-9_-]/g, '-')}`, concurrency: concurrencyInUse}), {
+        env: {...await env(), RUSH_WORKER_TOKEN: credential.token, OPENROUTER_API_KEY: keyInUse},
+      });
+      // A newer start owns the name now: remove only the container this docker run made, by the id it printed.
+      if (mine !== generation && result.code === 0) await docker(['rm', '--force', result.tail.at(-1)], {env: await env()});
+      return result;
+    })();
+    const started = await starting;
+    if (mine !== generation) return;
     if (started.code !== 0) {
       mark('proofs', 'fail', `Docker could not start the worker: ${started.error?.message ?? clip(started.tail.join(' '))}`,
         'Docker must allow privileged containers (`--privileged --cgroupns=private`); then press Re-check.');
@@ -405,6 +432,7 @@ export function benchmarkWorker({
   /** Stop the container (docker's own timeout first), and any start in the middle of its checks. */
   async function halt() {
     const mine = ++generation;
+    await starting?.catch(() => {});
     if (!container) return mine;
     await docker(['stop', '--time', String(STOP_SECONDS), name], {env: await env()});
     await removeContainer();

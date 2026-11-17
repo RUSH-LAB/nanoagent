@@ -85,6 +85,29 @@ function exceeded(limits, capabilities) {
 /** What one member's stored source ZIPs and attempt payloads may total, across every workspace; an upload past it is refused. */
 const MEMBER_STORAGE_BYTES = 5 * 1024 * 1024 * 1024;
 
+/**
+ * What the worker API stores for one attempt, so a worker cannot fill the database or make a read unbounded: each item's bytes (JSON text),
+ * each kind's count, and the bytes of the events one read returns. An attempt's model calls are already bounded by its max_model_calls.
+ */
+const MAX_EVENT_DATA_BYTES = 256 * 1024;
+const MAX_SPAN_ATTRIBUTES_BYTES = 32 * 1024;
+const MAX_LINK_ATTRIBUTES_BYTES = 8 * 1024;
+const MAX_ACCOUNTING_RECORD_BYTES = 64 * 1024;
+/** The metrics and the coverage an attempt is finalized with are a handful of counters and statuses. */
+const MAX_RESULT_BYTES = 64 * 1024;
+const MAX_ATTEMPT_EVENTS = 100_000;
+const MAX_ATTEMPT_SPANS = 10_000;
+const MAX_ATTEMPT_LINKS = 20_000;
+/** Versions of one call's accounting record. */
+const MAX_ACCOUNTING_VERSION = 10;
+const MAX_EVENT_PAGE_BYTES = 8 * 1024 * 1024;
+/** The most USD one call may settle at beyond what it reserved: the reserve is the gateway's upper bound on the cost, so honest calls stay under it. */
+const SETTLE_RESERVE_FACTOR = 2;
+/** The columns' ranges: numeric(20,8) holds below 1e12, integer below 2^31, bigint below 2^63. */
+const MAX_USD = 1e11;
+const MAX_INTEGER = 2 ** 31 - 1;
+const MAX_BIGINT = 2n ** 63n - 1n;
+
 /** The server setting `name` from the environment, `fallback` when unset; a value that is not a positive number stops startup. */
 function positiveSetting(name, fallback) {
   const value = process.env[name] === undefined ? fallback : Number(process.env[name]);
@@ -92,4 +115,7 @@ function positiveSetting(name, fallback) {
   return value;
 }
 
-module.exports = {CAPABILITY_WINDOW_S, MEMBER_STORAGE_BYTES, DEFAULT_LIMITS, LIMIT_FIELDS, limitOverrides, effectiveLimits, capabilitiesOf, exceeded, positiveSetting};
+module.exports = {
+  CAPABILITY_WINDOW_S, MEMBER_STORAGE_BYTES, MAX_EVENT_DATA_BYTES, MAX_SPAN_ATTRIBUTES_BYTES, MAX_LINK_ATTRIBUTES_BYTES, MAX_ACCOUNTING_RECORD_BYTES,
+  MAX_RESULT_BYTES, MAX_ATTEMPT_EVENTS, MAX_ATTEMPT_SPANS, MAX_ATTEMPT_LINKS, MAX_ACCOUNTING_VERSION, MAX_EVENT_PAGE_BYTES, SETTLE_RESERVE_FACTOR, MAX_USD,
+  MAX_INTEGER, MAX_BIGINT, DEFAULT_LIMITS, LIMIT_FIELDS, limitOverrides, effectiveLimits, capabilitiesOf, exceeded, positiveSetting};

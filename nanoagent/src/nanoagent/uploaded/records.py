@@ -152,12 +152,14 @@ class CaseQuiesced(Fact):
 
 @dataclass(frozen=True)
 class SnapshotTaken(Fact):
-    """``diff`` entries are ``{path, change: added | modified | deleted, sha256?, size?}``."""
+    """``diff`` entries are ``{path, change: added | modified | deleted, sha256?, size?}``; past ``diff_truncated`` only the
+    snapshot payload has the rest."""
 
     source: ClassVar[str] = WORKER
     kind: ClassVar[str] = SNAPSHOT_TAKEN
     diff: Sequence[Mapping[str, Any]]
     payload_sha256: str
+    diff_truncated: bool = False
 
 
 @dataclass(frozen=True)

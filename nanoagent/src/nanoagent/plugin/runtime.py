@@ -35,6 +35,8 @@ from nanoagent.plugin.verifier import Verification, verify_input, verify_output
 # The one folder a plugin may write to (its `filesystem: write: [workspace]` permission).
 WORKSPACE_ENV = "NANOAGENT_WORKSPACE"
 PREFLIGHT_TIMEOUT = 60.0
+# Threads one session's checks may hold at once: each read-only call's verifier may copy the whole workspace out.
+SESSION_THREADS = 2
 
 
 def plugin_env(manifest: PluginManifest, workspace: Path) -> dict[str, str]:
@@ -146,6 +148,7 @@ class PluginSession:
         self.launcher = launcher
         self.timeout = timeout
         self._stack = AsyncExitStack()
+        self._threads = anyio.CapacityLimiter(SESSION_THREADS)
         self._session: ClientSession | None = None
 
     async def __aenter__(self) -> PluginSession:
@@ -214,14 +217,14 @@ class PluginSession:
         """Check the input, run ``tool``, and return its checked output."""
         # The verifier runs in processes of its own and blocks for their whole run: off the loop, so whatever else the loop
         # serves (the attempt gateway relaying a model's stream) is not held up behind a tool call.
-        await anyio.to_thread.run_sync(_check_input, self.manifest, tool, arguments)
+        await anyio.to_thread.run_sync(_check_input, self.manifest, tool, arguments, limiter=self._threads)
         return await self.invoke(tool, arguments)
 
     async def invoke(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """:meth:`call` for input already checked by :func:`_check_input`."""
         if self._session is None:
             raise RuntimeError("plugin session is not open")
-        await anyio.to_thread.run_sync(self._check)
+        await anyio.to_thread.run_sync(self._check, limiter=self._threads)
         manifest = self.manifest
         definition = manifest.tool(tool)
         with anyio.fail_after(self.timeout):
@@ -236,7 +239,7 @@ class PluginSession:
                 f"invalid output from {tool}: it names the run's workspace folder, which is gone once the run"
                 " ends; name what is in it by a path relative to it"
             )
-        output_check = await anyio.to_thread.run_sync(self._verify_output, tool, arguments, response)
+        output_check = await anyio.to_thread.run_sync(self._verify_output, tool, arguments, response, limiter=self._threads)
         if not output_check.valid:
             raise RuntimeError(f"plugin output verification failed: {output_check.message}")
         return response

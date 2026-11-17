@@ -4,6 +4,7 @@ import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
 import {benchmarkApi} from './api';
 import {STATUS_LABELS, actionPayloads, conditionRows, deltaText, estimateText, fieldDiffs, rowActionIds, rowTitle, visibleRows} from './compare';
 import {buildTrace} from './traceModel';
+import {SPAN_LIMIT, spansCut} from './pagination';
 import TraceActivity from './TraceActivity';
 import useLoad from './useLoad';
 import Payload from './Payload';
@@ -105,6 +106,7 @@ export default function Compare({a, b, go, back}) {
         <button type="button" className={styles.secondaryButton} onClick={() => go({attempt: a})}>Open trace A</button>
         <button type="button" className={styles.secondaryButton} onClick={() => go({attempt: b})}>Open trace B</button>
       </div>
+      {(spansCut(spansA.data) || spansCut(spansB.data)) && <p className={styles.muted}>A trace here has more than {SPAN_LIMIT.toLocaleString('en-US')} spans; only the first {SPAN_LIMIT.toLocaleString('en-US')} of each are shown.</p>}
       <div className={styles.twin}>
         <TraceActivity attemptId={a} model={modelA} loading={spansA.loading} error={spansA.error} label="Timeline A"
           timelineOnly scaleNs={scaleNs} selected={selection.a} onSelect={id => selectSpan('a', id)} />

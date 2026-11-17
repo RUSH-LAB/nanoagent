@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {benchmarkWorker, containerName, containerSite, mintCredential, removeWorkerData, WORKER_IMAGE, workerArgs} from '../../../src/runner/worker.mjs';
+import {benchmarkWorker, containerName, containerSite, mintCredential, queueRemoval, removeWorkerData, retryRemovals, WORKER_IMAGE, workerArgs} from '../../../src/runner/worker.mjs';
 import {installOptions, startOptions} from '../../../src/runner/docker-help.js';
 import {readConcurrency, writeConcurrency} from '../../../src/runner/lab.mjs';
 import {workerNotice} from '../../../src/components/Benchmark/worker.js';
@@ -426,4 +426,112 @@ test('the runner concurrency persists in a file of the connection, 1 until set, 
   assert.throws(() => readConcurrency(file), /holds no runner concurrency/);
   fs.writeFileSync(file, '{"concurrency":');
   assert.throws(() => readConcurrency(file), /worker\.json: /);
+});
+
+/** A fake docker whose `run` takes a while and names its container by id (`rm` by name removes whichever holds the name), as the reviewer's races needed. */
+function raceSetup() {
+  const containers = new Map();
+  const events = [];
+  const state = {key: 'sk-one', nextId: 0, onRun: null};
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const docker = async (args, options = {}) => {
+    const [verb] = args;
+    if (verb === '--version') return {code: 0, tail: ['Docker 29']};
+    if (verb === 'info') return {code: 0, tail: [JSON.stringify(INFO)]};
+    if (verb === 'image' || verb === 'stop') return {code: 0, tail: []};
+    if (verb === 'rm') {
+      const target = args.at(-1);
+      const found = [...containers.entries()].find(([name, entry]) => name === target || entry.id === target);
+      if (found) {
+        events.push(`rm ${found[1].id}`);
+        containers.delete(found[0]);
+        found[1].waiters.forEach(done => done());
+      }
+      return {code: 0, tail: []};
+    }
+    if (verb === 'run') {
+      const name = args[args.indexOf('--name') + 1];
+      state.onRun?.();
+      state.onRun = null;
+      if (containers.has(name)) return {code: 125, tail: ['Conflict. The container name is already in use']};
+      const entry = {id: `c${++state.nextId}`, waiters: []};
+      containers.set(name, entry);
+      await sleep(60);
+      return {code: 0, tail: [entry.id]};
+    }
+    if (verb === 'logs') {
+      const entry = containers.get(args.at(-1));
+      for (const line of [...PROOF_LINES, CLAIMING_LINE]) options.onLine(line);
+      return new Promise(resolve => (entry ? entry.waiters.push(() => resolve({code: 0, tail: []})) : resolve({code: 0, tail: []})));
+    }
+    if (verb === 'wait') {
+      const entry = containers.get(args.at(-1));
+      return new Promise(resolve => (entry ? entry.waiters.push(() => resolve({code: 0, tail: ['137']})) : resolve({code: 0, tail: ['1']})));
+    }
+    return {code: 0, tail: []};
+  };
+  const snapshots = [];
+  const worker = benchmarkWorker({
+    id: 'x', site: 'https://rush-lab.org', device: 'laptop', product: 'RUSH Lab', logFile: path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'worker-')), 'worker.log'),
+    readKey: () => state.key, readSession: () => 'session', dockerEnv: async () => ({}), report: snapshot => snapshots.push(snapshot), log: () => {},
+    docker, mint: async () => ({token: 't'}), sleep: () => sleep(2), platform: 'darwin',
+  });
+  return {worker, state, containers, events, last: () => snapshots.at(-1), sleep};
+}
+
+test('a key change in the middle of docker run leaves only the newest container, which keeps running (stale launch removed the newer one)', async () => {
+  const t = raceSetup();
+  t.state.onRun = () => { t.state.key = 'sk-two'; t.worker.keysChanged(); };
+  await t.worker.start();
+  await t.sleep(400);
+  assert.deepEqual([...t.containers.values()].map(entry => entry.id), ['c2']);
+  assert.equal(t.last().state, 'ready');
+  // The stale run's container was removed by its id, and the newer one was never removed.
+  assert.ok(t.events.includes('rm c1'));
+  assert.ok(!t.events.includes('rm c2'));
+});
+
+test('two key changes racing docker run within the stable window still end ready with a container', async () => {
+  const t = raceSetup();
+  t.state.onRun = () => { t.state.key = 'sk-two'; t.worker.keysChanged(); };
+  await t.worker.start();
+  await t.sleep(400);
+  t.state.onRun = () => { t.state.key = 'sk-four'; t.worker.keysChanged(); };
+  t.state.key = 'sk-three';
+  await t.worker.keysChanged();
+  await t.sleep(400);
+  assert.equal(t.containers.size, 1);
+  assert.equal(t.last().state, 'ready');
+});
+
+test('stop during docker run waits for it and leaves no container behind', async () => {
+  const t = raceSetup();
+  t.state.onRun = () => { t.worker.stop(); };
+  await t.worker.start();
+  await t.sleep(300);
+  assert.equal(t.containers.size, 0);
+  // stop() resolves only after the run it interrupted has been cleaned up.
+  const again = raceSetup();
+  let stopped = false;
+  again.state.onRun = () => { again.worker.stop().then(() => { stopped = true; assert.equal(again.containers.size, 0); }); };
+  await again.worker.start();
+  await again.sleep(300);
+  assert.ok(stopped);
+});
+
+test('a removal that failed stays queued and is retried until it succeeds, then dropped', async () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pending-')), 'pending-removals.json');
+  let down = true;
+  const calls = [];
+  const docker = async args => { calls.push(args[0]); return down ? {code: 1, tail: ['Cannot connect to the Docker daemon']} : {code: 0, tail: []}; };
+  queueRemoval(file, 'a');
+  queueRemoval(file, 'a');
+  queueRemoval(file, 'b');
+  const failed = await retryRemovals(file, {dockerEnv: async () => ({}), docker});
+  assert.deepEqual(failed.map(entry => entry.id), ['a', 'b']);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), ['a', 'b']);
+  down = false;
+  assert.deepEqual(await retryRemovals(file, {dockerEnv: async () => ({}), docker}), []);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), []);
+  assert.ok(calls.includes('volume'));
 });

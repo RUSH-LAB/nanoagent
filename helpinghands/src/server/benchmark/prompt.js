@@ -7,6 +7,12 @@ const {isLosslessNumber} = require('./json');
 /** The prompt renderer: the coding template and the task prompts of uploaded-harness-v1.md, "Prompt contract". */
 const RENDERER_VERSION = 'rush.prompt.v1';
 const MAX_INSTRUCTIONS_LENGTH = 100_000;
+/**
+ * What one rendered prompt (system or user text) may hold, and what all of a benchmark's rendered prompts, under both policies, may
+ * hold together. A template that repeats {arguments} multiplies the case's arguments, so the renderer stops at the first.
+ */
+const MAX_PROMPT_CHARS = 1_000_000;
+const MAX_BENCHMARK_PROMPT_CHARS = 64_000_000;
 /** The workspace path a coding harness is told to write answer.json in. */
 const WORKSPACE = '/rush/workspace';
 /** The tool a task's agent calls with its result (nanoagent.plugin.manifest.SUBMIT). */
@@ -138,6 +144,7 @@ function pythonJson(value) {
  */
 function pythonFormat(template, values) {
   let out = '';
+  const tooLong = () => new BenchmarkError(400, 'prompt_too_long', `A rendered prompt may be ${MAX_PROMPT_CHARS} characters at most`);
   for (let i = 0; i < template.length; i += 1) {
     const char = template[i];
     if (char === '{') {
@@ -154,6 +161,7 @@ function pythonFormat(template, values) {
         throw new BenchmarkError(400, 'invalid_template', `The template names {${field}}, which is no placeholder; use ${PLACEHOLDERS.map(name => `{${name}}`).join(', ')}`);
       }
       out += values[field];
+      if (out.length > MAX_PROMPT_CHARS) throw tooLong();
       i = close;
     } else if (char === '}') {
       if (template[i + 1] !== '}') throw new BenchmarkError(400, 'invalid_template', "The template has a single '}'; write '}}' for one");
@@ -163,6 +171,7 @@ function pythonFormat(template, values) {
       out += char;
     }
   }
+  if (out.length > MAX_PROMPT_CHARS) throw tooLong();
   return out;
 }
 
@@ -208,6 +217,9 @@ function renderTaskTools({pluginName, task, instructions, args}) {
     + `Task: ${task.description}.\n${instructions}\n\n`
     + `When the task is done, call ${SUBMIT} with its result.`;
   const user = `Task input:\n${pythonJson(args)}`;
+  if (system.length > MAX_PROMPT_CHARS || user.length > MAX_PROMPT_CHARS) {
+    throw new BenchmarkError(400, 'prompt_too_long', `A rendered prompt may be ${MAX_PROMPT_CHARS} characters at most`);
+  }
   return {system, user, sha256: promptSha256({system, user})};
 }
 
@@ -215,6 +227,6 @@ function renderTaskTools({pluginName, task, instructions, args}) {
 const normalizeTemplate = value => normalizeInstructions(value, 'template');
 
 module.exports = {
-  RENDERER_VERSION, DEFAULT_CODING_TEMPLATE, PLACEHOLDERS, canonicalJson, normalizeInstructions, normalizeTemplate,
+  RENDERER_VERSION, MAX_BENCHMARK_PROMPT_CHARS, DEFAULT_CODING_TEMPLATE, PLACEHOLDERS, canonicalJson, normalizeInstructions, normalizeTemplate,
   pythonFormat, pythonJson, renderCoding, renderTaskTools, sha256Hex,
 };

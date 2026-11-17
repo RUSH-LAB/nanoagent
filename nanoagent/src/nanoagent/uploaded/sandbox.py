@@ -62,6 +62,7 @@ OUT_DIR = "/rush/out"
 REQUEST_PATH = "/rush/request.json"
 HARNESS_DIR = "/harness"
 PLUGIN_DIR = "/plugin"
+PLUGIN_SOURCE_DIR = "/plugin-source"  # the prep container's read-only view of the plugin, copied into PLUGIN_DIR to build
 FIXTURES_DIR = "/fixtures"
 UV_BIN = "/usr/local/bin/uv"
 FIXTURES_ENV = "NANOAGENT_FIXTURES"
@@ -447,13 +448,16 @@ class ToolLauncher:
 
     @contextmanager
     def workspace_view(self) -> Iterator[Path]:
-        """A copy of the case workspace as it is now, for the host-side tool verifier to read."""
+        """A copy of the case workspace as it is now, for the host-side tool verifier to read.
+
+        One at a time per case: concurrent tool calls of an attempt queue, so at most one copy is ever held."""
         case = self._case()
-        _, directory = self._supervisor._copy_out(case.holder, "/hold/workspace", case.spec.limits, case.spec.workdir)
-        try:
-            yield directory
-        finally:
-            shutil.rmtree(directory, ignore_errors=True)
+        with case.view_lock:
+            _, directory = self._supervisor._copy_out(case.holder, "/hold/workspace", case.spec.limits, case.spec.workdir)
+            try:
+                yield directory
+            finally:
+                shutil.rmtree(directory, ignore_errors=True)
 
 
 # Every container, network and volume the supervisor creates is named `rush-…` (rush-net-, rush-ws-, rush-out-, rush-buildout-,
@@ -728,20 +732,30 @@ class DockerSandboxSupervisor:
     def prepare_plugin(self, root: Path, timeout_s: float) -> None:
         """`uv sync --frozen` the unpacked plugin at ``root`` inside the pinned prep image, in a gVisor sandbox.
 
-        The environment lands in ``root/.venv``, valid at /plugin in the tool container. The sandbox is on an
+        The environment lands in ``root/.venv``, valid at /plugin in the tool container. Publisher code runs here (the project's
+        build, git sources, sdists), so the container has the case limits' cpu, memory and pids bounds and ``root`` is mounted
+        read-only: the build runs in a copy of it in the sandbox's memory (a build writes into its source, as setuptools' egg-info
+        does), only ``.venv`` is writable on the host, and nothing else there can be planted or swapped. The sandbox is on an
         `--internal` network whose only way out is the host install's egress proxy, which tunnels `INSTALL_HOSTS`
         (the package index and GitHub) and nothing else.
         """
         uv = self._require_uv()
         name = f"rush-prep-{uuid.uuid4().hex[:12]}"
+        limits = Limits()
+        venv = root / ".venv"
+        venv.mkdir(exist_ok=True)
         with self._egress_bridge(INSTALL_HOSTS, "prep") as (network, proxy):
             args = [
                 "run", f"--name={name}", "--rm", f"--runtime={self._runtime}", f"--network={network}", f"--user={os.getuid()}:{os.getgid()}",
                 "--cap-drop=ALL", "--security-opt=no-new-privileges", "--log-driver=none", "--tmpfs", "/tmp:rw,nosuid,size=1g",
-                "--workdir", PLUGIN_DIR, *_mount_bind(root, PLUGIN_DIR, readonly=False), *_mount_bind(uv, UV_BIN),
+                f"--cpus={limits.cpus}", f"--memory={limits.memory_bytes}", f"--memory-swap={limits.memory_bytes}", f"--pids-limit={limits.pids}",
+                "--workdir", PLUGIN_DIR, "--tmpfs", f"{PLUGIN_DIR}:rw,nosuid,size=1g,mode=1777", *_mount_bind(root, PLUGIN_SOURCE_DIR),
+                *_mount_bind(venv, f"{PLUGIN_DIR}/.venv", readonly=False), *_mount_bind(uv, UV_BIN),
                 "-e", "HOME=/tmp", "-e", "UV_CACHE_DIR=/tmp/uv-cache", "-e", "UV_LINK_MODE=copy", "-e", "UV_PYTHON_DOWNLOADS=never",
                 *[a for key in ("HTTPS_PROXY", "https_proxy") for a in ("-e", f"{key}={proxy}")],
-                "--entrypoint", "uv", PLUGIN_PREP_IMAGE, "sync", "--frozen", "--no-dev", "--python", "/usr/local/bin/python", "--quiet",
+                "--entrypoint", "sh", PLUGIN_PREP_IMAGE, "-c",
+                f'tar -C {PLUGIN_SOURCE_DIR} --exclude=./.venv -cf - . | tar -C {PLUGIN_DIR} --strip-components=1 -xf - && exec "$@"', "prep",
+                UV_BIN, "sync", "--frozen", "--no-dev", "--python", "/usr/local/bin/python", "--quiet",
             ]
             result = self._docker.run(args, timeout_s=timeout_s)
             if result.timed_out:
@@ -1008,6 +1022,7 @@ class _DockerCase:
         self._paused = False
         self._final: ProcessEvidence | None = None
         self._evidence_lock = threading.Lock()
+        self.view_lock = threading.Lock()  # one workspace copy at a time (`ToolLauncher.workspace_view`)
         self._closing = threading.Event()
         self.tool_proxy: str | None = None  # the tool container's egress proxy URL, when it has declared hosts
         self.bridge = ExitStack()  # the proxy and its relay and network; closed with the case

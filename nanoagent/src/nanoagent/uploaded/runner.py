@@ -89,6 +89,7 @@ NS = 1_000_000_000
 EXPECTED_SOURCES = ("worker", "gateway", "process")
 EXEC_THREADS = 4  # concurrent managed commands per attempt
 MISSING_ANSWER = "wrote no answer.json"  # read_answer's failure for an absent file
+SNAPSHOT_EVENT_DIFF_BYTES = 128 * 1024  # of the diff a snapshot.taken event carries; the snapshot payload has all of it
 
 
 class Supervisor(Protocol):
@@ -444,7 +445,8 @@ class AttemptRunner:
         source_root.mkdir()
         extract(archive, source_root)
         closure = resolve_dependencies(
-            profile, source_root, archive.manifest.lockfiles, work / "deps", index_url=self.config.index_urls.get(profile.id)
+            profile, source_root, archive.manifest.lockfiles, work / "deps", index_url=self.config.index_urls.get(profile.id),
+            timeout_s=job.run["limits"]["build_wall_ms"] / 1000,
         )
         run_limits = job.run["limits"]
         # The build's output volume is a tmpfs charged to the build's memory, so the build has bounds of its own.
@@ -628,7 +630,15 @@ class AttemptRunner:
                     entry |= {"sha256": snapshot.files[path], "size": (snapshot.directory / path).stat().st_size}
                 diff.append(entry)
         payload = await journal.put_payload(json.dumps({"files": dict(snapshot.files), "skipped": dict(snapshot.skipped), "diff": diff}, sort_keys=True).encode(), "clean")
-        await emit.emit(rec.SnapshotTaken(diff, payload), payloads=[payload])
+        # The whole diff is in the payload; the event keeps what fits, as at the file limit it would outgrow an event (RUSH refuses
+        # data past 256 KiB).
+        shown, size = [], 0
+        for entry in diff:
+            size += len(json.dumps(entry))
+            if size > SNAPSHOT_EVENT_DIFF_BYTES:
+                break
+            shown.append(entry)
+        await emit.emit(rec.SnapshotTaken(shown, payload, diff_truncated=len(shown) < len(diff)), payloads=[payload])
 
     async def _read_outcome(self, handle: CaseHandle, termination: Termination, job: AttemptJob, workspace: Path, skipped: Mapping[str, str]) -> tuple[str, dict[str, Any]]:
         """The attempt's outcome. A harness that did not exit cleanly is an execution failure; otherwise the task tools policy
@@ -679,8 +689,8 @@ class AttemptRunner:
         self, manifest: PluginManifest, job: AttemptJob, outcome: dict[str, Any], workspace: Path, evidence: ProcessEvidence
     ) -> dict[str, Any] | None:
         """The plugin verifier's verdict on the frozen outcome, or None when the score stays unavailable."""
-        if outcome["status"] == "execution_failed" and outcome["reason"] in ("nonzero_exit", "signaled") and not evidence.complete:
-            return None  # the exit could not be observed reliably
+        if outcome["status"] == "execution_failed" and outcome["reason"] in ("nonzero_exit", "signaled") and not evidence.complete and set(evidence.loss_reasons) - {"journal_overflow"}:
+            return None  # the exit could not be observed reliably; the harness's own overflow of the collector does not count, or it could unscore its crash
         try:
             verdict = await in_thread(
                 self.verify_task_case, manifest, job.task["id"], dict(job.case["arguments"]), outcome, job.private_reference, workspace
@@ -692,20 +702,37 @@ class AttemptRunner:
             return {"verifier_error": "verifier_error"} if outcome["status"] in ("answered", "refused") else None
         return {"verdict": verdict.verdict, "explanation": verdict.explanation}
 
+    async def _trace(self, job: AttemptJob, journal: RushJournal, status: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Projects the journal, uploads its spans and returns the coverage and metrics to finalize with. A projection or span upload
+        that fails (a refused request, a malformed harness value) leaves the trace unavailable but never the verdict unsent;
+        a lost lease, a cancel, a seal or an unreachable RUSH still end the attempt."""
+        try:
+            projection = self.project(list(journal.records), dict(journal.payloads), dict(journal.redactions))
+            for request in projection.spans_requests(job.fence):
+                await self.worker.spans(job.attempt_id, request)
+        except (LeaseLost, Canceled, Sealed, RushUnavailable):
+            raise
+        except Exception as error:
+            LOG.exception("attempt %s: the trace is unavailable, the attempt is finalized without it", job.attempt_id)
+            reason = f"trace_unavailable: {type(error).__name__}"
+            coverage = {"status": "partial", "reasons": [reason], "expected_sources": [], "observed_sources": [], "missing_sources": [], "collector_complete": None,
+                        "loss_reasons": [], "truncated": [], "redacted": [], "rejected": []}  # fmt: skip
+            return coverage, {"usage_complete": False, "timing_unavailable": reason}
+        return projection.coverage.to_dict(), projection.metrics.to_dict("the source did not build, so no case ran" if status == "build_failed" else None)
+
     async def _finalize(
         self, job: AttemptJob, journal: RushJournal, status: str, reason: str | None, *, verdict: Mapping[str, Any] | None = None,
         result: AttemptResult | None = None,
     ) -> AttemptResult:
-        projection = self.project(list(journal.records), dict(journal.payloads), dict(journal.redactions))
-        await self.worker.spans(job.attempt_id, projection.spans_request(job.fence))
+        coverage, metrics = await self._trace(job, journal, status)
         body: dict[str, Any] = {
             "fence": job.fence,
             "execution": {"status": status, "reason": reason},
             "verdict": None,
             "explanation": None,
             "verifier_error": None,
-            "coverage": projection.coverage.to_dict(),
-            "metrics": projection.metrics.to_dict("the source did not build, so no case ran" if status == "build_failed" else None),
+            "coverage": coverage,
+            "metrics": metrics,
             "final_cursor_expected": journal.high_water,
         }
         if verdict is not None:

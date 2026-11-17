@@ -193,6 +193,17 @@ def test_bwrap_runs_the_command_behind_the_egress_bridge_helper(tmp_path: Path) 
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="bwrap is not on Windows")
+def test_bwrap_sizes_its_tmpfs(tmp_path: Path) -> None:
+    sandbox.configure("bwrap", plugin_python(sys.executable))
+    try:
+        argv = sandbox._bwrap(["run"], tmp_path, {}, [], [], tmp_path / "egress.sock")
+    finally:
+        sandbox.configure("none")
+    tmpfs = argv.index("--tmpfs")
+    assert argv[tmpfs - 2 : tmpfs + 2] == ["--size", str(sandbox.BWRAP_TMP_BYTES), "--tmpfs", "/tmp"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="bwrap is not on Windows")
 def test_bwrap_never_binds_the_home_of_a_uv_and_git_installed_under_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home = tmp_path / "home"
     (home / "bin").mkdir(parents=True)

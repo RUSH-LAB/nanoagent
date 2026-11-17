@@ -6,8 +6,8 @@ const {LIMIT_FIELDS} = require('./limits');
 const {canonicalJson} = require('./prompt');
 
 const PAGE = 1000;
-// What one attempt's comparison loads into memory: its events and its payloads' bytes.
-const MAX_EVIDENCE_EVENTS = 20_000;
+// What one attempt's comparison loads into memory: its events' data and its payloads' bytes.
+const MAX_EVIDENCE_EVENT_BYTES = 64 * 1024 * 1024;
 const MAX_EVIDENCE_PAYLOAD_BYTES = 64 * 1024 * 1024;
 
 const tooLarge = (attemptId, what) => new BenchmarkError(413, 'evidence_too_large', `Attempt ${attemptId} is too large to compare: it has over ${what}`);
@@ -21,11 +21,13 @@ async function evidenceOf(repository, context, attemptId) {
   const pinned = run?.cases.find(candidate => candidate.case_id === attempt.case_id);
   if (!pinned) throw new BenchmarkError(404, 'unknown_attempt', `No such attempt: ${attemptId}`);
   const records = [];
+  let eventBytes = 0;
   for (let after = 0;;) {
     const page = await repository.events(context, attemptId, after, PAGE);
     if (!page) throw new BenchmarkError(404, 'unknown_attempt', `No such attempt: ${attemptId}`);
     records.push(...page.events);
-    if (records.length > MAX_EVIDENCE_EVENTS) throw tooLarge(attemptId, `${MAX_EVIDENCE_EVENTS} events`);
+    eventBytes += page.events.reduce((sum, event) => sum + Buffer.byteLength(JSON.stringify(event.data)), 0);
+    if (eventBytes > MAX_EVIDENCE_EVENT_BYTES) throw tooLarge(attemptId, `${MAX_EVIDENCE_EVENT_BYTES} bytes of events`);
     if (!page.has_more) break;
     after = page.events.at(-1).cursor;
   }

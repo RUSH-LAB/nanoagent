@@ -73,3 +73,14 @@ def test_a_response_settled_without_a_cost_is_still_a_reservation_the_lookup_set
     assert pending_calls([response({"action": "settled", "cost_usd": None})])[0].settled is False
     assert pending_calls([response({"action": "uncertain", "cost_usd": None})])[0].settled is False
     assert pending_calls([response({"action": "settled", "cost_usd": "0.01"})])[0].settled is True
+
+
+def test_a_response_whose_settlement_failed_is_still_a_reservation_the_lookup_settles() -> None:
+    from nanoagent.uploaded.reconcile import pending_calls
+
+    settlement = {"action": "settled", "cost_usd": "0.01"}
+    records = [
+        {"kind": "model_call.response", "data": {"call_id": "c", "generation_id": "gen-1", "settlement": settlement}},
+        {"kind": "model_call.settlement_failed", "data": {"call_id": "c", "settlement": settlement, "error": "RushUnavailable"}},
+    ]
+    assert pending_calls(records)[0].settled is False

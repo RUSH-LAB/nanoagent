@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from 'react';
 import {benchmarkApi} from './api';
-import {payloadView, redactionNote} from './inspector';
+import {capMessages, payloadView, redactionNote} from './inspector';
 import {traceMessages} from './traceMessages';
 import styles from './styles.module.css';
 import traceStyles from './trace.module.css';
@@ -16,12 +16,12 @@ export default function Payload({attemptId, sha, label, note, transcript}) {
     let live = true;
     setState({loading: true});
     benchmarkApi.payload(attemptId, sha).then(
-      result => live && setState({view: payloadView(result.text, result.redaction), messages: traceMessages(result.text, {dialect, response, stream})}),
+      result => live && setState({view: payloadView(result.text, result.redaction), ...capMessages(traceMessages(result.text, {dialect, response, stream}))}),
       error => live && setState({error: error.message}),
     );
     return () => { live = false; };
   }, [attemptId, sha, dialect, response, stream]);
-  const {view, messages = []} = state;
+  const {view, messages = [], cut: messagesCut} = state;
   return (
     <section className={styles.payload}>
       {label && <h4>{label}</h4>}
@@ -32,6 +32,7 @@ export default function Payload({attemptId, sha, label, note, transcript}) {
       {messages.length > 0 && <div className={traceStyles.messages}>
         {messages.map(({role, text}, index) => <div key={index}><h5>{role}</h5><pre>{text}</pre></div>)}
       </div>}
+      {messagesCut && <p className={styles.muted}>The messages are cut short; the raw view has the rest.</p>}
       {view && (messages.length > 0 ? (
         <details><summary>Raw payload</summary><pre>{view.text}</pre></details>
       ) : <pre>{view.text}</pre>)}

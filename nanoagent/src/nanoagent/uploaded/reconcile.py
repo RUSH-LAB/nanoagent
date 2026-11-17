@@ -52,13 +52,16 @@ class HttpxGenerationLookup:
 
 def pending_calls(records: Sequence[Mapping[str, Any]]) -> list[PendingCall]:
     """The calls whose committed `model_call.response` carries a generation ID."""
+    # The response says what settlement was meant; `model_call.settlement_failed` says it never reached RUSH.
+    failed = {record["data"]["call_id"] for record in records if record["kind"] == "model_call.settlement_failed"}
     calls = []
     for record in records:
         data = record["data"]
         if record["kind"] == "model_call.response" and str(data.get("generation_id") or "").startswith(GENERATION_PREFIX):
             settlement = data.get("settlement") or {}
             # A "settled" response without a cost was kept uncertain by admission: only a known cost settles a reservation.
-            calls.append(PendingCall(data["call_id"], data["generation_id"], settlement.get("action") == "settled" and settlement.get("cost_usd") is not None))
+            settled = settlement.get("action") == "settled" and settlement.get("cost_usd") is not None and data["call_id"] not in failed
+            calls.append(PendingCall(data["call_id"], data["generation_id"], settled))
     return calls
 
 

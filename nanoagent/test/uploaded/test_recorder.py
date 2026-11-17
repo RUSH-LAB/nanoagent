@@ -9,6 +9,7 @@ import httpx
 import pytest
 
 import service_fakes as fakes
+from nanoagent.uploaded import evidence
 from nanoagent.uploaded.evidence import EvidenceEvent, JournalWriteError, Recorder
 from service_fakes import PATHS, FakeJournal, ScriptedTransport, chat_request, make_rig, stream_script
 
@@ -138,3 +139,12 @@ async def test_a_streamed_response_reaches_the_harness_while_the_journal_is_stal
     assert all(frame["available_ns"] <= frame["delivered_ns"] for frame in index)
     assert data["completed_ns"] <= data["delivered_ns"]
     await rig.services.aclose()
+
+
+async def test_a_payload_over_the_server_cap_is_journaled_truncated() -> None:
+    journal = FakeJournal()
+    rec = recorder(journal)
+    sha = await rec.payload(b"x" * (evidence.MAX_PAYLOAD_BYTES + 1))
+    await rec.flush()
+    data, redaction = journal.payloads[sha]
+    assert len(data) == evidence.MAX_PAYLOAD_BYTES and redaction == "truncated"

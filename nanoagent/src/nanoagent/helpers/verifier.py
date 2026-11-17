@@ -15,6 +15,7 @@ import importlib
 import importlib.util
 import json
 import os
+import resource
 import socket
 import subprocess
 import sys
@@ -24,6 +25,7 @@ from slimconfig import Output, build_output, plain_output
 
 PACKAGE = "plugin_verifier"
 CONTRACT = "contract"
+MEMORY_BYTES = 4 << 30  # address space a verifier may use
 
 
 def _disabled(*_args, **_kwargs):
@@ -60,6 +62,11 @@ def main(argv: list[str]) -> int:
         raise SystemExit("usage: nanoagent helper verifier < request.json")
     # No __pycache__ written into the plugin.
     sys.dont_write_bytecode = True
+    # Before any plugin code runs. NPROC 0 refuses fork and new threads (not enforced for root); the
+    # limits are Linux's, where the verifier runs in the sandbox.
+    if sys.platform == "linux":
+        resource.setrlimit(resource.RLIMIT_AS, (MEMORY_BYTES, MEMORY_BYTES))
+        resource.setrlimit(resource.RLIMIT_NPROC, (0, 0))
     request = json.load(sys.stdin)
     for module in request["modules"]:
         importlib.import_module(module)

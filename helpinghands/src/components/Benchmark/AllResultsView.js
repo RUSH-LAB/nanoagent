@@ -37,7 +37,7 @@ function BenchmarkResults({benchmarkId}) {
 
 /** All Benchmark Results: plugin, then plugin version, then benchmark, whoever published it; its case set and every member's runs follow. */
 export default function AllResults() {
-  const benchmarks = useLoad(() => benchmarkApi.benchmarks(), []);
+  const benchmarks = useLoad(() => benchmarkApi.allBenchmarks(), []);
   const [pluginId, setPluginId] = useState('');
   const [version, setVersion] = useState('');
   const [benchmarkId, setBenchmarkId] = useState('');

@@ -1,7 +1,7 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {barOf, buildTrace, causalChain, causalFrom, filterRows, keepSelection, parallelWith, spanTiming, transcriptOf, waitsOf, EMPTY_FILTERS} from '../../../../src/components/Benchmark/traceModel.js';
-import {describeSpan, payloadView, tokenClasses} from '../../../../src/components/Benchmark/inspector.js';
+import {capMessages, describeSpan, payloadView, tokenClasses} from '../../../../src/components/Benchmark/inspector.js';
 import {traceMessages} from '../../../../src/components/Benchmark/traceMessages.js';
 
 const S = 1_000_000_000n;
@@ -132,6 +132,18 @@ describe('benchmark inspector', () => {
     assert.deepEqual(tokenClasses(null), []);
     const sub = describeSpan(model.byId.get('h:sub'));
     assert.match(sub.facts.find(fact => fact.label === 'Provenance').value, /the harness said so/);
+  });
+
+  it('caps the messages shown for a huge payload by count and characters', () => {
+    const many = Array.from({length: 5000}, () => ({role: 'user', text: 'x'}));
+    const byCount = capMessages(many);
+    assert.equal(byCount.messages.length, 500);
+    assert.equal(byCount.cut, true);
+    const big = capMessages([{role: 'user', text: 'y'.repeat(300_000)}, {role: 'user', text: 'z'}]);
+    assert.equal(big.messages.length, 1);
+    assert.equal(big.messages[0].text.length, 200_000);
+    assert.equal(big.cut, true);
+    assert.deepEqual(capMessages([{role: 'user', text: 'hi'}]), {messages: [{role: 'user', text: 'hi'}], cut: false});
   });
 
   it('shows a payload as recorded, cutting very large ones, and never as markup', () => {

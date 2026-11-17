@@ -25,6 +25,8 @@ disabled and only :data:`ALLOWED_IMPORTS` importable, twice: two different verdi
 from __future__ import annotations
 
 import ast
+import os
+import stat
 from pathlib import Path
 
 # Pure, deterministic standard-library modules: no clock, randomness, environment, network or
@@ -92,10 +94,26 @@ FORBIDDEN_ATTRIBUTES = frozenset(
         "write_text",
     }
 )
+# A verifier module larger than this is refused unread.
+MAX_SOURCE_BYTES = 1 << 20
 # The two functions and their positional parameters.
 SIGNATURES = {"verify_input": 2, "verify_output": 4, "verify_task": 5}
 # The two optional hooks of a benchmark suite (see the uploaded harness contract's "Benchmark scoring").
 BENCHMARK_SIGNATURES = {"verify_benchmark_case": 6, "score_benchmark_suite": 3}
+
+
+def _source(path: Path) -> str:
+    """The text of a regular file of at most MAX_SOURCE_BYTES: a link, device or FIFO (publisher code can plant one) is refused unread."""
+    if not stat.S_ISREG(path.lstat().st_mode):
+        raise ValueError("is not a regular file")
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            raise ValueError("is not a regular file")
+        data = handle.read(MAX_SOURCE_BYTES + 1)
+    if len(data) > MAX_SOURCE_BYTES:
+        raise ValueError(f"is larger than {MAX_SOURCE_BYTES} bytes")
+    return data.decode("utf-8")
 
 
 def verifier_problems(folder: Path) -> list[str]:
@@ -107,7 +125,10 @@ def verifier_problems(folder: Path) -> list[str]:
     for module in sorted(folder.rglob("*.py")):
         name = f"verifier/{module.relative_to(folder).as_posix()}"
         try:
-            tree = ast.parse(module.read_text(encoding="utf-8"), filename=str(module))
+            tree = ast.parse(_source(module), filename=str(module))
+        except (OSError, ValueError) as error:
+            problems.append(f"{name}: {error}")
+            continue
         except SyntaxError as error:
             problems.append(f"{name}:{error.lineno}: not valid Python")
             continue
@@ -150,7 +171,7 @@ def benchmark_hooks(folder: Path) -> bool:
     """Whether ``folder`` is a deterministic verifier defining both benchmark hooks with their signatures."""
     if verifier_problems(folder):
         return False
-    tree = ast.parse((folder / "__init__.py").read_text(encoding="utf-8"))
+    tree = ast.parse(_source(folder / "__init__.py"))
     return not _missing_functions(tree, BENCHMARK_SIGNATURES)
 
 

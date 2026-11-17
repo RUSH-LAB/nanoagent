@@ -6,8 +6,12 @@ const {CAPABILITY_WINDOW_S} = require('../benchmark/limits');
 const {stringifyJson} = require('../benchmark/json');
 const {RENDERER_VERSION, sha256Hex} = require('../benchmark/prompt');
 const {latestByCase, runScore, sumMetrics} = require('../benchmark/rules');
+const {MAX_ATTEMPT_LINKS, MAX_EVENT_PAGE_BYTES} = require('../benchmark/limits');
 const {chargeStorage, inTransaction} = require('./benchmark-context');
 const {sweepExpired} = require('./benchmark-sweep');
+
+/** The previews a member keeps. */
+const MAX_PREVIEWS = 50;
 
 function attemptView(row) {
   return {
@@ -217,10 +221,17 @@ function createPostgresBenchmark({pool}) {
     /** Keep a preview's resolved `plan` and its `digest`: the new preview's id. */
     async savePreview(context, plan, digest) {
       const previewId = crypto.randomUUID();
-      await member(context, client => client.query(
-        'insert into benchmark_preview (preview_id, workspace_id, user_id, plan, plan_digest) values ($1, $2, $3, $4, $5)',
-        [previewId, context.workspaceId, context.userId, JSON.stringify(plan), digest],
-      ));
+      await member(context, async client => {
+        await client.query(
+          'insert into benchmark_preview (preview_id, workspace_id, user_id, plan, plan_digest) values ($1, $2, $3, $4, $5)',
+          [previewId, context.workspaceId, context.userId, JSON.stringify(plan), digest],
+        );
+        // A member keeps their newest MAX_PREVIEWS previews: one is read right after it is made.
+        await client.query(
+          `delete from benchmark_preview where user_id = $1 and preview_id in (select preview_id from benchmark_preview where user_id = $1
+             order by created_at desc, preview_id offset ${MAX_PREVIEWS})`, [context.userId],
+        );
+      });
       return previewId;
     },
     /** The caller's preview `id`: `{plan, plan_digest}`, or null. */
@@ -368,13 +379,17 @@ function createPostgresBenchmark({pool}) {
       return member(context, async client => {
         const attempt = (await client.query('select sealed, final_cursor, next_cursor - 1 as high_water from benchmark_attempt where attempt_id = $1', [attemptId])).rows[0];
         if (!attempt) return null;
+        // The page ends at `limit` events or once its data passes MAX_EVENT_PAGE_BYTES, whichever comes first (it always holds one).
         const rows = (await client.query(
-          `select cursor, event_id, source, kind, sequence, occurred_ns::text as occurred_ns, data, payload_sha256s, received_at
-             from benchmark_event where attempt_id = $1 and cursor > $2 order by cursor limit $3`, [attemptId, after, limit + 1],
+          `select cursor, event_id, source, kind, sequence, occurred_ns, data, payload_sha256s, received_at from (
+             select cursor, event_id, source, kind, sequence, occurred_ns::text as occurred_ns, data, payload_sha256s, received_at,
+               sum(octet_length(data::text)) over (order by cursor) - octet_length(data::text) as before_bytes
+               from benchmark_event where attempt_id = $1 and cursor > $2 order by cursor limit $3) page
+            where before_bytes < $4 order by cursor`, [attemptId, after, limit, MAX_EVENT_PAGE_BYTES],
         )).rows;
         return {
-          events: rows.slice(0, limit).map(row => ({...row, cursor: Number(row.cursor), sequence: Number(row.sequence)})),
-          has_more: rows.length > limit, sealed: attempt.sealed,
+          events: rows.map(row => ({...row, cursor: Number(row.cursor), sequence: Number(row.sequence)})),
+          has_more: rows.length > 0 && Number(rows.at(-1).cursor) < Number(attempt.high_water), sealed: attempt.sealed,
           final_cursor: attempt.final_cursor === null ? null : Number(attempt.final_cursor), high_water_cursor: Number(attempt.high_water),
         };
       });
@@ -390,7 +405,7 @@ function createPostgresBenchmark({pool}) {
             order by start_ns nulls last, span_id limit $5`, [attemptId, kind, status, escaped, limit],
         )).rows;
         const links = (await client.query(
-          'select kind, from_id as "from", to_id as "to", method, attributes from benchmark_link where attempt_id = $1 order by kind, from_id, to_id', [attemptId],
+          'select kind, from_id as "from", to_id as "to", method, attributes from benchmark_link where attempt_id = $1 order by kind, from_id, to_id limit $2', [attemptId, MAX_ATTEMPT_LINKS],
         )).rows;
         return {spans, links};
       });

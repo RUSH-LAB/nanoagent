@@ -3,7 +3,9 @@ const crypto = require('crypto');
 const {BenchmarkError} = require('../benchmark/errors');
 const {canonicalJson, sha256Hex} = require('../benchmark/prompt');
 const {overBudget} = require('../benchmark/rules');
-const {capabilitiesOf, exceeded} = require('../benchmark/limits');
+const {
+  capabilitiesOf, exceeded, MAX_ATTEMPT_EVENTS, MAX_ATTEMPT_SPANS, MAX_ATTEMPT_LINKS, MAX_SPAN_ATTRIBUTES_BYTES, MAX_LINK_ATTRIBUTES_BYTES, SETTLE_RESERVE_FACTOR,
+} = require('../benchmark/limits');
 const {chargeStorage, inTransaction} = require('./benchmark-context');
 const {sweepExpired} = require('./benchmark-sweep');
 
@@ -264,6 +266,10 @@ function createPostgresBenchmarkWorker({pool, config}) {
           if (outcome === 'settled' && Math.abs(admission.cost - costUsd) < 1e-8) return {call_id: callId, status: 'settled', cost_usd: costUsd};
           throw new BenchmarkError(409, 'already_settled', `Call ${callId} is already settled`);
         }
+        // The reserve is the gateway's upper bound on the call, so a cost far past it is not an honest one; it would otherwise drain the shared budgets.
+        if (outcome === 'settled' && costUsd > admission.reserve * SETTLE_RESERVE_FACTOR) {
+          throw new BenchmarkError(400, 'cost_exceeds_reserve', `Call ${callId} cannot settle at ${costUsd} USD: it reserved ${admission.reserve} USD`);
+        }
         if (outcome === 'uncertain') {
           await client.query(
             `update benchmark_admission set status = 'uncertain', provenance = $3 where attempt_id = $1 and call_id = $2`,
@@ -285,6 +291,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
     async appendEvents(userId, attemptId, fence, events) {
       return fenced(userId, attemptId, fence, async (client, attempt) => {
         let next = Number(attempt.next_cursor);
+        if (next - 1 + events.length > MAX_ATTEMPT_EVENTS) throw new BenchmarkError(413, 'too_many_events', `An attempt keeps ${MAX_ATTEMPT_EVENTS} events at most`);
         const receipts = [];
         for (const event of events) {
           const digest = sha256Hex(canonicalJson({
@@ -325,6 +332,12 @@ function createPostgresBenchmarkWorker({pool, config}) {
 
     async putSpans(userId, attemptId, fence, spans, links) {
       return fenced(userId, attemptId, fence, async client => {
+        const held = (await client.query(
+          `select (select count(*) from benchmark_span where attempt_id = $1)::int as spans, (select count(*) from benchmark_link where attempt_id = $1)::int as links`, [attemptId],
+        )).rows[0];
+        if (held.spans + spans.length > MAX_ATTEMPT_SPANS || held.links + links.length > MAX_ATTEMPT_LINKS) {
+          throw new BenchmarkError(413, 'too_many_spans', `An attempt keeps ${MAX_ATTEMPT_SPANS} spans and ${MAX_ATTEMPT_LINKS} links at most`);
+        }
         for (const span of spans) {
           // A later report of a span fills what the earlier one lacked and keeps what it had.
           await client.query(
@@ -346,6 +359,13 @@ function createPostgresBenchmarkWorker({pool, config}) {
             [attemptId, link.kind, link.from, link.to, link.method, JSON.stringify(link.attributes)],
           );
         }
+        // A later report merges its attributes into the earlier ones, so the merged object is what is bounded.
+        const grown = await client.query(
+          `select 1 from benchmark_span where attempt_id = $1 and octet_length(attributes::text) > $2
+           union all select 1 from benchmark_link where attempt_id = $1 and octet_length(attributes::text) > $3 limit 1`,
+          [attemptId, MAX_SPAN_ATTRIBUTES_BYTES, MAX_LINK_ATTRIBUTES_BYTES],
+        );
+        if (grown.rowCount) throw new BenchmarkError(413, 'too_large', 'A span or link\'s merged attributes pass their byte limit');
         return {spans: spans.length, links: links.length};
       });
     },

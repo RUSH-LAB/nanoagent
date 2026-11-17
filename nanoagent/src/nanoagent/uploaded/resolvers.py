@@ -38,9 +38,11 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from nanoagent.uploaded.toolchains import (
+    DEFAULT_RESOLVE_TIMEOUT_S,
     DEPENDENCY_MOUNT,
     MAX_WHEEL_BYTES,
     DependencyClosure,
+    ResolveBudget,
     ToolchainError,
     ToolchainProfile,
     _read_lockfile,
@@ -63,7 +65,8 @@ class Artifact:
 class Ecosystem:
     lockfiles: frozenset[str]
     plan: Callable[[Path, tuple[str, ...]], list[Artifact]]
-    install: Callable[[list[tuple[Artifact, bytes]], Path], None]
+    install: Callable[[Artifact, bytes, Path], int]  # lays one verified artifact out; returns the bytes it wrote
+    finish: Callable[[Path], None] | None = None  # once every artifact is installed
 
 
 def _mismatch(label: str, found: str, expected: str) -> ToolchainError:
@@ -111,11 +114,12 @@ def _contained(destination: Path, relative: str) -> Path:
     return target
 
 
-def _write(destination: Path, relative: str, data: bytes) -> None:
+def _write(destination: Path, relative: str, data: bytes) -> int:
     target = _contained(destination, relative)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
     target.chmod(0o644)
+    return len(data)
 
 
 def _safe_members(archive: tarfile.TarFile, label: str, strip: bool) -> list[tuple[tarfile.TarInfo, PurePosixPath]]:
@@ -140,9 +144,10 @@ def _safe_members(archive: tarfile.TarFile, label: str, strip: bool) -> list[tup
     return found
 
 
-def _extract_tarball(data: bytes, destination: Path, label: str) -> dict[str, str]:
-    """Extracts a `.tgz` below `destination`, dropping the top directory; returns each file's sha256."""
+def _extract_tarball(data: bytes, destination: Path, label: str) -> tuple[dict[str, str], int]:
+    """Extracts a `.tgz` below `destination`, dropping the top directory; returns each file's sha256 and the bytes written."""
     hashes: dict[str, str] = {}
+    written = 0
     try:
         with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
             members = _safe_members(archive, label, strip=True)
@@ -158,9 +163,10 @@ def _extract_tarball(data: bytes, destination: Path, label: str) -> dict[str, st
                 target.write_bytes(content)
                 target.chmod(0o755 if member.mode & 0o100 else 0o644)
                 hashes[path.as_posix()] = hashlib.sha256(content).hexdigest()
+                written += len(content)
     except (tarfile.TarError, OSError, EOFError) as error:
         raise ToolchainError("invalid_dependency", f"{label}: not a readable tarball: {error}") from error
-    return hashes
+    return hashes, written
 
 
 # -- Go ------------------------------------------------------------------------------------------------------------------
@@ -260,9 +266,8 @@ def _go_checker(label: str, expected: str, prefix: str | None) -> Callable[[byte
     return check
 
 
-def install_go(downloaded: list[tuple[Artifact, bytes]], destination: Path) -> None:
-    for artifact, data in downloaded:
-        _write(destination, f"proxy/{artifact.path}", data)
+def install_go(artifact: Artifact, data: bytes, destination: Path) -> int:
+    return _write(destination, f"proxy/{artifact.path}", data)
 
 
 # -- Rust ----------------------------------------------------------------------------------------------------------------
@@ -301,13 +306,16 @@ def plan_cargo(source_root: Path, lockfiles: tuple[str, ...]) -> list[Artifact]:
     return artifacts
 
 
-def install_cargo(downloaded: list[tuple[Artifact, bytes]], destination: Path) -> None:
-    """A `cargo vendor` layout: each crate unpacked with a `.cargo-checksum.json`, and the source replacement config."""
-    for artifact, data in downloaded:
-        directory = PurePosixPath(artifact.path).name.removesuffix(".crate")
-        files = _extract_tarball(data, destination / "vendor" / directory, artifact.label)
-        package = hashlib.sha256(data).hexdigest()
-        _write(destination, f"vendor/{directory}/.cargo-checksum.json", json.dumps({"files": files, "package": package}).encode())
+def install_cargo(artifact: Artifact, data: bytes, destination: Path) -> int:
+    """A `cargo vendor` layout: the crate unpacked with a `.cargo-checksum.json`."""
+    directory = PurePosixPath(artifact.path).name.removesuffix(".crate")
+    files, written = _extract_tarball(data, destination / "vendor" / directory, artifact.label)
+    package = hashlib.sha256(data).hexdigest()
+    return written + _write(destination, f"vendor/{directory}/.cargo-checksum.json", json.dumps({"files": files, "package": package}).encode())
+
+
+def finish_cargo(destination: Path) -> None:
+    """The source replacement config."""
     config = f'[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source.vendored-sources]\ndirectory = "{DEPENDENCY_MOUNT}/vendor"\n'
     _write(destination, "cargo-config.toml", config.encode())
 
@@ -373,9 +381,8 @@ def plan_npm(source_root: Path, lockfiles: tuple[str, ...]) -> list[Artifact]:
     return artifacts
 
 
-def install_npm(downloaded: list[tuple[Artifact, bytes]], destination: Path) -> None:
-    for artifact, data in downloaded:
-        _extract_tarball(data, _contained(destination, artifact.key), artifact.label)
+def install_npm(artifact: Artifact, data: bytes, destination: Path) -> int:
+    return _extract_tarball(data, _contained(destination, artifact.key), artifact.label)[1]
 
 
 # -- Java ----------------------------------------------------------------------------------------------------------------
@@ -403,36 +410,48 @@ def plan_maven(source_root: Path, lockfiles: tuple[str, ...]) -> list[Artifact]:
     return artifacts
 
 
-def install_maven(downloaded: list[tuple[Artifact, bytes]], destination: Path) -> None:
-    for artifact, data in downloaded:
-        _write(destination, f"lib/{PurePosixPath(artifact.path).name}", data)
+def install_maven(artifact: Artifact, data: bytes, destination: Path) -> int:
+    return _write(destination, f"lib/{PurePosixPath(artifact.path).name}", data)
 
 
 ECOSYSTEMS: dict[str, Ecosystem] = {
     "go-sum": Ecosystem(frozenset({"go.mod", "go.sum"}), plan_go, install_go),
-    "cargo-lock": Ecosystem(frozenset({"Cargo.lock"}), plan_cargo, install_cargo),
+    "cargo-lock": Ecosystem(frozenset({"Cargo.lock"}), plan_cargo, install_cargo, finish_cargo),
     "npm-lock": Ecosystem(frozenset({"package-lock.json"}), plan_npm, install_npm),
     "maven-lock": Ecosystem(frozenset({"maven.lock"}), plan_maven, install_maven),
 }
 
 
 def stage_ecosystem(
-    profile: ToolchainProfile, source_root: Path, lockfiles: tuple[str, ...], destination: Path, registry_url: str
+    profile: ToolchainProfile, source_root: Path, lockfiles: tuple[str, ...], destination: Path, registry_url: str,
+    timeout_s: float = DEFAULT_RESOLVE_TIMEOUT_S,
 ) -> DependencyClosure:
-    """Fetches and verifies every artifact the lock pins, then lays the closure out under `destination`."""
+    """Fetches and verifies every artifact the lock pins, installing each as it arrives, under `destination`.
+
+    A registry path several lock entries share (npm lists one tarball under many `node_modules/` keys) is fetched once and
+    kept only while its entries are installed, so memory holds one artifact; every entry is still checked and charged.
+    """
     ecosystem = ECOSYSTEMS[profile.resolver]
     if set(lockfiles) != ecosystem.lockfiles:
         raise ToolchainError("unsupported_lockfile", f"{profile.id} reads exactly: {', '.join(sorted(ecosystem.lockfiles))}")
-    artifacts = ecosystem.plan(source_root, lockfiles)
+    artifacts = sorted(ecosystem.plan(source_root, lockfiles), key=lambda artifact: artifact.path)  # equal paths are adjacent
     destination.mkdir(parents=True, exist_ok=True)
-    downloaded: list[tuple[Artifact, bytes]] = []
-    for artifact in artifacts:
-        data = fetch(registry_url, artifact.path, artifact.label)
-        artifact.check(data)
-        downloaded.append((artifact, data))
+    budget = ResolveBudget(timeout_s)
+    files: dict[str, str] = {}
+    current: tuple[str, bytes] | None = None
     try:
-        ecosystem.install(downloaded, destination)
+        for artifact in artifacts:
+            budget.tick()
+            if current is None or current[0] != artifact.path:
+                current = (artifact.path, fetch(registry_url, artifact.path, artifact.label))
+                budget.charge("downloaded", len(current[1]))
+            data = current[1]
+            artifact.check(data)
+            budget.charge("installed", ecosystem.install(artifact, data, destination))
+            files[artifact.path] = hashlib.sha256(data).hexdigest()
+        if ecosystem.finish is not None:
+            ecosystem.finish(destination)
     except BaseException:
         shutil.rmtree(destination, ignore_errors=True)
         raise
-    return DependencyClosure(destination, {artifact.path: hashlib.sha256(data).hexdigest() for artifact, data in downloaded})
+    return DependencyClosure(destination, files)

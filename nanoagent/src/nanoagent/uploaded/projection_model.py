@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import json
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -13,6 +14,24 @@ PARSER_VERSION = "uploaded-projection/1"
 TIMING_METHOD_ID = "rush-timing/1"
 OBSERVED = "observed"
 HARNESS_REPORTED = "harness_reported"
+
+# What one POST /attempts/{id}/spans may carry (helpinghands benchmark/validate.js spansBody, limits.js); the server reads 10 MiB of JSON.
+MAX_SPANS_PER_REQUEST = 2000
+MAX_LINKS_PER_REQUEST = 4000
+MAX_REQUEST_BYTES = 8 << 20
+MAX_SPAN_ATTRIBUTES_BYTES = 32 * 1024
+MAX_LINK_ATTRIBUTES_BYTES = 8 * 1024
+
+
+def _clip(text: str | None, limit: int) -> str | None:
+    """`text` cut to `limit` UTF-16 units, which is how the server counts characters."""
+    return text if text is None else text.encode("utf-16-le")[: 2 * limit].decode("utf-16-le", "ignore")
+
+
+def _bounded(attributes: Mapping[str, Any], limit: int) -> dict[str, Any]:
+    """The server refuses attributes past `limit` bytes of JSON; past it they are dropped, leaving a mark that they were."""
+    size = len(json.dumps(attributes, ensure_ascii=False).encode("utf-8"))
+    return dict(attributes) if size <= limit else {"parser_version": PARSER_VERSION, "attributes_dropped_bytes": size}
 
 
 @dataclass(frozen=True)
@@ -191,15 +210,15 @@ class SpanOut:
         return {
             "id": self.id,
             "kind": self.kind,
-            "name": self.name,
+            "name": _clip(self.name, 1000),
             "parent": self.parent,
-            "scope": self.scope,
+            "scope": _clip(self.scope, 500),
             "status": self.status,
             "start_ns": None if self.start_ns is None else str(self.start_ns),
             "end_ns": None if self.end_ns is None else str(self.end_ns),
             "provenance": self.provenance,
-            "target": self.target,
-            "attributes": dict(self.attributes),
+            "target": _clip(self.target, 2000),
+            "attributes": _bounded(self.attributes, MAX_SPAN_ATTRIBUTES_BYTES),
         }
 
 
@@ -212,7 +231,7 @@ class LinkOut:
     attributes: Mapping[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"kind": self.kind, "from": self.from_id, "to": self.to_id, "method": self.method, "attributes": dict(self.attributes)}
+        return {"kind": self.kind, "from": self.from_id, "to": self.to_id, "method": self.method, "attributes": _bounded(self.attributes, MAX_LINK_ATTRIBUTES_BYTES)}
 
 
 @dataclass(frozen=True)
@@ -317,9 +336,20 @@ class Projection:
     placements: Mapping[str, str | None]  # item id -> validated harness span id
     scopes: Mapping[str, tuple[str, ...]]  # item id -> subagent name path
 
-    def spans_request(self, fence: int) -> dict[str, Any]:
-        """The body of ``POST /attempts/{id}/spans``."""
-        return {"fence": fence, "spans": [s.to_dict() for s in self.spans], "links": [link.to_dict() for link in self.links]}
+    def spans_requests(self, fence: int) -> Iterator[dict[str, Any]]:
+        """The bodies of ``POST /attempts/{id}/spans``, each under the server's count and size limits (the server upserts, so several are fine)."""
+        batch: dict[str, Any] = {"fence": fence, "spans": [], "links": []}
+        size = 0
+        for key, items, limit in (("spans", self.spans, MAX_SPANS_PER_REQUEST), ("links", self.links, MAX_LINKS_PER_REQUEST)):
+            for item in items:
+                entry = item.to_dict()
+                entry_bytes = len(json.dumps(entry, ensure_ascii=False).encode("utf-8"))
+                if batch[key] and (len(batch[key]) >= limit or size + entry_bytes > MAX_REQUEST_BYTES):
+                    yield batch
+                    batch, size = {"fence": fence, "spans": [], "links": []}, 0
+                batch[key].append(entry)
+                size += entry_bytes
+        yield batch
 
     def links_of(self, kind: str) -> tuple[LinkOut, ...]:
         return tuple(link for link in self.links if link.kind == kind)

@@ -65,3 +65,11 @@ def test_a_prompt_with_only_a_system_part_ignores_the_users_message() -> None:
 def test_an_attempt_policy_needs_a_prompt_part() -> None:
     with pytest.raises(ValueError, match="prompt"):
         make_policy(prompt_user=None, prompt_system=None)
+
+
+def test_inline_base64_media_is_allowed_and_url_media_is_refused() -> None:
+    inline = {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}
+    body = {**chat_request(), "messages": [{"role": "user", "content": [{"type": "text", "text": PROMPT}, inline]}]}
+    assert apply(body)["model"] == MODEL
+    body["messages"][0]["content"][1] = {"type": "file", "file": {"file_id": "file-1"}}
+    assert violation(body) == "media_url_forbidden"

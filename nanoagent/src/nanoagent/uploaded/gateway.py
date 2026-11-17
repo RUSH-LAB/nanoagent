@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import dataclasses
 import re
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
+from functools import partial
 from typing import Any, Protocol
 
 import anyio
@@ -407,13 +408,8 @@ class Gateway:
         terminal = state.terminal or "internal_error"
         assembled = state.assembled
         proposals = assembled.tool_proposals if assembled is not None and terminal == "completed" else ()
-        # The response evidence is recorded even when settling fails, so a paid call is never lost from the journal.
-        settle_failure: Exception | None = None
-        try:
-            settlement = await self._settle(call, state, terminal)
-        except Exception as error:
-            settle_failure = error
-            settlement = {"action": "unsettled", "cost_usd": None, "provenance": terminal, "error": type(error).__name__}
+        # The response is journaled before the settlement round trip, which can be slow, so a paid call is never lost from it.
+        settlement, commit = self._settlement(call, state, terminal)
         payloads = [call.submitted_sha, call.effective_sha]
         data: dict[str, Any] = {
             "call_id": call.call_id,
@@ -464,24 +460,26 @@ class Gateway:
             else:
                 data["response_payload_sha256"] = raw_sha
         await self.recorder.record("gateway", "model_call.response", data, payloads)
-        if settle_failure is not None:
-            raise settle_failure
+        try:
+            await commit()
+        except Exception as error:
+            # The response event above says what was meant to happen; this says it did not.
+            await self.recorder.record("gateway", "model_call.settlement_failed", {"call_id": call.call_id, "settlement": settlement, "error": type(error).__name__})
+            raise
 
-    async def _settle(self, call: _Call, state: _State, terminal: str) -> dict[str, Any]:
+    def _settlement(self, call: _Call, state: _State, terminal: str) -> tuple[dict[str, Any], Callable[[], Awaitable[None]]]:
+        """What to do with the reservation, as the record of it and the admission call that carries it out."""
         usage, status = state.usage, state.http_status
         cost = usage.cost_usd if usage is not None else None
         if not state.maybe_reached:
-            await self.admission.settle(call.call_id, Decimal(0), "not_dispatched")
-            return {"action": "settled", "cost_usd": "0", "provenance": "not_dispatched"}
+            return {"action": "settled", "cost_usd": "0", "provenance": "not_dispatched"}, partial(self.admission.settle, call.call_id, Decimal(0), "not_dispatched")
         if terminal == "http_error" and status is not None and status < 500:
             provenance = f"http_{status}"
-            await self.admission.settle(call.call_id, Decimal(0), provenance)
-            return {"action": "settled", "cost_usd": "0", "provenance": provenance}
+            return {"action": "settled", "cost_usd": "0", "provenance": provenance}, partial(self.admission.settle, call.call_id, Decimal(0), provenance)
         if terminal in ("completed", "failed", "incomplete", "error") and usage is not None and (cost is not None or terminal == "completed"):
-            await self.admission.settle(call.call_id, cost, usage.provenance)
-            return {"action": "settled", "cost_usd": None if cost is None else str(cost), "provenance": usage.provenance}
-        await self.admission.mark_uncertain(call.call_id)
-        return {"action": "uncertain", "cost_usd": None, "provenance": terminal}
+            record = {"action": "settled", "cost_usd": None if cost is None else str(cost), "provenance": usage.provenance}
+            return record, partial(self.admission.settle, call.call_id, cost, usage.provenance)
+        return {"action": "uncertain", "cost_usd": None, "provenance": terminal}, partial(self.admission.mark_uncertain, call.call_id)
 
 
 class _Relay:
@@ -601,10 +599,11 @@ class _Relay:
                     await upstream.aclose()
 
     async def _open(self) -> UpstreamResponse | None:
+        if self.call.abort_reason:
+            self.state.maybe_reached = False  # revoked before the request was sent: nothing reached upstream, so nothing is owed
+            return None
         with anyio.CancelScope() as scope:
             self.call.scope = scope
-            if self.call.abort_reason:
-                scope.cancel()
             return await self.gateway.transport.send(self.call.upstream)
         return None
 

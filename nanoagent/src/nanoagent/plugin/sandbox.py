@@ -66,6 +66,8 @@ MACOS_SERVICES = (
     "com.apple.SystemConfiguration.configd",
 )
 CHECK_TIMEOUT = 30.0
+# bwrap's /tmp is memory: unsized it is half of the RAM.
+BWRAP_TMP_BYTES = 4 << 30
 
 _kind = "none"
 _python: PluginPython | None = None
@@ -117,7 +119,7 @@ def _bwrap(
         subprocess.run([binaries["git"], "--exec-path"], capture_output=True, text=True, check=True).stdout.strip() if "git" in binaries else None
     )
     args = ["bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--clearenv"]
-    args += ["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]
+    args += ["--proc", "/proc", "--dev", "/dev", "--size", str(BWRAP_TMP_BYTES), "--tmpfs", "/tmp"]
     for path in SYSTEM:
         args += ["--ro-bind-try", path, path]
     for path in _runtime():

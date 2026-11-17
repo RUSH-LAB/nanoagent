@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from dataclasses import replace
@@ -16,9 +17,11 @@ import service_fakes as sf
 from nanoagent.plugin.verifier import CaseVerdict, VerifierError
 from nanoagent.uploaded.app import AttemptServices
 from nanoagent.uploaded.execservice import ExecError
-from nanoagent.uploaded.rush_worker import LeaseLost, RushUnavailable
-from nanoagent.uploaded.runner import EXEC_THREADS, AttemptRunner, CaseCommands, RunnerConfig
+from nanoagent.uploaded.collector import ProcessEvent, ProcessEventKind, ProcessEvidence
+from nanoagent.uploaded.rush_worker import LeaseLost, RushError, RushUnavailable
+from nanoagent.uploaded.runner import EXEC_THREADS, AttemptRunner, CaseCommands, RunnerConfig, default_project
 from nanoagent.uploaded.sandbox import SandboxError, Termination, TerminationKind
+from nanoagent.uploaded.toolchains import DependencyClosure
 from nanoagent.uploaded.worker import runner_config  # noqa: F401  (imported so the worker module stays importable)
 
 
@@ -603,3 +606,107 @@ async def test_managed_commands_use_a_small_thread_limit_of_their_own() -> None:
         await anyio.sleep(0.3)
         assert peak == EXEC_THREADS
         gate.set()
+
+
+async def test_a_crash_that_overflows_the_collector_is_still_scored(tmp_path: Path) -> None:
+    script = fx.CaseScript(termination=Termination(TerminationKind.NONZERO_EXIT, 3, None), evidence=fx.evidence(False, ("journal_overflow",)))
+    rig = Rig(tmp_path, script=script, verify=CaseVerdict("fail", 0.0, None))
+    await rig.run()
+    assert rig.rush.finalized[0]["verdict"] == "fail"
+
+
+@pytest.mark.parametrize("policy", ["task_tools", "coding"])
+async def test_an_outcome_with_a_lone_surrogate_is_an_invalid_result_not_a_platform_fault(tmp_path: Path, policy: str) -> None:
+    if policy == "coding":
+        script = fx.CaseScript(result=SandboxError("missing_result", "ignored"), workspace={"answer.json": b'{"sum": "\\udc80"}'})
+    else:
+        script = fx.CaseScript(result=b'{"protocol":"rush.harness.v1","status":"answered","answer":"\\udc80"}')
+    rig = Rig(tmp_path, script=script)
+    result = await rig.run(fx.parse_job(fx.job_body(policy)))
+    assert result.outcome == "finalized" and result.execution == {"status": "execution_failed", "reason": "invalid_result"}
+    for event in rig.rush.events:
+        json.dumps(event, ensure_ascii=False).encode("utf-8")
+
+
+class StrictSpansRush(fx.FakeRush):
+    """RUSH's spansBody limits: 2000 spans and 4000 links per request."""
+
+    async def spans(self, attempt_id: str, body: dict[str, Any]) -> None:
+        if len(body["spans"]) > 2000 or len(body["links"]) > 4000:
+            raise RushError(400, "invalid_request", "too many spans")
+        await super().spans(attempt_id, body)
+
+
+def many_processes(n: int) -> ProcessEvidence:
+    events = []
+    for i in range(n):
+        pid = 100 + i
+        events.append(ProcessEvent(2 * i, ProcessEventKind.EXEC, 1_000_000 + i, "c1", pid, 5000 + i, pid, 5000 + i, 1, "true", "/", False, ("/bin/true",)))
+        events.append(ProcessEvent(2 * i + 1, ProcessEventKind.TASK_EXIT, 1_000_500 + i, "c1", pid, 5000 + i, pid, 5000 + i, 1, "true", "/", False, exit_code=0))
+    return ProcessEvidence("c1", tuple(events), True, (), len(events), 0, 0, 0, 1, 0)
+
+
+async def test_a_harness_with_thousands_of_processes_posts_its_spans_in_chunks_and_is_finalized(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, rush=StrictSpansRush(), script=fx.CaseScript(evidence=many_processes(2100)), verify=CaseVerdict("fail", 0.0, None))
+    rig.runner.project = default_project
+    result = await rig.run()
+    assert result.outcome == "finalized" and rig.rush.finalized[0]["verdict"] == "fail"
+    assert len(rig.rush.span_bodies) >= 2
+
+
+async def test_a_refused_span_upload_does_not_withhold_the_verdict(tmp_path: Path) -> None:
+    class Refusing(fx.FakeRush):
+        async def spans(self, attempt_id: str, body: dict[str, Any]) -> None:
+            raise RushError(413, "too_many_spans", "An attempt keeps 10000 spans at most")
+
+    rig = Rig(tmp_path, rush=Refusing(), verify=CaseVerdict("fail", 0.0, None))
+    result = await rig.run()
+    assert result.outcome == "finalized"
+    [final] = rig.rush.finalized
+    assert final["verdict"] == "fail" and final["coverage"]["status"] == "partial" and final["coverage"]["reasons"] == ["trace_unavailable: RushError"]
+
+
+async def test_a_projection_crash_does_not_withhold_the_verdict(tmp_path: Path) -> None:
+    def crash(records: Any, payloads: Any, redactions: Any) -> Any:
+        raise TypeError("unhashable type: 'list'")
+
+    rig = Rig(tmp_path, verify=CaseVerdict("pass", 1.0, None))
+    rig.runner.project = crash
+    result = await rig.run()
+    assert result.outcome == "finalized" and rig.rush.finalized[0]["verdict"] == "pass"
+    assert rig.rush.finalized[0]["coverage"]["reasons"] == ["trace_unavailable: TypeError"]
+
+
+async def test_a_lost_lease_during_the_span_upload_is_still_a_lost_lease(tmp_path: Path) -> None:
+    class Losing(fx.FakeRush):
+        async def spans(self, attempt_id: str, body: dict[str, Any]) -> None:
+            raise LeaseLost(409, "lease_lost", "lease lost")
+
+    rig = Rig(tmp_path, rush=Losing())
+    result = await rig.run()
+    assert result.outcome == "lease_lost" and rig.rush.finalized == []
+
+
+async def test_the_build_gets_the_runs_wall_time_for_resolving_dependencies(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[float] = []
+
+    def resolve(*args: Any, timeout_s: float, **kwargs: Any) -> Any:
+        seen.append(timeout_s)
+        return DependencyClosure(tmp_path, {})
+
+    monkeypatch.setattr("nanoagent.uploaded.runner.resolve_dependencies", resolve)
+    rig = Rig(tmp_path)
+    await rig.run()
+    assert seen == [600.0]  # the job's build_wall_ms
+
+
+@pytest.mark.parametrize("cap", [10**6, 10])
+async def test_a_snapshot_event_carries_the_diff_that_fits_and_says_when_it_is_cut(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap: int) -> None:
+    monkeypatch.setattr("nanoagent.uploaded.runner.SNAPSHOT_EVENT_DIFF_BYTES", cap)
+    rig = Rig(tmp_path, verify=CaseVerdict("pass", 1.0, None))
+    assert (await rig.run()).outcome == "finalized"
+    [snapshot] = rig.rush.of("snapshot.taken")
+    if cap == 10:
+        assert snapshot["diff"] == [] and snapshot["diff_truncated"] is True
+    else:
+        assert [entry["path"] for entry in snapshot["diff"]] == ["out.txt"] and snapshot["diff_truncated"] is False

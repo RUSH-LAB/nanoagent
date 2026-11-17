@@ -2,8 +2,11 @@
 
 const {BenchmarkError} = require('./errors');
 const {isLosslessNumber, stringifyJson} = require('./json');
-const {DEFAULT_CODING_TEMPLATE, canonicalJson, normalizeInstructions, normalizeTemplate, renderCoding, sha256Hex} = require('./prompt');
-const {effectiveLimits, limitOverrides, capabilitiesOf} = require('./limits');
+const {DEFAULT_CODING_TEMPLATE, MAX_BENCHMARK_PROMPT_CHARS, canonicalJson, normalizeInstructions, normalizeTemplate, renderCoding, renderTaskTools, sha256Hex} = require('./prompt');
+const {
+  effectiveLimits, limitOverrides, capabilitiesOf, MAX_EVENT_DATA_BYTES, MAX_SPAN_ATTRIBUTES_BYTES, MAX_LINK_ATTRIBUTES_BYTES, MAX_ACCOUNTING_RECORD_BYTES,
+  MAX_RESULT_BYTES, MAX_ACCOUNTING_VERSION, MAX_USD, MAX_INTEGER,
+} = require('./limits');
 const {UUID} = require('./http');
 const {nanoseconds} = require('../postgres/benchmark-context');
 
@@ -46,14 +49,18 @@ function string(value, what, {max = 200, optional = false} = {}) {
   if (typeof value !== 'string' || !value || value.length > max) throw bad('invalid_request', `${what} must be a string of 1 to ${max} characters`);
   return value;
 }
-function integer(value, what, {min = 0} = {}) {
-  if (!Number.isSafeInteger(value) || value < min) throw bad('invalid_request', `${what} must be an integer of at least ${min}`);
+function integer(value, what, {min = 0, max = Number.MAX_SAFE_INTEGER} = {}) {
+  if (!Number.isSafeInteger(value) || value < min || value > max) throw bad('invalid_request', `${what} must be an integer from ${min} to ${max}`);
   return value;
 }
-function finite(value, what, {min = -Infinity} = {}) {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < min) {
-    throw bad('invalid_request', `${what} must be a finite number${min > -Infinity ? ` of at least ${min}` : ''}`);
-  }
+/** A number from `min` to `max`, USD amounts being kept within their column's range. */
+function finite(value, what, {min = 0, max = MAX_USD} = {}) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) throw bad('invalid_request', `${what} must be a number from ${min} to ${max}`);
+  return value;
+}
+/** `value` (an object) if its JSON text is at most `max` bytes. */
+function bounded(value, what, max) {
+  if (Buffer.byteLength(stringifyJson(object(value, what))) > max) throw new BenchmarkError(413, 'too_large', `${what} may be ${max} bytes at most`);
   return value;
 }
 function array(value, what, {max = 1000, optional = false} = {}) {
@@ -166,10 +173,18 @@ function benchmarkPublication(body) {
   // Both prompts are pinned as text, because the runner picks the policy.
   const codingTemplate = body.coding_template === undefined || body.coding_template === null ? DEFAULT_CODING_TEMPLATE : normalizeTemplate(body.coding_template);
   const taskInstructions = body.task_instructions === undefined || body.task_instructions === null ? task.instructions : normalizeInstructions(body.task_instructions);
-  // A template that does not render fails here, not at every run.
-  renderCoding(codingTemplate, {task, context, args: cases[0].arguments});
+  // Every case renders under both policies here, so a template that does not render, or amplifies the arguments, fails now and not at every run.
+  const pluginName = string(body.plugin_name, 'plugin_name');
+  let renderedChars = 0;
+  for (const c of cases) {
+    const prompts = [renderCoding(codingTemplate, {task, context, args: c.arguments}), renderTaskTools({pluginName, task, instructions: taskInstructions, args: c.arguments})];
+    renderedChars += prompts.reduce((sum, prompt) => sum + (prompt.system?.length ?? 0) + (prompt.user?.length ?? 0), 0);
+    if (renderedChars > MAX_BENCHMARK_PROMPT_CHARS) {
+      throw bad('prompts_too_long', `The cases' rendered prompts may total ${MAX_BENCHMARK_PROMPT_CHARS} characters at most under both policies`);
+    }
+  }
   return {
-    name, plugin_id: pluginId, plugin_name: string(body.plugin_name, 'plugin_name'), version: string(body.version, 'version', {max: 64}),
+    name, plugin_id: pluginId, plugin_name: pluginName, version: string(body.version, 'version', {max: 64}),
     package_sha256: packageSha256, task_id: taskId, task, context, cases, private: privateReferences, case_set_digest: caseSetDigest,
     model, endpoint_profile: endpointProfile, limits, coding_template: codingTemplate, task_instructions: taskInstructions,
     digest: sha256Hex(canonicalJson({
@@ -209,7 +224,7 @@ function runBody(body) {
   return {...request, request_digest: sha256Hex(canonicalJson(request))};
 }
 
-const fenceOf = body => integer(body.fence, 'fence', {min: 1});
+const fenceOf = body => integer(body.fence, 'fence', {min: 1, max: MAX_INTEGER});
 
 function eventsBody(body) {
   object(body, 'The body');
@@ -222,7 +237,7 @@ function eventsBody(body) {
       return {
         event_id: string(event.event_id, 'event_id'), source: string(event.source, 'source', {max: 100}), kind: string(event.kind, 'kind', {max: 100}),
         sequence: integer(event.sequence, 'sequence'), occurred_ns: ns(event.occurred_ns, 'occurred_ns'),
-        data: object(event.data, 'data'),
+        data: bounded(event.data, 'data', MAX_EVENT_DATA_BYTES),
         payload_sha256s: array(event.payload_sha256s, 'payload_sha256s', {optional: true}).map(value => sha256(value, 'a payload digest')),
       };
     }),
@@ -240,14 +255,14 @@ function spansBody(body) {
         parent: string(span.parent, 'parent', {optional: true}), scope: string(span.scope, 'scope', {optional: true, max: 500}),
         status: string(span.status, 'status', {optional: true, max: 100}), start_ns: ns(span.start_ns, 'start_ns'), end_ns: ns(span.end_ns, 'end_ns'),
         provenance: string(span.provenance, 'provenance', {optional: true, max: 100}), target: string(span.target, 'target', {optional: true, max: 2000}),
-        attributes: span.attributes === undefined ? {} : object(span.attributes, 'attributes'),
+        attributes: span.attributes === undefined ? {} : bounded(span.attributes, 'attributes', MAX_SPAN_ATTRIBUTES_BYTES),
       };
     }),
     links: array(body.links, 'links', {optional: true, max: 4000}).map(raw => {
       const link = object(raw, 'A link');
       return {
         kind: string(link.kind, 'kind', {max: 100}), from: string(link.from, 'from'), to: string(link.to, 'to'),
-        method: string(link.method, 'method', {optional: true, max: 200}), attributes: link.attributes === undefined ? {} : object(link.attributes, 'attributes'),
+        method: string(link.method, 'method', {optional: true, max: 200}), attributes: link.attributes === undefined ? {} : bounded(link.attributes, 'attributes', MAX_LINK_ATTRIBUTES_BYTES),
       };
     }),
   };
@@ -273,7 +288,7 @@ function finalizeBody(body) {
     final: {
       execution: {status: execution.status, reason: string(execution.reason, 'execution.reason', {optional: true, max: 200})},
       verdict, explanation, verifier_error: verifierError,
-      coverage: object(body.coverage, 'coverage'), metrics: object(body.metrics, 'metrics'),
+      coverage: bounded(body.coverage, 'coverage', MAX_RESULT_BYTES), metrics: bounded(body.metrics, 'metrics', MAX_RESULT_BYTES),
       final_cursor_expected: integer(body.final_cursor_expected, 'final_cursor_expected'),
     },
   };
@@ -281,7 +296,7 @@ function finalizeBody(body) {
 
 const admissionBody = body => ({
   fence: fenceOf(object(body, 'The body')), callId: string(body.call_id, 'call_id'),
-  reserveUsd: finite(body.reserve_usd, 'reserve_usd', {min: 0}),
+  reserveUsd: finite(body.reserve_usd, 'reserve_usd'),
 });
 
 function settleBody(body) {
@@ -289,14 +304,14 @@ function settleBody(body) {
   if (body.outcome !== 'settled' && body.outcome !== 'uncertain') throw bad('invalid_request', 'outcome must be settled or uncertain');
   return {
     outcome: body.outcome,
-    costUsd: body.outcome === 'settled' ? finite(body.cost_usd, 'cost_usd', {min: 0}) : null,
+    costUsd: body.outcome === 'settled' ? finite(body.cost_usd, 'cost_usd') : null,
     provenance: object(body.provenance, 'provenance'),
   };
 }
 
 function accountingBody(body) {
   object(body, 'The body');
-  return {callId: string(body.call_id, 'call_id'), version: integer(body.version, 'version', {min: 1}), record: object(body.record, 'record')};
+  return {callId: string(body.call_id, 'call_id'), version: integer(body.version, 'version', {min: 1, max: MAX_ACCOUNTING_VERSION}), record: bounded(body.record, 'record', MAX_ACCOUNTING_RECORD_BYTES)};
 }
 
 function claimBody(body) {

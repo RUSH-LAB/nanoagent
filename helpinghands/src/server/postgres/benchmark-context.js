@@ -1,7 +1,7 @@
 'use strict';
 const {escapeLiteral, types} = require('pg');
 const {BenchmarkError} = require('../benchmark/errors');
-const {MEMBER_STORAGE_BYTES} = require('../benchmark/limits');
+const {MAX_BIGINT, MEMBER_STORAGE_BYTES} = require('../benchmark/limits');
 const {parseJson} = require('../benchmark/json');
 
 const JSON_TYPE = 114;
@@ -58,7 +58,8 @@ const NS = /^-?\d{1,19}$/;
 function nanoseconds(value) {
   if (value === null || value === undefined) return null;
   if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value);
-  if (typeof value === 'string' && NS.test(value)) return value;
+  // Within bigint, which 19 digits can pass.
+  if (typeof value === 'string' && NS.test(value) && BigInt(value) <= MAX_BIGINT && BigInt(value) >= -MAX_BIGINT - 1n) return value;
   return undefined;
 }
 

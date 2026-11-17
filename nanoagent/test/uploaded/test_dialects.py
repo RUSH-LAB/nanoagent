@@ -351,3 +351,16 @@ def test_parse_anthropic_request_tool_results_and_malformed():
     assert (request.tool_results[0].call_id, request.tool_results[0].content) == ("toolu_1", "o")
     with pytest.raises(MalformedBodyError):
         parse_request("chat_completions", {"messages": [{"role": "tool"}]})
+
+
+@pytest.mark.parametrize(
+    "dialect,body",
+    [
+        ("chat_completions", {"messages": [{"role": "tool", "tool_call_id": ["c"], "content": "x"}]}),
+        ("responses", {"input": [{"type": "function_call_output", "call_id": ["c"], "output": "x"}]}),
+        ("anthropic_messages", {"messages": [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": {"a": 1}, "content": "x"}]}]}),
+    ],
+)
+def test_a_non_string_tool_call_id_is_a_malformed_request(dialect, body):
+    with pytest.raises(MalformedBodyError):
+        parse_request(dialect, body)

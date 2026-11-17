@@ -12,8 +12,13 @@ on:
   pull_request:
     paths:
       - '.github/workflows/benchmark-worker-image.yml'
-      - 'nanoagent/src/nanoagent/uploaded/**'
+      - 'nanoagent/pyproject.toml'
+      - 'nanoagent/uv.lock'
+      - 'nanoagent/README.md'
+      - 'nanoagent/LICENSE'
+      - 'nanoagent/src/**'
       - 'nanoagent/deploy/gvisor/**'
+      - 'nanoagent/test/**'
   workflow_dispatch:
 
 env:
@@ -54,7 +59,7 @@ jobs:
             test/uploaded/test_sandbox_gvisor.py test/uploaded/test_sandbox_supervisor.py \
             test/uploaded/test_collector.py test/uploaded/test_toolchains.py \
             test/uploaded/test_runner_gvisor.py test/uploaded/test_tool_sandbox_gvisor.py \
-            test/uploaded/test_reference_builds_gvisor.py
+            test/uploaded/test_reference_builds_gvisor.py test/test_sandbox.py
       # Only the tested image is pushed: by digest, from the same build.
       - uses: docker/login-action@v4
         if: github.event_name != 'pull_request'

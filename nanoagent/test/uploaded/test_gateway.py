@@ -135,6 +135,9 @@ REJECTIONS = [
     ("anthropic_messages", {"tools": [{"type": "web_search_20250305", "name": "web_search"}]}, "server_tool_forbidden"),
     ("anthropic_messages", {"tools": [{"type": "bash_20250124", "name": "bash"}]}, "server_tool_forbidden"),
     ("anthropic_messages", {"max_tokens": 1001}, "output_cap_exceeded"),
+    ("chat_completions", {"messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "https://x.test/a.png"}}]}]}, "media_url_forbidden"),
+    ("responses", {"input": [{"role": "user", "content": [{"type": "input_image", "image_url": "https://x.test/a.png"}]}]}, "media_url_forbidden"),
+    ("anthropic_messages", {"messages": [{"role": "user", "content": [{"type": "document", "source": {"type": "url", "url": "https://x.test/a.pdf"}}]}]}, "media_url_forbidden"),
 ]
 
 
@@ -383,6 +386,57 @@ async def test_a_call_admitted_while_revocation_begins_is_never_dispatched(tmp_p
     assert rig.transport.requests == [] and rig.admission.settled[call_id] == (Decimal(0), "not_dispatched")
 
 
+async def test_a_call_revoked_before_dispatch_is_settled_at_zero(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, ScriptedTransport(chat_ok()))
+    recorder = rig.services.attempt.recorder
+    record = recorder.record
+
+    async def revoke_on_admission(source, kind, *args):
+        event = await record(source, kind, *args)
+        if kind == "model_call.admitted":
+            rig.services.gateway.abort_all()  # revoked after admission, before the relay sends anything
+        return event
+
+    recorder.record = revoke_on_admission
+    async with rig.client() as client:
+        response = await client.post(PATHS["chat_completions"], json=chat_request())
+    call_id = response.headers["x-rush-call-id"]
+    assert response.status_code == 403 and rig.transport.requests == []
+    assert rig.admission.settled[call_id] == (Decimal(0), "not_dispatched") and rig.admission.uncertain == []
+    assert last(rig, "model_call.response")["maybe_reached_upstream"] is False
+
+
+async def test_a_request_over_the_default_cap_is_refused_before_it_can_become_a_payload_rush_rejects(tmp_path: Path) -> None:
+    # Regression: 32 MiB bodies were journaled whole and the server's 16 MiB payload cap failed the recorder for good.
+    rig = make_rig(tmp_path, ScriptedTransport(chat_ok()))
+    async with rig.client() as client:
+        response = await client.post(PATHS["chat_completions"], content=json.dumps(chat_request(padding="x" * (17 << 20))))
+    assert response.status_code == 413 and response.json()["error"]["code"] == "request_too_large"
+    await rig.services.revoke(5)  # no JournalWriteError
+
+
+async def test_the_response_is_recorded_before_a_slow_settlement_finishes(tmp_path: Path) -> None:
+    release = anyio.Event()
+
+    class SlowSettle(fakes.FakeAdmission):
+        async def settle(self, call_id: str, cost_usd: Decimal | None, provenance: str) -> None:
+            await release.wait()
+            await super().settle(call_id, cost_usd, provenance)
+
+    rig = make_rig(tmp_path, ScriptedTransport(chat_ok()), admission=SlowSettle())
+    async with anyio.create_task_group() as group:
+        async def post() -> None:
+            async with rig.client() as client:
+                await client.post(PATHS["chat_completions"], json=chat_request())
+
+        group.start_soon(post)
+        with anyio.fail_after(5):
+            while not rig.journal.of("model_call.response"):
+                await anyio.sleep(0.01)
+        assert rig.admission.settled == {}  # still settling, and the paid response is already journaled
+        release.set()
+
+
 async def test_a_failed_settlement_still_records_the_paid_response(tmp_path: Path) -> None:
     class SettleFails(fakes.FakeAdmission):
         async def settle(self, call_id: str, cost_usd: Decimal | None, provenance: str) -> None:
@@ -392,7 +446,8 @@ async def test_a_failed_settlement_still_records_the_paid_response(tmp_path: Pat
     async with rig.client() as client:
         with pytest.raises(Exception):  # noqa: B017, PT011 - the settlement failure surfaces through the ASGI transport
             await client.post(PATHS["chat_completions"], json=chat_request())
-    assert last(rig, "model_call.response")["settlement"]["action"] == "unsettled"
+    assert last(rig, "model_call.response")["settlement"]["action"] == "settled"
+    assert last(rig, "model_call.settlement_failed")["error"] == "RuntimeError"
 
 
 # ---- end to end: the real transport and uvicorn against a scripted upstream over loopback ------------------------------

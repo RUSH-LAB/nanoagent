@@ -1,6 +1,6 @@
 import API_BASE, {apiFetch, apiRequest} from '../../utils/api.js';
 import {readEvents} from '../../utils/eventStream.js';
-import {allPages} from './pagination.js';
+import {allPages, SPAN_LIMIT} from './pagination.js';
 
 /** The member's benchmark API (docs/contracts/rush-benchmark-api.md), under the workspace the page is in. */
 const BASE = '/api/benchmark';
@@ -22,12 +22,14 @@ export const benchmarkApi = {
   /** What a benchmark publication starts from: limits, the coding template and its placeholders, the endpoints workers advertise. */
   defaults: () => apiRequest(`${BASE}/defaults`),
   /** Every published benchmark, newest first, of one plugin (and one version of it) when given. */
-  async benchmarks(pluginId, version) {
-    const query = new URLSearchParams();
+  async benchmarks(pluginId, version, before) {
+    const query = new URLSearchParams({limit: '200'});
     if (pluginId) query.set('plugin_id', pluginId);
     if (pluginId && version) query.set('version', version);
-    return (await apiRequest(`${BASE}/benchmarks${query.size ? `?${query}` : ''}`)).benchmarks;
+    if (before) query.set('before', before);
+    return (await apiRequest(`${BASE}/benchmarks?${query}`)).benchmarks;
   },
+  allBenchmarks(pluginId, version) { return allPages(before => this.benchmarks(pluginId, version, before), {key: 'benchmark_id', time: 'published_at'}); },
   /** A benchmark with its case set: task, context and the cases (kind, arguments, expected error). */
   async benchmark(benchmarkId) { return (await apiRequest(`${BASE}/benchmarks/${id(benchmarkId)}`)).benchmark; },
   /** Every member's runs of a benchmark, as run summaries. */
@@ -58,7 +60,7 @@ export const benchmarkApi = {
   cancel: runId => post(`/runs/${id(runId)}/cancel`),
   rerun: (runId, caseId) => post(`/runs/${id(runId)}/cases/${id(caseId)}/rerun`),
   attempt: attemptId => apiRequest(`${BASE}/attempts/${id(attemptId)}`),
-  spans: attemptId => apiRequest(`${BASE}/attempts/${id(attemptId)}/spans`),
+  spans: attemptId => apiRequest(`${BASE}/attempts/${id(attemptId)}/spans?limit=${SPAN_LIMIT}`),
   /** Two runs of one task verifier, compared as setups and by the cases they share. */
   compareRuns: (a, b) => apiRequest(`${BASE}/compare?a=${id(a)}&b=${id(b)}`),
   /** Two sealed attempts of one pinned case, compared action by action. */

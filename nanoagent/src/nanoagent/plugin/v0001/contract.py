@@ -59,6 +59,9 @@ _EXPRESSIONS = (
     ast.BitOr,
     ast.expr_context,
 )
+_DATACLASS_DECORATORS = frozenset(
+    ast.dump(ast.parse(source, mode="eval").body) for source in ("dataclass", "dataclasses.dataclass")
+)
 # Every contract is the one module `contract` while it loads, so two plugins never load at once.
 _LOADING = threading.Lock()
 
@@ -96,6 +99,7 @@ def _statement(node: ast.stmt, *, top: bool) -> list[str]:
         return problems + [f"imports {alias.name!r}" for alias in node.names if alias.name.startswith("_")]
     if top and isinstance(node, ast.ClassDef):
         problems = [] if not node.keywords else ["a class takes no keywords"]
+        problems += ["a class takes no type parameters"] if node.type_params else []
         problems += [problem for decorator in node.decorator_list for problem in _decorator(decorator)]
         problems += [problem for base in node.bases for problem in _expression(base)]
         return problems + [problem for item in node.body for problem in _statement(item, top=False)]
@@ -109,9 +113,8 @@ def _statement(node: ast.stmt, *, top: bool) -> list[str]:
 
 
 def _decorator(node: ast.expr) -> list[str]:
-    if isinstance(node, ast.Name) and node.id == "dataclass":
-        return []
-    if isinstance(node, ast.Attribute) and node.attr == "dataclass":
+    # Compared whole: the decorator runs when the contract loads, so `@(f() or dataclasses).dataclass` must not pass.
+    if ast.dump(node) in _DATACLASS_DECORATORS:
         return []
     return ["a class is decorated only with @dataclass, without arguments"]
 

@@ -258,3 +258,31 @@ def test_an_http_simple_index_serves_the_closure_and_advertised_hashes_must_matc
         assert caught.value.code == "dependency_unavailable"
     finally:
         server.shutdown()
+
+
+def test_a_pin_repeated_across_lockfile_lines_is_fetched_once(source, index, tmp_path, monkeypatch):
+    from nanoagent.uploaded.toolchains import DirectoryIndex
+
+    wheel, digest = make_wheel(index)
+    (source / "requirements.txt").write_text(f"demo-pkg==1.0 --hash=sha256:{digest}\n" * 2000)
+    lookups = []
+    real = DirectoryIndex.candidates
+    monkeypatch.setattr(DirectoryIndex, "candidates", lambda self, name, version: (lookups.append(name), real(self, name, version))[1])
+    assert stage(source, index, tmp_path).files == {wheel.name: digest}
+    assert len(lookups) == 1
+
+
+def test_the_wheel_closure_is_capped_and_has_a_deadline(source, index, tmp_path, monkeypatch):
+    from nanoagent.uploaded import toolchains
+
+    make_wheel(index, "aaa")
+    _, digest_b = make_wheel(index, "bbb")
+    (source / "requirements.txt").write_text(f"aaa==1.0 --hash=sha256:{make_wheel(index, 'aaa')[1]}\nbbb==1.0 --hash=sha256:{digest_b}\n")
+    monkeypatch.setattr(toolchains, "MAX_CLOSURE_FILES", 1)
+    with pytest.raises(ToolchainError) as error:
+        stage(source, index, tmp_path)
+    assert error.value.code == "dependency_too_large"
+    monkeypatch.setattr(toolchains, "MAX_CLOSURE_FILES", 100)
+    with pytest.raises(ToolchainError) as error:
+        resolve_dependencies(toolchain("python-3"), source, ("requirements.txt",), tmp_path / "deps2", index_url=str(index), target=TARGET, timeout_s=-1)
+    assert error.value.code == "dependency_timeout"

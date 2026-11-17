@@ -56,6 +56,27 @@ def _check_tools(dialect: str, body: Mapping[str, Any]) -> None:
             raise PolicyViolation("server_tool_forbidden", f"tools[{index}] has type {kind!r}; only function tools the harness executes are allowed")
 
 
+def _check_media(node: Any) -> None:
+    """Refuse media and files the gateway cannot size: a URL or file id costs a few bytes but thousands of input tokens, which
+    would break the byte-length spend bound. Inline base64 data is fine, its bytes are counted."""
+    if isinstance(node, list):
+        for item in node:
+            _check_media(item)
+    elif isinstance(node, dict):
+        url = node.get("image_url")
+        url = url.get("url") if isinstance(url, dict) else url
+        source = node.get("source")
+        if (
+            (isinstance(url, str) and not url.startswith("data:"))
+            or isinstance(node.get("file_url"), str)
+            or isinstance(node.get("file_id"), str)
+            or (isinstance(source, dict) and source.get("type") in ("url", "file"))
+        ):
+            raise PolicyViolation("media_url_forbidden", "media and files must be inline data; URL and file-id references are not allowed")
+        for value in node.values():
+            _check_media(value)
+
+
 def _output_cap(dialect: str, body: Mapping[str, Any], cap: int) -> tuple[int | None, str]:
     """The largest requested output-token value (None when the caller set none) and the field to set when it is absent."""
     requested = []
@@ -83,6 +104,7 @@ def apply_policy(dialect: str, body: dict[str, Any], policy: AttemptPolicy, *, f
     if body.get("model") != policy.model:
         raise PolicyViolation("model_not_pinned", f"the attempt is pinned to model {policy.model!r}, the request asked for {body.get('model')!r}")
     _check_tools(dialect, body)
+    _check_media([body.get("messages"), body.get("input"), body.get("system")])
     requested, default_field = _output_cap(dialect, body, policy.max_output_tokens_per_call)
     if first_prompt_required and not contains_first_prompt(dialect, body, policy.prompt_user, policy.prompt_system):
         raise PolicyViolation(

@@ -52,7 +52,7 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import {fileURLToPath} from 'node:url';
-import {benchmarkWorker, removeWorkerData} from './worker.mjs';
+import {benchmarkWorker, queueRemoval, retryRemovals} from './worker.mjs';
 
 const NANOAGENT_TIMEOUT_MS = 60_000;
 const STOP_TIMEOUT_MS = 10_000;
@@ -499,6 +499,8 @@ async function main() {
   const bin = path.join(root, 'bin');
   const nanoagent = path.join(root, 'nanoagent');
   const connectionsFolder = path.join(data, 'connections');
+  // Connections whose container and volumes are still to be removed: kept on disk, as Docker may be down when a connection ends.
+  const pendingRemovals = path.join(data, 'pending-removals.json');
   /** Open `page` in the member's browser; when that cannot be done, the log has the page. */
   const openPage = page => {
     const [program, ...args] = platform.open();
@@ -683,7 +685,8 @@ async function main() {
     fs.mkdirSync(connectionsFolder, {recursive: true, mode: 0o700});
     fs.mkdirSync(path.join(data, 'logs'), {recursive: true});
     await stopLeftovers();
-    for (const id of removeOtherSites(data, config)) await removeWorkerData(id, {dockerEnv}).catch(error => log(`Benchmark worker: ${error.message}`, id));
+    for (const id of removeOtherSites(data, config)) queueRemoval(pendingRemovals, id);
+    await removePending(true);
     const {shell} = os.userInfo();
     // Not awaited: the member's shell may take a while to say its PATH, and NanoAgent need not wait for it.
     installCommand({home: os.homedir(), root, config, shell, windows: WINDOWS, readPath: () => memberPath(shell)});
@@ -714,6 +717,13 @@ async function main() {
     }
   }
 
+  /** Try the removals still queued: a failure stays queued for the next pass, and is logged when `report` is set. */
+  async function removePending(report) {
+    for (const {id, error} of await retryRemovals(pendingRemovals, {dockerEnv})) {
+      if (report) log(`Benchmark worker: ${error.message}`, id);
+    }
+  }
+
   /** Start the connections that are new, written again, or due to start again after failing; stop the removed ones. */
   async function watch() {
     const present = new Map();
@@ -722,13 +732,18 @@ async function main() {
       const installed = path.join(folder, 'installed');
       if (fs.existsSync(installed)) present.set(id, fs.readFileSync(installed, 'utf8'));
     }
+    // Removals that failed before (Docker down) are tried again, quietly: a connection's own first try is logged.
+    await removePending(false);
+    let removed = false;
     for (const [id, connection] of connections) {
       if (present.has(id)) continue;
+      removed = true;
       connections.delete(id);
       log(`Removed from this computer; stopping.`, id);
       await stopConnection(connection);
-      await removeWorkerData(id, {dockerEnv}).catch(error => log(`Benchmark worker: ${error.message}`, id));
+      queueRemoval(pendingRemovals, id);
     }
+    if (removed) await removePending(true);
     for (const [id, installed] of present) {
       let connection = connections.get(id);
       if (connection && connection.installed !== installed) {

@@ -623,10 +623,16 @@ def assemble_body(
 # --- Requests -----------------------------------------------------------------------------------------------------
 
 
+def _id(value: Any) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"a tool call id must be a string, got {type(value).__name__}")
+    return value
+
+
 def _chat_request(body: Mapping[str, Any]) -> tuple[list[str], list[ToolResultSent]]:
     names = [tool["function"]["name"] for tool in body.get("tools") or []]
     results = [
-        ToolResultSent(message["tool_call_id"], message.get("content"), index)
+        ToolResultSent(_id(message["tool_call_id"]), message.get("content"), index)
         for index, message in enumerate(body.get("messages") or [])
         if message.get("role") == "tool"
     ]
@@ -637,7 +643,7 @@ def _responses_request(body: Mapping[str, Any]) -> tuple[list[str], list[ToolRes
     names = [tool["name"] for tool in body.get("tools") or []]
     items = body.get("input")
     results = [
-        ToolResultSent(item["call_id"], item.get("output"), index)
+        ToolResultSent(_id(item["call_id"]), item.get("output"), index)
         for index, item in enumerate(items if isinstance(items, list) else [])
         if isinstance(item, dict) and item.get("type") == "function_call_output"
     ]
@@ -647,7 +653,7 @@ def _responses_request(body: Mapping[str, Any]) -> tuple[list[str], list[ToolRes
 def _anthropic_request(body: Mapping[str, Any]) -> tuple[list[str], list[ToolResultSent]]:
     names = [tool["name"] for tool in body.get("tools") or []]
     results = [
-        ToolResultSent(block["tool_use_id"], block.get("content"), index)
+        ToolResultSent(_id(block["tool_use_id"]), block.get("content"), index)
         for index, message in enumerate(body.get("messages") or [])
         if isinstance(message.get("content"), list)
         for block in message["content"]

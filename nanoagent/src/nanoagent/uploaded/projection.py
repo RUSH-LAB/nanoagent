@@ -53,6 +53,7 @@ class _Join:
     placements: dict[str, str | None] = field(default_factory=dict)
     scopes: dict[str, tuple[str, ...]] = field(default_factory=dict)
     refs_ok: bool = True
+    workspace_diff: tuple[Mapping[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         self.hspans = {s.span_id: s for s in self.n.harness_spans}
@@ -134,7 +135,12 @@ def _lifecycle(j: _Join) -> tuple[int | None, int | None]:
                         "exit_ns": exited.data.get("exit_ns") if exited else None, "evidence": [r.event_id for r in (launched, exited, quiesced) if r]},
         )  # fmt: skip
     if snap := w.get(R.SNAPSHOT_TAKEN):
-        diff = snap[0].data.get("diff") or []
+        # The event carries no diff (at the file limit it outgrows an event); the snapshot payload holds it.
+        body = load_json(j.payloads, snap[0].data.get("payload_sha256"))
+        diff = body.get("diff") if isinstance(body, dict) and isinstance(body.get("diff"), list) else []
+        if body is None:
+            j.issue("snapshot_payload_missing", "the snapshot payload is not retained, so the workspace diff is unknown", (snap[0].event_id,), "info")
+        j.workspace_diff = tuple(diff)
         counts = {c: sum(1 for e in diff if e.get("change") == c) for c in ("added", "modified", "deleted")}
         j.add(
             id="snapshot", kind="snapshot", name="workspace snapshot", parent="root", scope=None, status="ok", start_ns=snap[0].occurred_ns, end_ns=snap[0].occurred_ns,
@@ -162,8 +168,13 @@ def _harness_spans(j: _Join) -> None:
 
 def _harness_references(j: _Join) -> None:
     for s in j.n.harness_spans:
-        refs = [*(s.data.get("refs") or ()), *([s.data["call_id"]] if s.data.get("call_id") else [])]
-        for ref in refs:
+        refs, call_id = s.data.get("refs"), s.data.get("call_id")
+        claimed = [*(refs if isinstance(refs, list) else ()), *([call_id] if call_id else [])]
+        if (refs and not isinstance(refs, list)) or not all(isinstance(ref, str) for ref in claimed):
+            j.refs_ok = False
+            j.issue("malformed_reference", f"harness span {s.span_id} gives refs or call_id that are not strings", s.evidence)
+            claimed = [ref for ref in claimed if isinstance(ref, str)]
+        for ref in claimed:
             target = j.span_id_of(ref)
             claimed_tool = s.data.get("tool")
             if target is None:
@@ -259,7 +270,8 @@ def _causal_results(j: _Join) -> None:
                 try:
                     found = {}
                     for r in parse_request(call.dialect, body).tool_results:  # type: ignore[arg-type]
-                        found.setdefault(r.call_id, r)
+                        if isinstance(r.call_id, str):  # a harness-chosen id the dialect did not type-check cannot key a link
+                            found.setdefault(r.call_id, r)
                 except MalformedCaptureError as error:
                     j.issue("request_unparseable", f"request of model call {call_id}: {error}", call.evidence)
                     found = None
@@ -444,7 +456,6 @@ def project(
     )
     root = j.spans[0]
     j.spans[0] = SpanOut(**{**root.__dict__, "status": "partial" if coverage.partial else "ok"})
-    snapshot = (w.get(R.SNAPSHOT_TAKEN) or [None])[0]
     result = (w.get(R.RESULT_READ) or [None])[0]
     return Projection(
         parser_version=PARSER_VERSION,
@@ -459,7 +470,7 @@ def project(
         coverage=coverage,
         metrics=metrics,
         issues=tuple(n.issues),
-        workspace_diff=tuple(snapshot.data.get("diff") or ()) if snapshot else (),
+        workspace_diff=j.workspace_diff,
         result=dict(result.data.get("outcome") or {}) if result else None,
         placements=dict(j.placements),
         scopes=dict(j.scopes),

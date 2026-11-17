@@ -69,7 +69,7 @@ def test_worked_example_links_and_tree() -> None:
 
 def test_spans_request_has_the_server_shape() -> None:
     p = run(worked_example())
-    body = p.spans_request(fence=3)
+    [body] = p.spans_requests(fence=3)
     assert body["fence"] == 3
     ids = {s["id"] for s in body["spans"]}
     assert len(ids) == len(body["spans"])
@@ -276,3 +276,61 @@ def test_truncated_and_redacted_payloads_are_reported() -> None:
     p = run(t)
     assert p.coverage.partial and other in p.coverage.redacted
     assert any(sha in x for x in p.coverage.truncated)
+
+
+def test_malformed_harness_references_are_reported_not_crashed_on() -> None:
+    for data in ({"refs": 5}, {"call_id": {"x": 1}}, {"refs": [["a"], "nope"]}):
+        t = worked_example()
+        t.span_start(0.05, "bad", "operation", "bad", data=data)
+        p = run(t)
+        assert any(i.code == "malformed_reference" for i in p.issues), data
+
+
+def test_a_tool_result_with_an_unhashable_tool_call_id_does_not_crash_the_projection() -> None:
+    t = Trace()
+    t.started()
+    t.span_start(0.0, "root", "agent", "main")
+    t.model_call("m1", ordinal=1, start=0.2, end=1.2, span_ref="root", proposals=(t.proposal("call_1", "validate", {"path": "x"}),), usage=(100, 40))
+    output = t.tool("t1", "validate", {"path": "x"}, start=1.3, end=1.8, cause=("m1", "call_1"), span_ref="root", output={"valid": True})
+    t.model_call("m2", ordinal=2, start=1.9, end=3.0, span_ref="root", request=chat_request((["call_1"], output)), usage=(150, 20))  # type: ignore[arg-type]
+    t.span_end(3.1, "root")
+    t.lifecycle(quiesce=3.2)
+    t.finish(3.3)
+    assert run(t).spans
+
+
+def test_span_strings_are_clamped_to_the_server_limits() -> None:
+    t = worked_example()
+    t.span_start(0.05, "s1", "subagent", "a" * 256, parent="root")
+    t.span_start(0.06, "s2", "subagent", "b" * 256, parent="s1")
+    t.span_start(0.07, "s3", "subagent", "c" * 256, parent="s2")
+    [body] = run(t).spans_requests(fence=1)
+    scopes = [s["scope"] for s in body["spans"] if s["scope"]]
+    assert max(map(len, scopes)) == 500
+    assert all(len(s["name"]) <= 1000 and len(s["target"] or "") <= 2000 for s in body["spans"])
+
+
+def test_span_attributes_past_the_server_limit_are_dropped_with_a_mark() -> None:
+    t = worked_example()
+    t.span_start(0.05, "big", "operation", "big", data={"blob": "x" * 40_000})
+    [body] = run(t).spans_requests(fence=1)
+    big = next(s for s in body["spans"] if s["id"] == "h:big")
+    assert big["attributes"]["attributes_dropped_bytes"] > 32 * 1024 and "data" not in big["attributes"]
+
+
+def test_spans_are_split_into_requests_under_the_server_limits() -> None:
+    t = worked_example()
+    for i in range(4500):
+        t.span_start(0.05, f"s{i}", "operation", f"op{i}", parent="root")
+    p = run(t)
+    bodies = list(p.spans_requests(fence=1))
+    assert len(bodies) >= 3 and all(len(b["spans"]) <= 2000 and len(b["links"]) <= 4000 for b in bodies)
+    assert sum(len(b["spans"]) for b in bodies) == len(p.spans) and sum(len(b["links"]) for b in bodies) == len(p.links)
+
+
+def test_the_snapshot_diff_comes_from_its_payload_not_the_event() -> None:
+    t = worked_example()
+    for record in t.records:
+        if record["kind"] == "snapshot.taken":
+            record["data"]["diff"] = []
+    assert len(run(t).workspace_diff) == 2

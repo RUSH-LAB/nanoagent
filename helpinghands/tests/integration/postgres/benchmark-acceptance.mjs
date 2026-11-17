@@ -333,6 +333,19 @@ try {
     bobsOwn.status === 201 && bobsOwn.body.benchmark.publisher.id === bob.id
     && (await publish(bob, publication(mainName, ['c1', 'r1'], {model: 'bobs/model'}))).body.code === 'benchmark_name_taken');
   check('identical case sets are shared between benchmarks', bobsOwn.body.benchmark.case_set_id === main.body.benchmark.case_set_id);
+  // Deleting the case set's first publisher must not fail on the benchmarks that share it; the delete is rolled back.
+  const deleting = await migrationPool.connect();
+  try {
+    await deleting.query('begin');
+    // The plugin is Alice's too, and goes with her; hand it to Carol so only the case set's publisher link is tested.
+    await deleting.query('update market_plugin set owner_id = $1 where id = $2', [carol.id, pluginId]);
+    await deleting.query('delete from app_user where id = $1', [alice.id]);
+    const kept = (await deleting.query('select publisher_id from benchmark_case_set where case_set_id = $1', [main.body.benchmark.case_set_id])).rows;
+    check('deleting the first publisher of a shared case set succeeds and leaves the case set, without a publisher', kept.length === 1 && kept[0].publisher_id === null);
+  } finally {
+    await deleting.query('rollback');
+    deleting.release();
+  }
   const main2 = await publish(alice, {...publication(mainName, ['c1', 'r1'], {version: '2.0.0', package_sha256: sha2})});
   check('the same name is free for another plugin version, with a case set of its own',
     main2.status === 201 && main2.body.benchmark.plugin.version === '2.0.0' && main2.body.benchmark.benchmark_id !== mainId && main2.body.benchmark.case_set_id !== main.body.benchmark.case_set_id);
@@ -711,6 +724,13 @@ try {
   check('the member\'s budget refuses a call past it', memberOver.status === 402 && memberOver.body.scope === 'member');
   const racers = await Promise.all([1, 2, 3, 4].map(n => admit(a2, 1, `race-${n}`, 0.04)));
   check('concurrent admissions never overspend the member', racers.filter(r => r.status === 201).length === 2 && Math.abs(await spent() - 1.48) < 1e-9);
+  const spentBefore = await spent();
+  check('a settlement far past the call\'s reserve is refused, and one past the column\'s range is a 400, not a 500',
+    (await settle(a2, 'race-1', {outcome: 'settled', cost_usd: 1000, provenance: {}})).body.code === 'cost_exceeds_reserve'
+    && (await settle(a2, 'race-1', {outcome: 'settled', cost_usd: 1e13, provenance: {}})).status === 400
+    && (await admit(a2, 1, 'huge', 1e13)).status === 400 && (await admit(a2, 2 ** 40, 'huge', 0.01)).status === 400
+    && Math.abs(await spent() - spentBefore) < 1e-9);
+  check('a settlement at the call\'s reserve is accepted', (await settle(a2, 'race-1', {outcome: 'settled', cost_usd: 0.04, provenance: {}})).status === 200);
   const callsRun = (await api(`${base}/attempts/${a1}`, {cookie: alice.cookie})).body.attempt;
   check('an attempt shows its case kind, content digest and rendered prompt', callsRun.kind === 'answer' && callsRun.content_digest === run.cases[0].content_digest && callsRun.prompt.sha256 === run.cases[0].prompt.sha256);
 
@@ -780,6 +800,9 @@ try {
   check('the member reads the latest accounting beside each admission',
     accounting.calls.find(c => c.call_id === 'call-1').accounting.version === 2 && accounting.totals.uncertain_calls === 1 && accounting.calls.length === 2);
   check('events were not rewritten by accounting', (await api(`${base}/attempts/${a1}/events`, {cookie: alice.cookie})).body.events.length === 3);
+  check('accounting is bounded: a record past its byte limit is 413 and a version past the limit is 400',
+    (await worker(`attempts/${a1}/accounting`, {method: 'POST', body: {call_id: 'call-1', version: 3, record: {pad: 'x'.repeat(70_000)}}})).status === 413
+    && (await worker(`attempts/${a1}/accounting`, {method: 'POST', body: {call_id: 'call-1', version: 11, record: {}}})).status === 400);
   const sealedStream = (await api(`${base}/attempts/${a1}/stream?after=2`, {cookie: alice.cookie})).text;
   check('a sealed attempt streams what is left and ends', sealedStream.includes('id: 3') && sealedStream.includes('event: sealed') && !sealedStream.includes('id: 2\n'));
 
@@ -949,6 +972,31 @@ try {
   const crowdClaims = claimed.filter(response => response.status === 200 && response.body.run.run_id === crowded.run.run_id);
   check('racing claims lease every queued attempt of a run once, with no cap of the run\'s own', crowdClaims.length === 4 && new Set(crowdClaims.map(response => response.body.attempt_id)).size === 4
     && (await asSystem("select count(*)::int as n from benchmark_attempt where run_id = $1 and state = 'leased'", [crowded.run.run_id])).rows[0].n === 4);
+  // ── Evidence bounds ──
+  const [bounded, finalizing] = crowdClaims.map(response => response.body);
+  const bigEvents = (from, count) => Array.from({length: count}, (_, n) => event(`big-${from + n}`, from + n, {data: {pad: 'x'.repeat(250_000)}}));
+  check('an event past its byte limit is 413, and an out-of-range nanosecond or fence is 400',
+    (await post(bounded.attempt_id, 1, [event('huge', 1, {data: {pad: 'x'.repeat(300_000)}})])).status === 413
+    && (await post(bounded.attempt_id, 1, [event('ns', 1, {occurred_ns: '9999999999999999999'})])).status === 400
+    && (await post(bounded.attempt_id, 2 ** 40, [event('fence', 1)])).status === 400);
+  check('40 events of 250 KB commit', (await post(bounded.attempt_id, 1, bigEvents(1, 20))).status === 200 && (await post(bounded.attempt_id, 1, bigEvents(21, 20))).status === 200);
+  const firstPage = (await api(`${base}/attempts/${bounded.attempt_id}/events?limit=1000`, {cookie: alice.cookie})).body;
+  const secondPage = (await api(`${base}/attempts/${bounded.attempt_id}/events?limit=1000&after=${firstPage.events.at(-1).cursor}`, {cookie: alice.cookie})).body;
+  check('an events page ends at its byte limit, not only its count, and the pages together hold every event',
+    firstPage.events.length > 0 && firstPage.events.length < 40 && firstPage.has_more === true && !secondPage.has_more && firstPage.events.length + secondPage.events.length === 40);
+  await asSystem('update benchmark_attempt set next_cursor = 100000 where attempt_id = $1', [bounded.attempt_id]);
+  check('an attempt keeps a bounded number of events', (await post(bounded.attempt_id, 1, [event('over-1', 1), event('over-2', 2)])).body.code === 'too_many_events');
+  await asSystem('update benchmark_attempt set next_cursor = 41 where attempt_id = $1', [bounded.attempt_id]);
+  const putSpan = attributes => worker(`attempts/${bounded.attempt_id}/spans`, {method: 'POST', body: {fence: 1, spans: [{id: 'grow', kind: 'tool', name: 'n', attributes}]}});
+  check('span attributes are bounded by what each report sends and by what they merge to',
+    (await putSpan({a: 'x'.repeat(40_000)})).status === 413 && (await putSpan({a: 'x'.repeat(20_000)})).status === 200
+    && (await putSpan({b: 'x'.repeat(20_000)})).status === 413
+    && (await asSystem("select count(*)::int as n from benchmark_span where attempt_id = $1 and span_id = 'grow' and attributes ? 'b'", [bounded.attempt_id])).rows[0].n === 0);
+  check('link attributes are bounded', (await worker(`attempts/${bounded.attempt_id}/spans`, {method: 'POST', body: {fence: 1, links: [{kind: 'k', from: 'a', to: 'b', attributes: {pad: 'x'.repeat(9000)}}]}})).status === 413);
+  check('finalize bounds the metrics and the coverage an attempt keeps',
+    (await finalize(finalizing.attempt_id, finalizeBody(0, {metrics: {pad: 'x'.repeat(70_000)}}))).status === 413
+    && (await finalize(finalizing.attempt_id, finalizeBody(0, {coverage: {pad: 'x'.repeat(70_000)}}))).status === 413
+    && (await finalize(finalizing.attempt_id, finalizeBody(0))).status === 200);
   await api(`${base}/runs/${crowded.run.run_id}/cancel`, {method: 'POST', cookie: alice.cookie});
 
   // ── Capabilities shrink ──
@@ -969,6 +1017,11 @@ try {
   await claim('priced-again');
   check('the schema holds no suite, scoring or hook table', (await asSystem(
     "select count(*)::int as n from information_schema.tables where table_name like 'benchmark_suite%' or table_name = 'benchmark_scoring' or table_name = 'benchmark_run_suite'")).rows[0].n === 0);
+
+  // ── Previews ──
+  // Previews pile up to a bound: a member keeps their newest 50.
+  for (let n = 0; n < 52; n += 1) await preview(mainId);
+  check('a member keeps at most 50 previews', (await asSystem('select count(*)::int as n from benchmark_preview where user_id = $1', [alice.id])).rows[0].n === 50);
 
   console.log(JSON.stringify({ok: true, checks: checks.length}, null, 2));
 } catch (error) {

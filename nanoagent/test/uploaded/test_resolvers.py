@@ -174,3 +174,50 @@ def test_write_refuses_paths_outside_the_closure(tmp_path: Path) -> None:
     with pytest.raises(ToolchainError) as error:
         _write(tmp_path / "deps", "proxy/../../escaped", b"x")
     assert error.value.code == "invalid_dependency" and not (tmp_path / "escaped").exists()
+
+
+def shared_tarball_lock(tmp_path: Path, keys: int) -> tuple[Path, Path]:
+    """A registry with one tarball that `keys` node_modules entries all resolve to (the npm_memory.py repro)."""
+    tarball = tgz({"package/index.js": b"x" * 1000})
+    integrity = "sha512-" + base64.b64encode(hashlib.sha512(tarball).digest()).decode()
+    registry, source = tmp_path / "registry", tmp_path / "source"
+    (registry / "big/-").mkdir(parents=True)
+    source.mkdir()
+    (registry / "big/-/big-1.0.0.tgz").write_bytes(tarball)
+    entry = {"version": "1.0.0", "resolved": "https://registry.npmjs.org/big/-/big-1.0.0.tgz", "integrity": integrity}
+    packages = {"": {}, **{f"node_modules/p{i}": entry for i in range(keys)}}
+    (source / "package-lock.json").write_text(json.dumps({"lockfileVersion": 3, "packages": packages}))
+    return registry, source
+
+
+def test_an_npm_tarball_shared_by_many_lock_keys_is_fetched_once_and_installed_at_each(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from nanoagent.uploaded import resolvers
+
+    registry, source = shared_tarball_lock(tmp_path, 50)
+    fetched: list[str] = []
+    real = resolvers.fetch
+    monkeypatch.setattr(resolvers, "fetch", lambda *args, **kw: (fetched.append(args[1]), real(*args, **kw))[1])
+    stage("javascript-22", source, registry, ("package-lock.json",), tmp_path)
+    assert fetched == ["big/-/big-1.0.0.tgz"]
+    assert all((tmp_path / f"deps/node_modules/p{i}/index.js").is_file() for i in range(50))
+
+
+def test_the_closure_is_capped_by_installed_artifacts_and_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from nanoagent.uploaded import toolchains
+
+    registry, source = shared_tarball_lock(tmp_path, 5)
+    monkeypatch.setattr(toolchains, "MAX_CLOSURE_FILES", 3)
+    fail("dependency_too_large", "javascript-22", source, registry, ("package-lock.json",), tmp_path)
+    assert not (tmp_path / "deps").exists()
+    monkeypatch.setattr(toolchains, "MAX_CLOSURE_FILES", 100)
+    monkeypatch.setattr(toolchains, "MAX_CLOSURE_BYTES", 2500)  # each install writes 1000 bytes
+    fail("dependency_too_large", "javascript-22", source, registry, ("package-lock.json",), tmp_path)
+
+
+def test_resolution_past_its_deadline_fails_with_a_timeout_code(tmp_path: Path) -> None:
+    registry, source = shared_tarball_lock(tmp_path, 2)
+    with pytest.raises(ToolchainError) as error:
+        resolve_dependencies(
+            toolchain("javascript-22"), source, ("package-lock.json",), tmp_path / "deps", index_url=str(registry), timeout_s=-1
+        )
+    assert error.value.code == "dependency_timeout"

@@ -369,3 +369,11 @@ def test_a_prompt_needs_a_part() -> None:
     with pytest.raises(ContractError) as raised:
         contains_first_prompt("chat_completions", {}, None, None)
     assert raised.value.code == "invalid_prompt"
+
+
+def test_lone_surrogates_are_refused_in_values_and_keys() -> None:
+    for raw in (b'{"a": "\\udc80"}', b'{"\\udc80": 1}', b'{"a": ["x", {"b": "\\ud800"}]}'):
+        with pytest.raises(ContractError) as caught:
+            decode_json_object(raw)
+        assert caught.value.code == "invalid_json", raw
+    assert decode_json_object('{"a": "\\ud83d\\ude00"}'.encode()) == {"a": "\U0001f600"}

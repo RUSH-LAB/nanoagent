@@ -7,6 +7,8 @@ import json
 import subprocess
 import sys
 import tarfile
+import threading
+import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -684,13 +686,20 @@ def test_prepare_plugin_syncs_inside_the_pinned_prep_image_in_gvisor(docker, col
     s, uv = tooled(docker, collector, tmp_path)
     docker.overrides["logs"] = lambda a: ok("ready")
     docker.overrides["inspect"] = lambda a: ok("10.1.2.3")
+    (tmp_path / "plugin").mkdir()
     s.prepare_plugin(tmp_path / "plugin", 60)
     run = docker.find("run")[0]
     joined = " ".join(run)
     assert PLUGIN_PREP_IMAGE.startswith("python@sha256:") and PLUGIN_PREP_IMAGE in run
-    for expected in ("--runtime=runsc-rush", "--cap-drop=ALL", f"type=bind,src={tmp_path / 'plugin'},dst=/plugin ", "--entrypoint uv"):
+    for expected in ("--runtime=runsc-rush", "--cap-drop=ALL", f"type=bind,src={tmp_path / 'plugin'},dst=/plugin-source,readonly ", "--entrypoint sh"):
         assert expected in joined + " ", expected
-    assert run[-6:] == ["sync", "--frozen", "--no-dev", "--python", "/usr/local/bin/python", "--quiet"]
+    # Publisher code runs here: resource-bounded, building a copy in the sandbox's memory, with only .venv writable on the host.
+    for bound in ("--cpus=1.0", "--memory=1073741824", "--memory-swap=1073741824", "--pids-limit=256"):
+        assert bound in run, bound
+    assert "/plugin:rw,nosuid,size=1g,mode=1777" in run and "tar -C /plugin-source --exclude=./.venv" in joined
+    assert f"type=bind,src={tmp_path / 'plugin' / '.venv'},dst=/plugin/.venv " in joined + " "
+    assert "dst=/plugin," not in joined.replace("dst=/plugin/.venv", "")
+    assert run[-7:] == ["/usr/local/bin/uv", "sync", "--frozen", "--no-dev", "--python", "/usr/local/bin/python", "--quiet"]
     # Egress: a private internal network whose only member besides the sandbox is the relay to the host's allowlisting proxy.
     [network] = [c for c in docker.find("network") if c[1] == "create"]
     assert "--internal" in network and f"--network={network[-1]}" in run and "--network=bridge" not in run
@@ -755,3 +764,32 @@ def test_a_case_whose_pid_is_unknown_has_no_counters(supervisor, tmp_path):
     handle.wait()
     handle.stop_and_drain()
     assert handle.cpu_counters() == []
+
+
+def test_concurrent_workspace_views_of_one_case_copy_one_at_a_time(docker, collector, tmp_path):
+    s, _ = tooled(docker, collector, tmp_path)
+    handle = s.create_case(case_spec(s, tmp_path, tool=tool_spec(tmp_path)))
+    launcher = s.tool_launcher("rush-tool-x")
+    live, peak, lock = 0, 0, threading.Lock()
+
+    def copy_out(*args):
+        nonlocal live, peak
+        with lock:
+            live += 1
+            peak = max(peak, live)
+        time.sleep(0.05)
+        with lock:
+            live -= 1
+        return None, tmp_path / "copy"
+
+    s._copy_out = copy_out
+
+    def view():
+        with launcher.workspace_view():
+            time.sleep(0.01)
+
+    threads = [threading.Thread(target=view) for _ in range(8)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert peak == 1
+    handle.close()

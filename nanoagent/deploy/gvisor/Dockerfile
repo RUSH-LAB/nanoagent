@@ -50,7 +50,8 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python \
 WORKDIR /opt/nanoagent
 # The dependency layer: only the lock and the project file, so it caches across source changes.
 COPY pyproject.toml uv.lock README.md LICENSE ./
-RUN uv python install "$PYTHON_VERSION" \
+# Built as root with a throwaway cache: a cache under the worker's home would be root's, which the worker (rush) cannot use.
+RUN UV_CACHE_DIR=/tmp/uv-cache uv python install "$PYTHON_VERSION" \
  && UV_CACHE_DIR=/tmp/uv-cache uv sync --frozen --no-install-project --extra web --extra dev --python "$PYTHON_VERSION" \
  && rm -rf /tmp/uv-cache
 

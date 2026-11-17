@@ -53,3 +53,21 @@ def test_refuses_a_plugin_python_that_is_not_one(tmp_path: Path) -> None:
 def test_a_sandbox_needs_the_plugin_python() -> None:
     with pytest.raises(ValueError, match="the seatbelt sandbox needs the Python plugins run on"):
         sandbox.configure("seatbelt")
+
+
+def test_the_verifier_limits_memory_and_processes_before_any_plugin_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    import io
+    import resource
+
+    from nanoagent.helpers import verifier
+
+    limits = {}
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(resource, "setrlimit", lambda which, value: limits.update({which: value}))
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))  # stops main right after the limits, before it reads a request
+    with pytest.raises(ValueError):
+        verifier.main([])
+    assert limits == {
+        resource.RLIMIT_AS: (verifier.MEMORY_BYTES, verifier.MEMORY_BYTES),
+        resource.RLIMIT_NPROC: (0, 0),
+    }

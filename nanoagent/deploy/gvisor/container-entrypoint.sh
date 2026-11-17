@@ -28,6 +28,8 @@ docker info > /dev/null 2>&1 || { echo "dockerd did not come up; its log:" >&2; 
 bash "$gvisor/egress.sh"
 
 mkdir -p "$RUSH_WORKER_HOME" && chown rush:rush "$RUSH_WORKER_HOME"
+# A volume an older image seeded can hold root's files (its uv cache); the worker runs as rush, so it takes them over.
+find "$RUSH_WORKER_HOME" -xdev ! -user rush -exec chown -h rush:rush {} +
 if [ "$#" -eq 0 ]; then
   cd "$RUSH_WORKER_HOME"
   set -- python -m nanoagent.uploaded.worker config="$gvisor/worker.openrouter.yaml" home="$RUSH_WORKER_HOME/run"

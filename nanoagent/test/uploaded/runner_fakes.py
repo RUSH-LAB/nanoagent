@@ -6,6 +6,7 @@ import io
 import json
 import threading
 import zipfile
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -346,8 +347,8 @@ class FakeProjection:
     coverage = _Dict({"status": "complete"})
     metrics = _Dict({"total_tokens": 0})
 
-    def spans_request(self, fence: int) -> dict[str, Any]:
-        return {"fence": fence, "spans": [], "links": []}
+    def spans_requests(self, fence: int) -> Iterator[dict[str, Any]]:
+        yield {"fence": fence, "spans": [], "links": []}
 
 
 def fake_project(records: list[dict[str, Any]], payloads: Any, redactions: Any) -> FakeProjection:

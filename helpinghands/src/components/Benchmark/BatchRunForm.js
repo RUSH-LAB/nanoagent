@@ -21,7 +21,7 @@ const putBatch = (key, batch) => {
 };
 
 async function load() {
-  const [benchmarks, defaults, account] = await Promise.all([benchmarkApi.benchmarks(), benchmarkApi.defaults(), benchmarkApi.account()]);
+  const [benchmarks, defaults, account] = await Promise.all([benchmarkApi.allBenchmarks(), benchmarkApi.defaults(), benchmarkApi.account()]);
   const key = storageKey(account.userId);
   return {benchmarks, defaults, key, batches: readBatches(key)};
 }

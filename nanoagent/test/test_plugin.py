@@ -635,6 +635,106 @@ def test_contract_holds_only_declarations(tmp_path: Path, change: str, problem: 
     assert problem in error.value.violations[0]
 
 
+@pytest.mark.parametrize(
+    "decorator",
+    [
+        '@(__import__("os").system("touch marker") or dataclasses).dataclass',
+        '@(print("x") or dataclasses).dataclass',
+        "@foo.dataclass",
+        "@dataclasses.dataclass()",
+        "@dataclass(frozen=True)",
+        "@dataclasses.other.dataclass",
+        "@dataclasses[0].dataclass",
+    ],
+)
+def test_contract_decorator_is_only_the_dataclass_decorator(tmp_path: Path, decorator: str) -> None:
+    from nanoagent.plugin.v0001.contract import contract_problems
+
+    contract = tmp_path / "contract.py"
+    contract.write_text(f"import dataclasses\nfrom dataclasses import dataclass\n\n{decorator}\nclass Input:\n    x: int\n", encoding="utf-8")
+    assert contract_problems(contract)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "class A[T]:\n    x: int\n",
+        "class A:\n    x: int = 1\n",
+        "class A(metaclass=type):\n    x: int\n",
+        "class A(dataclasses.make_dataclass('B', [])):\n    x: int\n",
+        "class A:\n    x: int\n    y = open('f')\n",
+        "class A:\n    x: (lambda: 1)()\n",
+        "class A:\n    x: f'{1}'\n",
+        "X = [*dataclasses.fields]\n",
+        "X = dataclasses.__dict__\n",
+        "X = (y := 1)\n",
+    ],
+)
+def test_contract_rejects_other_executing_shapes(tmp_path: Path, source: str) -> None:
+    from nanoagent.plugin.v0001.contract import contract_problems
+
+    contract = tmp_path / "contract.py"
+    contract.write_text("import dataclasses\n\n" + source, encoding="utf-8")
+    assert contract_problems(contract)
+
+
+def test_contract_still_accepts_both_dataclass_decorator_spellings(tmp_path: Path) -> None:
+    from nanoagent.plugin.v0001.contract import contract_problems
+
+    contract = tmp_path / "contract.py"
+    contract.write_text(
+        "import dataclasses\nfrom dataclasses import dataclass\n\n@dataclass\nclass A:\n    x: int\n\n@dataclasses.dataclass\nclass B:\n    x: int\n",
+        encoding="utf-8",
+    )
+    assert contract_problems(contract) == []
+
+
+def test_a_session_bounds_its_concurrent_workspace_copies(monkeypatch: pytest.MonkeyPatch) -> None:
+    import threading
+    import time
+    from contextlib import contextmanager
+
+    import anyio
+
+    from nanoagent.plugin import runtime
+
+    state = {"now": 0, "peak": 0}
+    lock = threading.Lock()
+
+    class Launcher:
+        @contextmanager
+        def workspace_view(self):
+            with lock:
+                state["now"] += 1
+                state["peak"] = max(state["peak"], state["now"])
+            time.sleep(0.05)
+            try:
+                yield Path("/nonexistent")
+            finally:
+                with lock:
+                    state["now"] -= 1
+
+    monkeypatch.setattr(runtime, "verify_output", lambda *args: runtime.Verification(True, 1.0, "", {}))
+    session = runtime.PluginSession.__new__(runtime.PluginSession)
+    session.launcher, session.workspace, session.manifest = Launcher(), Path("/w"), None
+    session._threads = anyio.CapacityLimiter(runtime.SESSION_THREADS)
+
+    async def main() -> None:
+        async with anyio.create_task_group() as group:
+            for _ in range(20):
+                group.start_soon(lambda: anyio.to_thread.run_sync(session._verify_output, "t", {}, {}, limiter=session._threads))
+
+    anyio.run(main)
+    assert state["peak"] <= runtime.SESSION_THREADS
+
+
+def test_a_new_session_holds_its_own_thread_limiter() -> None:
+    from nanoagent.plugin import runtime
+
+    one, two = (runtime.PluginSession(None, Path("."), timeout=1) for _ in range(2))  # type: ignore[arg-type]
+    assert one._threads is not two._threads and one._threads.total_tokens == runtime.SESSION_THREADS
+
+
 def test_contract_fields_are_required_and_typed(tmp_path: Path) -> None:
     write_plugin(tmp_path)
     contract = tmp_path / "contract.py"
@@ -1384,3 +1484,24 @@ def test_plugins_load_at_the_same_time(tmp_path: Path) -> None:
     with ThreadPoolExecutor(len(folders)) as pool:
         manifests = list(pool.map(load_manifest, folders * 4))
     assert [manifest.root for manifest in manifests] == [folder.resolve() for folder in folders * 4]
+
+
+@pytest.mark.parametrize("kind", ["symlink_to_device", "fifo", "oversized"])
+def test_verifier_sources_that_are_not_small_regular_files_are_refused_unread(tmp_path: Path, kind: str) -> None:
+    import os
+
+    from nanoagent.plugin.v0001.verifier import MAX_SOURCE_BYTES, verifier_problems
+
+    write_plugin(tmp_path)
+    folder = tmp_path / "verifier"
+    planted = folder / "zz.py"
+    if kind == "symlink_to_device":
+        planted.symlink_to("/dev/zero")
+    elif kind == "fifo":
+        os.mkfifo(planted)
+    else:
+        planted.write_text("#" * (MAX_SOURCE_BYTES + 1))
+    problems = verifier_problems(folder)
+    assert any(p.startswith("verifier/zz.py:") for p in problems)
+    with pytest.raises(ValueError, match="verifier/zz.py"):
+        load_manifest(tmp_path)
