@@ -51,6 +51,15 @@ function segment(raw, what) {
   }
 }
 
+/** The `before` cursor as the ISO timestamp SQL takes, null when absent: any date `Date.parse` reads is normalized, anything else is a 400. */
+function beforeOf(url) {
+  const raw = url.searchParams.get('before');
+  if (raw === null) return null;
+  const time = Date.parse(raw);
+  if (Number.isNaN(time)) throw new BenchmarkError(400, 'invalid_request', 'before is a timestamp');
+  return new Date(time).toISOString();
+}
+
 function cursorOf(value) {
   if (value === null || value === undefined) return 0;
   if (!/^\d{1,15}$/.test(value)) throw new BenchmarkError(400, 'invalid_request', 'after is a cursor, a non-negative integer');
@@ -137,13 +146,11 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
         const pluginId = url.searchParams.get('plugin_id');
         const version = url.searchParams.get('version');
         if (version !== null && pluginId === null) throw new BenchmarkError(400, 'invalid_request', 'version needs plugin_id');
-        return json(res, 200, {benchmarks: await repository.benchmarks(context, {pluginId, version})});
+        return json(res, 200, {benchmarks: await repository.benchmarks(context, {pluginId, version, limit: limitOf(url, 50, 200), before: beforeOf(url)})});
       }
       if (!UUID.test(benchmarkId)) return notFound('benchmark');
       if (results) {
-        const before = url.searchParams.get('before');
-        if (before !== null && Number.isNaN(Date.parse(before))) throw new BenchmarkError(400, 'invalid_request', 'before is a timestamp');
-        const runs = await repository.benchmarkResults(context, benchmarkId, {limit: limitOf(url, 50, 200), before});
+        const runs = await repository.benchmarkResults(context, benchmarkId, {limit: limitOf(url, 50, 200), before: beforeOf(url)});
         return runs ? json(res, 200, {runs}) : notFound('benchmark');
       }
       const found = await repository.benchmark(context, benchmarkId);
@@ -223,9 +230,7 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
     if (top === 'runs') {
       if (req.method === 'GET') {
         read();
-        const before = url.searchParams.get('before');
-        if (before !== null && Number.isNaN(Date.parse(before))) throw new BenchmarkError(400, 'invalid_request', 'before is a timestamp');
-        return json(res, 200, {runs: await repository.listRuns(context, {limit: limitOf(url, 50, 200), before})});
+        return json(res, 200, {runs: await repository.listRuns(context, {limit: limitOf(url, 50, 200), before: beforeOf(url)})});
       }
       if (req.method !== 'POST') return wrongMethod();
       write();

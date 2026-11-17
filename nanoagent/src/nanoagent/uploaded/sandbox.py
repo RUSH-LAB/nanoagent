@@ -48,7 +48,7 @@ from typing import Any, Protocol
 
 from nanoagent.plugin.egress import egress
 from nanoagent.plugin.install import INSTALL_HOSTS
-from nanoagent.uploaded.archive import ArchiveError, Extracted, extract_tar, first_entry_is_link, tar_of_tree
+from nanoagent.uploaded.archive import ArchiveError, Extracted, extract_tar, tar_of_tree
 from nanoagent.uploaded.collector import CollectorError, CollectorHealth, ProcessEvent, ProcessEvidence, launch_argv, launched_processes
 from nanoagent.uploaded.contract import ContractError, HarnessManifest, is_canonical_relative_path, path_problem, read_result_file, validate_argv
 from nanoagent.uploaded.dockercli import CliDockerRunner, DockerResult, DockerRunner
@@ -67,6 +67,20 @@ UV_BIN = "/usr/local/bin/uv"
 FIXTURES_ENV = "NANOAGENT_FIXTURES"
 RESULT_NAME = "result.json"
 EXEC_KILL_GRACE_S = 2
+CWD_MISSING, CWD_LINK, CWD_CHECK_TIMEOUT_S = 3, 4, 10
+# Run in the volume holder: exit CWD_MISSING for a component that does not exist, CWD_LINK for one that is a symlink.
+CWD_CHECK = (
+    "import os, stat, sys\n"
+    "path = sys.argv[1]\n"
+    "for part in sys.argv[2].split('/'):\n"
+    "    path += '/' + part\n"
+    "    try:\n"
+    "        mode = os.lstat(path).st_mode\n"
+    "    except OSError:\n"
+    f"        sys.exit({CWD_MISSING})\n"
+    "    if stat.S_ISLNK(mode):\n"
+    f"        sys.exit({CWD_LINK})\n"
+)
 # How long a command that exited nonzero is given for its task exit to reach the collector, which streams it behind `docker exec`.
 EXEC_EVIDENCE_WAIT_S = 5.0
 MAX_RESULT_BYTES = 1 << 20
@@ -882,12 +896,13 @@ class DockerSandboxSupervisor:
         """An idle, networkless container that keeps the sandbox's tmpfs volumes mounted.
 
         A tmpfs volume is unmounted, and its contents lost, when the last container using it stops; the
-        holder outlives the sandbox so results and the workspace can still be copied out.
+        holder outlives the sandbox so results and the workspace can still be copied out. Its memory fits the
+        `/exec` cwd check (CWD_CHECK) running beside it, up to EXEC_THREADS Pythons at once.
         """
         mounts = [a for volume, path in volumes.items() for a in _mount_volume(volume, path)]
         args = [
             "create", f"--name=rush-hold-{suffix}", "--runtime=runc", "--network=none", "--read-only", "--cap-drop=ALL",
-            "--security-opt=no-new-privileges", "--user=65534:65534", "--memory=32m", "--pids-limit=8", "--log-driver=none",
+            "--security-opt=no-new-privileges", "--user=65534:65534", "--memory=96m", "--pids-limit=8", "--log-driver=none",
             *mounts, "--entrypoint", "python", HOLDER_IMAGE, "-c", "import time; time.sleep(86400)",
         ]
         holder = _checked(self._docker.run(args), "start_failed", "create volume holder").text()
@@ -992,6 +1007,8 @@ class _DockerCase:
         self._deadline = 0.0
         self._paused = False
         self._final: ProcessEvidence | None = None
+        self._evidence_lock = threading.Lock()
+        self._closing = threading.Event()
         self.tool_proxy: str | None = None  # the tool container's egress proxy URL, when it has declared hosts
         self.bridge = ExitStack()  # the proxy and its relay and network; closed with the case
 
@@ -1034,7 +1051,12 @@ class _DockerCase:
         self._thread.join()
         result = self._run_result
         assert result is not None
-        state = self._s._state(self._container)
+        try:
+            state = self._s._state(self._container)
+        except SandboxError as error:
+            if self._closing.is_set():  # close() removed the sandbox while this woke on its kill
+                raise SandboxError("closed", "the case was closed while it was awaited") from error
+            raise
         exit_code = state.get("ExitCode", result.returncode)
         evidence = self.evidence()  # the sandbox has exited, so its connection is closed and the journal is whole
         root = evidence.root()
@@ -1103,14 +1125,14 @@ class _DockerCase:
             return WORKSPACE
         if (problem := path_problem(cwd)) is not None:
             raise ContractError("invalid_cwd", f"cwd {cwd!r}: {problem}")
-        parts = cwd.split("/")
-        for i in range(1, len(parts) + 1):
-            prefix = f"{WORKSPACE}/{'/'.join(parts[:i])}"
-            head = self._s._docker.run(["cp", f"{self._container}:{prefix}", "-"], capture_bytes=4096)
-            if head.returncode != 0:
-                raise ContractError("invalid_cwd", f"cwd {cwd!r} does not exist in the workspace")
-            if first_entry_is_link(head.stdout):
-                raise ContractError("invalid_cwd", f"cwd {cwd!r} passes through a link")
+        # One bounded call in the holder, which mounts the same volume: every component of the path is checked there.
+        check = self._s._docker.run(["exec", self.holder, "python", "-c", CWD_CHECK, "/hold/workspace", cwd], timeout_s=CWD_CHECK_TIMEOUT_S, capture_bytes=4096)
+        if check.timed_out or check.returncode not in (0, CWD_MISSING, CWD_LINK):
+            raise SandboxError("exec_failed", f"cwd {cwd!r} could not be checked: {check.error_text()}")
+        if check.returncode == CWD_MISSING:
+            raise ContractError("invalid_cwd", f"cwd {cwd!r} does not exist in the workspace")
+        if check.returncode == CWD_LINK:
+            raise ContractError("invalid_cwd", f"cwd {cwd!r} passes through a link")
         return f"{WORKSPACE}/{cwd}"
 
     def stop_and_drain(self) -> WorkspaceSnapshot:
@@ -1166,10 +1188,11 @@ class _DockerCase:
             shutil.rmtree(directory, ignore_errors=True)
 
     def evidence(self) -> ProcessEvidence:
-        if self._final is None:
-            self._final = self._s._collector.finish(self._container)
-            self._s._collector.discard(self._container)
-        return self._final
+        with self._evidence_lock:  # wait() and close() both take it, from different threads
+            if self._final is None:
+                self._final = self._s._collector.finish(self._container)
+                self._s._collector.discard(self._container)
+            return self._final
 
     def abort(self) -> None:
         """Removes everything a case that never started left behind; its process evidence is not read."""
@@ -1195,6 +1218,7 @@ class _DockerCase:
             self._s._remove_volume(volume)
 
     def close(self) -> None:
+        self._closing.set()
         if self._thread is None:  # never launched: there is no sandbox connection or evidence to wait for
             self.abort()
             return

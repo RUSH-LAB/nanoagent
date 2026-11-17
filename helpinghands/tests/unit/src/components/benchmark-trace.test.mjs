@@ -134,8 +134,9 @@ describe('benchmark inspector', () => {
     assert.match(sub.facts.find(fact => fact.label === 'Provenance').value, /the harness said so/);
   });
 
-  it('shows a payload as text, pretty-printing JSON, cutting very large ones, and never as markup', () => {
-    assert.equal(payloadView('{"a":1}').text, '{\n  "a": 1\n}');
+  it('shows a payload as recorded, cutting very large ones, and never as markup', () => {
+    // A nanosecond timestamp past 2^53 must not be rounded by a JSON round trip.
+    assert.equal(payloadView('{"t":1700000000123456789}').text, '{"t":1700000000123456789}');
     assert.equal(payloadView('<script>alert(1)</script>').text, '<script>alert(1)</script>');
     const big = payloadView('x'.repeat(250_000), 'truncated');
     assert.deepEqual([big.text.length, big.cut, big.redaction, big.length], [200_000, true, 'truncated', 250_000]);

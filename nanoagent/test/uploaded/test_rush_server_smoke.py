@@ -70,7 +70,7 @@ def test_publish_preview_and_submit(rush: RushServer, tmp_path: Path) -> None:
 
     source = tmp_path / "source"
     source.mkdir()
-    (source / "harness.yaml").write_text("protocol: rush.harness.v1\nname: smoke\nversion: '1'\ndialects: [chat_completions]\nrun: [python, main.py]\n")
+    (source / "harness.yaml").write_text("protocol: rush.harness.v1\nname: smoke\nversion: '1'\ndialects: [chat_completions]\ntoolchain: python-3\nlockfiles: []\nbuild: {argv: [sh, -c, 'cp main.py /build-out/main.py'], outputs: [main.py]}\nrun: {argv: [python, /harness/main.py]}\n")
 
     with BenchmarkClient(rush.base_url, rush.workspace_id, rush.token) as member:
         ids = [case["case_id"] for case in published.publication["cases"]]

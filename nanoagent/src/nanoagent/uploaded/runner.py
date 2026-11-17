@@ -74,6 +74,7 @@ from nanoagent.uploaded.sandbox import (
     CaseSpec,
     ExecOutcome,
     Limits,
+    SandboxError,
     Termination,
     TerminationKind,
     ToolContainerSpec,
@@ -86,6 +87,7 @@ from nanoagent.uploaded.toolchains import ToolchainProfile, resolve_dependencies
 LOG = logging.getLogger(__name__)
 NS = 1_000_000_000
 EXPECTED_SOURCES = ("worker", "gateway", "process")
+EXEC_THREADS = 4  # concurrent managed commands per attempt
 MISSING_ANSWER = "wrote no answer.json"  # read_answer's failure for an absent file
 
 
@@ -205,13 +207,14 @@ class CaseCommands:
         self._limits = limits
         self.handle: CaseHandle | None = None
         self.outcomes: list[ExecOutcome] = []
+        self._threads = anyio.CapacityLimiter(EXEC_THREADS)  # a harness's commands cannot starve the shared thread pool
 
     async def exec(self, argv: Sequence[str], cwd: str, timeout_ms: int, span_id: str | None) -> tuple[dict[str, Any], str]:
         handle = self.handle
         if handle is None:
             raise ExecError("case_not_started", "the case sandbox is not running", 503)
         try:
-            outcome = await anyio.to_thread.run_sync(lambda: handle.exec_in_case(argv, cwd, timeout_ms, self._limits), abandon_on_cancel=True)
+            outcome = await anyio.to_thread.run_sync(lambda: handle.exec_in_case(argv, cwd, timeout_ms, self._limits), abandon_on_cancel=True, limiter=self._threads)
         except ContractError as error:
             raise ExecError(error.code, error.message, 400 if error.code == "invalid_cwd" else 500) from error
         self.outcomes.append(outcome)
@@ -524,16 +527,29 @@ class AttemptRunner:
             if outcome is None:  # the attempt was canceled mid-run
                 await in_thread(handle.close)
                 return await self._finalize(job, journal, "canceled", None, result=AttemptResult("canceled"))
-            snapshot = await in_thread(handle.stop_and_drain)
-            await self._record_snapshot(journal, emit, snapshot)
+            try:
+                snapshot = await in_thread(handle.stop_and_drain)
+            except SandboxError as error:
+                if error.code != "snapshot_too_large":
+                    raise
+                snapshot = None  # the harness left more than the workspace bound: a failed case, not a platform fault
+                LOG.info("attempt %s: %s", job.attempt_id, error.message)
+            if snapshot is not None:
+                await self._record_snapshot(journal, emit, snapshot)
             if counters := handle.cpu_counters():  # empty when a container's cgroup was unreadable: CPU stays Unknown
                 await emit.emit(rec.CpuCounters(counters))
-            status, case_outcome = await self._read_outcome(handle, outcome.termination, job, snapshot.directory, snapshot.skipped)
+            if snapshot is None:
+                status, case_outcome = "execution_failed", {"status": "execution_failed", "reason": "invalid_result"}
+                frozen = work / "overflow"  # the verifier gets an empty workspace: nothing was frozen
+                frozen.mkdir()
+            else:
+                status, case_outcome = await self._read_outcome(handle, outcome.termination, job, snapshot.directory, snapshot.skipped)
+                frozen = snapshot.directory
             evidence = await in_thread(handle.evidence)
             await self._record_processes(emit, evidence, lambda wall: wall - offset, commands.outcomes)
             recorded.append(True)
             await emit.emit(rec.ResultRead(case_outcome))
-            verdict = await self._verify(manifest, job, case_outcome, snapshot.directory, evidence)
+            verdict = await self._verify(manifest, job, case_outcome, frozen, evidence)
             reason = case_outcome.get("reason") if status == "execution_failed" else None
             return await self._finalize(job, journal, status, reason, verdict=verdict)
         except (LeaseLost, Canceled, Sealed):
@@ -582,7 +598,11 @@ class AttemptRunner:
         async def waiter() -> None:
             # Abandoned when the attempt is cancelled, so its cleanup can close the case (which ends wait()) instead of waiting
             # out the harness's wall time.
-            box.append(await anyio.to_thread.run_sync(handle.wait, abandon_on_cancel=True))
+            try:
+                box.append(await anyio.to_thread.run_sync(handle.wait, abandon_on_cancel=True))
+            except SandboxError as error:
+                if error.code != "closed":  # closed by the revoke below: the attempt is canceled, not faulted
+                    raise
             done.set()
 
         async with anyio.create_task_group() as group:
@@ -641,9 +661,9 @@ class AttemptRunner:
             raw = await in_thread(handle.read_result)
             parsed = validate_result(raw, dict(job.case["output_schema"]))
         except ContractError as error:
-            if error.code not in ("missing_result", "invalid_result"):
+            if error.code not in ("missing_result", "invalid_result", "snapshot_too_large"):
                 raise
-            return failed(error.code)
+            return failed("invalid_result" if error.code == "snapshot_too_large" else error.code)
         match parsed:
             case Answered(answer):
                 return "answered", {"status": "answered", "answer": answer}

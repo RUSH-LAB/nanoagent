@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {benchmarkWorker, containerName, containerSite, mintCredential, WORKER_IMAGE, workerArgs} from '../../../src/runner/worker.mjs';
+import {benchmarkWorker, containerName, containerSite, mintCredential, removeWorkerData, WORKER_IMAGE, workerArgs} from '../../../src/runner/worker.mjs';
 import {installOptions, startOptions} from '../../../src/runner/docker-help.js';
 import {readConcurrency, writeConcurrency} from '../../../src/runner/lab.mjs';
 import {workerNotice} from '../../../src/components/Benchmark/worker.js';
@@ -17,7 +17,7 @@ const settle = () => new Promise(resolve => setTimeout(resolve, 20));
  * A fake docker: `script(args)` answers what it knows (a result, or a function of the call's options); every call is recorded.
  * `docker logs` plays `logLines` and ends when `docker wait` is released with `exit(code)`.
  */
-function setup({key = 'sk-or-one', session = 'session', info = INFO, installed = true, running = true, present = true, pullFails = false, logLines = [...PROOF_LINES, CLAIMING_LINE], retryMs = 5} = {}) {
+function setup({key = 'sk-or-one', session = 'session', info = INFO, installed = true, running = true, present = true, pullFails = false, logLines = [...PROOF_LINES, CLAIMING_LINE], retryMs = 5, stopMs = 0} = {}) {
   const calls = [];
   const state = {key, running, installed, present, session, concurrency: 1};
   const snapshots = [];
@@ -39,6 +39,7 @@ function setup({key = 'sk-or-one', session = 'session', info = INFO, installed =
       for (const line of logLines) options.onLine(line);
       return new Promise(resolve => waits.push(() => resolve({code: 0, tail: []})));
     }
+    if (verb === 'stop' && stopMs) await new Promise(resolve => setTimeout(resolve, stopMs));
     if (verb === 'wait') return new Promise(resolve => { release = code => { waits.splice(0).forEach(done => done()); resolve({code: 0, tail: [String(code)]}); }; });
     return {code: 0, tail: []};
   };
@@ -191,6 +192,55 @@ test('a key changed restarts the worker with the new key; stopping it first', as
   assert.deepEqual(runs.map(call => call.env.OPENROUTER_API_KEY), ['sk-or-one', 'sk-or-two']);
   assert.equal(t.minted.length, 2);
   assert.equal(t.last().state, 'ready');
+});
+
+test('two settings changes within the stop window launch one worker, with the later setting', async () => {
+  const t = setup({stopMs: 60});
+  await t.worker.start();
+  await settle();
+  t.state.key = 'sk-or-two';
+  const first = t.worker.keysChanged();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  t.state.key = 'sk-or-three';
+  const second = t.worker.keysChanged();
+  t.exit(143);
+  await Promise.all([first, second]);
+  await settle();
+  assert.deepEqual(t.calls.filter(call => call.args[0] === 'run').map(call => call.env.OPENROUTER_API_KEY), ['sk-or-one', 'sk-or-three']);
+  assert.equal(t.minted.length, 2);
+  assert.equal(t.last().state, 'ready');
+});
+
+test('a settings change during a start does not launch a second worker', async () => {
+  const t = setup({stopMs: 60});
+  await t.worker.start();
+  await settle();
+  t.state.key = 'sk-or-two';
+  const changed = t.worker.keysChanged();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  const restarted = t.worker.start();
+  t.exit(143);
+  await Promise.all([changed, restarted]);
+  await settle();
+  assert.equal(t.verbs().filter(verb => verb === 'run').length, 2);
+  assert.equal(t.minted.length, 2);
+  assert.equal(t.last().state, 'ready');
+});
+
+test('a removed connection\'s container and both volumes are removed', async () => {
+  const t = setup();
+  await removeWorkerData('rush-lab.org-u1', {dockerEnv: async () => ({}), docker: async args => { t.calls.push({args}); return {code: 0, tail: []}; }});
+  assert.deepEqual(t.calls.map(call => call.args), [
+    ['rm', '--force', 'rush-lab-worker-rush-lab.org-u1'],
+    ['volume', 'rm', '--force', 'rush-lab-worker-rush-lab.org-u1-docker', 'rush-lab-worker-rush-lab.org-u1-home'],
+  ]);
+});
+
+test('a removal Docker refuses is an error, not passed over', async () => {
+  await assert.rejects(
+    removeWorkerData('rush-lab.org-u1', {dockerEnv: async () => ({}), docker: async () => ({code: 1, tail: ['Cannot connect to the Docker daemon']})}),
+    /docker rm --force for rush-lab-worker-rush-lab\.org-u1 failed: Cannot connect to the Docker daemon/,
+  );
 });
 
 test('a key removed stops the worker and waits again', async () => {

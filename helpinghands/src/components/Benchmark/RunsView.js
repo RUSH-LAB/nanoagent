@@ -26,7 +26,7 @@ export function RunsList({go}) {
 }
 
 function RunHistory({go}) {
-  const {data, error, loading, reload} = useLoad(() => benchmarkApi.runs(), []);
+  const {data, error, loading, reload} = useLoad(async () => ({runs: await benchmarkApi.allRuns()}), []);
   const [ticked, setTicked] = useState([]);
   usePoll(reload, 8000, true);
   if (error) return <p className={styles.error}>{error}</p>;

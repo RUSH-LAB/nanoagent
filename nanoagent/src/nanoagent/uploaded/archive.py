@@ -76,11 +76,6 @@ def extract_tar(data: bytes, destination: Path, *, root_name: str, max_files: in
     return Extracted(files, tuple(directories), skipped, total)
 
 
-def first_entry_is_link(data: bytes) -> bool:
-    """True when the first tar header is a symlink (`docker cp` of a link path returns the link itself)."""
-    return len(data) >= 512 and data[156:157] == b"2"
-
-
 def tar_of_tree(root: Path) -> bytes:
     """A tar of a host directory's contents, for `docker cp - container:/dir` (merged into the existing dir).
 

@@ -22,3 +22,6 @@ outputs/
 # loader refuses a value).
 !test/plugins/*/uv.lock
 !test/plugins/*/.env
+
+# Acceptance fixture plugins commit their `.env` too (names only).
+!test/acceptance/uploaded/plugins/*/.env

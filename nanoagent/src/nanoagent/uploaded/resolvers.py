@@ -24,6 +24,7 @@ import base64
 import hashlib
 import io
 import json
+import platform
 import re
 import shutil
 import tarfile
@@ -43,6 +44,7 @@ from nanoagent.uploaded.toolchains import (
     ToolchainError,
     ToolchainProfile,
     _read_lockfile,
+    read_url,
 )
 
 MAX_EXTRACTED_BYTES = 512 << 20
@@ -54,6 +56,7 @@ class Artifact:
     label: str  # for messages: `github.com/x/y@v1.2.3 zip`
     path: str  # relative to the registry base URL, `/` separated
     check: Callable[[bytes], None]  # raises ToolchainError("hash_mismatch") when the bytes differ from the lock
+    key: str = ""  # npm: the lock's `node_modules/...` path the tarball is unpacked at
 
 
 @dataclass(frozen=True)
@@ -73,8 +76,7 @@ def fetch(base_url: str, path: str, label: str, *, limit: int = MAX_WHEEL_BYTES)
     if parts.scheme in ("http", "https"):
         url = f"{base_url.rstrip('/')}/{urllib.parse.quote(path, safe='/@!')}"
         try:
-            with urllib.request.urlopen(url, timeout=60) as response:  # noqa: S310 - scheme checked above
-                data = response.read(limit + 1)
+            data = read_url(url, 60, limit)
         except urllib.error.HTTPError as error:
             if error.code in (404, 410):
                 raise ToolchainError("dependency_unavailable", f"{label} is not on the registry ({url})") from error
@@ -102,8 +104,15 @@ def _lock_text(source_root: Path, relative: str) -> str:
         raise ToolchainError("invalid_lockfile", f"{relative} is not UTF-8") from error
 
 
-def _write(destination: Path, relative: str, data: bytes) -> None:
+def _contained(destination: Path, relative: str) -> Path:
     target = destination / relative
+    if not target.resolve().is_relative_to(destination.resolve()):
+        raise ToolchainError("invalid_dependency", f"{relative!r} escapes the closure directory")
+    return target
+
+
+def _write(destination: Path, relative: str, data: bytes) -> None:
+    target = _contained(destination, relative)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
     target.chmod(0o644)
@@ -157,6 +166,7 @@ def _extract_tarball(data: bytes, destination: Path, label: str) -> dict[str, st
 # -- Go ------------------------------------------------------------------------------------------------------------------
 
 _GO_VERSION = re.compile(r"^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$")
+_GO_MODULE = re.compile(r"^[A-Za-z0-9_~-][A-Za-z0-9._~-]*(?:/[A-Za-z0-9_~-][A-Za-z0-9._~-]*)*$")  # no empty, `.`, `..` or dot-led elements
 
 
 def _go_escape(module: str) -> str:
@@ -178,6 +188,8 @@ def _go_sum(text: str, where: str) -> dict[tuple[str, str], dict[str, str]]:
         if len(fields) != 3 or not fields[2].startswith("h1:"):
             raise ToolchainError("invalid_lockfile", f"{where}:{number}: expected `module version h1:<hash>`")
         module, version, digest = fields
+        if not _GO_MODULE.match(module):
+            raise ToolchainError("invalid_lockfile", f"{where}:{number}: {module!r} is not a module path")
         kind = "mod" if version.endswith("/go.mod") else "zip"
         version = version.removesuffix("/go.mod")
         if not _GO_VERSION.match(version):
@@ -302,6 +314,8 @@ def install_cargo(downloaded: list[tuple[Artifact, bytes]], destination: Path) -
 
 # -- JavaScript and TypeScript -------------------------------------------------------------------------------------------
 
+_NPM_NAME = r"(?:@[A-Za-z0-9][A-Za-z0-9._-]*/)?[A-Za-z0-9][A-Za-z0-9._-]*"
+_NPM_KEY = re.compile(rf"^node_modules/{_NPM_NAME}(?:/node_modules/{_NPM_NAME})*$")
 _SRI = re.compile(r"^(sha256|sha384|sha512)-([A-Za-z0-9+/]+={0,2})$")
 
 
@@ -320,6 +334,14 @@ def _integrity_checker(label: str, integrity: str) -> Callable[[bytes], None]:
     return check
 
 
+def _npm_allows(values: object, current: str) -> bool:
+    """npm's `os`/`cpu` rule: a `!x` entry excludes x; when there are plain entries, current must be one of them."""
+    if not values:
+        return True
+    allowed = [value for value in values if not value.startswith("!")]
+    return f"!{current}" not in values and (not allowed or current in allowed)
+
+
 def plan_npm(source_root: Path, lockfiles: tuple[str, ...]) -> list[Artifact]:
     try:
         document = json.loads(_lock_text(source_root, "package-lock.json"))
@@ -328,14 +350,18 @@ def plan_npm(source_root: Path, lockfiles: tuple[str, ...]) -> list[Artifact]:
     packages = document.get("packages") if isinstance(document, dict) else None
     if not isinstance(packages, dict) or document.get("lockfileVersion") not in (2, 3):
         raise ToolchainError("invalid_lockfile", "package-lock.json must be lockfileVersion 2 or 3 with a `packages` map")
+    machine = platform.machine().lower()
+    cpu = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64"}.get(machine, machine)
     artifacts: list[Artifact] = []
     for key, entry in sorted(packages.items()):
         if key == "" or entry.get("inBundle"):
             continue
-        if not key.startswith("node_modules/") or ".." in key.split("/"):
+        if not _NPM_KEY.match(key):
             raise ToolchainError(
                 "invalid_lockfile", f"package-lock.json: {key!r} is not a node_modules path (workspaces and links are not supported)"
             )
+        if not (_npm_allows(entry.get("os"), "linux") and _npm_allows(entry.get("cpu"), cpu)):
+            continue  # an optional platform build npm would not install here
         label = f"{key.rsplit('node_modules/', 1)[1]}@{entry.get('version')}"
         resolved, integrity = entry.get("resolved"), entry.get("integrity")
         if entry.get("link") or not isinstance(resolved, str) or urllib.parse.urlsplit(resolved).scheme not in ("http", "https"):
@@ -343,14 +369,13 @@ def plan_npm(source_root: Path, lockfiles: tuple[str, ...]) -> list[Artifact]:
         if not isinstance(integrity, str):
             raise ToolchainError("unhashed_requirement", f"package-lock.json: {label} has no integrity")
         path = urllib.parse.unquote(urllib.parse.urlsplit(resolved).path).lstrip("/")
-        artifacts.append(Artifact(f"{label} [{key}]", path, _integrity_checker(label, integrity)))
+        artifacts.append(Artifact(label, path, _integrity_checker(label, integrity), key))
     return artifacts
 
 
 def install_npm(downloaded: list[tuple[Artifact, bytes]], destination: Path) -> None:
     for artifact, data in downloaded:
-        key = artifact.label.rsplit("[", 1)[1].removesuffix("]")
-        _extract_tarball(data, destination / key, artifact.label)
+        _extract_tarball(data, _contained(destination, artifact.key), artifact.label)
 
 
 # -- Java ----------------------------------------------------------------------------------------------------------------

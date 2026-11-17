@@ -59,12 +59,10 @@ export function describeSpan(span) {
 
 const DISPLAY_LIMIT = 200_000;
 
-/** A fetched payload as text to show: JSON pretty-printed, anything else as it is, cut at a display limit. */
+/** A fetched payload as text to show, as recorded (re-serializing JSON would round integers past 2^53), cut at a display limit. */
 export function payloadView(text, redaction = 'none') {
-  let shown = text;
-  try { shown = JSON.stringify(JSON.parse(text), null, 2); } catch { /* not JSON: shown as recorded */ }
-  const cut = shown.length > DISPLAY_LIMIT;
-  return {text: cut ? shown.slice(0, DISPLAY_LIMIT) : shown, redaction, cut, length: text.length};
+  const cut = text.length > DISPLAY_LIMIT;
+  return {text: cut ? text.slice(0, DISPLAY_LIMIT) : text, redaction, cut, length: text.length};
 }
 
 /** A note about what a payload's redaction status means. */

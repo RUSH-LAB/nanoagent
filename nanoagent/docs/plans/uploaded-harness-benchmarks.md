@@ -252,6 +252,13 @@ The mock-driven suite drives the full workflow from the CLI with YAML configurat
 | `test_reference_harnesses` | Claude Code and Codex build from their locks and run under the coding policy against the scripted provider, writing `answer.json` through their own shell tool. |
 | `test_plugin_benchmarks` | Two members, two plugin versions, everything through the CLI steps: version-tied benchmark names and idempotent republish; publish refusals that store nothing; the benchmark, not the runner, fixes model, limits, prompt and cases; harness identity from the manifest and its version pin; dialects from the manifest; the case-set view without private references; run counts, runners and results across members with other members' evidence unreadable; run summaries equal to run detail; a reference harness accepted under its own name and a member upload of that name refused. |
 
+Required before merging a benchmark change: `uploaded_acceptance` and `rush_server` are deselected by `addopts` and need a real RUSH server, PostgreSQL and the worker image, so CI cannot run them. Run both on a host that has them and record the result on the PR:
+
+```bash
+.venv/bin/python -m pytest test/acceptance/uploaded -m uploaded_acceptance
+.venv/bin/python -m pytest test/uploaded/test_rush_server_smoke.py -m rush_server
+```
+
 For an unexpected failure: reproduce from artifacts, fix the cause (a test or fixture error against the documented contract), rerun the failing scenario, then the suite. Host unit tests (`test/uploaded`) and the server tests (`npm test`, `npm run test:postgres` including `benchmark-acceptance.mjs`) run alongside.
 
 ### Local plugin benchmark acceptance

@@ -76,9 +76,25 @@ describe('the benchmark read routes', () => {
     const repository = {benchmarks: async (_context, filter) => { seen.push(filter); return [{benchmark_id: ID}]; }};
     assert.deepEqual((await get(repository, '/api/benchmark/benchmarks', {plugin_id: 'p', version: '1'})).payload, {benchmarks: [{benchmark_id: ID}]});
     await get(repository, '/api/benchmark/benchmarks');
-    assert.deepEqual(seen, [{pluginId: 'p', version: '1'}, {pluginId: null, version: null}]);
+    assert.deepEqual(seen, [{pluginId: 'p', version: '1', limit: 50, before: null}, {pluginId: null, version: null, limit: 50, before: null}]);
     const refused = await get(repository, '/api/benchmark/benchmarks', {version: '1'});
     assert.deepEqual([refused.status, refused.payload.code], [400, 'invalid_request']);
+  });
+
+  it('bound the lists by limit and a before cursor, normalized to ISO and refused when it is no date', async () => {
+    const seen = [];
+    const repository = {
+      benchmarks: async (_context, filter) => { seen.push(filter); return []; },
+      listRuns: async (_context, filter) => { seen.push(filter); return []; },
+      benchmarkResults: async (_context, _id, filter) => { seen.push(filter); return []; },
+    };
+    for (const path of ['/api/benchmark/benchmarks', '/api/benchmark/runs', `/api/benchmark/benchmarks/${ID}/results`]) {
+      assert.equal((await get(repository, path, {before: '1', limit: '7'})).status, 200, path);
+      assert.equal((await get(repository, path, {before: 'nonsense'})).payload.code, 'invalid_request', path);
+      assert.equal((await get(repository, path, {limit: '201'})).payload.code, 'invalid_request', path);
+    }
+    assert.ok(seen.every(filter => filter.before === new Date(Date.parse('1')).toISOString() && filter.limit === 7));
+    assert.equal(seen.length, 3);
   });
 
   it('show one benchmark, and its results, answering 404 unknown_benchmark for any other id', async () => {

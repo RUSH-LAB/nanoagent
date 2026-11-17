@@ -6,6 +6,7 @@ import functools
 import hashlib
 import http.server
 import threading
+import urllib.error
 import zipfile
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from nanoagent.uploaded.toolchains import (
     PythonTarget,
     ToolchainError,
     parse_requirements,
+    read_url,
     resolve_dependencies,
     toolchain,
 )
@@ -128,6 +130,40 @@ def test_requirements_for_other_environments_are_skipped_by_marker(source, index
     assert len(stage(source, index, tmp_path).files) == 1
 
 
+def test_a_transient_download_failure_is_retried_but_a_404_is_not(monkeypatch):
+    calls = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self, n):
+            return b"ok"
+
+    def flaky(url, timeout):
+        calls.append(url)
+        if len(calls) < 3:
+            raise TimeoutError("read timed out")
+        return Response()
+
+    monkeypatch.setattr("nanoagent.uploaded.toolchains.time.sleep", lambda _: None)
+    monkeypatch.setattr("nanoagent.uploaded.toolchains.urllib.request.urlopen", flaky)
+    assert read_url("http://x/y", 1, 10) == b"ok" and len(calls) == 3
+
+    def missing(url, timeout):
+        calls.append(url)
+        raise urllib.error.HTTPError(url, 404, "nope", None, None)
+
+    calls.clear()
+    monkeypatch.setattr("nanoagent.uploaded.toolchains.urllib.request.urlopen", missing)
+    with pytest.raises(urllib.error.HTTPError):
+        read_url("http://x/y", 1, 10)
+    assert len(calls) == 1
+
+
 def test_no_lockfiles_means_an_empty_closure_without_an_index(source, tmp_path):
     closure = resolve_dependencies(toolchain("python-3"), source, (), tmp_path / "deps", index_url=None)
     assert closure.empty and closure.directory.is_dir()
@@ -159,11 +195,39 @@ def test_uv_lock_registry_packages_are_staged_and_the_project_is_skipped(source,
 name = "app"
 version = "0.1.0"
 source = {{ virtual = "." }}
+dependencies = [{{ name = "demo-pkg" }}]
 [[package]]
 name = "demo-pkg"
 version = "1.0"
 source = {{ registry = "https://pypi.org/simple" }}
 wheels = [{{ url = "https://files.example/{wheel.name}", hash = "sha256:{digest}", size = 1 }}]
+"""
+    )
+    assert stage(source, index, tmp_path, lockfiles=("uv.lock",)).files == {wheel.name: digest}
+
+
+def test_uv_lock_stages_only_packages_reachable_on_the_target(source, index, tmp_path):
+    wheel, digest = make_wheel(index)
+    (source / "uv.lock").write_text(
+        f"""version = 1
+[[package]]
+name = "app"
+version = "0.1.0"
+source = {{ virtual = "." }}
+dependencies = [
+    {{ name = "demo-pkg" }},
+    {{ name = "pywin32", marker = "sys_platform == 'win32'" }},
+]
+[[package]]
+name = "demo-pkg"
+version = "1.0"
+source = {{ registry = "https://pypi.org/simple" }}
+wheels = [{{ url = "https://files.example/{wheel.name}", hash = "sha256:{digest}", size = 1 }}]
+[[package]]
+name = "pywin32"
+version = "311"
+source = {{ registry = "https://pypi.org/simple" }}
+wheels = [{{ url = "https://files.example/pywin32-311-cp312-cp312-win_amd64.whl", hash = "sha256:{"4" * 64}", size = 1 }}]
 """
     )
     assert stage(source, index, tmp_path, lockfiles=("uv.lock",)).files == {wheel.name: digest}

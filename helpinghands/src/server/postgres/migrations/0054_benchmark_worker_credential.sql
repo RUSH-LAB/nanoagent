@@ -18,7 +18,10 @@ alter table benchmark_worker_credential force row level security;
 
 -- What a worker advertises is now per member and endpoint label. Capabilities advertised by the shared deployment worker
 -- belong to no member, so they are dropped; a member's own worker advertises again at its next claim.
+-- The delete runs with FORCE RLS lifted: its only write policy needs app.benchmark_system, which a migration does not set.
+alter table benchmark_worker_capability no force row level security;
 delete from benchmark_worker_capability;
+alter table benchmark_worker_capability force row level security;
 alter table benchmark_worker_capability drop constraint benchmark_worker_capability_pkey;
 alter table benchmark_worker_capability add column user_id text not null references app_user(id) on delete cascade;
 alter table benchmark_worker_capability add primary key (user_id, endpoint_label);

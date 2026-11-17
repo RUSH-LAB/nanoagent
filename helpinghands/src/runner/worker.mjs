@@ -61,6 +61,16 @@ function installAdvice(platform) {
 /** The container's name for a connection: Docker's names take letters, digits, underscores, dots and hyphens. */
 export const containerName = id => `rush-lab-worker-${id.replace(/[^A-Za-z0-9_.-]/g, '-')}`;
 
+/** Remove a deleted connection's container and its two volumes (workerArgs), whatever state they are in; `--force` passes over absent ones. */
+export async function removeWorkerData(id, {dockerEnv, docker = dockerRun}) {
+  const name = containerName(id);
+  const env = await dockerEnv();
+  for (const args of [['rm', '--force', name], ['volume', 'rm', '--force', `${name}-docker`, `${name}-home`]]) {
+    const {code, error, tail} = await docker(args, {env});
+    if (code !== 0) throw new Error(`docker ${args.slice(0, 2).join(' ')} for ${name} failed: ${error?.message ?? tail.join(' ')}`);
+  }
+}
+
 /** `docker args`, in `env`, each output line given to `onLine`: {code, error, tail} (the last lines). A missing docker is error.code ENOENT. */
 function dockerRun(args, {env, onLine} = {}) {
   return new Promise(resolve => {
@@ -394,10 +404,11 @@ export function benchmarkWorker({
 
   /** Stop the container (docker's own timeout first), and any start in the middle of its checks. */
   async function halt() {
-    generation += 1;
-    if (!container) return;
+    const mine = ++generation;
+    if (!container) return mine;
     await docker(['stop', '--time', String(STOP_SECONDS), name], {env: await env()});
     await removeContainer();
+    return mine;
   }
 
   return {
@@ -420,10 +431,11 @@ export function benchmarkWorker({
       if ((readKey() || null) === (keyInUse ?? null) && (concurrencyInUse === undefined || concurrencySetting === concurrencyInUse)) return;
       if (!CHECKS.slice(0, 5).every(([checkId]) => ['pass', 'warn'].includes(check(checkId).state))) return;
       log('The OpenRouter key or the runner concurrency changed; restarting the worker from the key check.');
-      await halt();
+      // This call's own generation: another halt or start during the stop supersedes it, and it leaves.
+      const mine = await halt();
+      if (mine !== generation) return;
       for (const checkId of ['key', 'proofs', 'claims']) Object.assign(check(checkId), blank([checkId, check(checkId).label]));
       logTail = [];
-      const mine = generation;
       if (await chain(mine, ['key'])) await launch(mine);
     },
     /** The member set the runner concurrency: kept in the local settings, and the worker restarted with it as a key change does. */

@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import platform
 import re
+import time
 import tomllib
 import urllib.error
 import urllib.parse
@@ -28,7 +29,7 @@ from pathlib import Path
 from typing import Protocol
 
 from packaging import tags
-from packaging.markers import InvalidMarker
+from packaging.markers import InvalidMarker, Marker
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import InvalidWheelFilename, canonicalize_name, parse_wheel_filename
 
@@ -37,10 +38,27 @@ from nanoagent.uploaded.contract import ContractError
 MAX_WHEEL_BYTES = 512 << 20
 MAX_LOCKFILE_BYTES = 8 << 20
 DEPENDENCY_MOUNT = "/deps"
+DOWNLOAD_ATTEMPTS = 3
 
 
 class ToolchainError(ContractError):
     """A toolchain or dependency problem; `code` is stable (`unknown_toolchain`, `dependency_unavailable`, ...)."""
+
+
+def read_url(url: str, timeout: float, limit: int) -> bytes:
+    """Reads up to `limit + 1` bytes of an HTTP(S) URL, retrying network errors and 5xx with backoff; other HTTP errors raise at once."""
+    for attempt in range(DOWNLOAD_ATTEMPTS):
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310 - callers check the scheme
+                return response.read(limit + 1)
+        except urllib.error.HTTPError as error:
+            if error.code < 500 or attempt == DOWNLOAD_ATTEMPTS - 1:
+                raise
+        except OSError:  # URLError and timeouts
+            if attempt == DOWNLOAD_ATTEMPTS - 1:
+                raise
+        time.sleep(2**attempt)
+    raise AssertionError("unreachable")
 
 
 @dataclass(frozen=True)
@@ -214,18 +232,61 @@ def parse_requirements(text: str, where: str) -> list[tuple[Requirement, frozens
     return parsed
 
 
-def parse_uv_lock(data: bytes, where: str) -> list[PinnedRequirement]:
+def _marker_holds(marker: str | None, target: PythonTarget, name: str) -> bool:
+    if marker is None:
+        return True
+    try:
+        return Marker(marker).evaluate(target.marker_environment())
+    except InvalidMarker as error:
+        raise ToolchainError("invalid_lockfile", f"bad marker on {name}: {error}") from error
+
+
+def _uv_reachable(packages: list[dict], roots: list[dict], target: PythonTarget, where: str) -> list[dict]:
+    """The packages reachable from the project roots through dependency edges whose markers hold for `target`."""
+    by_name: dict[str, list[dict]] = {}
+    for package in packages:
+        by_name.setdefault(canonicalize_name(package["name"]), []).append(package)
+    reached: dict[int, dict] = {}
+    seen: set[tuple[int, tuple[str, ...]]] = set()
+    stack: list[tuple[dict, tuple[str, ...]]] = [(root, ()) for root in roots]
+    while stack:
+        package, extras = stack.pop()
+        if (id(package), extras) in seen:
+            continue
+        seen.add((id(package), extras))
+        reached[id(package)] = package
+        edges = list(package.get("dependencies", []))
+        for extra in extras:
+            edges += package.get("optional-dependencies", {}).get(extra, [])
+        for edge in edges:
+            if not _marker_holds(edge.get("marker"), target, edge["name"]):
+                continue
+            candidates = [c for c in by_name.get(canonicalize_name(edge["name"]), []) if edge.get("version") in (None, c.get("version"))]
+            if not candidates:
+                raise ToolchainError("invalid_lockfile", f"{where}: {package['name']} depends on {edge['name']}, which the lock does not list")
+            stack.extend((candidate, tuple(sorted(edge.get("extra", [])))) for candidate in candidates)
+    return list(reached.values())
+
+
+def parse_uv_lock(data: bytes, where: str, target: PythonTarget) -> list[PinnedRequirement]:
+    """The pins of the packages the project needs on `target`; wheels of packages for other platforms are not required."""
     try:
         document = tomllib.loads(data.decode("utf-8"))
     except (UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
         raise ToolchainError("invalid_lockfile", f"{where}: not a valid uv.lock: {error}") from error
+    packages = document.get("package", [])
+    roots = [package for package in packages if set(package.get("source", {})) & {"virtual", "editable", "directory"}]
+    for package in packages:
+        source = package.get("source", {})
+        if package not in roots and "registry" not in source:
+            raise ToolchainError("unsupported_lockfile_directive", f"{where}: {package.get('name')} is not from a registry ({', '.join(source)})")
+    if packages and not roots:
+        raise ToolchainError("invalid_lockfile", f"{where}: no project package to resolve dependencies from")
     pins: list[PinnedRequirement] = []
-    for package in document.get("package", []):
-        name, version, source = package.get("name"), package.get("version"), package.get("source", {})
-        if set(source) & {"virtual", "editable", "directory"}:
+    for package in _uv_reachable(packages, roots, target, where):
+        if package in roots:
             continue  # the project itself
-        if "registry" not in source:
-            raise ToolchainError("unsupported_lockfile_directive", f"{where}: {name} is not from a registry ({', '.join(source)})")
+        name, version = package.get("name"), package.get("version")
         wheels = package.get("wheels", [])
         if not wheels:
             raise ToolchainError("dependency_unavailable", f"{where}: {name} {version} has no wheels, only a source distribution")
@@ -318,9 +379,8 @@ class SimpleIndex:
         if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
             raise ToolchainError("index_unavailable", f"refusing non-HTTP index URL {url}")
         try:
-            with urllib.request.urlopen(url, timeout=self.timeout_s) as response:  # noqa: S310 - scheme checked above
-                data = response.read(limit + 1)
-        except (urllib.error.URLError, OSError) as error:
+            data = read_url(url, self.timeout_s, limit)
+        except OSError as error:
             raise ToolchainError("index_unavailable", f"cannot fetch {url}: {error}") from error
         if len(data) > limit:
             raise ToolchainError("dependency_too_large", f"{url} exceeds {limit} bytes")
@@ -366,19 +426,14 @@ class PythonWheelResolver:
         self._target = target or PythonTarget()
 
     def _applies(self, requirement: Requirement) -> bool:
-        if requirement.marker is None:
-            return True
-        try:
-            return requirement.marker.evaluate(self._target.marker_environment())
-        except InvalidMarker as error:
-            raise ToolchainError("invalid_lockfile", f"bad marker on {requirement.name}: {error}") from error
+        return _marker_holds(None if requirement.marker is None else str(requirement.marker), self._target, requirement.name)
 
     def _pins(self, source_root: Path, lockfiles: tuple[str, ...]) -> list[PinnedRequirement]:
         pins: list[PinnedRequirement] = []
         for relative in lockfiles:
             data = _read_lockfile(source_root, relative)
             if relative.endswith("uv.lock"):
-                pins.extend(parse_uv_lock(data, relative))
+                pins.extend(parse_uv_lock(data, relative, self._target))
             elif relative.endswith(".txt"):
                 for requirement, hashes in parse_requirements(data.decode("utf-8"), relative):
                     if self._applies(requirement):

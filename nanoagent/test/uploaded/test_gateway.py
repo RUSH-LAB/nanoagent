@@ -369,6 +369,32 @@ async def test_revoke_rejects_new_calls_and_aborts_an_in_flight_stream(tmp_path:
     assert last(rig, "model_call.rejected")["code"] == "revoked"
 
 
+async def test_a_call_admitted_while_revocation_begins_is_never_dispatched(tmp_path: Path) -> None:
+    class RevokedDuringReserve(fakes.FakeAdmission):
+        async def reserve(self, call_id: str, bound_usd: Decimal) -> None:
+            await super().reserve(call_id, bound_usd)
+            rig.services.attempt.revoked = True
+
+    rig = make_rig(tmp_path, ScriptedTransport(chat_ok()), admission=RevokedDuringReserve())
+    async with rig.client() as client:
+        response = await client.post(PATHS["chat_completions"], json=chat_request())
+    call_id = response.headers["x-rush-call-id"]
+    assert response.status_code == 403 and response.json()["error"]["code"] == "revoked"
+    assert rig.transport.requests == [] and rig.admission.settled[call_id] == (Decimal(0), "not_dispatched")
+
+
+async def test_a_failed_settlement_still_records_the_paid_response(tmp_path: Path) -> None:
+    class SettleFails(fakes.FakeAdmission):
+        async def settle(self, call_id: str, cost_usd: Decimal | None, provenance: str) -> None:
+            raise RuntimeError("rush unreachable")
+
+    rig = make_rig(tmp_path, ScriptedTransport(chat_ok(cost=0.0003)), admission=SettleFails())
+    async with rig.client() as client:
+        with pytest.raises(Exception):  # noqa: B017, PT011 - the settlement failure surfaces through the ASGI transport
+            await client.post(PATHS["chat_completions"], json=chat_request())
+    assert last(rig, "model_call.response")["settlement"]["action"] == "unsettled"
+
+
 # ---- end to end: the real transport and uvicorn against a scripted upstream over loopback ------------------------------
 
 

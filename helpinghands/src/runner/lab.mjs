@@ -52,7 +52,7 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import {fileURLToPath} from 'node:url';
-import {benchmarkWorker} from './worker.mjs';
+import {benchmarkWorker, removeWorkerData} from './worker.mjs';
 
 const NANOAGENT_TIMEOUT_MS = 60_000;
 const STOP_TIMEOUT_MS = 10_000;
@@ -662,6 +662,8 @@ async function main() {
 
   process.on('SIGTERM', () => shutdown(0, 'Stopping (SIGTERM).'));
   process.on('SIGINT', () => shutdown(0, 'Stopping (SIGINT).'));
+  // The desktop app has no signal to send on Windows: it closes lab.mjs's stdin instead (lab.rs end).
+  if (process.env.LAB_STOP_ON_STDIN_CLOSE) process.stdin.on('end', () => shutdown(0, 'Stopping (stdin closed).')).resume();
   try {
     await prepare();
   } catch (error) {
@@ -681,7 +683,7 @@ async function main() {
     fs.mkdirSync(connectionsFolder, {recursive: true, mode: 0o700});
     fs.mkdirSync(path.join(data, 'logs'), {recursive: true});
     await stopLeftovers();
-    removeOtherSites(data, config);
+    for (const id of removeOtherSites(data, config)) await removeWorkerData(id, {dockerEnv}).catch(error => log(`Benchmark worker: ${error.message}`, id));
     const {shell} = os.userInfo();
     // Not awaited: the member's shell may take a while to say its PATH, and NanoAgent need not wait for it.
     installCommand({home: os.homedir(), root, config, shell, windows: WINDOWS, readPath: () => memberPath(shell)});
@@ -725,6 +727,7 @@ async function main() {
       connections.delete(id);
       log(`Removed from this computer; stopping.`, id);
       await stopConnection(connection);
+      await removeWorkerData(id, {dockerEnv}).catch(error => log(`Benchmark worker: ${error.message}`, id));
     }
     for (const [id, installed] of present) {
       let connection = connections.get(id);

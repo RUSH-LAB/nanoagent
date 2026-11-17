@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from nanoagent.uploaded.resolvers import _go_hash1
+from nanoagent.uploaded.resolvers import _go_hash1, _write
 from nanoagent.uploaded.toolchains import ToolchainError, resolve_dependencies, toolchain
 
 
@@ -121,3 +121,56 @@ def test_go_verifies_module_zips_and_go_mod_against_go_sum(tmp_path: Path) -> No
 
 def test_cpp_takes_no_lockfiles(tmp_path: Path) -> None:
     fail("unsupported_lockfile", "cpp-20", tmp_path, tmp_path, ("go.sum",), tmp_path)
+
+
+def npm_source(tmp_path: Path, packages: dict[str, dict]) -> Path:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "package-lock.json").write_text(json.dumps({"lockfileVersion": 3, "packages": {"": {}, **packages}}))
+    return source
+
+
+@pytest.mark.parametrize("key", ["node_modules/x[..", "node_modules/y[/abs/path", "node_modules/../x", "/abs/node_modules/x", "node_modules//x"])
+def test_npm_lock_keys_that_are_not_package_paths_are_rejected(tmp_path: Path, key: str) -> None:
+    entry = {"version": "1.0.0", "resolved": "https://r.example/x/-/x-1.0.0.tgz", "integrity": "sha512-AAAA"}
+    fail("invalid_lockfile", "javascript-22", npm_source(tmp_path, {key: entry}), tmp_path, ("package-lock.json",), tmp_path)
+
+
+def test_npm_skips_entries_for_other_os_and_cpu_and_nests_scopes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("nanoagent.uploaded.resolvers.platform.machine", lambda: "aarch64")
+    tarball = tgz({"package/index.js": b"1"})
+    integrity = "sha512-" + base64.b64encode(hashlib.sha512(tarball).digest()).decode()
+    registry = tmp_path / "registry"
+    (registry / "p").mkdir(parents=True)
+    (registry / "p/a.tgz").write_bytes(tarball)
+    entry = {"version": "1.0.0", "resolved": "https://r.example/p/a.tgz", "integrity": integrity}
+    wrong = {"version": "1.0.0", "resolved": "https://r.example/p/missing.tgz", "integrity": integrity}
+    source = npm_source(
+        tmp_path,
+        {
+            "node_modules/@s/a": entry | {"os": ["linux"], "cpu": ["arm64"]},
+            "node_modules/@s/a/node_modules/b": entry,
+            "node_modules/x64": wrong | {"cpu": ["x64"]},
+            "node_modules/win": wrong | {"os": ["win32"]},
+            "node_modules/notmac": entry | {"os": ["!darwin"]},
+        },
+    )
+    closure = stage("javascript-22", source, registry, ("package-lock.json",), tmp_path)
+    assert (tmp_path / "deps/node_modules/@s/a/node_modules/b/index.js").is_file() and (tmp_path / "deps/node_modules/notmac/index.js").is_file()
+    assert set(closure.files) == {"p/a.tgz"}  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize("module", ["../../../escaped", "a/../b", "/abs", "a//b", "./a", "a/.b"])
+def test_go_module_paths_that_escape_are_rejected(tmp_path: Path, module: str) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "go.mod").write_text("module harness\n")
+    (source / "go.sum").write_text(f"{module} v1.0.0 h1:AAAA\n")
+    fail("invalid_lockfile", "go-1", source, tmp_path, ("go.mod", "go.sum"), tmp_path)
+
+
+def test_write_refuses_paths_outside_the_closure(tmp_path: Path) -> None:
+    (tmp_path / "deps").mkdir()
+    with pytest.raises(ToolchainError) as error:
+        _write(tmp_path / "deps", "proxy/../../escaped", b"x")
+    assert error.value.code == "invalid_dependency" and not (tmp_path / "escaped").exists()

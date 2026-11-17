@@ -54,7 +54,6 @@ export const benchmarkApi = {
   referenceSource: name => request(`${BASE}/sources/references/${id(name)}/computer`, {method: 'POST'}),
   /** Submit a run; a refusal keeps what it carries (`details` holds a stale preview's `stale` and `current`). */
   submit: body => request(`${BASE}/runs`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}),
-  runs: () => apiRequest(`${BASE}/runs?limit=100`),
   run: runId => apiRequest(`${BASE}/runs/${id(runId)}`),
   cancel: runId => post(`/runs/${id(runId)}/cancel`),
   rerun: (runId, caseId) => post(`/runs/${id(runId)}/cases/${id(caseId)}/rerun`),

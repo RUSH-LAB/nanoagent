@@ -1,11 +1,12 @@
 'use strict';
 const crypto = require('crypto');
 const {BenchmarkError} = require('../benchmark/errors');
+const {checkTaskAgainstEntry} = require('../benchmark/entry-check');
 const {CAPABILITY_WINDOW_S} = require('../benchmark/limits');
 const {stringifyJson} = require('../benchmark/json');
 const {RENDERER_VERSION, sha256Hex} = require('../benchmark/prompt');
 const {latestByCase, runScore, sumMetrics} = require('../benchmark/rules');
-const {inTransaction} = require('./benchmark-context');
+const {chargeStorage, inTransaction} = require('./benchmark-context');
 const {sweepExpired} = require('./benchmark-sweep');
 
 function attemptView(row) {
@@ -119,11 +120,12 @@ function createPostgresBenchmark({pool}) {
   }
 
   return Object.freeze({
-    /** The published benchmarks (public parts of each, no cases), newest first, of plugin `pluginId` and its version `version` if given. */
-    async benchmarks(context, {pluginId = null, version = null} = {}) {
+    /** At most `limit` published benchmarks (public parts of each, no cases) published before `before`, newest first, of plugin `pluginId` and its version `version` if given. */
+    async benchmarks(context, {pluginId = null, version = null, limit, before = null}) {
       return member(context, async client => (await client.query(
-        `${BENCHMARK_SELECT} where ($1::text is null or b.plugin_id = $1) and ($2::text is null or b.plugin_version = $2) order by b.published_at desc, b.benchmark_id`,
-        [pluginId, version],
+        `${BENCHMARK_SELECT} where ($1::text is null or b.plugin_id = $1) and ($2::text is null or b.plugin_version = $2) and ($3::timestamptz is null or b.published_at < $3)
+          order by b.published_at desc, b.benchmark_id limit $4`,
+        [pluginId, version, before, limit],
       )).rows.map(benchmarkRow));
     },
     /** A benchmark with its case set's task, context and cases (public parts only), or null. */
@@ -154,9 +156,10 @@ function createPostgresBenchmark({pool}) {
     async publishBenchmark(userId, benchmark) {
       return inTransaction(pool, {userId}, async client => {
         const version = (await client.query(
-          'select 1 from market_plugin_version where plugin_id = $1 and version = $2 and sha256 = $3', [benchmark.plugin_id, benchmark.version, benchmark.package_sha256],
+          'select entry from market_plugin_version where plugin_id = $1 and version = $2 and sha256 = $3', [benchmark.plugin_id, benchmark.version, benchmark.package_sha256],
         )).rows[0];
         if (!version) throw new BenchmarkError(404, 'unknown_plugin_version', `${benchmark.plugin_id} ${benchmark.version} with that sha256 is not published`);
+        checkTaskAgainstEntry(version.entry, benchmark);
         const caseSetId = benchmark.case_set_digest;
         const caseSet = await client.query(
           `insert into benchmark_case_set (case_set_id, publisher_id, plugin_id, plugin_name, version, package_sha256, task_id, task, context, digest)
@@ -247,6 +250,9 @@ function createPostgresBenchmark({pool}) {
               harness: {name: harness.name, version: harness.version}, pinned_sha256: pinnedSha256,
             });
           }
+        }
+        if (!(await client.query('select 1 from benchmark_source where workspace_id = $1 and user_id = $2 and sha256 = $3', [context.workspaceId, context.userId, sha256])).rowCount) {
+          await chargeStorage(client, context.userId, data.length);
         }
         await client.query(
           `insert into benchmark_source (workspace_id, user_id, sha256, size, data, harness_name, harness_version, dialects) values ($1, $2, $3, $4, $5, $6, $7, $8)

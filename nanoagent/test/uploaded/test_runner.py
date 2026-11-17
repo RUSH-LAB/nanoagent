@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -14,8 +15,9 @@ import runner_fakes as fx
 import service_fakes as sf
 from nanoagent.plugin.verifier import CaseVerdict, VerifierError
 from nanoagent.uploaded.app import AttemptServices
+from nanoagent.uploaded.execservice import ExecError
 from nanoagent.uploaded.rush_worker import LeaseLost, RushUnavailable
-from nanoagent.uploaded.runner import AttemptRunner, RunnerConfig
+from nanoagent.uploaded.runner import EXEC_THREADS, AttemptRunner, CaseCommands, RunnerConfig
 from nanoagent.uploaded.sandbox import SandboxError, Termination, TerminationKind
 from nanoagent.uploaded.worker import runner_config  # noqa: F401  (imported so the worker module stays importable)
 
@@ -156,6 +158,33 @@ async def test_cancel_stops_the_case_and_finalizes_canceled_without_a_score(tmp_
     assert result.outcome == "canceled"
     assert rig.rush.finalized[0]["execution"] == {"status": "canceled", "reason": None} and rig.rush.finalized[0]["verdict"] is None
     assert rig.supervisor.case.closed and rig.verified == []
+
+
+async def test_cancel_woken_wait_that_fails_as_closed_is_still_a_cancel(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, script=fx.CaseScript(block=True, closed_wait=True))
+    rig.rush.canceled = True
+    result = await rig.run()
+    assert result.outcome == "canceled" and rig.supervisor.case.closed
+
+
+async def test_a_workspace_over_its_bound_is_a_scored_failure_not_a_platform_fault(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, script=fx.CaseScript(drain_error=SandboxError("snapshot_too_large", "more than 20000 files")))
+    result = await rig.run()
+    assert result.execution == {"status": "execution_failed", "reason": "invalid_result"}
+    assert rig.verified == [{"status": "execution_failed", "reason": "invalid_result"}]
+    assert rig.rush.finalized[0]["verdict"] == "pass"  # went through verification (a fake that always passes) and finalize
+
+
+async def test_an_output_folder_over_its_bound_is_a_scored_failure(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, script=fx.CaseScript(result=SandboxError("snapshot_too_large", "more than 20000 files")))
+    result = await rig.run()
+    assert result.execution == {"status": "execution_failed", "reason": "invalid_result"}
+    assert rig.verified == [{"status": "execution_failed", "reason": "invalid_result"}]
+
+
+async def test_other_drain_errors_stay_platform_faults(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, script=fx.CaseScript(drain_error=SandboxError("freeze_failed", "freeze the sandbox")))
+    assert (await rig.run()).outcome == "platform_fault"
 
 
 async def test_cancel_during_the_build_stops_the_attempt_before_any_case_runs_and_finalizes_canceled(tmp_path: Path) -> None:
@@ -544,3 +573,33 @@ async def test_an_error_escaping_one_attempt_leaves_the_worker_running_the_other
             await worker.poll(stub, rig.runner.config, rig.rush, rig.runner, None, background)  # type: ignore[arg-type]
     assert len(outcomes) == 2, "both other attempts ran"
     assert not raised.group_contains(RushUnavailable), "the failed attempt's error stays with it"
+
+
+async def test_managed_commands_use_a_small_thread_limit_of_their_own() -> None:
+    gate, lock = threading.Event(), threading.Lock()
+    running = peak = 0
+
+    class Handle:
+        def exec_in_case(self, argv: Any, cwd: str, timeout_ms: int, limits: Any) -> Any:
+            nonlocal running, peak
+            with lock:
+                running += 1
+                peak = max(peak, running)
+            gate.wait(5)
+            with lock:
+                running -= 1
+            raise SandboxError("exec_failed", "stop here")
+
+    commands = CaseCommands(None)  # type: ignore[arg-type]
+    commands.handle = Handle()  # type: ignore[assignment]
+
+    async def call() -> None:
+        with pytest.raises(ExecError):
+            await commands.exec(["ls"], ".", 1000, None)
+
+    async with anyio.create_task_group() as group:
+        for _ in range(EXEC_THREADS * 3):
+            group.start_soon(call)
+        await anyio.sleep(0.3)
+        assert peak == EXEC_THREADS
+        gate.set()

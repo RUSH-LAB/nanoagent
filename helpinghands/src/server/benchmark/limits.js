@@ -82,6 +82,9 @@ function exceeded(limits, capabilities) {
     .map(field => ({field, limit: limits[field], max: capabilities[field]}));
 }
 
+/** What one member's stored source ZIPs and attempt payloads may total, across every workspace; an upload past it is refused. */
+const MEMBER_STORAGE_BYTES = 5 * 1024 * 1024 * 1024;
+
 /** The server setting `name` from the environment, `fallback` when unset; a value that is not a positive number stops startup. */
 function positiveSetting(name, fallback) {
   const value = process.env[name] === undefined ? fallback : Number(process.env[name]);
@@ -89,4 +92,4 @@ function positiveSetting(name, fallback) {
   return value;
 }
 
-module.exports = {CAPABILITY_WINDOW_S, DEFAULT_LIMITS, LIMIT_FIELDS, limitOverrides, effectiveLimits, capabilitiesOf, exceeded, positiveSetting};
+module.exports = {CAPABILITY_WINDOW_S, MEMBER_STORAGE_BYTES, DEFAULT_LIMITS, LIMIT_FIELDS, limitOverrides, effectiveLimits, capabilitiesOf, exceeded, positiveSetting};

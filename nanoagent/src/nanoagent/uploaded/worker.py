@@ -30,7 +30,7 @@ from slimconfig import Config, Run
 
 from nanoagent.uploaded.collector import SeccheckCollector
 from nanoagent.uploaded.dockercli import CliDockerRunner, DockerRunner
-from nanoagent.uploaded.endpoint import parse_endpoint
+from nanoagent.uploaded.endpoint import EndpointProfile, parse_endpoint
 from nanoagent.uploaded.plugin_package import isolate
 from nanoagent.uploaded.reconcile import HttpxGenerationLookup, reconcile
 from nanoagent.uploaded.relay import DockerRelay
@@ -210,12 +210,17 @@ def machine_of(docker: DockerRunner) -> Machine:
     return machine
 
 
-def runner_config(config: WorkerConfig, env: dict[str, str], machine: Machine) -> RunnerConfig:
-    """Validate the YAML and resolve what it names; raises before any work is accepted."""
+def endpoint_of(config: WorkerConfig, env: dict[str, str]) -> EndpointProfile:
+    """The validated OpenRouter endpoint profile; raises before the worker touches Docker."""
     block = config.openrouter
     hosts = None if block.mock_hosts is None else list(block.mock_hosts)
     profile = {"label": block.label, "mode": block.mode, "upstream_base_url": block.upstream_base_url, "api_key_env": OPENROUTER_KEY_ENV}
-    endpoint = parse_endpoint(profile | ({} if hosts is None else {"mock_hosts": hosts}), env)
+    return parse_endpoint(profile | ({} if hosts is None else {"mock_hosts": hosts}), env)
+
+
+def runner_config(config: WorkerConfig, env: dict[str, str], machine: Machine) -> RunnerConfig:
+    """Validate the YAML and resolve what it names; raises before any work is accepted."""
+    endpoint = endpoint_of(config, env)
     timing = config.timing
     if not (math.isfinite(timing.reference_tokens_per_second) and timing.reference_tokens_per_second > 0) or timing.clock_tolerance_ns < 0:
         raise WorkerConfigError("timing.reference_tokens_per_second must be positive and finite and clock_tolerance_ns non-negative")
@@ -262,6 +267,7 @@ async def serve(config: WorkerConfig, env: dict[str, str] | None = None) -> None
     token = env.get(config.rush.token_env, "")
     if not token.strip():
         raise WorkerConfigError(f"environment variable {config.rush.token_env} is unset or empty")
+    endpoint_of(config, env)
     docker = CliDockerRunner()
     machine = machine_of(docker)
     LOG.info("machine: %d CPUs, %d MiB memory", machine.cpus, machine.memory_bytes >> 20)

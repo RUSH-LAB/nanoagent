@@ -356,6 +356,21 @@ def test_frames_for_unregistered_containers_are_counted_not_journaled(collector,
 
 
 @linux_only
+def test_journal_byte_budget_overflows_like_the_count_cap(tmp_path):
+    collector = SeccheckCollector(tmp_path / "s.sock", max_chars_per_container=1)
+    collector.start()
+    try:
+        collector.session(CONTAINER)
+        sandbox = FakeSandbox(tmp_path / "s.sock")
+        sandbox.send(container_start(), task_exit(2, START_NS, 0))
+        sandbox.close()
+        evidence = collector.finish(CONTAINER, timeout_s=5)
+        assert "journal_overflow" in evidence.loss_reasons and len(evidence.events) < 2
+    finally:
+        collector.stop()
+
+
+@linux_only
 def test_journal_overflow_is_a_loss_reason(tmp_path):
     collector = SeccheckCollector(tmp_path / "s.sock", max_events_per_container=1)
     collector.start()

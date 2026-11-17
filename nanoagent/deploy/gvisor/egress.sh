@@ -15,7 +15,7 @@
 set -euo pipefail
 subnet="${1:-10.213.0.0/16}"
 chain=RUSH-EGRESS
-blocked=(0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 224.0.0.0/4)
+blocked=(0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 224.0.0.0/4 192.0.0.0/24 192.0.2.0/24 198.18.0.0/15 198.51.100.0/24 203.0.113.0/24 240.0.0.0/4)
 
 iptables -N "$chain" 2>/dev/null || true
 iptables -F "$chain"
@@ -27,3 +27,5 @@ iptables -A "$chain" -j RETURN
 # DOCKER-USER is consulted before Docker's own forwarding rules; INPUT sees traffic to the host's own addresses.
 iptables -C DOCKER-USER -s "$subnet" -j "$chain" 2>/dev/null || iptables -I DOCKER-USER 1 -s "$subnet" -j "$chain"
 iptables -C INPUT -s "$subnet" -j DROP 2>/dev/null || iptables -I INPUT 1 -s "$subnet" -j DROP
+# The filter only works if FORWARD consults DOCKER-USER (Docker's own FORWARD rules do; a flushed or foreign FORWARD may not).
+iptables -C FORWARD -j DOCKER-USER || { echo "egress.sh: FORWARD does not jump to DOCKER-USER; the filter would not apply" >&2; exit 1; }

@@ -32,9 +32,15 @@ def test_refused_beside_other_keys_is_an_answer(tmp_path: Path) -> None:
     [
         ('{"refused": ""}', "nonempty refusal reason"),
         ('{"refused": 3}', "nonempty refusal reason"),
-        ("[1]", "not a JSON object"),
-        ("nope", "not UTF-8 JSON"),
-        (b"\xff\xfe", "not UTF-8 JSON"),
+        ("[1]", "not an object"),
+        ("nope", "answer.json is invalid"),
+        (b"\xff\xfe", "answer.json is invalid"),
+        ('{"n": NaN}', "non-finite"),
+        ('{"n": Infinity}', "non-finite"),
+        ('{"n": 1e999}', "non-finite"),
+        ('{"a": 1, "a": 2}', "answer.json is invalid"),
+        ('{"a": 1} trailing', "answer.json is invalid"),
+        ("[" * 100_000, "nesting is too deep"),
     ],
 )
 def test_unusable_content_is_a_failure(tmp_path: Path, content: str | bytes, failure: str) -> None:

@@ -166,11 +166,11 @@ async function marketPlugin(owner, id, entry, installers) {
   return digest;
 }
 /** Publish version `version` of the marketplace plugin `id`, as its owner: the package's digest. */
-async function marketVersion(owner, id, version) {
+async function marketVersion(owner, id, version, entry) {
   const data = Buffer.from(`package of ${id} ${version} ${token}`);
   const digest = sha256(data);
   await as({userId: owner.id}, 'insert into market_plugin_version (plugin_id, version, entry, package, sha256, size) values ($1, $2, $3, $4, $5, $6)',
-    [id, version, JSON.stringify({id, name: id, version, status: 'ready'}), data, digest, data.length]);
+    [id, version, JSON.stringify({id, name: id, version, status: 'ready', ...entry}), data, digest, data.length]);
   return digest;
 }
 const install = (user, id) => as({userId: user.id}, "insert into user_plugin (user_id, plugin_id, source) values ($1, $2, 'upload')", [user.id, id]);
@@ -241,15 +241,27 @@ try {
     && (await api('/api/benchmark/worker-credentials', {cookie: carol.cookie})).body.credentials.find(entry => entry.credential_id === spare.credential_id).revoked_at !== null
     && (await worker('claim', {method: 'POST', token: credentials.carol, body: {}})).status === 400);
   check('a member credential opens no member route', (await api(`${base}/runs`, {headers: {authorization: `Bearer ${credentials.alice}`}})).status !== 200);
+  const suspended = (await mint(carol, 'suspended')).body;
+  const suspendCarol = banned => migrationPool.query(`update app_user set banned_at = ${banned ? 'now()' : 'null'} where id = $1`, [carol.id]);
+  const beforeSuspension = (await worker('claim', {method: 'POST', token: suspended.token, body: {}})).status;
+  await suspendCarol(true);
+  const whileSuspended = (await worker('claim', {method: 'POST', token: suspended.token, body: {}})).status;
+  await suspendCarol(false);
+  check('a suspended member\'s credential is refused until the member is reinstated', [beforeSuspension, whileSuspended, (await worker('claim', {method: 'POST', token: suspended.token, body: {}})).status].join() === '400,401,400');
 
   // ── Worker capabilities ──
   const claim = async (id = 'w1', {label = LABEL, capabilities = CAPS, body = {}, token} = {}) => worker('claim', {method: 'POST', token, body: {worker_id: id, endpoint_profile: {label, mode: 'mock'}, capabilities, ...body}});
 
   // ── Benchmark publishing ──
   const pluginId = pluginIds[0];
-  const sha = await marketPlugin(alice, pluginId, {tools: [{name: 'read'}], tasks: [{id: 'sum', description: 'Add the numbers', tools: ['read'], instructions: 'Add the numbers.'}]}, [alice, bob]);
-  const sha2 = await marketVersion(alice, pluginId, '2.0.0');
-  const otherSha = await marketPlugin(alice, pluginIds[1], {tools: [], tasks: []}, [alice]);
+  // The catalog entry NanoAgent stores for a package (Manifest.public()): publishing checks a benchmark's task against it.
+  const benchEntry = {
+    name: 'Bench plugin', permissions: {network: {hosts: ['api.example.com']}, filesystem: {write: []}}, tools: [{name: 'read', description: 'Reads a file'}],
+    tasks: [{id: 'sum', runner: 'agent', description: 'Add the numbers', tools: ['read'], instructions: 'Add the numbers.\nBe exact.'}],
+  };
+  const sha = await marketPlugin(alice, pluginId, benchEntry, [alice, bob]);
+  const sha2 = await marketVersion(alice, pluginId, '2.0.0', benchEntry);
+  const otherSha = await marketPlugin(alice, pluginIds[1], benchEntry, [alice]);
   await marketPlugin(alice, pluginIds[2], {tools: [], tasks: []}, []);
   const task = {
     kind: 'agent', egress_hosts: ['api.example.com'], description: 'Add the numbers', instructions: 'Add the numbers.\nBe exact.',
@@ -363,6 +375,8 @@ try {
   const crowd = await published('crowd', ['c1', 'r1', 'c2', 'r2'], {limits: runLimits});
   const small = await published('small', ['c1', 'r1'], {limits: {...runLimits, memory_mb: 512}});
   const custom = await published('custom', ['c1', 'r1'], {coding_template: 'Do {description}\r\nin {workspace} {{ok}}', limits: {...runLimits, internet_access: false}});
+  const mismatched = await publish(alice, publication(`mismatch-${token}`, ['c1'], {task: {...task, egress_hosts: ['api.example.com', 'evil.example.com']}}));
+  check('a task that differs from its package is refused with 422 task_mismatch and stores nothing', mismatched.status === 422 && mismatched.body.code === 'task_mismatch' && await benchmarkRows(`mismatch-${token}`) === 0);
   const otherPlugin = (await publish(alice, {...publication(`other-${token}`, ['c1', 'r1']), plugin_id: pluginIds[1], package_sha256: otherSha})).body.benchmark;
   const SHARED = `shared-${token}`;
   check('a worker for the shared endpoint advertises', (await claim('w-shared', {label: SHARED})).status === 204);
@@ -375,6 +389,10 @@ try {
     listed.filter(entry => entry.name === mainName).length === 2 && listed.every(entry => typeof entry.publisher.name === 'string' && 'github' in entry.publisher)
     && (await api(`/api/workspaces/${w2.id}/benchmark/benchmarks?plugin_id=${pluginId}`, {cookie: carol.cookie})).body.benchmarks.some(entry => entry.benchmark_id === mainId)
     && (await api(`${base}/benchmarks?plugin_id=nothing`, {cookie: alice.cookie})).body.benchmarks.length === 0);
+  check('the benchmark lists take a before cursor of any date, and a limit',
+    (await api(`${base}/benchmarks?before=1`, {cookie: alice.cookie})).body.benchmarks.length === 0
+    && (await api(`${base}/benchmarks?limit=1`, {cookie: alice.cookie})).body.benchmarks.length === 1
+    && (await api(`${base}/runs?before=1`, {cookie: alice.cookie})).status === 200 && (await api(`${base}/benchmarks?before=nope`, {cookie: alice.cookie})).status === 400);
   const byVersion = (await api(`${base}/benchmarks?plugin_id=${pluginId}&version=2.0.0`, {cookie: bob.cookie})).body.benchmarks;
   check('the list filters to one plugin version, and a version needs its plugin',
     byVersion.length >= 2 && byVersion.every(entry => entry.plugin.version === '2.0.0') && byVersion.some(entry => entry.benchmark_id === main2.body.benchmark.benchmark_id)

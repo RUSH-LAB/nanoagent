@@ -35,6 +35,7 @@ HEADER_STRUCT = struct.Struct("<HHI")
 MAX_FRAME_BYTES = 1 << 20
 MAX_ARGV = 512
 MAX_ARG_CHARS = 4096
+MAX_CHARS_PER_CONTAINER = 64 << 20  # approximate stored size of a container's events, alongside the event-count cap
 MAX_FIELD_CHARS = 4096
 _U32 = 1 << 32
 _HANDSHAKE_TIMEOUT_S = 5.0
@@ -340,6 +341,7 @@ class _Connection:
 class _Session:
     container_id: str
     events: list[ProcessEvent] = field(default_factory=list)
+    event_chars: int = 0
     reasons: dict[str, None] = field(default_factory=dict)  # ordered set
     frames: int = 0
     malformed: int = 0
@@ -357,9 +359,10 @@ class _Session:
 class SeccheckCollector:
     """Listens for gVisor sandboxes' trace connections and journals their events per container."""
 
-    def __init__(self, socket_path: str | Path, *, max_events_per_container: int = 200_000) -> None:
+    def __init__(self, socket_path: str | Path, *, max_events_per_container: int = 200_000, max_chars_per_container: int = MAX_CHARS_PER_CONTAINER) -> None:
         self._path = str(socket_path)
         self._max_events = max_events_per_container
+        self._max_chars = max_chars_per_container
         self._cond = threading.Condition()
         self._sessions: dict[str, _Session] = {}
         self._connections: dict[int, tuple[_Connection, socket.socket]] = {}
@@ -604,9 +607,11 @@ class SeccheckCollector:
                     # A sandbox reports only its own container: anything else is hostile or corrupt.
                     session.malformed += 1
                     continue
-                if len(session.events) >= self._max_events:
+                chars = len(event.process_name) + len(event.cwd) + len(event.binary_path) + len(event.syscall) + sum(map(len, event.argv))
+                if len(session.events) >= self._max_events or session.event_chars + chars > self._max_chars:
                     session.overflowed = True
                     continue
+                session.event_chars += chars
                 session.events.append(_with_seq(event, len(session.events)))
 
 

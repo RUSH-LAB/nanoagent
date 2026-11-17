@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import io
 import json
+import subprocess
+import sys
 import tarfile
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -15,6 +17,10 @@ from nanoagent.uploaded.collector import CollectorHealth, ProcessEvent, ProcessE
 from nanoagent.uploaded.contract import ContractError, HarnessManifest
 from nanoagent.uploaded.dockercli import DockerResult
 from nanoagent.uploaded.sandbox import (
+    CWD_CHECK,
+    CWD_CHECK_TIMEOUT_S,
+    CWD_LINK,
+    CWD_MISSING,
     BuildSpec,
     CaseSpec,
     DockerSandboxSupervisor,
@@ -459,22 +465,51 @@ def test_managed_exec_rejects_cwd_that_leaves_the_workspace(supervisor, tmp_path
     assert caught.value.code == "invalid_cwd"
 
 
+def test_managed_exec_checks_a_deep_cwd_with_one_bounded_call(supervisor, docker, tmp_path):
+    handle = supervisor.start_case(case_spec(supervisor, tmp_path))
+    deep = "/".join(["d"] * 500)
+    handle.exec_in_case(["ls"], deep, 1000, Limits())
+    assert docker.find("cp") == [] and len([c for c in docker.find("exec") if "-c" in c]) == 1
+    assert ("exec", CWD_CHECK_TIMEOUT_S) in docker.timeouts
+
+
 def test_managed_exec_rejects_cwd_through_a_symlink_and_a_missing_dir(supervisor, docker, tmp_path):
     handle = supervisor.start_case(case_spec(supervisor, tmp_path))
-    link = tarfile.TarInfo("a")
-    link.type = tarfile.SYMTYPE
-    link.linkname = "/etc"
-    buffer = io.BytesIO()
-    with tarfile.open(fileobj=buffer, mode="w") as archive:
-        archive.addfile(link)
-    docker.overrides["cp:" + CID + ":/rush/workspace/a"] = lambda a: ok(buffer.getvalue())
+    docker.overrides["exec"] = lambda a: DockerResult(CWD_LINK, b"", b"") if "-c" in a else ok("done")
     with pytest.raises(ContractError) as caught:
         handle.exec_in_case(["ls"], "a/b", 1000, Limits())
     assert "link" in caught.value.message
-    docker.overrides["cp:" + CID + ":/rush/workspace/nope"] = lambda a: DockerResult(1, b"", b"no such")
+    docker.overrides["exec"] = lambda a: DockerResult(CWD_MISSING, b"", b"") if "-c" in a else ok("done")
     with pytest.raises(ContractError) as caught:
         handle.exec_in_case(["ls"], "nope", 1000, Limits())
     assert "does not exist" in caught.value.message
+    docker.overrides["exec"] = lambda a: DockerResult(1, b"", b"no such container") if "-c" in a else ok("done")
+    with pytest.raises(SandboxError) as caught:
+        handle.exec_in_case(["ls"], "a", 1000, Limits())
+    assert caught.value.code == "exec_failed"
+
+
+def test_the_cwd_check_script_finds_links_and_missing_components(tmp_path):
+    (tmp_path / "real" / "sub").mkdir(parents=True)
+    (tmp_path / "lnk").symlink_to(tmp_path / "real")
+
+    def check(cwd: str) -> int:
+        return subprocess.run([sys.executable, "-c", CWD_CHECK, str(tmp_path), cwd]).returncode
+
+    assert (check("real/sub"), check("real/nope"), check("lnk/sub")) == (0, CWD_MISSING, CWD_LINK)
+
+
+def test_wait_woken_by_close_is_closed_not_an_inspect_failure(supervisor, docker, tmp_path):
+    handle = supervisor.start_case(case_spec(supervisor, tmp_path))
+    handle._closing.set()  # close() has begun: the rm -f may win the race with wait()'s inspect
+    docker.overrides["inspect"] = lambda a: DockerResult(1, b"", b"no such container")
+    with pytest.raises(SandboxError) as caught:
+        handle.wait()
+    assert caught.value.code == "closed"
+    handle._closing.clear()
+    with pytest.raises(SandboxError) as caught:
+        handle.wait()
+    assert caught.value.code == "inspect_failed"
 
 
 def test_managed_exec_rejects_nul_in_argv(supervisor, tmp_path):

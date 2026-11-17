@@ -303,6 +303,11 @@ class Gateway:
         call = _Call(
             call_id, dialect, span_id, bool(body.get("stream")), bound, submitted_sha, await self.recorder.payload(effective_bytes), recorded, upstream
         )
+        try:
+            self.attempt.require_active()  # after the last await: a revocation that began meanwhile has already swept `_inflight`
+        except ServiceError:
+            await self.admission.settle(call_id, Decimal(0), "not_dispatched")
+            raise
         self.registry.open(call_id)
         self._inflight[call_id] = call
         await self.recorder.record(
@@ -402,7 +407,13 @@ class Gateway:
         terminal = state.terminal or "internal_error"
         assembled = state.assembled
         proposals = assembled.tool_proposals if assembled is not None and terminal == "completed" else ()
-        settlement = await self._settle(call, state, terminal)
+        # The response evidence is recorded even when settling fails, so a paid call is never lost from the journal.
+        settle_failure: Exception | None = None
+        try:
+            settlement = await self._settle(call, state, terminal)
+        except Exception as error:
+            settle_failure = error
+            settlement = {"action": "unsettled", "cost_usd": None, "provenance": terminal, "error": type(error).__name__}
         payloads = [call.submitted_sha, call.effective_sha]
         data: dict[str, Any] = {
             "call_id": call.call_id,
@@ -453,6 +464,8 @@ class Gateway:
             else:
                 data["response_payload_sha256"] = raw_sha
         await self.recorder.record("gateway", "model_call.response", data, payloads)
+        if settle_failure is not None:
+            raise settle_failure
 
     async def _settle(self, call: _Call, state: _State, terminal: str) -> dict[str, Any]:
         usage, status = state.usage, state.http_status

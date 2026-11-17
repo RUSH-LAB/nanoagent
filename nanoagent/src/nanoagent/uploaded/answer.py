@@ -5,11 +5,12 @@ One reader for the plugin benchmark's local runs (`examples/benchmark/step2_sing
 
 from __future__ import annotations
 
-import json
 import os
 import stat
 from pathlib import Path
 from typing import Any
+
+from nanoagent.uploaded.contract import ContractError, decode_json_object
 
 
 def read_answer(workspace: Path) -> tuple[dict[str, Any] | None, str | None, str | None]:
@@ -24,12 +25,10 @@ def read_answer(workspace: Path) -> tuple[dict[str, Any] | None, str | None, str
         os.close(fd)
         return None, None, "answer.json is not a regular file"
     try:
-        with os.fdopen(fd, encoding="utf-8") as answer:
-            value = json.load(answer)
-    except (json.JSONDecodeError, UnicodeDecodeError) as error:
-        return None, None, f"answer.json is not UTF-8 JSON: {error}"
-    if not isinstance(value, dict):
-        return None, None, "answer.json is not a JSON object"
+        with os.fdopen(fd, "rb") as answer:
+            value = decode_json_object(answer.read())
+    except ContractError as error:
+        return None, None, f"answer.json is invalid: {error.message}"
     if set(value) == {"refused"}:
         reason = value["refused"]
         if not isinstance(reason, str) or not reason.strip():

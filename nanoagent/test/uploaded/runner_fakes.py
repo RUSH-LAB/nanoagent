@@ -196,6 +196,8 @@ class CaseScript:
     block: bool = False  # wait() returns only once the case is closed
     cpu: list[dict[str, Any]] = field(default_factory=list)
     workspace: dict[str, bytes] = field(default_factory=dict)  # files the harness left in the workspace, as frozen
+    drain_error: Exception | None = None  # raised by stop_and_drain, e.g. a workspace over its bound
+    closed_wait: bool = False  # a blocked wait() woken by close() fails as the real sandbox's does
 
 
 class FakeCase:
@@ -218,6 +220,8 @@ class FakeCase:
     def wait(self) -> CaseOutcome:
         if self.script.block:
             self.released.wait(30)
+            if self.script.closed_wait and self.closed:
+                raise SandboxError("closed", "the case was closed while it was awaited")
         return CaseOutcome(self.script.termination, 1.0, 2.0, b"", b"", False, False)
 
     def exec_in_case(self, argv: Any, cwd: str, timeout_ms: int, limits: Any) -> Any:
@@ -225,6 +229,8 @@ class FakeCase:
 
     def stop_and_drain(self) -> WorkspaceSnapshot:
         self.drained = True
+        if self.script.drain_error is not None:
+            raise self.script.drain_error
         directory = self.workdir / "snapshot"
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "out.txt").write_text("made")

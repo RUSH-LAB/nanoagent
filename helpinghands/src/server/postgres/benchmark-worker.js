@@ -4,7 +4,7 @@ const {BenchmarkError} = require('../benchmark/errors');
 const {canonicalJson, sha256Hex} = require('../benchmark/prompt');
 const {overBudget} = require('../benchmark/rules');
 const {capabilitiesOf, exceeded} = require('../benchmark/limits');
-const {inTransaction} = require('./benchmark-context');
+const {chargeStorage, inTransaction} = require('./benchmark-context');
 const {sweepExpired} = require('./benchmark-sweep');
 
 const TODAY = "(now() at time zone 'utc')::date";
@@ -63,13 +63,15 @@ function createPostgresBenchmarkWorker({pool, config}) {
     const runs = (await client.query(
       `select r.run_id, r.limits from benchmark_run r
         where r.canceled_at is null and r.user_id = $1 and r.endpoint_label = $2
+          and exists (select 1 from workspace_member m where m.workspace_id = r.workspace_id and m.user_id = r.user_id)
           and exists (select 1 from benchmark_attempt a where a.run_id = r.run_id and a.state = 'queued')
         order by r.created_at, r.run_id limit 200`, [userId, label],
     )).rows;
     for (const candidate of runs) {
       if (exceeded(candidate.limits, capabilities).length) continue;
-      const run = (await client.query('select * from benchmark_run where run_id = $1 for update', [candidate.run_id])).rows[0];
-      if (run.canceled_at) continue;
+      const run = (await client.query('select * from benchmark_run where run_id = $1 for update skip locked', [candidate.run_id])).rows[0];
+      // A run someone else holds (a cancel) is skipped: claim locks an attempt (sweep) before a run, cancel a run before an attempt.
+      if (!run || run.canceled_at) continue;
       const picked = (await client.query(
         `select a.attempt_id from benchmark_attempt a join benchmark_run_case c on c.run_id = a.run_id and c.case_id = a.case_id
           where a.run_id = $1 and a.state = 'queued' order by a.created_at, c.position, a.attempt_id limit 1 for update of a skip locked`, [run.run_id],
@@ -133,7 +135,8 @@ function createPostgresBenchmarkWorker({pool, config}) {
      * then lease the next of that member's own attempts for `label` within them: a job, or null.
      */
     async claim(userId, workerId, label, capabilities) {
-      return system(async client => {
+      // As the member too, so the workspace_member policy shows the member's own memberships to the claim.
+      return inTransaction(pool, {system: true, userId}, async client => {
         await sweepExpired(client);
         await client.query(
           `insert into benchmark_worker_capability (user_id, endpoint_label, worker_id, capabilities) values ($1, $2, $3, $4)
@@ -173,10 +176,11 @@ function createPostgresBenchmarkWorker({pool, config}) {
       ))).rows[0] ?? null;
     },
 
-    /** The member a bearer `token` belongs to, or null when no credential has it or it is revoked. */
+    /** The member a bearer `token` belongs to, or null when no credential has it, it is revoked or the member is suspended. */
     async authenticate(token) {
       return inTransaction(pool, {system: true}, async client => (await client.query(
-        `update benchmark_worker_credential set last_used_at = now() where token_sha256 = $1 and revoked_at is null returning user_id`, [sha256Hex(token)],
+        `update benchmark_worker_credential set last_used_at = now() where token_sha256 = $1 and revoked_at is null
+           and not exists (select 1 from app_user u where u.id = benchmark_worker_credential.user_id and u.banned_at is not null) returning user_id`, [sha256Hex(token)],
       )).rows[0]?.user_id ?? null);
     },
 
@@ -310,6 +314,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
 
     async putPayload(userId, attemptId, fence, {sha256, data, redaction, contentType}) {
       return fenced(userId, attemptId, fence, async client => {
+        if (!(await client.query('select 1 from benchmark_payload where attempt_id = $1 and sha256 = $2', [attemptId, sha256])).rowCount) await chargeStorage(client, userId, data.length);
         const inserted = await client.query(
           `insert into benchmark_payload (attempt_id, sha256, size, redaction, content_type, data) values ($1, $2, $3, $4, $5, $6)
            on conflict do nothing`, [attemptId, sha256, data.length, redaction, contentType, data],

@@ -12,7 +12,7 @@ import cardStyles from './run-compare.module.css';
 
 /** Everyone's runs of one benchmark, Coding and Task tools apart, each member's harness version together. Rows are not clickable yet. */
 function BenchmarkResults({benchmarkId}) {
-  const {data, error, loading, reload} = useLoad(() => benchmarkApi.benchmarkResults(benchmarkId), [benchmarkId]);
+  const {data, error, loading, reload} = useLoad(() => benchmarkApi.allBenchmarkResults(benchmarkId), [benchmarkId]);
   usePoll(reload, 8000, true);
   if (error) return <p className={styles.error}>{error}</p>;
   if (loading && !data) return <LoadingSkeleton shape="block" height={120} />;

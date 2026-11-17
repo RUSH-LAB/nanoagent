@@ -109,17 +109,23 @@ def _bwrap(
     socket: Path,
 ) -> list[str]:
     # uv and the git it builds a git source (slimconfig) with, wherever they are installed (setup-uv
-    # puts uv under /opt/hostedtoolcache, a user's under ~/.local/bin); git runs its helpers from
-    # <root>/libexec/git-core, so the sandbox reads all of <root>.
-    git = shutil.which("git")
-    tools = [Path(found).resolve().parent for found in [shutil.which("uv"), git] if found]
-    git_roots = [Path(git).resolve().parents[1]] if git else []
+    # puts uv under /opt/hostedtoolcache, a user's under ~/.local/bin). Only the two binaries are
+    # bound (under /nanoagent-bin), plus the directory git runs its helpers from: never a parent
+    # directory, which can be the member's home.
+    binaries = {name: Path(found).resolve() for name in ("uv", "git") if (found := shutil.which(name))}
+    git_exec = (
+        subprocess.run([binaries["git"], "--exec-path"], capture_output=True, text=True, check=True).stdout.strip() if "git" in binaries else None
+    )
     args = ["bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--clearenv"]
     args += ["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]
     for path in SYSTEM:
         args += ["--ro-bind-try", path, path]
-    for path in [*_runtime(), *tools, *git_roots]:
+    for path in _runtime():
         args += ["--ro-bind", str(path), str(path)]
+    for name, binary in binaries.items():
+        args += ["--ro-bind", str(binary), f"/nanoagent-bin/{name}"]
+    if git_exec:
+        args += ["--ro-bind-try", git_exec, git_exec]
     for path in [root, *readable]:
         args += ["--ro-bind", str(path), str(path)]
     for path in writable:
@@ -127,7 +133,8 @@ def _bwrap(
     args += ["--bind", str(socket), "/run/nanoagent/egress.sock"]
     proxy = f"http://127.0.0.1:{PROXY_PORT}"
     inside = {
-        "PATH": ":".join([*(str(path) for path in tools), "/usr/local/bin", "/usr/bin", "/bin"]),
+        "PATH": "/nanoagent-bin:/usr/local/bin:/usr/bin:/bin",
+        **({"GIT_EXEC_PATH": git_exec} if git_exec else {}),
         "HOME": "/tmp",
         "HTTPS_PROXY": proxy,
         "https_proxy": proxy,

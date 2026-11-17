@@ -6,6 +6,11 @@ const {LIMIT_FIELDS} = require('./limits');
 const {canonicalJson} = require('./prompt');
 
 const PAGE = 1000;
+// What one attempt's comparison loads into memory: its events and its payloads' bytes.
+const MAX_EVIDENCE_EVENTS = 20_000;
+const MAX_EVIDENCE_PAYLOAD_BYTES = 64 * 1024 * 1024;
+
+const tooLarge = (attemptId, what) => new BenchmarkError(413, 'evidence_too_large', `Attempt ${attemptId} is too large to compare: it has over ${what}`);
 
 /** Everything one sealed attempt stored that the comparison reads, under the member's own access. */
 async function evidenceOf(repository, context, attemptId) {
@@ -20,18 +25,22 @@ async function evidenceOf(repository, context, attemptId) {
     const page = await repository.events(context, attemptId, after, PAGE);
     if (!page) throw new BenchmarkError(404, 'unknown_attempt', `No such attempt: ${attemptId}`);
     records.push(...page.events);
+    if (records.length > MAX_EVIDENCE_EVENTS) throw tooLarge(attemptId, `${MAX_EVIDENCE_EVENTS} events`);
     if (!page.has_more) break;
     after = page.events.at(-1).cursor;
   }
   const payloads = {};
   const redactions = {};
   const missing = [];
+  let payloadBytes = 0;
   for (const sha of new Set(records.flatMap(event => event.payload_sha256s ?? [])).values()) {
     const stored = await repository.payload(context, attemptId, sha);
     if (!stored) {
       missing.push(sha);
       continue;
     }
+    payloadBytes += stored.size;
+    if (payloadBytes > MAX_EVIDENCE_PAYLOAD_BYTES) throw tooLarge(attemptId, `${MAX_EVIDENCE_PAYLOAD_BYTES} bytes of payloads`);
     payloads[sha] = Buffer.from(stored.data).toString('base64');
     redactions[sha] = stored.redaction;
   }

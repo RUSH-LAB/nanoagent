@@ -192,6 +192,25 @@ def test_bwrap_runs_the_command_behind_the_egress_bridge_helper(tmp_path: Path) 
     assert {("--ro-bind", str(path), str(path)) for path in helpers.readable()} <= binds
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="bwrap is not on Windows")
+def test_bwrap_never_binds_the_home_of_a_uv_and_git_installed_under_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    (home / "bin").mkdir(parents=True)
+    for name in ("uv", "git"):
+        (home / "bin" / name).write_text("#!/bin/sh\necho /nowhere/libexec/git-core\n")
+        (home / "bin" / name).chmod(0o755)
+    monkeypatch.setenv("PATH", str(home / "bin"))
+    monkeypatch.setenv("HOME", str(home))
+    sandbox.configure("bwrap", plugin_python(sys.executable))
+    try:
+        argv = sandbox._bwrap(["run"], tmp_path / "plugin", {}, [], [], tmp_path / "egress.sock")
+    finally:
+        sandbox.configure("none")
+    bound = [Path(arg) for index, arg in enumerate(argv) if argv[index - 1] in ("--ro-bind", "--ro-bind-try", "--bind")]
+    assert not [path for path in bound if path in (home, home / "bin")]
+    assert ["--ro-bind", str(home / "bin" / "uv"), "/nanoagent-bin/uv"] == argv[argv.index("/nanoagent-bin/uv") - 2 :][:3]
+
+
 @unix_sockets
 def test_the_egress_bridge_helper_runs_the_command_and_exits_with_its_status(tmp_path: Path) -> None:
     command = helpers.command("egress-bridge", str(tmp_path / "egress.sock"), "0", "--", sys.executable, "-c", "raise SystemExit(3)")
