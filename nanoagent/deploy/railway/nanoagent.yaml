@@ -72,4 +72,6 @@ sessions > nanoagent.uploaded.case_sets.SessionsConfig:
   wall_time_ms: 3600000
   build_output_bytes: 3221225472
   build_wall_ms: 1800000
+  tmp_bytes: 4294967296
+  workspace_bytes: 10737418240
   fill_max_tokens: 16384

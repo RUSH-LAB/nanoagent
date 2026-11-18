@@ -30,9 +30,10 @@ sandbox > nanoagent.uploaded.worker.SandboxConfig:
   cpus: 1.0
   memory_bytes: 1073741824
   pids: 256
-  workspace_bytes: 268435456
-  # /tmp holds the Go build cache (the standard library is compiled into it).
-  tmp_bytes: 402653184
+  # The most a run may ask for: a Terminal session's workspace and /tmp (sessions.workspace_bytes and tmp_bytes); a benchmark
+  # case asks for 256 MiB and 64 MiB.
+  workspace_bytes: 10737418240
+  tmp_bytes: 4294967296
   # A Harness tab session's Terminal builds five CLIs (about 1.5 GiB) once; a worker keeps the build for every later session.
   build_wall_s: 1800
   build_output_bytes: 4294967296
