@@ -33,6 +33,7 @@ import logging
 import platform
 import secrets
 import shutil
+import threading
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
@@ -122,6 +123,8 @@ class Supervisor(Protocol):
 
     def prepare_plugin(self, root: Path, timeout_s: float) -> None: ...
 
+    def attach_tool(self, case: Any, tool: ToolContainerSpec) -> None: ...
+
     def tool_launcher(self, name: str) -> ToolLauncher: ...
 
 
@@ -153,6 +156,101 @@ class SyncedPlugins:
 
     def tool_runner(self, manifest: PluginManifest, workspace: Path, permitted: tuple[str, ...], launcher: ToolLauncher) -> PluginToolRunner:
         return PluginToolRunner(manifest, workspace, permitted, launcher=launcher)
+
+
+WARM_GO = json.dumps({"wait_go": True}).encode()  # a warm terminal's request until a session hands it its own (`CaseHandle.go`)
+WARM_MAX_AGE_S = 600.0  # a warm terminal nobody took is replaced after this, well within any session's wall time
+
+
+class LateApp:
+    """The ASGI app a warm terminal's relay serves before any session has it: 503 until `app` is the session's, whose `close` runs
+    when the relay shuts down (Starlette's lifespan would, served directly)."""
+
+    def __init__(self) -> None:
+        self.app: Any = None
+        self.close: Callable[[], Awaitable[None]] | None = None
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] == "lifespan":
+            while True:
+                message = await receive()
+                if message["type"] == "lifespan.startup":
+                    await send({"type": "lifespan.startup.complete"})
+                elif message["type"] == "lifespan.shutdown":
+                    if self.close is not None:
+                        await self.close()
+                    await send({"type": "lifespan.shutdown.complete"})
+                    return
+        if self.app is None:
+            await send({"type": "http.response.start", "status": 503, "headers": [(b"content-type", b"text/plain")]})
+            await send({"type": "http.response.body", "body": b"no session has this terminal yet"})
+            return
+        await self.app(scope, receive, send)
+
+
+class HeldOutput:
+    """A warm terminal's output: held until a session takes the terminal (`forward`), then passed on as it comes."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._held = bytearray()
+        self._to: Callable[[bytes], None] | None = None
+
+    def write(self, data: bytes) -> None:
+        with self._lock:
+            if self._to is None:
+                self._held += data
+                return
+        self._to(data)
+
+    def forward(self, to: Callable[[bytes], None]) -> None:
+        with self._lock:
+            to(bytes(self._held))
+            self._held.clear()
+            self._to = to
+
+
+@dataclass(frozen=True)
+class WarmRecipe:
+    """What a Terminal session's case is made of, so the next one can be ready before it is claimed: `key` must match it."""
+
+    key: tuple[Any, ...]
+    profile: ToolchainProfile
+    run_argv: tuple[str, ...]
+    artifact: BuildArtifact
+    limits: Limits
+    internet: bool
+
+
+@dataclass
+class WarmTerminal:
+    """A Terminal session's case booted and its shell launched waiting for a session (`WARM_GO`), with its relay up."""
+
+    recipe: WarmRecipe
+    network: AttemptNetwork
+    app: LateApp
+    relay: Any
+    output: HeldOutput
+    handle: CaseHandle
+    folder: Path
+    born: float
+    taken: anyio.Event = field(default_factory=anyio.Event)
+
+
+class LateTools:
+    """The tools of a session whose shell starts before them: a call waits until they are up, then runs, or fails with why they
+    could not come up."""
+
+    def __init__(self) -> None:
+        self.up = anyio.Event()
+        self.runner: Any = None
+        self.error = "the session ended before its tools came up"
+
+    async def run(self, name: str, arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
+        await self.up.wait()
+        if self.runner is None:
+            raise ToolError("tool_unavailable", f"the plugin's tools could not start: {self.error}", 503)
+        return await self.runner.run(name, arguments, workspace)
 
 
 class NoTools:
@@ -370,6 +468,79 @@ class AttemptRunner:
         self.services_factory = services_factory
         self.verify_task_case = verify_task_case
         self.project = project
+        self._recipe: WarmRecipe | None = None  # the last Terminal session's, which the warm terminal is made of
+        self._rewarm = anyio.Event()  # set when the recipe changes or the warm terminal is taken
+        self._warm: WarmTerminal | None = None
+
+    # -- the warm terminal ---------------------------------------------------------------------------------------
+
+    async def keep_warm(self) -> None:
+        """Keep one Terminal session's case booted with its shell waiting, made as the last Terminal session's was, so the next
+        one is handed it on claim (`_take_warm`) and its prompt shows at once; replaced when taken, when the recipe changes, and
+        after WARM_MAX_AGE_S unused. Runs for the worker's life; the first Terminal session after a start finds none."""
+        while True:
+            await self._rewarm.wait()
+            self._rewarm = anyio.Event()
+            recipe = self._recipe
+            assert recipe is not None
+            try:
+                warm = await self._boot_warm(recipe)
+            except Exception:
+                LOG.exception("the warm terminal could not start")
+                await anyio.sleep(30)
+                self._rewarm.set()
+                continue
+            self._warm = warm
+            LOG.info("warm terminal ready: %s", warm.handle.container_id)
+            with anyio.move_on_after(WARM_MAX_AGE_S):
+                await first_of(warm.taken, self._rewarm)
+            if not warm.taken.is_set():
+                self._warm = None
+                await self._discard(warm)
+                self._rewarm.set()
+
+    async def _boot_warm(self, recipe: WarmRecipe) -> WarmTerminal:
+        name = f"warm-{uuid.uuid4().hex[:12]}"
+        folder = self.config.scratch / name
+        folder.mkdir(parents=True)
+        network = self.supervisor.create_network(name, internet=recipe.internet)
+        app = LateApp()
+        relay = await self.relay.start(name, network, app, folder)
+        output = HeldOutput()
+        clis = self.config.scratch / CLIS_FOLDER
+        clis.mkdir(parents=True, exist_ok=True)
+        spec = CaseSpec(name, recipe.profile, recipe.run_argv, recipe.artifact, WARM_GO, "", network, folder / "case", None, recipe.limits, None, output.write, clis)
+        try:
+            handle = await in_thread(self.supervisor.create_case, spec)
+        except BaseException:
+            await shielded(relay.aclose)
+            shutil.rmtree(folder, ignore_errors=True)
+            raise
+        warm = WarmTerminal(recipe, network, app, relay, output, handle, folder, self.clock_ns() / NS)
+        try:
+            await in_thread(handle.launch)
+        except BaseException:
+            await self._discard(warm)
+            raise
+        return warm
+
+    async def _discard(self, warm: WarmTerminal) -> None:
+        await shielded(lambda: in_thread(warm.handle.close))
+        await shielded(warm.relay.aclose)
+        shutil.rmtree(warm.folder, ignore_errors=True)
+
+    def _take_warm(self, recipe: WarmRecipe) -> WarmTerminal | None:
+        """The warm terminal, when it is made as ``recipe`` says and still young; the next one starts warming either way."""
+        warm = self._warm
+        if self._recipe is None or self._recipe.key != recipe.key:
+            self._recipe = recipe
+            self._rewarm.set()
+        if warm is None or warm.recipe.key != recipe.key or self.clock_ns() / NS - warm.born > WARM_MAX_AGE_S:
+            return None
+        self._warm = None
+        warm.taken.set()
+        self._rewarm.set()
+        return warm
 
     # -- attempts ------------------------------------------------------------------------------------------------
 
@@ -491,7 +662,8 @@ class AttemptRunner:
         if (ended := await self._ended(job, lease, journal)) is not None:  # the build is a thread nothing can interrupt, so a cancel is seen after it
             return ended
         LOG.info("attempt %s: harness built", job.attempt_id)  # with the worker log's times, these lines show where a session's start goes
-        manifest = await in_thread(self._plugin, job, package, work, bool(tools))
+        # A free-form Terminal session starts its shell first: its plugin and tools come up behind it (`_late_tools`).
+        manifest = None if tools and job.free_form else await in_thread(self._plugin, job, package, work, bool(tools))
         LOG.info("attempt %s: plugin ready", job.attempt_id)
         if (ended := await self._ended(job, lease, journal)) is not None:
             return ended
@@ -503,7 +675,7 @@ class AttemptRunner:
                 return await self._finalize(job, journal, "execution_failed", pending.failed_reason())
             job, pending = pending.job, None
         async with AsyncExitStack() as stack:
-            return await self._case(job, lease, journal, emit, work, archive.manifest.run_argv, profile, artifact, manifest, tools, stack)
+            return await self._case(job, lease, journal, emit, work, archive.manifest.run_argv, profile, artifact, manifest, package, tools, stack)
 
     async def _ended(self, job: AttemptJob, lease: Lease, journal: RushJournal) -> AttemptResult | None:
         """The result of an attempt whose lease was lost or canceled while it was preparing, before any case ran: canceled is
@@ -634,7 +806,8 @@ class AttemptRunner:
         run_argv: tuple[str, ...],
         profile: ToolchainProfile,
         artifact: BuildArtifact,
-        manifest: PluginManifest,
+        manifest: PluginManifest | None,
+        package: bytes,
         tools: tuple[Mapping[str, Any], ...],
         stack: AsyncExitStack,
     ) -> AttemptResult:
@@ -644,14 +817,29 @@ class AttemptRunner:
         if model not in cfg.prices:
             raise UnknownModelPrice(f"the worker's prices have no entry for {model!r}")
         input_price, output_price = cfg.prices[model]
+        limits = case_limits(run_limits, cfg.limits)
+        # A Terminal session takes the warm terminal when it is made as this session's case would be.
+        warm = None
+        if job.free_form:
+            warm = self._take_warm(WarmRecipe(
+                (run["source_sha256"], profile.id, str(artifact.directory), limits, run_limits["internet_access"]), profile, run_argv, artifact, limits,
+                run_limits["internet_access"],
+            ))
+        if warm is not None:
+            folder = warm.folder
+            stack.push_async_callback(shielded, lambda: anyio.to_thread.run_sync(shutil.rmtree, folder, True))
         # Only the harness VM may have the internet; the tool VM and the build never do.
-        network = self.supervisor.create_network(job.attempt_id, internet=run_limits["internet_access"])
+        network = warm.network if warm is not None else self.supervisor.create_network(job.attempt_id, internet=run_limits["internet_access"])
         workspace = Path(WORKSPACE)  # the case workspace, at the path the harness and the tool container both see
         runner: Any = NoTools()
         tool_container = None
         names = tuple(tool["name"] for tool in tools)
-        if tools:
-            name = f"rush-tool-{job.attempt_id}-{secrets.token_hex(4)}"
+        name = f"rush-tool-{job.attempt_id}-{secrets.token_hex(4)}"
+        late = LateTools() if tools and manifest is None else None
+        if late is not None:
+            runner = late
+        elif tools:
+            assert manifest is not None
             runner = self.plugins.tool_runner(manifest, workspace, names, self.supervisor.tool_launcher(name))
             tool_container = ToolContainerSpec(name, manifest.root, None, tuple(job.task["egress_hosts"]))
         token = secrets.token_urlsafe(32)
@@ -663,7 +851,6 @@ class AttemptRunner:
             tools=tuple(ToolPolicy(tool["name"], bool(tool["writes"]), tool["input_schema"], tool["output_schema"], tool["description"]) for tool in tools),
             prompt_bound=run["prompt_bound"],
         )
-        limits = case_limits(run_limits, cfg.limits)
         commands = CaseCommands(limits)
         services = self.services_factory(
             policy=policy, endpoint=cfg.endpoint, admission=RushAdmission(self.worker, lease), journal=journal, tool_runner=runner,
@@ -672,26 +859,42 @@ class AttemptRunner:
             install_cli=lambda name, expect: self._install_cli(job, work, name, expect),
         )
         services.attempt.lease_lapsed = lease.lapsed  # the services refuse new work once the lease's known expiry passes
-        relay = await self.relay.start(job.attempt_id, network, services.app, work)
+        if warm is not None:
+            warm.app.app, warm.app.close, relay = services.app, services.aclose, warm.relay
+        else:
+            relay = await self.relay.start(job.attempt_id, network, services.app, work)
         stack.push_async_callback(shielded, relay.aclose)
         request = self._request(job, tools, relay.base_url)
         terminal = Terminal(self.worker, job.attempt_id, job.fence)
-        clis = cfg.scratch / CLIS_FOLDER
-        clis.mkdir(parents=True, exist_ok=True)
-        spec = CaseSpec(
-            job.attempt_id, profile, run_argv, artifact, json.dumps(request).encode(), token, network, work / "case", None, limits, tool_container, terminal.write,
-            clis,
-        )
         offset = self.wall_clock_ns() - self.clock_ns()
-        handle = await in_thread(self.supervisor.create_case, spec)
-        LOG.info("attempt %s: case VMs up", job.attempt_id)
+        if warm is not None:
+            handle = warm.handle
+        else:
+            clis = cfg.scratch / CLIS_FOLDER
+            clis.mkdir(parents=True, exist_ok=True)
+            spec = CaseSpec(
+                job.attempt_id, profile, run_argv, artifact, json.dumps(request).encode(), token, network, work / "case", None, limits, tool_container,
+                terminal.write, clis,
+            )
+            handle = await in_thread(self.supervisor.create_case, spec)
+            LOG.info("attempt %s: case VMs up", job.attempt_id)
         stack.push_async_callback(shielded, lambda: in_thread(handle.close))
         stack.push_async_callback(shielded, lambda: self._revoke(services))  # a fault after this leaves no in-flight call or tool behind
-        if tools:
+        if late is not None:
+            # Closed before the case (the stack unwinds in reverse), the tools' session first.
+            group = await stack.enter_async_context(anyio.create_task_group())
+            stack.callback(group.cancel_scope.cancel)
+            group.start_soon(self._late_tools, late, job, package, work, handle, name, names, workspace)
+        elif tools:
             await stack.enter_async_context(runner)  # the plugin is up before the harness can call it
-        LOG.info("attempt %s: plugin tools up", job.attempt_id)
-        await in_thread(handle.launch)
-        LOG.info("attempt %s: harness launched", job.attempt_id)
+            LOG.info("attempt %s: plugin tools up", job.attempt_id)
+        if warm is not None:  # launched already: the shell starts on its request and token
+            warm.output.forward(terminal.write)
+            await in_thread(handle.go, json.dumps(request).encode(), token)
+            LOG.info("attempt %s: warm terminal %s handed over", job.attempt_id, handle.container_id)
+        else:
+            await in_thread(handle.launch)
+            LOG.info("attempt %s: harness launched", job.attempt_id)
         commands.handle = handle
         await emit.emit(rec.CaseLaunched(handle.container_id, self.clock_ns(), list(run_argv)))
 
@@ -779,6 +982,26 @@ class AttemptRunner:
         }
         validate("Request", request)
         return request
+
+    async def _late_tools(
+        self, late: LateTools, job: AttemptJob, package: bytes, work: Path, handle: CaseHandle, name: str, names: tuple[str, ...], workspace: Path,
+    ) -> None:
+        """Brings up a running session's plugin (`_plugin`), its tool VM beside the case and its tools' session, which stays open until
+        the attempt ends. A tool call made before then waits in `late`; one that cannot come up fails each call with why."""
+        try:
+            manifest = await in_thread(self._plugin, job, package, work, True)
+            await in_thread(self.supervisor.attach_tool, handle, ToolContainerSpec(name, manifest.root, None, tuple(job.task["egress_hosts"])))
+            runner = self.plugins.tool_runner(manifest, workspace, names, self.supervisor.tool_launcher(name))
+            async with runner:
+                late.runner = runner
+                late.up.set()
+                LOG.info("attempt %s: plugin tools up", job.attempt_id)
+                await anyio.sleep_forever()
+        except Exception as error:
+            LOG.warning("attempt %s: the plugin's tools could not start: %s", job.attempt_id, error)
+            late.error = f"{type(error).__name__}: {error}"
+        finally:
+            late.up.set()
 
     async def _wait(self, lease: Lease, handle: CaseHandle, services: AttemptServices, terminal: Terminal, *, interactive: bool) -> Any:
         """The case's outcome, or None if the lease was lost or canceled first (the case is killed and drained). The harness's terminal

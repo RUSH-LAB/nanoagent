@@ -13,10 +13,20 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 request = json.loads(Path(os.environ["RUSH_REQUEST"]).read_text(encoding="utf-8"))
+if request.get("wait_go"):
+    # A warm terminal, started before any session had it: the session it is handed to writes its request and its attempt's token
+    # (go.json, last) beside it, and the shell starts then, at once.
+    go = Path(os.environ["RUSH_RESULT"]).parent / "go.json"
+    while not go.is_file():
+        time.sleep(0.005)
+    os.environ["RUSH_ATTEMPT_TOKEN"] = json.loads(go.read_text(encoding="utf-8"))["token"]
+    os.environ["RUSH_REQUEST"] = str(go.parent / "request.json")
+    request = json.loads(Path(os.environ["RUSH_REQUEST"]).read_text(encoding="utf-8"))
 workspace = Path(request["workspace"])
 command = sys.argv[1] if len(sys.argv) > 1 else None
 if command is None and not request["free_form"]:

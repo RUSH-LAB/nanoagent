@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import math
 import os
 import shutil
@@ -282,6 +283,10 @@ class CaseHandle(Protocol):
         ...
 
     def exec_in_case(self, argv: Sequence[str], cwd: str, timeout_ms: int, limits: Limits) -> ExecOutcome: ...
+
+    def go(self, request_json: bytes, token: str) -> None:
+        """Hand a warm terminal (launched with a request of ``{"wait_go": true}``) the session's request and token: the shell starts."""
+        ...
 
     def terminal_input(self, data: bytes | None, rows: int | None = None, cols: int | None = None) -> None:
         """Types ``data`` at the harness's terminal, or resizes it to ``rows`` by ``cols``."""
@@ -878,6 +883,21 @@ class MicrosandboxSupervisor:
             bridge.close()
             raise
 
+    def attach_tool(self, handle: _Case, tool: ToolContainerSpec) -> None:
+        """Boots the tool VM ``tool`` beside the running case ``handle`` (a Terminal session's, whose shell starts before it)."""
+        spec = replace(handle.spec, tool=tool)
+        ports: list[int] = []
+        proxy: str | None = None
+        if tool.egress_hosts:
+            ports = [handle.bridge.enter_context(egress_port(tool.egress_hosts))]
+            proxy = f"http://{GUEST_HOST}:{ports[0]}"
+        sandbox = self._loop.run(self._start_tool(spec, handle.workspace, self._require_tools(), ports))
+        if handle._closing.is_set():  # the case closed while its tool VM booted
+            self._loop.run(self._destroy(sandbox))
+            raise SandboxError("closed", "the case closed before its tool VM was up")
+        handle.spec, handle._tool, handle.tool_proxy = spec, sandbox, proxy
+        self._tool_cases[tool.name] = handle
+
     async def _start_tool(self, spec: CaseSpec, workspace: Path, tools: Path, ports: Sequence[int]) -> Sandbox:
         """The tool VM: no network but, when the plugin declares hosts, the egress proxy's; the case workspace at the
         harness's path, plugin and fixtures read-only."""
@@ -997,6 +1017,12 @@ class _Case:
             if self._future.done():
                 self._future.result()  # raises the start failure
                 raise SandboxError("start_failed", "the harness exited before it was observed to start")
+
+    def go(self, request_json: bytes, token: str) -> None:
+        (self._out / "request.json").write_bytes(request_json)
+        staged = self._out / ".go.json"
+        staged.write_text(json.dumps({"token": token}))
+        staged.rename(self._out / "go.json")  # whole, after the request: the shell reads it the moment it appears
 
     def _attach(self, handle: ExecHandle) -> None:
         self._pty = handle

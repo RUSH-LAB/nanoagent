@@ -308,6 +308,7 @@ async def serve(config: WorkerConfig, env: dict[str, str] | None = None) -> None
             LOG.info("attempt %s: an interactive session from before this start, ended as interrupted", attempt_id)
         runner = AttemptRunner(settings, supervisor=supervisor, worker=worker, relay=HostRelay(), plugins=SyncedPlugins())
         async with anyio.create_task_group() as background:
+            background.start_soon(runner.keep_warm)  # one Terminal session's case kept ready for the next
             await poll(config, settings, worker, runner, lookup, background)
     finally:
         await worker.aclose()
