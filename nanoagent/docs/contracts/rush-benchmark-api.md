@@ -193,9 +193,13 @@ The server, in this order:
 
 `201 {"replayed": false, "run": <run>}`. Errors: `400 invalid_request`.
 
+## `POST /sessions`
+
+One session of a plugin page's Harness tab, or of `nanoagent harness`: `{"plugin_id", "task_id", "harness", "text", "interactive", "model"?}`. The member's computer fills task `task_id`'s input from `text` with the model every plugin run uses and pins the one case; RUSH builds the reference harness `harness` and queues a run of that case on the endpoint RUSH Lab's worker serves, on `model` (an OpenRouter model id) when given, else the model every run uses. `interactive` (required) is whether the member is at the harness's terminal: such a run is a session (`run.interactive` in its claim, not listed by `GET /runs`); one that is not (`nanoagent harness prompt=…`) runs on its own to its answer and is listed like any run. `201 {"run": <run>}`; `503 runner_offline`, `409 app_unavailable`, `pin_failed`, `400 unknown_reference`.
+
 ## `GET /runs?limit=&before=`
 
-The caller's own runs in this workspace but Harness tab sessions (`POST /sessions`), as **run summaries** (see Run summary above), newest first. `limit` 1 to 200 (default 50); `before` an ISO timestamp (runs created earlier). Metrics sum the newest attempt of each case with the same code as `GET /runs/{run_id}`, so a list row's `metrics`, `status` and `score` equal the detail's.
+The caller's own runs in this workspace but interactive sessions (`POST /sessions`), as **run summaries** (see Run summary above), newest first. `limit` 1 to 200 (default 50); `before` an ISO timestamp (runs created earlier). Metrics sum the newest attempt of each case with the same code as `GET /runs/{run_id}`, so a list row's `metrics`, `status` and `score` equal the detail's.
 
 ```json
 {"runs": [<run summary>]}

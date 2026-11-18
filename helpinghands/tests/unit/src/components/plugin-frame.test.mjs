@@ -420,7 +420,7 @@ describe('the bridge host', () => {
     send('r', 'harness.resize', {runId: 'harness-1', rows: 30, cols: 100});
     send('i', 'harness.input', {runId: 'harness-1', data: 'é\r'});
     await until(() => messages(posted).some(message => message.event === 'harness.done'));
-    assert.deepEqual(JSON.parse(calls[0].init.body), {plugin_id: 'arxiv-source', task_id: 'save-paper-source', harness: 'claude-code', text: 'Get 2401.00001'});
+    assert.deepEqual(JSON.parse(calls[0].init.body), {plugin_id: 'arxiv-source', task_id: 'save-paper-source', harness: 'claude-code', text: 'Get 2401.00001', interactive: true});
     assert.deepEqual(messages(posted)[0], {protocol: PROTOCOL, id: 'h', result: {runId: 'harness-1'}});
     assert.deepEqual(calls.filter(call => call.path === `/api/benchmark/attempts/${ATTEMPT}/terminal`).map(call => JSON.parse(call.init.body)), [
       {rows: 30, cols: 100}, {data: base64('é\r')},

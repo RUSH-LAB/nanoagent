@@ -211,7 +211,7 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     const response = await request('/api/benchmark/sessions', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({plugin_id: plugin.id, task_id: task, harness, text}),
+      body: JSON.stringify({plugin_id: plugin.id, task_id: task, harness, text, interactive: true}),
     });
     if (!response.ok) throw await failed(response, 'Could not start the harness');
     const {run} = await response.json();

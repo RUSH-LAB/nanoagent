@@ -38,7 +38,7 @@ function ctxFor({computer, app = {value: {id: 'p', sha256: SHA, status: 'ready'}
   };
   const ctx = makeCtx({
     benchmark: {
-      service: {session: async (context, publication, source, policy) => { calls.push(['session', publication, source, policy]); return {run_id: 'r1'}; }},
+      service: {session: async (context, publication, source, policy, options) => { calls.push(['session', publication, source, policy, options]); return {run_id: 'r1'}; }},
       repository: {
         saveSource: async (context, data, harness) => ({source_sha256: 'b'.repeat(64), size: data.length, harness}),
         run: async (context, id) => ({run_id: id}),
@@ -51,7 +51,7 @@ function ctxFor({computer, app = {value: {id: 'p', sha256: SHA, status: 'ready'}
 }
 
 const post = (ctx, body) => invoke(route, {method: 'POST', path: PATH, body, requestContext: CONTEXT, ctx});
-const BODY = {plugin_id: 'p', task_id: 'sum', harness: 'claude-code', text: 'Add one and two'};
+const BODY = {plugin_id: 'p', task_id: 'sum', harness: 'claude-code', text: 'Add one and two', interactive: true};
 
 describe('POST /api/benchmark/sessions', () => {
   it('has the member\'s computer fill the task\'s input from the request with the model every run uses and pin it, builds the reference harness, and queues its run', async () => {
@@ -63,6 +63,15 @@ describe('POST /api/benchmark/sessions', () => {
     const [, publication, source, policy] = calls[3];
     assert.deepEqual([publication.model, publication.endpoint_profile, publication.context, publication.cases.length], [MODEL.model, 'openrouter', 'Add one and two', 1]);
     assert.deepEqual([source.harness.name, policy], ['claude-code', 'coding']);
+    assert.deepEqual(calls[3][4], {interactive: true}); // the member is at the harness's terminal
+  });
+
+  it('takes the harness\'s model and whether the member is at its terminal from the request', async () => {
+    const {ctx, calls} = ctxFor();
+    await post(ctx, {...BODY, interactive: false, model: 'openai/gpt-5.5'});
+    assert.deepEqual(calls[1][2].model, MODEL); // the case is pinned with the model every run uses
+    assert.deepEqual([calls[3][1].model, calls[3][4]], ['openai/gpt-5.5', {interactive: false}]);
+    assert.equal((await post(ctxFor().ctx, {...BODY, interactive: undefined})).status, 400);
   });
 
   it('works RUSH\'s own harness with the task\'s tools', async () => {
@@ -104,7 +113,7 @@ describe('a session\'s run', () => {
     };
     const publication = benchmarkPublication({...pinned, model: MODEL.model, endpoint_profile: 'openrouter'});
     const source = {source_sha256: 'b'.repeat(64), harness: {name: 'claude-code', version: 'abc', dialects: ['anthropic_messages']}};
-    const result = await createBenchmarkService({repository}).session(CONTEXT, publication, source, 'coding');
+    const result = await createBenchmarkService({repository}).session(CONTEXT, publication, source, 'coding', {interactive: true});
     assert.deepEqual(result, {run_id: 'r1', replayed: false});
     assert.deepEqual(kept.slice(0, 2), [['case set', 'u', publication.case_set_digest], ['preview', 'coding', 64]]);
     const [, request, cases, benchmark, harness, options] = kept[2];

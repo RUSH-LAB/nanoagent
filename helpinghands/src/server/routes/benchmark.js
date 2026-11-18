@@ -229,9 +229,11 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       const published = await service.publish(context.userId, publication);
       return json(res, published.created ? 201 : 200, published);
     }
-    // One session of a plugin page's Harness tab: the member's request to one task of their installed app, worked once by a reference
-    // harness. The member's computer fills the task's input from the request with the model every plugin run uses and pins the case,
-    // as it pins a benchmark's, and builds the harness; the run is queued like a benchmark run, on the endpoint RUSH Lab's worker serves.
+    // One session of a plugin page's Harness tab, or of `nanoagent harness`: the member's request to one task of their installed app,
+    // worked once by a reference harness. The member's computer fills the task's input from the request with the model every plugin run
+    // uses and pins the case, as it pins a benchmark's, and builds the harness; the run is queued like a benchmark run, on the endpoint
+    // RUSH Lab's worker serves. `interactive` says whether the member is at the harness's terminal (the
+    // tab, the command without a prompt); `model`, when given, is the harness's model in place of the one every run uses.
     if (top === 'sessions') {
       if (req.method !== 'POST') return wrongMethod();
       write();
@@ -240,6 +242,8 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       const body = object(await jsonBody(req, readBody), 'The body');
       const [pluginId, taskId, harness] = ['plugin_id', 'task_id', 'harness'].map(name => string(body[name], name));
       const text = string(body.text, 'text', {max: SESSION_TEXT_LIMIT});
+      if (typeof body.interactive !== 'boolean') throw new BenchmarkError(400, 'invalid_request', 'interactive must be a boolean');
+      const model = string(body.model, 'model', {optional: true}) ?? aiSettings.MODEL.model;
       checkReference(harness);
       const computer = ctx.runners.computer(context.userId);
       if (!computer) return json(res, 503, {error: RUNNER_OFFLINE, code: 'runner_offline'});
@@ -248,11 +252,11 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       if (opened.value.status !== 'ready') return json(res, 409, {error: `${opened.value.id} is not ready to run`, code: 'app_unavailable'});
       const pinned = await computer.benchmarkSession(opened.value.sha256, JSON.stringify({task: taskId, text, model: aiSettings.MODEL}));
       if (pinned.error) return json(res, pinned.status, {error: pinned.error, code: 'pin_failed'});
-      const publication = benchmarkPublication({...parseJson(pinned.value), model: aiSettings.MODEL.model, endpoint_profile: SESSION_ENDPOINT});
+      const publication = benchmarkPublication({...parseJson(pinned.value), model, endpoint_profile: SESSION_ENDPOINT});
       const built = await computer.benchmarkReferenceHarness(harness);
       if (built.error) return json(res, built.status, {error: built.error, code: 'reference_unavailable'});
       const source = await repository.saveSource(context, built.value, referenceHarnessOf(built.value, harness));
-      const {run_id: id} = await service.session(context, publication, source, referencePolicy(harness));
+      const {run_id: id} = await service.session(context, publication, source, referencePolicy(harness), {interactive: body.interactive});
       return json(res, 201, {run: await repository.run(context, id)});
     }
     if (top === 'previews') {
