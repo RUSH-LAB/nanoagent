@@ -384,18 +384,23 @@ function claimBody(body) {
 
 // What a run kept from outside RUSH (`importBody`) may have ended as: the plugin's verifier saw each.
 const IMPORTED_STATUSES = ['answered', 'refused', 'execution_failed'];
+// The figures of an imported run's profile, each a count (of milliseconds, tokens or calls).
+const PROFILE = ['model_ms', 'tools_ms', 'overhead_ms', 'cache_read_tokens', 'model_calls', 'tool_calls'];
 // The most steps an imported run's trajectory keeps.
 const MAX_IMPORTED_STEPS = 10_000;
 
 /**
  * A run of a reference harness made outside RUSH, to keep as a scored run (POST imports): its case set's frame but the package (`frame`,
  * NanoAgent's `case_set_frame` with the model and endpoint profile), the caller's source of the harness, and the one case it ran: when,
- * how it ended, whether the verifier found it right and its word, its time, tokens and cost; and what the run kept besides: `case`
- * (`pinnedCase`, from its arguments, expected error and private reference), `answer` (what the harness gave) and `trajectory` (its ATIF steps).
+ * how it ended, whether the verifier found it right and its word, its time, tokens and cost; and what the run kept besides: `profile`
+ * (the rest of its profiler's figures, PROFILE), `case` (`pinnedCase`, from its arguments, expected error and private reference),
+ * `answer` (what the harness gave) and `trajectory` (its ATIF steps).
  */
 function importBody(body) {
   only(body, ['frame', 'source_sha256', 'case_id', 'kind', 'started_at', 'execution', 'correct', 'verdict', 'elapsed_ms', 'input_tokens', 'output_tokens', 'cost_usd',
-    'arguments', 'expected_error', 'reference', 'answer', 'trajectory']);
+    'profile', 'arguments', 'expected_error', 'reference', 'answer', 'trajectory']);
+  const profile = object(body.profile, 'profile');
+  only(profile, PROFILE);
   if (!CASE_KINDS.includes(body.kind)) throw bad('invalid_request', `kind must be one of ${CASE_KINDS.join(', ')}`);
   if (!IMPORTED_STATUSES.includes(body.execution)) throw bad('invalid_request', `execution must be one of ${IMPORTED_STATUSES.join(', ')}`);
   if (typeof body.started_at !== 'string' || Number.isNaN(Date.parse(body.started_at))) throw bad('invalid_request', 'started_at must be a timestamp');
@@ -407,6 +412,7 @@ function importBody(body) {
     verdict: string(body.verdict, 'verdict', {max: 100_000}), elapsed_ms: integer(body.elapsed_ms, 'elapsed_ms', {max: MAX_INTEGER}),
     input_tokens: integer(body.input_tokens, 'input_tokens', {max: MAX_INTEGER}), output_tokens: integer(body.output_tokens, 'output_tokens', {max: MAX_INTEGER}),
     cost_usd: finite(body.cost_usd, 'cost_usd'),
+    profile: Object.fromEntries(PROFILE.map(name => [name, integer(profile[name], `profile.${name}`, {max: MAX_INTEGER})])),
     case: {...pinnedCase({case_id: body.case_id, kind: body.kind, arguments: body.arguments, expected_error: body.expected_error}, body.reference), reference: body.reference},
     // Each is kept as an event's data, bounded as a worker's is.
     answer: bounded({answer: body.answer}, 'answer', MAX_EVENT_DATA_BYTES).answer,

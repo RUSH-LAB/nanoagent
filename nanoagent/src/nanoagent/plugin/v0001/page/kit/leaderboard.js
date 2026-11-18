@@ -1,8 +1,9 @@
 // The Leaderboard tab every plugin's page has (kit/shell.js), laid out as examples/benchmark's report: one board per plugin, the
 // harnesses run on any of its tasks, ranked from every member's scored runs RUSH keeps (`leaderboard`) by correct rate, then average
-// time, then average cost; and under them the runs by case: the case (its input, the prompt the coding harnesses got and its reference) and one
-// card per run with its verdict and figures. The member's own runs also show the verifier's word, the answer and the trajectory, read
-// from their trace when the case is opened (`leaderboard.trace`); other members' traces are not shared. RUSH is highlighted.
+// latency, then average cost, each with what it was given and the profiler's figures averaged per run; and under them the runs by case:
+// the case (its input and its reference) and one card per run with its verdict and figures. The member's own runs also show what their
+// harness was given, the verifier's word, the answer and the trajectory, read from their trace when the case is opened
+// (`leaderboard.trace`); other members' are not shared. RUSH is highlighted.
 
 import { request } from "./bridge.js";
 import { dataTable, disclosure, statItems, statusPill } from "./display.js";
@@ -13,7 +14,27 @@ const EMPTY = "No scored runs for this plugin yet.";
 // A text longer than this shows cut, with a button that shows the rest.
 const SHORT = 600;
 const seconds = (ms) => formatSeconds(ms === null ? null : ms / 1000);
-const tokens = (count) => (count === null ? "—" : count.toLocaleString());
+const count = (value) => (value === null ? "—" : Math.round(value).toLocaleString());
+const calls = (value) => (value === null ? "—" : Number.isInteger(value) ? String(value) : value.toFixed(1));
+/** "139,568 (65% cached)": input tokens with the share read from the provider's cache. */
+const inputTokens = (input, cached) => {
+  if (input === null || input === 0) return count(input);
+  return `${count(input)} (${cached === null ? "cached —" : `${Math.round((cached / input) * 100)}% cached`})`;
+};
+// The profiler's figures of a run, which the board averages per run: [name, label, text of the figures `of` a run or an average].
+const FIGURES = [
+  ["latency_ms", "Latency", (of) => seconds(of("latency_ms"))],
+  ["model_ms", "Model time", (of) => seconds(of("model_ms"))],
+  ["tools_ms", "Tool time", (of) => seconds(of("tools_ms"))],
+  ["overhead_ms", "Overhead", (of) => seconds(of("overhead_ms"))],
+  ["input_tokens", "Input tokens", (of) => inputTokens(of("input_tokens"), of("cached_tokens"))],
+  ["output_tokens", "Output tokens", (of) => count(of("output_tokens"))],
+  ["cost_usd", "Cost", (of) => formatCost(of("cost_usd"))],
+  ["model_calls", "Model calls", (of) => calls(of("model_calls"))],
+  ["tool_calls", "Tool calls", (of) => calls(of("tool_calls"))],
+];
+/** What a harness is given: RUSH the plugin's tools beside the task's prompt, every other harness the prompt with its own tools. */
+const setup = (rush) => (rush ? "plugin tools + task prompt" : "prompt only (own tools)");
 const date = (iso) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 const rushPill = () => h("span", { class: "pill rush-pill", text: "RUSH" });
 const verdictPill = (verdict) => (verdict === "pass" ? statusPill("Right", "ok") : statusPill("Wrong", "bad"));
@@ -65,7 +86,15 @@ function traceParts(run, events) {
   ];
 }
 
-/** One run's card: its harness, verdict, model and figures; its trace (`load`) for the member's own run, read once. */
+/** What a member's own run's harness was given: under the coding policy the prompt and no plugin tools, under RUSH's the system prompt, the user message and the tools. */
+const inputsPart = ({ policy, system, user, tools }) => disclosure(
+  { summary: "Inputs" },
+  policy === "coding"
+    ? [block("prompt", [system, user].filter(Boolean).join("\n\n")), block("plugin tools", "none")]
+    : [block("system prompt", system), block("user message", user), block("tools", tools.join(", "))],
+);
+
+/** One run's card: its harness, verdict, model and figures; what it was given and its trace (`load`) for the member's own run, read once. */
 function runCard(run, status) {
   const trace = h("div", { class: "leaderboard-trace" });
   const card = h(
@@ -73,10 +102,8 @@ function runCard(run, status) {
     { class: `card leaderboard-card${run.rush ? " rush" : ""}` },
     h("header", { class: "leaderboard-card-head" }, h("h4", {}, run.harness, run.rush ? rushPill() : null), verdictPill(run.verdict)),
     h("p", { class: "muted small-text", text: `${run.model} · ${date(run.created_at)}` }),
-    h("dl", { class: "stats leaderboard-figures" }, statItems([
-      ["Time", seconds(run.elapsed_ms)], ["Input tokens", tokens(run.input_tokens)], ["Output tokens", tokens(run.output_tokens)], ["Cost", formatCost(run.cost_usd)],
-    ])),
-    run.mine ? trace : h("p", { class: "muted small-text", text: "Another member's run: its trace is not shared." }),
+    h("dl", { class: "stats leaderboard-figures" }, statItems(FIGURES.map(([, label, text]) => [label, text((name) => run[name])]))),
+    run.mine ? [inputsPart(run.inputs), trace] : h("p", { class: "muted small-text", text: "Another member's run: its inputs and trace are not shared." }),
   );
   let loaded = false;
   const load = async () => {
@@ -99,13 +126,11 @@ function runCard(run, status) {
 function caseSection(shown, status, open) {
   const cards = shown.runs.map((run) => runCard(run, status));
   const right = shown.runs.filter((run) => run.verdict === "pass").length;
-  const coding = shown.prompt?.policy === "coding";
   const body = [
     shown.arguments === null
       ? h("p", { class: "muted small-text", text: "None of your runs ran this case, so its input is not shared." })
       : [
           block("input", shown.arguments),
-          block(coding ? "prompt (coding harnesses)" : "prompt (RUSH)", [shown.prompt.system, shown.prompt.user].filter(Boolean).join("\n\n")),
           shown.reference === null ? h("p", { class: "muted small-text", text: "No reference: the task is judged without one." }) : block("reference", shown.reference),
         ],
     h("div", { class: "leaderboard-cards" }, cards.map(({ card }) => card)),
@@ -136,15 +161,14 @@ export function leaderboardPage() {
     columns: [
       { key: "rank", label: "Rank", numeric: true },
       { key: "harness", label: "Harness", primary: true, render: (entry) => h("span", { class: "leaderboard-harness" }, entry.harness, entry.rush ? rushPill() : null) },
+      { key: "setup", label: "Setup", value: (entry) => setup(entry.rush) },
       { key: "correct", label: "Correct", numeric: true, value: (entry) => entry.passed / entry.scored, render: correctText },
-      { key: "avg_elapsed_ms", label: "Avg time", numeric: true, render: (entry) => seconds(entry.avg_elapsed_ms) },
-      { key: "avg_cost_usd", label: "Avg cost", numeric: true, render: (entry) => formatCost(entry.avg_cost_usd) },
-      { key: "scored", label: "Runs", numeric: true },
+      ...FIGURES.map(([name, label, text]) => ({ key: `avg_${name}`, label, numeric: true, render: (entry) => text((figure) => entry[`avg_${figure}`]) })),
     ],
     rows: [],
     sort: { key: "rank" },
     rowClass: (entry) => (entry.rush ? "highlight rush" : ""),
-    caption: "Harnesses ranked by correct rate, then average time, then average cost",
+    caption: "Harnesses ranked by correct rate, then average latency, then average cost; each figure is an average per run",
     empty: EMPTY,
   });
 
@@ -170,6 +194,7 @@ export function leaderboardPage() {
     h("header", { class: "dashboard-head" }, h("h2", { text: "Leaderboard" })),
     status,
     board.element,
+    h("p", { class: "muted small-text", text: "All harnesses get the same task and are judged by the same verifier. Only RUSH has the plugin's own tools, which is RUSH's approach." }),
     casesBox,
   );
   return { element, refresh };

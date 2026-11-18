@@ -10,11 +10,13 @@ const route = loadRoute('benchmark');
 const CONTEXT = {userId: 'me', workspaceId: 'w', membershipId: 'm', role: 'owner'};
 const SHA = 'a'.repeat(64);
 
-const row = (harness, verdict, {user = 'me', elapsed = 1000, cost = 0.01, at = '2026-11-12T00:00:00Z', attempt = 'a1', digest = 'd1', policy = 'coding'} = {}) => ({
+const PROFILE = {model_ms: 800, tools_ms: 150, overhead_ms: 50, cache_read_tokens: 4, model_calls: 3, tool_calls: 2};
+const row = (harness, verdict, {user = 'me', elapsed = 1000, cost = 0.01, at = '2026-11-12T00:00:00Z', attempt = 'a1', digest = 'd1', policy = 'coding', profile = PROFILE} = {}) => ({
   run_id: `r-${attempt}`, attempt_id: attempt, user_id: user, user_name: `${user} name`, user_github: user === 'me' ? 'me-gh' : null,
   harness_name: harness, policy, model: 'm', case_id: 'p-01', kind: 'answer', content_digest: digest, arguments: {x: digest},
-  prompt_system: null, prompt_user: `${policy} ${digest}`, reference: {y: 1}, verdict, explanation: verdict === 'fail' ? 'invalid_answer' : null,
-  execution_status: 'answered', execution_reason: null, elapsed_ms: elapsed, input_tokens: '10', output_tokens: '2', cost_usd: cost, created_at: at,
+  prompt_system: policy === 'coding' ? null : 'system', prompt_user: `${policy} ${digest}`, tools: [{name: 'add'}], reference: {y: 1}, verdict,
+  explanation: verdict === 'fail' ? 'invalid_answer' : null, execution_status: 'answered', execution_reason: null,
+  metrics: {elapsed_ms: elapsed, input_tokens: 10, output_tokens: 2, total_tokens: 12, ...profile}, cost_usd: cost, created_at: at,
 });
 
 describe('a plugin\'s leaderboard', () => {
@@ -22,7 +24,7 @@ describe('a plugin\'s leaderboard', () => {
     assert.deepEqual(Object.keys(REFERENCE_LABELS).sort(), [...REFERENCE_HARNESSES].sort());
   });
 
-  it('ranks by correct rate, then average time, then average cost, naming a saved harness by its owner', () => {
+  it('ranks by correct rate, then average latency, then average cost, naming a saved harness by its owner', () => {
     const {harnesses: board} = leaderboard([
       row('codex', 'pass', {elapsed: 3000}), row('codex', 'fail', {elapsed: 1000}),
       row('pi', 'pass', {elapsed: 2000, cost: 0.02}), row('pi', 'fail', {elapsed: 2000, cost: 0.02}),
@@ -31,9 +33,15 @@ describe('a plugin\'s leaderboard', () => {
       row('my-agent', 'fail', {user: 'other'}),
     ], 'me');
     assert.deepEqual(board.map(({rank, harness, passed, scored}) => [rank, harness, passed, scored]), [
-      [1, 'RUSH', 1, 1], [2, 'Codex', 1, 2], [3, 'DSH', 1, 2], [4, 'Pi', 1, 2], [5, 'my-agent (@other name)', 0, 1],
+      [1, 'RUSH', 1, 1], [2, 'Codex', 1, 2], [3, 'Pi', 1, 2], [4, 'DSH', 1, 2], [5, 'my-agent (@other name)', 0, 1],
     ]);
-    assert.deepEqual([board[2].avg_elapsed_ms, board[2].avg_cost_usd], [2000, 0.01]);
+    assert.deepEqual([board[1].avg_latency_ms, board[1].avg_model_ms, board[1].avg_cached_tokens, board[1].avg_tool_calls], [2000, 800, 4, 2]);
+    assert.deepEqual([board[2].avg_cost_usd, board[3].avg_cost_usd], [0.02, null]);
+  });
+
+  it('averages a figure only when every run recorded it', () => {
+    const {harnesses: [codex]} = leaderboard([row('codex', 'pass'), row('codex', 'pass', {attempt: 'a2', profile: {}})], 'me');
+    assert.deepEqual([codex.avg_latency_ms, codex.avg_input_tokens, codex.avg_model_ms, codex.avg_tool_calls], [1000, 10, null, null]);
   });
 
   it('groups the runs by case, RUSH first, showing the case and the attempt of the viewer\'s own runs only', () => {
@@ -43,11 +51,13 @@ describe('a plugin\'s leaderboard', () => {
       row('nanoagent', 'pass', {at: '2026-11-12T00:00:00Z', attempt: 'mine-rush', policy: 'task_tools'}),
       row('codex', 'fail', {user: 'other', digest: 'd2', attempt: 'only-theirs'}),
     ], 'me');
-    assert.deepEqual(cases.map(shown => [shown.content_digest, shown.arguments, shown.prompt?.user ?? null, shown.reference]), [
-      ['d1', {x: 'd1'}, 'coding d1', {y: 1}], ['d2', null, null, null],
+    assert.deepEqual(cases.map(shown => [shown.content_digest, shown.arguments, shown.reference]), [['d1', {x: 'd1'}, {y: 1}], ['d2', null, null]]);
+    assert.deepEqual(cases[0].runs.map(run => [run.harness, run.rush, run.mine, run.attempt_id, run.input_tokens, run.tool_calls]), [
+      ['RUSH', true, true, 'mine-rush', 10, 2], ['Pi', false, false, null, 10, 2], ['Pi', false, true, 'mine-pi', 10, 2],
     ]);
-    assert.deepEqual(cases[0].runs.map(run => [run.harness, run.rush, run.mine, run.attempt_id, run.input_tokens]), [
-      ['RUSH', true, true, 'mine-rush', 10], ['Pi', false, false, null, 10], ['Pi', false, true, 'mine-pi', 10],
+    assert.deepEqual(cases[0].runs.map(run => run.inputs), [
+      {policy: 'task_tools', system: 'system', user: 'task_tools d1', tools: ['add', 'submit']}, null,
+      {policy: 'coding', system: null, user: 'coding d1', tools: []},
     ]);
     assert.equal(cases[1].runs[0].explanation, null);
   });
@@ -62,6 +72,7 @@ const FRAME = {
 const RECORD = {
   frame: FRAME, source_sha256: 'b'.repeat(64), case_id: 'p-01', kind: 'answer', started_at: '2026-11-12T20:16:11+00:00', execution: 'answered',
   correct: true, verdict: 'right', elapsed_ms: 95491, input_tokens: 144474, output_tokens: 4685, cost_usd: 0.009929466,
+  profile: {model_ms: 94000, tools_ms: 1000, overhead_ms: 491, cache_read_tokens: 90000, model_calls: 7, tool_calls: 6},
   arguments: {a: 1}, expected_error: null, reference: {sum: 1}, answer: {sum: 1}, trajectory: [{step_id: 1, source: 'user', message: 'Add'}],
 };
 
@@ -101,6 +112,7 @@ describe('POST /api/benchmark/imports', () => {
     const [, frame, record] = calls[1];
     assert.deepEqual([calls[0], frame.package_sha256, frame.task_instructions, record.started_at], [['market', 'p', '1.0.0'], SHA, 'i', '2026-11-12T20:16:11.000Z']);
     assert.deepEqual([record.case.arguments, record.case.reference, record.case.content_digest.length, record.trajectory.length], [{a: 1}, {sum: 1}, 64, 1]);
+    assert.deepEqual(record.profile, RECORD.profile);
     assert.equal((await post(ctx, RECORD)).status, 200);
   });
 
@@ -110,6 +122,7 @@ describe('POST /api/benchmark/imports', () => {
     assert.deepEqual([changed.status, changed.payload.code], [422, 'task_mismatch']);
     assert.equal((await post(ctxFor().ctx, {...RECORD, execution: 'canceled'})).status, 400);
     assert.equal((await post(ctxFor().ctx, {...RECORD, extra: 1})).status, 400);
+    assert.equal((await post(ctxFor().ctx, {...RECORD, profile: {...RECORD.profile, tool_calls: 1.5}})).payload.error, 'profile.tool_calls must be an integer from 0 to 2147483647');
     const {reference: _reference, ...unreferenced} = RECORD;
     assert.equal((await post(ctxFor().ctx, unreferenced)).payload.error, 'reference is required (null for none)');
     assert.equal((await post(ctxFor().ctx, {...RECORD, kind: 'refuse'})).status, 400);

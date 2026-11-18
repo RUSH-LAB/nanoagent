@@ -4,13 +4,14 @@ Each run folder step 3 wrote (<plugin>/<task>/<case>/<harness>, step 2's layout)
 goes to RUSH's POST benchmark/imports, in one of the member's workspaces, as the run of the reference harness RUSH builds under the
 step's harness's name (`harnesses`): its case set's frame (the plugin, its task and the case file's context, as NanoAgent reads them
 from the plugin the run used, which RUSH checks against the version it publishes), the case, how the run ended, whether the verifier
-found it right and its word, its time, tokens and cost; and, kept as RUSH keeps a run's trace, the case's input, expected error and
+found it right and its word, its time, tokens and cost, and the rest of its profile (model, tool and overhead time, cached tokens, and
+model and tool calls); and, kept as RUSH keeps a run's trace, the case's input, expected error and
 reference, the harness's answer and its trajectory (messages.json, the ATIF steps, long strings cut as step 4 cuts them and each NUL
 character, which RUSH cannot store, shown as ␀). Each reference harness's ZIP, built by this NanoAgent, is sent first as the
 member's source of it (POST benchmark/sources/references/<name>). The runs are owned by the member signed in to RUSH Lab's connection,
 as `nanoagent harness` signs in, and go only to the RUSH `site` names, a local one: a connection to another RUSH stops the step.
-RUSH keeps a run once per plugin, task, case and harness, so the step runs again without keeping any twice, filling in the trace of
-a run it kept without one. A plugin the run used that
+RUSH keeps a run once per plugin, task, case and harness, so the step runs again without keeping any twice, filling in the trace or
+the profile of a run it kept without it. A plugin the run used that
 breaks this NanoAgent's plugin rules (made under older ones) has no frame to keep its runs on: they are left out, and the plugin is
 named with the rules it breaks in imported.json."""
 
@@ -54,7 +55,7 @@ class ImportConfig(Config):
 
 @dataclass
 class Imported(Output):
-    # The runs RUSH kept now, and those it had kept before, of which `filled` it had kept without their trace, filled in now.
+    # The runs RUSH kept now, and those it had kept before, of which `filled` it had kept without their trace or profile, filled in now.
     kept: int
     existing: int
     filled: int
@@ -143,6 +144,14 @@ class ImportRuns(Run):
                     "input_tokens": result["input_tokens"],
                     "output_tokens": result["output_tokens"],
                     "cost_usd": result["cost"],
+                    "profile": {
+                        "model_ms": round(result["model_seconds"] * 1000),
+                        "tools_ms": round(result["tools_seconds"] * 1000),
+                        "overhead_ms": round(result["overhead_seconds"] * 1000),
+                        "cache_read_tokens": result["cached_input_tokens"],
+                        "model_calls": result["model_calls"],
+                        "tool_calls": result["tool_calls"],
+                    },
                     "arguments": result["arguments"],
                     "expected_error": None if refusal is None else refusal.reference_error,
                     "reference": result["reference"] if refusal is None else refusal.reference_error,
@@ -157,7 +166,7 @@ class ImportRuns(Run):
                     filled += answer["filled"]
         self.layout.imported = Imported(kept=kept, existing=existing, filled=filled, broken=broken)
         print(
-            f"{kept} runs kept, {existing} kept before ({filled} filled in with their trace), in {config.workspace} on {site};"
+            f"{kept} runs kept, {existing} kept before ({filled} filled in with their trace or profile), in {config.workspace} on {site};"
             f" {len(broken)} plugins left out: {', '.join(broken)}"
         )
 

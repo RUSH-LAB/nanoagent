@@ -692,10 +692,10 @@ function createPostgresBenchmark({pool}) {
      * Keep a run of a reference harness made outside RUSH (examples/benchmark in the NanoAgent project) as the caller's own scored run:
      * `frame` is its case set but the case (`publicationFrame`, checked against its plugin version's entry), `record` the case it ran
      * (`importBody`, whose own frame is `frame` before the check), worked by the harness of the caller's source `record.source_sha256`. Like a session's, its run is of a benchmark
-     * nobody publishes; its one attempt is final as the run ended, with its verdict, its time and tokens (metrics), its cost (one
+     * nobody publishes; its one attempt is final as the run ended, with its verdict, its time, tokens and profile (metrics), its cost (one
      * settled admission) and its trace (`keepTrace`). `{run_id, created, filled}`: the same plugin, task, case and harness kept again is
-     * the run kept before, its trace filled in (`filled`) when it was kept without one, and a different record under them is refused
-     * (409 idempotency_conflict); the trace is not part of the record compared.
+     * the run kept before, its trace or its profile filled in (`filled`) when it was kept without it, and a different record under them is
+     * refused (409 idempotency_conflict); neither the trace nor the profile is part of the record compared.
      */
     async importRun(context, frame, record) {
       return memberWrite(context, async client => {
@@ -706,20 +706,26 @@ function createPostgresBenchmark({pool}) {
         if (!source) throw new BenchmarkError(404, 'unknown_source', 'Upload the source first');
         checkReference(source.harness_name);
         const key = `import:${frame.plugin_id}/${frame.task_id}/${record.case_id}/${source.harness_name}`;
-        const {case: _case, answer: _answer, trajectory: _trajectory, ...scored} = record;
+        const {case: _case, answer: _answer, trajectory: _trajectory, profile: _profile, ...scored} = record;
         const digest = sha256Hex(canonicalJson(scored));
         const policy = referencePolicy(source.harness_name);
         const ended = new Date(Date.parse(record.started_at) + record.elapsed_ms).toISOString();
+        const metrics = {
+          elapsed_ms: record.elapsed_ms, input_tokens: record.input_tokens, output_tokens: record.output_tokens, total_tokens: record.input_tokens + record.output_tokens,
+          ...record.profile,
+        };
         const existing = (await client.query(
           'select run_id, request_digest from benchmark_run where workspace_id = $1 and user_id = $2 and idempotency_key = $3', [context.workspaceId, context.userId, key],
         )).rows[0];
         if (existing) {
           if (existing.request_digest !== digest) throw new BenchmarkError(409, 'idempotency_conflict', `${key} was kept with a different record`);
           const kept = (await client.query(
-            `select a.attempt_id, c.prompt_sha256 from benchmark_attempt a join benchmark_run_case c using (run_id, case_id) where a.run_id = $1`, [existing.run_id],
+            `select a.attempt_id, a.metrics ? 'model_ms' as profiled, c.prompt_sha256 from benchmark_attempt a join benchmark_run_case c using (run_id, case_id) where a.run_id = $1`,
+            [existing.run_id],
           )).rows[0];
           if (kept.prompt_sha256 === null) await keepTrace(client, frame, record, {runId: existing.run_id, attemptId: kept.attempt_id, policy, ended});
-          return {run_id: existing.run_id, created: false, filled: kept.prompt_sha256 === null};
+          if (!kept.profiled) await client.query('update benchmark_attempt set metrics = $2 where attempt_id = $1', [kept.attempt_id, JSON.stringify(metrics)]);
+          return {run_id: existing.run_id, created: false, filled: kept.prompt_sha256 === null || !kept.profiled};
         }
         await client.query(
           'insert into benchmark_package (sha256, data) select sha256, package from market_plugin_version where plugin_id = $1 and sha256 = $2 limit 1 on conflict do nothing',
@@ -739,7 +745,6 @@ function createPostgresBenchmark({pool}) {
             frame.plugin_id, frame.plugin_name, frame.version, frame.package_sha256, frame.task_id, stringifyJson(frame.task), frame.context, record.started_at],
         );
         await client.query('insert into benchmark_run_case (run_id, case_id, position, kind) values ($1, $2, 0, $3)', [runId, record.case_id, record.kind]);
-        const metrics = {elapsed_ms: record.elapsed_ms, input_tokens: record.input_tokens, output_tokens: record.output_tokens, total_tokens: record.input_tokens + record.output_tokens};
         await client.query(
           `insert into benchmark_attempt (attempt_id, run_id, case_id, attempt_no, state, execution_status, verdict, explanation, metrics,
              sealed, next_cursor, final_cursor, created_at, claimed_at, finalized_at)

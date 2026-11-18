@@ -228,5 +228,5 @@ const normalizeTemplate = value => normalizeInstructions(value, 'template');
 
 module.exports = {
   RENDERER_VERSION, MAX_BENCHMARK_PROMPT_CHARS, DEFAULT_CODING_TEMPLATE, PLACEHOLDERS, canonicalJson, normalizeInstructions, normalizeTemplate,
-  pythonFormat, pythonJson, renderCoding, renderTaskTools, sha256Hex,
+  SUBMIT, pythonFormat, pythonJson, renderCoding, renderTaskTools, sha256Hex,
 };
