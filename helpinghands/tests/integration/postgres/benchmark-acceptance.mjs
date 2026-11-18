@@ -724,13 +724,15 @@ try {
   check('the member\'s budget refuses a call past it', memberOver.status === 402 && memberOver.body.scope === 'member');
   const racers = await Promise.all([1, 2, 3, 4].map(n => admit(a2, 1, `race-${n}`, 0.04)));
   check('concurrent admissions never overspend the member', racers.filter(r => r.status === 201).length === 2 && Math.abs(await spent() - 1.48) < 1e-9);
+  // Which racers are admitted depends on lock order, not on which was sent first.
+  const admittedRacer = `race-${racers.findIndex(r => r.status === 201) + 1}`;
   const spentBefore = await spent();
   check('a settlement far past the call\'s reserve is refused, and one past the column\'s range is a 400, not a 500',
-    (await settle(a2, 'race-1', {outcome: 'settled', cost_usd: 1000, provenance: {}})).body.code === 'cost_exceeds_reserve'
-    && (await settle(a2, 'race-1', {outcome: 'settled', cost_usd: 1e13, provenance: {}})).status === 400
+    (await settle(a2, admittedRacer, {outcome: 'settled', cost_usd: 1000, provenance: {}})).body.code === 'cost_exceeds_reserve'
+    && (await settle(a2, admittedRacer, {outcome: 'settled', cost_usd: 1e13, provenance: {}})).status === 400
     && (await admit(a2, 1, 'huge', 1e13)).status === 400 && (await admit(a2, 2 ** 40, 'huge', 0.01)).status === 400
     && Math.abs(await spent() - spentBefore) < 1e-9);
-  check('a settlement at the call\'s reserve is accepted', (await settle(a2, 'race-1', {outcome: 'settled', cost_usd: 0.04, provenance: {}})).status === 200);
+  check('a settlement at the call\'s reserve is accepted', (await settle(a2, admittedRacer, {outcome: 'settled', cost_usd: 0.04, provenance: {}})).status === 200);
   const callsRun = (await api(`${base}/attempts/${a1}`, {cookie: alice.cookie})).body.attempt;
   check('an attempt shows its case kind, content digest and rendered prompt', callsRun.kind === 'answer' && callsRun.content_digest === run.cases[0].content_digest && callsRun.prompt.sha256 === run.cases[0].prompt.sha256);
 
