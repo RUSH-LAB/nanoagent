@@ -303,7 +303,6 @@ After mock acceptance passes, verify through the entry point being changed with 
 - **Platforms.** The sandboxes need a hypervisor microsandbox supports: Apple silicon Macs (verified), Linux with `/dev/kvm` and Windows with the Windows Hypervisor Platform (each still needs one verified run); Intel Macs are not supported. RUSH Lab Dev builds for macOS and Windows; Linux desktops are not supported.
 - **Packaged-app acceptance.** The app flow is verified by one real benchmark in RUSH Lab Dev (publish, run, trace); rerun, compare and reopen are not exercised in the packaged app, and there is no automated packaged UI acceptance.
 - **Timing coverage.** Measured time outside waits and the latency-adjusted estimate are **Unknown** for harnesses that emit no harness spans, and parallel-branch timing can be Unknown in real runs because of gateway delivery lag.
-- **Faster pickup of new runs.** A new run waits up to the worker's idle poll (`poll.max_idle_s`, 15 s) before it is claimed.
 - **Warm-up measurement.** A `prepare(config) -> Ready` operation would let a suite measure warm-up separately from case execution.
 - **File-operation events.** The trace captures the final workspace diff; individual file operations would need observed file events.
 - **Coding-harness reasoning text.** ATIF trajectories of coding harnesses carry reasoning token counts but not the reasoning text.

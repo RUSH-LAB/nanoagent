@@ -41,7 +41,7 @@ from nanoagent.plugin.package import (
 from nanoagent.plugin.python import plugin_python
 from nanoagent.runtime.config import AgentConfig, load_config_args
 from nanoagent.uploaded.compare_view import compare_attempts
-from nanoagent.uploaded.case_sets import CaseSetSpec, PreparationError, derive_case_set, session_case_set
+from nanoagent.uploaded.case_sets import CaseSetSpec, PreparationError, derive_case_set, session_case_set, session_frame
 from nanoagent.uploaded.reference import NAMES as REFERENCE_HARNESSES
 from nanoagent.uploaded.reference import build_reference
 from nanoagent.web.config import WebConfig
@@ -655,19 +655,36 @@ def create_app(
             return JSONResponse({"error": str(error)}, status_code=422)
         return JSONResponse(publication)
 
+    async def session_request(request: Request) -> tuple[Any, dict[str, Any] | None, JSONResponse | None]:
+        """The installed plugin and the ``{task, text, model?}`` body of a Harness tab session's request, or why it is refused."""
+        if not authorized(request):
+            return None, None, JSONResponse({"error": "unauthorized"}, status_code=401)
+        installed = installs.get(request.path_params["sha256"])
+        if installed is None:
+            return None, None, JSONResponse({"error": "not installed"}, status_code=404)
+        body, rejected = await read_json(request)
+        if rejected is not None:
+            return None, None, rejected
+        if not isinstance(body, dict) or not isinstance(body.get("task"), str) or not isinstance(body.get("text"), str) or not body["text"].strip():
+            return None, None, JSONResponse({"error": "the body is {task, text, model?}: a task id and the member's request"}, status_code=400)
+        return installed, body, None
+
+    async def benchmark_session_frame(request: Request) -> JSONResponse:
+        """The case set of one Harness tab session but its case (`session_frame`), read from the installed plugin at once."""
+        installed, body, rejected = await session_request(request)
+        if rejected is not None:
+            return rejected
+        try:
+            return JSONResponse(session_frame(installed.manifest, request.path_params["sha256"], body["task"], body["text"], cfg.sessions))
+        except PreparationError as error:
+            return JSONResponse({"error": str(error)}, status_code=422)
+
     async def benchmark_session(request: Request) -> JSONResponse:
         """The case set of one Harness tab session with the installed plugin: ``{task, text, model?}``, the member's request
         ``text`` to task ``task``, made the task's input by the plugin model (``model`` chosen as a plugin run chooses it)."""
-        if not authorized(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
-        installed = installs.get(request.path_params["sha256"])
-        if installed is None:
-            return JSONResponse({"error": "not installed"}, status_code=404)
-        body, rejected = await read_json(request)
+        installed, body, rejected = await session_request(request)
         if rejected is not None:
             return rejected
-        if not isinstance(body, dict) or not isinstance(body.get("task"), str) or not isinstance(body.get("text"), str) or not body["text"].strip():
-            return JSONResponse({"error": "the body is {task, text, model?}: a task id and the member's request"}, status_code=400)
         try:
             chosen = {"model": body["model"]} if "model" in body else {}
             check_choice(cfg, validate_run_choice(chosen))
@@ -796,6 +813,7 @@ def create_app(
             Route("/v1/benchmark/compare", benchmark_compare, methods=["POST"]),
             Route("/v1/installs/{sha256}/benchmark/case-set", benchmark_case_set, methods=["POST"]),
             Route("/v1/installs/{sha256}/benchmark/session", benchmark_session, methods=["POST"]),
+            Route("/v1/installs/{sha256}/benchmark/session-frame", benchmark_session_frame, methods=["POST"]),
             Route("/v1/benchmark/reference-harnesses/{name}", reference_harness, methods=["GET"]),
             Route("/v1/packages", list_packages, methods=["GET"]),
             Route("/v1/packages/inspect", inspect_upload, methods=["POST"]),

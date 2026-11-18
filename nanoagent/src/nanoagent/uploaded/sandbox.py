@@ -268,6 +268,11 @@ class CaseHandle(Protocol):
     @property
     def container_id(self) -> str: ...
 
+    @property
+    def workspace(self) -> Path:
+        """The case workspace's host folder, which the case sees at WORKSPACE."""
+        ...
+
     def launch(self) -> None:
         """Starts the harness. Returns once it runs; raises a SandboxError when it cannot start."""
         ...

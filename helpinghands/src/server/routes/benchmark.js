@@ -15,7 +15,8 @@ const {parseJson, stringifyJson} = require('../benchmark/json');
 const {compareAttempts, compareRuns} = require('../benchmark/compare');
 const {UUID, jsonBody, losslessBody, rawBody, sendFailure} = require('../benchmark/http');
 const {REFERENCE_HARNESSES, checkReference, referenceHarnessOf, referencePolicy, uploadedHarnessOf} = require('../benchmark/harness');
-const {previewBody, runBody, benchmarkPublication, terminalInputBody, SHA256, object, string} = require('../benchmark/validate');
+const {previewBody, runBody, benchmarkPublication, publicationFrame, terminalInputBody, SHA256, object, string} = require('../benchmark/validate');
+const {wake} = require('../benchmark/wake');
 const {MAX_SOURCE_BYTES} = require('../benchmark/limits');
 
 // The endpoint profile of the worker RUSH Lab runs (nanoagent/deploy/worker/worker.openrouter.yaml), which a Harness tab session runs on.
@@ -230,15 +231,15 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
     }
     // One session of a plugin page's Harness tab, or of `nanoagent harness`: the member's request to one task of their installed app,
     // worked once by a reference harness, or by a harness of theirs that a Terminal session saved (`rush save`), which works the
-    // coding prompt like any harness but NanoAgent's. The member's computer fills the task's input from the request with the model every plugin run
-    // uses and pins the case, as it pins a benchmark's, and builds the harness; the run is queued like a benchmark run, on the endpoint
-    // RUSH Lab's worker serves. `interactive` says whether the member is at the harness's terminal (the
-    // tab, the command without a prompt); `model`, when given, is the harness's model in place of the one every run uses.
+    // coding prompt like any harness but NanoAgent's. Its run is queued at once, on its case set's frame (the plugin and the task,
+    // read from the member's computer) and the endpoint RUSH Lab's worker serves, so the harness starts while the member's computer
+    // fills the task's input from the request with the model every plugin run uses and pins the case, as it pins a benchmark's; the
+    // worker then reads the case (or why it could not be pinned) from the attempt. `interactive` says whether the member is at the
+    // harness's terminal (the tab, the command without a prompt); `model`, when given, is the harness's model in place of the one every run uses.
     if (top === 'sessions') {
       if (req.method !== 'POST') return wrongMethod();
       write();
       if (!ctx.workspaceApps) return json(res, 409, {error: 'Apps need a workspace file store', code: 'fs-disabled'});
-      req.setTimeout(PIN_TIMEOUT_MS);
       const body = object(await jsonBody(req, readBody), 'The body');
       const [pluginId, taskId, harness] = ['plugin_id', 'task_id', 'harness'].map(name => string(body[name], name));
       const text = string(body.text, 'text', {max: SESSION_TEXT_LIMIT});
@@ -254,9 +255,11 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       const opened = await ctx.workspaceApps.open(context, pluginId, computer);
       if (opened.error) return json(res, opened.status, {error: opened.error, code: 'app_unavailable'});
       if (opened.value.status !== 'ready') return json(res, 409, {error: `${opened.value.id} is not ready to run`, code: 'app_unavailable'});
-      const pinned = await computer.benchmarkSession(opened.value.sha256, JSON.stringify({task: taskId, text, model: aiSettings.MODEL}));
-      if (pinned.error) return json(res, pinned.status, {error: pinned.error, code: 'pin_failed'});
-      const publication = benchmarkPublication({...parseJson(pinned.value), model, endpoint_profile: SESSION_ENDPOINT});
+      const sha256 = opened.value.sha256;
+      const framed = await computer.benchmarkSessionFrame(sha256, JSON.stringify({task: taskId, text}));
+      if (framed.error) return json(res, framed.status, {error: framed.error, code: 'pin_failed'});
+      const parsed = parseJson(framed.value);
+      const frame = {...publicationFrame({...parsed, model, endpoint_profile: SESSION_ENDPOINT}), case_id: string(parsed.case_id, 'case_id')};
       let source = saved;
       if (reference) {
         const built = await computer.benchmarkReferenceHarness(harness);
@@ -264,7 +267,17 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
         source = await repository.saveSource(context, built.value, referenceHarnessOf(built.value, harness));
       }
       const policy = reference ? referencePolicy(harness) : 'coding';
-      const {run_id: id} = await service.session(context, publication, source, policy, {interactive: body.interactive});
+      const {run_id: id, session} = await service.session(context, frame, source, policy, {interactive: body.interactive});
+      wake(`claim:${context.userId}`);
+      const pinning = async () => {
+        const pinned = await computer.benchmarkSession(sha256, JSON.stringify({task: taskId, text, model: aiSettings.MODEL}));
+        if (pinned.error) throw new BenchmarkError(pinned.status, 'pin_failed', pinned.error);
+        await service.pinSession(context, session, benchmarkPublication({...parseJson(pinned.value), model, endpoint_profile: SESSION_ENDPOINT}));
+      };
+      pinning()
+        .catch(error => repository.failSessionCase(context, id, frame.case_id, error instanceof BenchmarkError ? error.message : `Pinning the case failed: ${error.message}`))
+        .catch(error => console.error(`[benchmark] session ${id}: recording its pin's failure failed:`, error))
+        .finally(() => wake(`case:${id}`));
       return json(res, 201, {run: await repository.run(context, id)});
     }
     if (top === 'previews') {
@@ -311,6 +324,7 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       if (req.method !== 'POST') return wrongMethod();
       write();
       const {run_id: id, replayed} = await service.submit(context, runBody(await jsonBody(req, readBody)));
+      wake(`claim:${context.userId}`);
       return json(res, replayed ? 200 : 201, {replayed, run: await repository.run(context, id)});
     }
 
@@ -325,7 +339,9 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       if (req.method !== 'POST') return wrongMethod();
       write();
       if (cancel) return json(res, 200, await repository.cancel(context, runId));
-      return json(res, 201, await repository.rerun(context, runId, segment(caseId, 'The case id')));
+      const queued = await repository.rerun(context, runId, segment(caseId, 'The case id'));
+      wake(`claim:${context.userId}`);
+      return json(res, 201, queued);
     }
 
     if (!UUID.test(attemptId)) return notFound('attempt');

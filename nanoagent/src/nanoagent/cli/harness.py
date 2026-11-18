@@ -9,8 +9,8 @@ the member's own worker, and the run folder gets its result and recording.
 harness of theirs, which `harness=<name>` runs again, scored and recorded the same way.
 
 It goes through the RUSH that RUSH Lab on this computer is connected to, as the tab does (POST /api/benchmark/sessions and the
-attempt's terminal, docs/contracts/rush-benchmark-api.md): RUSH pins the case on the member's computer, queues the run, and RUSH
-Lab's worker claims it and runs the harness in microsandbox with its gateway, strace and the plugin's verifier, on the OpenRouter
+attempt's terminal, docs/contracts/rush-benchmark-api.md): RUSH queues the run at once and pins the case on the member's computer
+meanwhile, and RUSH Lab's worker claims it and runs the harness in microsandbox with its gateway, strace and the plugin's verifier, on the OpenRouter
 key RUSH Lab keeps. This command signs in with RUSH Lab's connection (its `site` and `runner-credentials.json`) and never reads the
 key. Without `prompt`, the first line typed is the request and the terminal is then the harness's, raw, until it exits.
 """
@@ -47,7 +47,8 @@ DEFAULT_CONFIG = str(PACKAGED_CONFIGS / "harness.yaml")
 HARNESSES = {"rush": "nanoagent", "claude-code": "claude-code", "codex": "codex", "pi": "pi", "dsh": "dsh", "hermes": "hermes", "shell": "shell"}
 # The data folders of RUSH Lab and RUSH Lab Dev (helpinghands/desktop/config.yaml's labels).
 LABELS = ("lab.mochi.lab", "lab.mochi.lab.dev")
-# RUSH waits this long for the member's computer to pin the case and build the harness (helpinghands/src/server/ai.js).
+# RUSH queues the session once the member's computer has read the plugin's task and built the reference harness, and pins the
+# case while the harness starts (helpinghands/src/server/routes/benchmark.js).
 START_TIMEOUT_S = 960.0
 RETRY_S = 1.5
 

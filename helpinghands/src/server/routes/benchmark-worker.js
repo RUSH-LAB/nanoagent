@@ -13,18 +13,22 @@ const {UUID, jsonBody, rawBody, sendFailure} = require('../benchmark/http');
 const v = require('../benchmark/validate');
 const {MAX_SOURCE_BYTES, positiveSetting} = require('../benchmark/limits');
 const {uploadedHarnessOf} = require('../benchmark/harness');
+const {listen} = require('../benchmark/wake');
+const {PIN_TIMEOUT_MS} = require('../ai');
 
 const MAX_PAYLOAD_BYTES = positiveSetting('BENCHMARK_PAYLOAD_MAX_BYTES', 16 * 1024 * 1024);
 // A read of a terminal's input waits this long for the member to send some, looking every INPUT_POLL_MS.
 const INPUT_WAIT_MS = 15_000;
 const INPUT_POLL_MS = 50;
+// A read of a session's case waits this long for its pin; a pin RUSH lost (it restarted while pinning) fails after PIN_TIMEOUT_MS.
+const CASE_WAIT_MS = 20_000;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const REDACTIONS = ['none', 'redacted', 'truncated'];
 
 const ROUTE = new RegExp([
   '^/api/benchmark-worker/(?:',
   '(claim)',
-  '|attempts/([^/]+)/(renew|source|package|admissions|events|terminal|terminal-input|harness|spans|finalize|accounting)',
+  '|attempts/([^/]+)/(renew|source|package|case|admissions|events|terminal|terminal-input|harness|spans|finalize|accounting)',
   '|attempts/([^/]+)/admissions/([^/]+)/(settle)',
   '|attempts/([^/]+)/payloads/([^/]+)',
   ')$',
@@ -67,18 +71,56 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
 
     if (claim) {
       wanted('POST');
-      const {workerId, label, capabilities} = v.claimBody(await body());
-      const job = await worker.claim(userId, workerId, label, capabilities);
-      if (!job) {
-        res.writeHead(204);
-        return res.end();
+      const {workerId, label, capabilities, waitMs} = v.claimBody(await body());
+      // With nothing to lease, a claim waits up to `wait_s` for the member's work to be queued (a wake-up, not a poll), and never
+      // leases to a worker that has gone.
+      let closed = false;
+      req.on('close', () => { closed = true; });
+      for (const until = Date.now() + waitMs; ;) {
+        const queued = listen(`claim:${userId}`);
+        try {
+          const job = await worker.claim(userId, workerId, label, capabilities);
+          if (job) return json(res, 200, job);
+          if (closed || Date.now() >= until) {
+            res.writeHead(204);
+            return res.end();
+          }
+          await queued.woken(until - Date.now());
+        } finally {
+          queued.stop();
+        }
+        if (closed) return res.end();
       }
-      return json(res, 200, job);
     }
     if (jobId !== undefined) {
       if (jobPart === 'source' || jobPart === 'package') {
         wanted('GET', jobId);
         return sendBytes(res, await worker.artifact(userId, jobId, fenceHeader(req), jobPart));
+      }
+      // The case of a job claimed while its session's case was being pinned: 200 once pinned, 204 if it still is after CASE_WAIT_MS,
+      // 422 case_failed with why it could not be.
+      if (jobPart === 'case') {
+        wanted('GET', jobId);
+        const fence = fenceHeader(req);
+        const {run_id: runId} = await worker.pinnedCase(userId, jobId, fence);
+        for (const until = Date.now() + CASE_WAIT_MS; ;) {
+          const pinning = listen(`case:${runId}`);
+          try {
+            const {created_at: createdAt, pin_error: pinError, run_id: _, ...pinned} = await worker.pinnedCase(userId, jobId, fence);
+            if (pinned.case) return json(res, 200, pinned);
+            const lost = Date.now() - new Date(createdAt).getTime() > PIN_TIMEOUT_MS;
+            if (pinError || lost) {
+              throw new BenchmarkError(422, 'case_failed', pinError ?? `RUSH lost run ${runId}'s case while pinning it`);
+            }
+            if (Date.now() >= until) {
+              res.writeHead(204);
+              return res.end();
+            }
+            await pinning.woken(until - Date.now());
+          } finally {
+            pinning.stop();
+          }
+        }
       }
       if (jobPart === 'terminal-input') {
         wanted('GET', jobId);

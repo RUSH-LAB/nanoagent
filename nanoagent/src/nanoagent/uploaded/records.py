@@ -113,7 +113,7 @@ class AttemptStarted(Fact):
     endpoint: Mapping[str, Any]
     model: str
     dialects: Sequence[str]
-    prompt_sha256: str
+    prompt_sha256: str | None  # None for a session's Terminal, which starts before its case is pinned
     policy: str
     toolchain: Any
     source_sha256: str

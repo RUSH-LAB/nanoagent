@@ -176,6 +176,11 @@ def derive_case_set(name: str, cases: CaseSet, manifest, sha256: str, timeout: f
             }
         )
         print(f"pinned {case}")
+    return {**case_set_frame(name, manifest, sha256, task, cases.context), "cases": published, "private": references}
+
+
+def case_set_frame(name: str, manifest, sha256: str, task, context: str) -> dict[str, Any]:
+    """What a case set of ``task`` says but its cases: the plugin, the task and the context, all from ``manifest``."""
     return {
         "name": name,
         "plugin_id": manifest.id,
@@ -193,9 +198,7 @@ def derive_case_set(name: str, cases: CaseSet, manifest, sha256: str, timeout: f
             # The HTTPS hosts the plugin's processes may reach (CONNECT host:443 through the egress proxy); none means no egress.
             "egress_hosts": sorted(set(manifest.permissions.network_hosts)),
         },
-        "context": cases.context,
-        "cases": published,
-        "private": references,
+        "context": context,
     }
 
 
@@ -222,17 +225,30 @@ class SessionsConfig(Config):
                 raise ValueError(f"sessions.{name} must be >= 1, got {getattr(self, name)}")
 
 
+def session_task(manifest, task_id: str) -> Any:
+    try:
+        return manifest.task(task_id)
+    except KeyError as error:
+        raise PreparationError(f"{manifest.id} has an unknown task: {error.args[0]}") from error
+
+
+def session_frame(manifest, sha256: str, task_id: str, text: str, sessions: SessionsConfig) -> dict[str, Any]:
+    """A Harness tab session's case set but its case (and that case's id, ``case_id``), read from ``manifest`` at once: RUSH queues
+    the session's run on it while :func:`session_case_set` fills and pins the case, whose case set has this same frame."""
+    task = session_task(manifest, task_id)
+    limits = {"max_model_calls": sessions.max_model_calls, "build_output_bytes": sessions.build_output_bytes, "build_wall_ms": sessions.build_wall_ms}
+    [case_id] = case_ids(CaseSet(plugin=manifest.id, task=task.id, context=text, answer=[{}], refuse=[]))
+    return {**case_set_frame(SESSION, manifest, sha256, task, text), "limits": limits, "case_id": case_id}
+
+
 async def session_case_set(
     model: DecisionModel, manifest, sha256: str, task_id: str, text: str, timeout: float, sessions: SessionsConfig
 ) -> dict[str, Any]:
     """The case set of a Harness tab session: one case to answer, whose input ``model`` fills from ``text``, the member's
     request, as the plugin's Session agent fills a task's input from theirs; ``text`` is its context, so a coding harness
-    reads the request as the member wrote it. Pinned like any case set (:func:`derive_case_set`), the run limited by
-    ``sessions``."""
-    try:
-        task = manifest.task(task_id)
-    except KeyError as error:
-        raise PreparationError(f"{manifest.id} has an unknown task: {error.args[0]}") from error
+    reads the request as the member wrote it. Pinned like any case set (:func:`derive_case_set`), on the frame
+    :func:`session_frame` gives."""
+    task = session_task(manifest, task_id)
     system = f"You turn a request to the {manifest.name} plugin into the input of its task: {task.description}.\n{task.instructions}"
     try:
         answer = await model.answer([{"role": "system", "content": system}, {"role": "user", "content": text}], name=task.id, schema=task.input)
@@ -240,5 +256,4 @@ async def session_case_set(
         raise PreparationError(f"the model could not make task {task.id}'s input from the request: {error}") from error
     cases = CaseSet(plugin=manifest.id, task=task.id, context=text, answer=[answer.value], refuse=[])
     publication = await asyncio.to_thread(derive_case_set, SESSION, cases, manifest, sha256, timeout)
-    limits = {"max_model_calls": sessions.max_model_calls, "build_output_bytes": sessions.build_output_bytes, "build_wall_ms": sessions.build_wall_ms}
-    return {**publication, "limits": limits}
+    return {**publication, **session_frame(manifest, sha256, task_id, text, sessions)}

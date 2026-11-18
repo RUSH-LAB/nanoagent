@@ -16,6 +16,8 @@ const BENCHMARK_NAME = /^[a-z0-9][a-z0-9._-]{0,127}$/;
 const POLICIES = ['coding', 'task_tools'];
 const TASK_KINDS = ['agent', 'decide', 'tool'];
 const CASE_KINDS = ['answer', 'refuse'];
+// The longest a claim waits for work (`wait_s`), well within a worker's request timeout.
+const MAX_CLAIM_WAIT_S = 30;
 const VERDICTS = ['pass', 'fail'];
 // Why a case failed (nanoagent.plugin.verifier.TASK_VERIFIER_EXPLANATIONS); a failure by `verify_task` alone has none.
 const EXPLANATIONS = ['invalid_answer', 'refused_answer_case', 'answered_refusal_case', 'execution_failed'];
@@ -130,11 +132,8 @@ const caseDigests = (c, reference) => {
  * task instructions as pinned text) and the benchmark's own digest. Whether the endpoint's workers can give the limits is the service's to check.
  */
 function benchmarkPublication(body) {
-  object(body, 'The body');
-  const name = string(body.name, 'name', {max: 128});
-  if (!BENCHMARK_NAME.test(name)) throw bad('invalid_request', 'name is lowercase letters, digits, ".", "_" and "-"');
-  const task = taskOf(body.task);
-  if (typeof body.context !== 'string') throw bad('invalid_request', 'context must be a string');
+  const frame = publicationFrame(body);
+  const {task, context, coding_template: codingTemplate, task_instructions: taskInstructions} = frame;
   const caseList = array(body.cases, 'cases', {max: 5000});
   if (!caseList.length) throw bad('invalid_request', 'A benchmark needs at least one case');
   const privateReferences = object(body.private, 'private');
@@ -161,38 +160,46 @@ function benchmarkPublication(body) {
   });
   const extra = Object.keys(privateReferences).find(id => !seen.has(id));
   if (extra) throw bad('invalid_request', `private has a reference for ${extra}, which is no case`);
-  const pluginId = string(body.plugin_id, 'plugin_id');
-  const packageSha256 = sha256(body.package_sha256, 'package_sha256');
-  const taskId = string(body.task_id, 'task_id');
-  const context = body.context;
   // The identity of the case set, to which its package is bound.
   const caseSetDigest = sha256Hex(canonicalJson({
-    package_sha256: packageSha256, task_id: taskId, task, context, cases: cases.map(({case_id: id, content_digest: contentDigest}) => ({case_id: id, content_digest: contentDigest})),
+    package_sha256: frame.package_sha256, task_id: frame.task_id, task, context, cases: cases.map(({case_id: id, content_digest: contentDigest}) => ({case_id: id, content_digest: contentDigest})),
   }));
-  const model = string(body.model, 'model');
-  const endpointProfile = string(body.endpoint_profile, 'endpoint_profile', {max: 100});
-  // The body is read with every number's spelling kept; a limit is a plain number.
-  const limits = effectiveLimits(limitOverrides(body.limits === undefined ? undefined : JSON.parse(stringifyJson(body.limits))));
-  // Both prompts are pinned as text, because the runner picks the policy.
-  const codingTemplate = body.coding_template === undefined || body.coding_template === null ? DEFAULT_CODING_TEMPLATE : normalizeTemplate(body.coding_template);
-  const taskInstructions = body.task_instructions === undefined || body.task_instructions === null ? task.instructions : normalizeInstructions(body.task_instructions);
   // Every case renders under both policies here, so a template that does not render, or amplifies the arguments, fails now and not at every run.
-  const pluginName = string(body.plugin_name, 'plugin_name');
   let renderedChars = 0;
   for (const c of cases) {
-    const prompts = [renderCoding(codingTemplate, {task, context, args: c.arguments}), renderTaskTools({pluginName, task, instructions: taskInstructions, args: c.arguments})];
+    const prompts = [renderCoding(codingTemplate, {task, context, args: c.arguments}), renderTaskTools({pluginName: frame.plugin_name, task, instructions: taskInstructions, args: c.arguments})];
     renderedChars += prompts.reduce((sum, prompt) => sum + (prompt.system?.length ?? 0) + (prompt.user?.length ?? 0), 0);
     if (renderedChars > MAX_BENCHMARK_PROMPT_CHARS) {
       throw bad('prompts_too_long', `The cases' rendered prompts may total ${MAX_BENCHMARK_PROMPT_CHARS} characters at most under both policies`);
     }
   }
   return {
-    name, plugin_id: pluginId, plugin_name: pluginName, version: string(body.version, 'version', {max: 64}),
-    package_sha256: packageSha256, task_id: taskId, task, context, cases, private: privateReferences, case_set_digest: caseSetDigest,
-    model, endpoint_profile: endpointProfile, limits, coding_template: codingTemplate, task_instructions: taskInstructions,
+    ...frame, cases, private: privateReferences, case_set_digest: caseSetDigest,
     digest: sha256Hex(canonicalJson({
-      case_set_digest: caseSetDigest, model, endpoint_profile: endpointProfile, limits, coding_template: codingTemplate, task_instructions: taskInstructions,
+      case_set_digest: caseSetDigest, model: frame.model, endpoint_profile: frame.endpoint_profile, limits: frame.limits, coding_template: codingTemplate, task_instructions: taskInstructions,
     })),
+  };
+}
+
+/**
+ * What a publication says but its cases (and their digests): the plugin, the task, the context and the run configuration. A Harness
+ * tab session's run is queued on this frame of its case set while its one case is pinned.
+ */
+function publicationFrame(body) {
+  object(body, 'The body');
+  const name = string(body.name, 'name', {max: 128});
+  if (!BENCHMARK_NAME.test(name)) throw bad('invalid_request', 'name is lowercase letters, digits, ".", "_" and "-"');
+  const task = taskOf(body.task);
+  if (typeof body.context !== 'string') throw bad('invalid_request', 'context must be a string');
+  return {
+    name, plugin_id: string(body.plugin_id, 'plugin_id'), plugin_name: string(body.plugin_name, 'plugin_name'), version: string(body.version, 'version', {max: 64}),
+    package_sha256: sha256(body.package_sha256, 'package_sha256'), task_id: string(body.task_id, 'task_id'), task, context: body.context,
+    model: string(body.model, 'model'), endpoint_profile: string(body.endpoint_profile, 'endpoint_profile', {max: 100}),
+    // The body is read with every number's spelling kept; a limit is a plain number.
+    limits: effectiveLimits(limitOverrides(body.limits === undefined ? undefined : JSON.parse(stringifyJson(body.limits)))),
+    // Both prompts are pinned as text, because the runner picks the policy.
+    coding_template: body.coding_template === undefined || body.coding_template === null ? DEFAULT_CODING_TEMPLATE : normalizeTemplate(body.coding_template),
+    task_instructions: body.task_instructions === undefined || body.task_instructions === null ? task.instructions : normalizeInstructions(body.task_instructions),
   };
 }
 
@@ -343,10 +350,12 @@ function claimBody(body) {
   return {
     workerId: string(body.worker_id, 'worker_id', {max: 200}), label: string(profile.label, 'endpoint_profile.label', {max: 100}),
     capabilities: capabilitiesOf(body.capabilities),
+    // How long a claim with nothing to lease waits for work to be queued: none unless the worker asks.
+    waitMs: body.wait_s === undefined ? 0 : Math.round(finite(body.wait_s, 'wait_s', {min: 0, max: MAX_CLAIM_WAIT_S}) * 1000),
   };
 }
 
 module.exports = {
-  benchmarkPublication, previewBody, runBody, eventsBody, terminalBody, terminalInputBody, spansBody, finalizeBody, admissionBody, settleBody, accountingBody,
+  benchmarkPublication, publicationFrame, previewBody, runBody, eventsBody, terminalBody, terminalInputBody, spansBody, finalizeBody, admissionBody, settleBody, accountingBody,
   claimBody, SHA256, fenceOf, object, string,
 };

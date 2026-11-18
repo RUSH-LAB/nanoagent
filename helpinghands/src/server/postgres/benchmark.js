@@ -155,6 +155,14 @@ function createPostgresBenchmark({pool}) {
     }
   }
 
+  /** Copy the private reference of case `caseId` of case set `caseSetId` to run `runId`. */
+  const keepRunPrivate = (client, runId, caseSetId, caseId) => client.query(
+    `insert into benchmark_run_private (run_id, case_id, reference)
+     select $1, case_id, reference from benchmark_case_set_private where case_set_id = $2 and case_id = $3`,
+    [runId, caseSetId, caseId],
+  );
+  const publisherOf = async (client, userId) => (await client.query('select id, display_name as name, github_login as github from app_user where id = $1', [userId])).rows[0];
+
   return Object.freeze({
     /** At most `limit` published benchmarks (public parts of each, no cases) published before `before`, newest first, of plugin `pluginId` and its version `version` if given. */
     async benchmarks(context, {pluginId = null, version = null, limit, before = null}) {
@@ -217,8 +225,12 @@ function createPostgresBenchmark({pool}) {
     async saveCaseSet(userId, publication) {
       return inTransaction(pool, {userId}, async client => {
         await keepCaseSet(client, userId, publication);
-        return (await client.query('select id, display_name as name, github_login as github from app_user where id = $1', [userId])).rows[0];
+        return publisherOf(client, userId);
       });
+    },
+    /** Member `userId` as a case set's publisher: `{id, name, github}`. */
+    async publisher(userId) {
+      return inTransaction(pool, {userId}, client => publisherOf(client, userId));
     },
 
     /** What member `userId`'s worker last advertised for endpoint profile `label` within the capability window, or null when it has not. */
@@ -237,9 +249,8 @@ function createPostgresBenchmark({pool}) {
       )).rows);
     },
 
-    /** Keep a preview's resolved `plan` and its `digest`: the new preview's id. */
-    async savePreview(context, plan, digest) {
-      const previewId = crypto.randomUUID();
+    /** Keep a preview's resolved `plan` and its `digest` as `previewId` (a new one unless given): the preview's id. */
+    async savePreview(context, plan, digest, previewId = crypto.randomUUID()) {
       // As the system (still the member's own rows), so the prune sees the member's previews of every workspace, not only this one's.
       await memberWrite(context, async client => {
         await client.query(
@@ -366,16 +377,14 @@ function createPostgresBenchmark({pool}) {
           return {run_id: existing.run_id, replayed: true};
         }
         for (const c of cases) {
+          // A session's case is queued before it is pinned (`pinSessionCase` fills it in), with no arguments, digest or prompt.
           await client.query(
             `insert into benchmark_run_case (run_id, case_id, position, kind, arguments, expected_error, content_digest, prompt_system, prompt_user, prompt_sha256)
              values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-            [runId, c.case_id, c.position, c.kind, stringifyJson(c.arguments), c.expected_error, c.content_digest, c.prompt.system, c.prompt.user, c.prompt.sha256],
+            [runId, c.case_id, c.position, c.kind, c.prompt ? stringifyJson(c.arguments) : null, c.expected_error, c.content_digest, c.prompt?.system ?? null,
+              c.prompt?.user ?? null, c.prompt?.sha256 ?? null],
           );
-          await client.query(
-            `insert into benchmark_run_private (run_id, case_id, reference)
-             select $1, case_id, reference from benchmark_case_set_private where case_set_id = $2 and case_id = $3`,
-            [runId, benchmark.case_set_id, c.case_id],
-          );
+          if (c.prompt) await keepRunPrivate(client, runId, benchmark.case_set_id, c.case_id);
           await client.query(
             'insert into benchmark_attempt (attempt_id, run_id, case_id, attempt_no) values ($1, $2, $3, 1)',
             [crypto.randomUUID(), runId, c.case_id],
@@ -383,6 +392,34 @@ function createPostgresBenchmark({pool}) {
         }
         return {run_id: runId, replayed: false};
       });
+    },
+
+    /**
+     * Pin the one case of the caller's session run `runId`, queued before it was known: `benchmark` is the session's benchmark with its
+     * case set kept (`saveCaseSet`) and `c` the case as it resolved (`resolve`'s), its rendered prompt and private reference.
+     */
+    async pinSessionCase(context, runId, benchmark, c) {
+      return memberWrite(context, async client => {
+        const run = await client.query(
+          'update benchmark_run set case_set_id = $3, case_set_digest = $4 where run_id = $1 and user_id = $2 and case_set_id is null',
+          [runId, context.userId, benchmark.case_set_id, benchmark.case_set_digest],
+        );
+        if (!run.rowCount) throw new BenchmarkError(409, 'case_pinned', `Run ${runId} is no session of yours waiting for its case`);
+        await client.query(
+          `update benchmark_run_case set arguments = $3, content_digest = $4, prompt_system = $5, prompt_user = $6, prompt_sha256 = $7
+            where run_id = $1 and case_id = $2 and prompt_sha256 is null and pin_error is null`,
+          [runId, c.case_id, stringifyJson(c.arguments), c.content_digest, c.prompt.system, c.prompt.user, c.prompt.sha256],
+        );
+        await keepRunPrivate(client, runId, benchmark.case_set_id, c.case_id);
+      });
+    },
+    /** Say why the case `caseId` of the caller's session run `runId` could not be pinned: its harness then ends with `error`, unscored. */
+    async failSessionCase(context, runId, caseId, error) {
+      return memberWrite(context, client => client.query(
+        `update benchmark_run_case c set pin_error = $4 from benchmark_run r
+          where c.run_id = $1 and c.case_id = $2 and r.run_id = c.run_id and r.user_id = $3 and c.prompt_sha256 is null`,
+        [runId, caseId, context.userId, error],
+      ));
     },
 
     /** The caller's own runs as run summaries, newest first; a Harness tab session is not a benchmark result, so it is not listed. */

@@ -61,9 +61,28 @@ async def test_claim_sends_the_profile_and_maps_204_to_none() -> None:
         return httpx.Response(204)
 
     capabilities = {"wall_time_ms": 1000, "memory_mb": 512, "internet_access": True}
-    assert await client_for(handler).claim("w", "mock", "mock", capabilities) is None
-    assert json.loads(seen[0].content) == {"worker_id": "w", "endpoint_profile": {"label": "mock", "mode": "mock"}, "capabilities": capabilities}
+    assert await client_for(handler).claim("w", "mock", "mock", capabilities, 20) is None
+    assert json.loads(seen[0].content) == {"worker_id": "w", "endpoint_profile": {"label": "mock", "mode": "mock"}, "capabilities": capabilities, "wait_s": 20}
     assert seen[0].headers["authorization"] == "Bearer tok"
+
+
+async def test_a_pending_case_is_read_with_the_fence_until_pinned_and_its_failure_raised() -> None:
+    from nanoagent.uploaded.rush_worker import CaseFailed
+
+    answers = [httpx.Response(204), httpx.Response(200, json={"case": {"case_id": "c1"}}), httpx.Response(422, json={"code": "case_failed", "error": "no input"})]
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return answers.pop(0)
+
+    client = client_for(handler)
+    assert await client.case("a", 3) is None
+    assert await client.case("a", 3) == {"case": {"case_id": "c1"}}
+    with pytest.raises(CaseFailed) as failed:
+        await client.case("a", 3)
+    assert failed.value.message == "no input"
+    assert [(r.url.path, r.headers["x-rush-fence"]) for r in seen] == [("/api/benchmark-worker/attempts/a/case", "3")] * 3
 
 
 async def test_downloads_send_the_fence_and_check_the_declared_digest() -> None:

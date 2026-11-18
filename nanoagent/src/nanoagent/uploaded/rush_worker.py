@@ -17,7 +17,7 @@ import base64
 import hashlib
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import Any
 
@@ -68,6 +68,10 @@ class Sealed(RushError):
     """The attempt was already finalized."""
 
 
+class CaseFailed(RushError):
+    """The session's case could not be pinned: the attempt ends with that error, unscored."""
+
+
 class ConflictingDuplicate(RushError):
     """The same identity was submitted with different content."""
 
@@ -104,6 +108,7 @@ _BY_CODE: dict[str, type[RushError]] = {
     "lease_lost": LeaseLost,
     "canceled": Canceled,
     "sealed": Sealed,
+    "case_failed": CaseFailed,
     "conflicting_duplicate": ConflictingDuplicate,
     "budget_exhausted": BudgetExhausted,
     "duplicate_call": DuplicateCall,
@@ -130,18 +135,25 @@ class AttemptJob:
     """One claimed attempt. ``run`` holds model, dialects, source_sha256, ``policy`` and the effective ``limits``; ``task``
     is ``{id, kind, description, instructions, plugin_name, tools}``; ``case`` is ``{case_id, kind, arguments, context,
     input_schema, output_schema, content_digest}``; ``prompt`` is ``{system, user, sha256}``; ``plugin`` is
-    ``{id, name, version, sha256}``. (The claim's ``case_set`` and ``renderer_version`` are the server's bookkeeping.)"""
+    ``{id, name, version, sha256}``. (The claim's ``case_set`` and ``renderer_version`` are the server's bookkeeping.)
+    ``case_pending`` is a session's case still being pinned: ``case``, ``prompt`` and ``private_reference`` are None until
+    :meth:`pinned` gives them from :meth:`RushWorkerClient.case`."""
 
     attempt_id: str
     attempt_no: int
     fence: int
     run: Mapping[str, Any]
     task: Mapping[str, Any]
-    case: Mapping[str, Any]
-    prompt: Mapping[str, Any]
+    case: Mapping[str, Any] | None
+    prompt: Mapping[str, Any] | None
     plugin: Mapping[str, Any]
     private_reference: Any
     lease_seconds: float  # how long the claim, and each renewal, keeps the lease
+    case_pending: bool = False
+
+    def pinned(self, body: Mapping[str, Any]) -> AttemptJob:
+        """This job with its case as RUSH pinned it (``GET /attempts/{id}/case``)."""
+        return replace(self, case=body["case"], prompt=body["prompt"], private_reference=body["private_reference"], case_pending=False)
 
 
 def parse_job(body: Mapping[str, Any]) -> AttemptJob:
@@ -149,7 +161,7 @@ def parse_job(body: Mapping[str, Any]) -> AttemptJob:
         if body["kind"] == "attempt":
             return AttemptJob(
                 body["attempt_id"], body["attempt_no"], body["fence"], body["run"], body["task"], body["case"], body["prompt"],
-                body["plugin"], body.get("private_reference"), float(body["lease_seconds"]),
+                body["plugin"], body.get("private_reference"), float(body["lease_seconds"]), body["case_pending"],
             )
     except KeyError as error:
         raise RushError(200, "invalid_job", f"the claimed job lacks {error.args[0]!r}", body) from error
@@ -208,10 +220,11 @@ class RushWorkerClient:
 
     # -- leases ------------------------------------------------------------------------------------------------
 
-    async def claim(self, worker_id: str, label: str, mode: str, capabilities: Mapping[str, Any]) -> AttemptJob | None:
+    async def claim(self, worker_id: str, label: str, mode: str, capabilities: Mapping[str, Any], wait_s: float) -> AttemptJob | None:
         """Claim an attempt; ``capabilities`` is the worker's maximum for each numeric limit and its ``internet_access`` support,
-        which the server stores for the endpoint label and matches the run's limits against."""
-        body = {"worker_id": worker_id, "endpoint_profile": {"label": label, "mode": mode}, "capabilities": dict(capabilities)}
+        which the server stores for the endpoint label and matches the run's limits against. With none queued, RUSH holds the
+        claim up to ``wait_s`` and answers as soon as one is."""
+        body = {"worker_id": worker_id, "endpoint_profile": {"label": label, "mode": mode}, "capabilities": dict(capabilities), "wait_s": wait_s}
         response = await self._send("POST", "/claim", content=json_bytes(body), headers={"Content-Type": "application/json"})
         return None if response.status_code == 204 else parse_job(response.json())
 
@@ -287,6 +300,12 @@ class RushWorkerClient:
         or null for a resize to ``rows`` by ``cols``). RUSH holds the request open a while for some to come, and answers [] if none did."""
         response = await self._send("GET", f"/attempts/{attempt_id}/terminal-input", params={"after": after}, headers={FENCE_HEADER: str(fence)})
         return response.json()["inputs"]
+
+    async def case(self, attempt_id: str, fence: int) -> Mapping[str, Any] | None:
+        """The case of a job claimed while it was pending, ``{case_set, case, prompt, private_reference}``, once RUSH has pinned it;
+        None if it is still being pinned after RUSH held the request a while. Raises [CaseFailed] with why it could not be pinned."""
+        response = await self._send("GET", f"/attempts/{attempt_id}/case", headers={FENCE_HEADER: str(fence)})
+        return None if response.status_code == 204 else response.json()
 
     async def save_harness(self, attempt_id: str, fence: int, data: bytes) -> Mapping[str, Any]:
         """Saves the harness ZIP ``data`` that the attempt's session made (`rush save`) as its member's: RUSH's

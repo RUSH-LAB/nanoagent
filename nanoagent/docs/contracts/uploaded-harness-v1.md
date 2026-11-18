@@ -47,6 +47,7 @@ The process decodes one UTF-8 JSON object from `RUSH_REQUEST`. Reject duplicate 
   "attempt_id": "<uuid>",
   "policy": "coding | task_tools",
   "task": {"id": "...", "kind": "agent | decide | tool", "description": "...", "instructions": "...", "plugin_name": "..."},
+  "case_pending": false,
   "case": {"case_id": "...", "arguments": {}, "context": "...", "input_schema": {}, "output_schema": {}},
   "prompt": {"system": "<text or null>", "user": "<text or null>", "sha256": "<digest>"},
   "workspace": "/rush/workspace",
@@ -59,7 +60,7 @@ The process decodes one UTF-8 JSON object from `RUSH_REQUEST`. Reject duplicate 
 }
 ```
 
-`task` and `case` are the public task and case; `case.kind` and the private reference stay on the worker. `prompt` is the run's pinned rendered prompt for the case, `sha256` its digest. `limits` are the run's effective limits (all of them, with the defaults in the API's [`GET /defaults`](rush-benchmark-api.md#get-defaults)), as the worker applies them. The guest can read its task workspace and receives no private verifier inputs.
+`task` and `case` are the public task and case; `case.kind` and the private reference stay on the worker. `prompt` is the run's pinned rendered prompt for the case, `sha256` its digest. `case_pending` is `true` only for the Terminal (`shell`) of a session someone is at, which starts while the plugin's model fills the case from their request: `case` and `prompt` are then `null`, the worker writes `prompt.md` and `request.json` into the workspace once the case is pinned, and the session is scored only against that case (it waits for the pin if it ends first; a failed pin ends it unscored, `execution_failed` with reason `case_failed: <why>`). `limits` are the run's effective limits (all of them, with the defaults in the API's [`GET /defaults`](rush-benchmark-api.md#get-defaults)), as the worker applies them. The guest can read its task workspace and receives no private verifier inputs.
 
 The harness runs on a terminal (a PTY, `TERM=xterm-256color`): what it writes there, its stdout and stderr together, is shown live to the member (`GET /attempts/{id}/terminal`). `interactive` is `true` when a member is at that terminal (a plugin page's Harness tab session): what they type reaches the harness's stdin, the terminal takes their window's size, and they end the session themselves, so a harness runs its CLI interactively. When it is `false` nobody types (stdin stays open with nothing on it), and the harness works the case to its end on its own.
 

@@ -1,5 +1,5 @@
 """The member's own terminal in the case's VM: bash in the case workspace, which holds prompt.md (the rendered coding prompt) and
-request.json (the case's input), with every model SDK pointed at the attempt's gateway and the reference CLIs (bin/: claude,
+request.json (the case's input), written by the worker once the case is pinned when the shell starts before it is, with every model SDK pointed at the attempt's gateway and the reference CLIs (bin/: claude,
 codex, pi, hermes, dsh) set up for it. They install and run any agent there (pip and npm install into .rush/), and once they exit,
 the answer.json it left is scored as a coding harness's is.
 
@@ -26,8 +26,9 @@ if (HERE / "workspace").is_dir():
     shutil.copytree(HERE / "workspace", workspace, dirs_exist_ok=True)
     for path in (HERE / "executables").read_text(encoding="utf-8").splitlines():
         (workspace / path).chmod(0o755)
-(workspace / "prompt.md").write_text(request["prompt"]["user"], encoding="utf-8")
-(workspace / "request.json").write_text(json.dumps(request["case"]["arguments"], indent=2) + "\n", encoding="utf-8")
+if not request["case_pending"]:
+    (workspace / "prompt.md").write_text(request["prompt"]["user"], encoding="utf-8")
+    (workspace / "request.json").write_text(json.dumps(request["case"]["arguments"], indent=2) + "\n", encoding="utf-8")
 
 gateway = request["openrouter"]["base_url"]  # .../api/v1: what the OpenAI SDK takes; the Anthropic SDK adds /v1 itself
 token = os.environ["RUSH_ATTEMPT_TOKEN"]
@@ -38,10 +39,11 @@ env = {
     **os.environ,
     "OPENAI_BASE_URL": gateway, "OPENAI_API_KEY": token,
     "ANTHROPIC_BASE_URL": gateway.removesuffix("/v1"), "ANTHROPIC_API_KEY": token,
-    "RUSH_MODEL": request["openrouter"]["model"], "RUSH_PROMPT": request["prompt"]["user"],
-    "RUSH_MAX_OUTPUT_TOKENS": str(request["limits"]["max_output_tokens_per_call"]),
+    "RUSH_MODEL": request["openrouter"]["model"], "RUSH_MAX_OUTPUT_TOKENS": str(request["limits"]["max_output_tokens_per_call"]),
     "PYTHONUSERBASE": str(user_base), "NPM_CONFIG_PREFIX": str(npm_prefix),
 }  # fmt: skip
+if not request["case_pending"]:  # a shell that starts before its case reads it from prompt.md once it appears
+    env["RUSH_PROMPT"] = request["prompt"]["user"]
 if (HERE / "packages").is_dir():
     env["PYTHONPATH"] = str(HERE / "packages")
     path.append(str(HERE / "packages" / "bin"))
@@ -53,7 +55,8 @@ if command is not None:
 
 print(
     f"\x1b[1mRUSH terminal\x1b[0m · {request['openrouter']['model']} · {workspace}\r\n"
-    "prompt.md is the task and request.json its input, which the plugin's model filled from the request (in the Harness tab, from\r\n"
+    + ("\x1b[1mpreparing the task… (prompt.md will appear)\x1b[0m\r\n" if request["case_pending"] else "")
+    + "prompt.md is the task and request.json its input, which the plugin's model filled from the request (in the Harness tab, from\r\n"
     "the task's description). Write answer.json here, then exit: it is scored like any harness's.\r\n"
     "claude, codex, pi, hermes and dsh (headless: dsh \"<task>\") are ready, and OPENAI_BASE_URL/OPENAI_API_KEY and ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY reach the\r\n"
     "model ($RUSH_MODEL) through RUSH's gateway, which records every call. pip and npm -g install into .rush/.\r\n"

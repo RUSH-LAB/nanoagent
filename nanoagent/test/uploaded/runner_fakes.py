@@ -52,7 +52,7 @@ def job_body(policy: str = "task_tools", limits: dict[str, Any] | None = None, t
         "kind": "attempt", "attempt_id": ATTEMPT_ID, "attempt_no": 1, "fence": 1, "lease_expires_at": "later", "lease_seconds": 60,
         "run": {
             "run_id": "r", "model": "test/model", "endpoint_profile": "mock", "dialects": ["chat_completions"], "source_sha256": "b" * 64,
-            "policy": policy, "limits": {**LIMITS, **(limits or {})}, "interactive": False, "prompt_bound": True,
+            "policy": policy, "limits": {**LIMITS, **(limits or {})}, "interactive": False, "prompt_bound": True, "terminal": False,
         },
         "task": {
             "id": "probe", "kind": "agent", "description": "Sum the numbers.", "instructions": "Be exact.", "plugin_name": "Acceptance probe",
@@ -66,6 +66,7 @@ def job_body(policy: str = "task_tools", limits: dict[str, Any] | None = None, t
         "plugin": {"id": "acceptance-probe", "name": "Acceptance probe", "version": "0.1.0", "sha256": PLUGIN_SHA},
         "case_set": {"case_set_id": "probe@1", "digest": "f" * 64},
         "private_reference": {"digest": "x"},
+        "case_pending": False,
     }
     body.update(overrides)
     return body
@@ -73,6 +74,14 @@ def job_body(policy: str = "task_tools", limits: dict[str, Any] | None = None, t
 
 def job(**overrides: Any):
     return parse_job(job_body(**overrides))
+
+
+def pending_job(terminal: bool = True, **overrides: Any):
+    """A session's job claimed while its case is pinned, and what ``GET /attempts/{id}/case`` answers once it is."""
+    body = job_body(policy="coding", **overrides)
+    body["run"] |= {"terminal": terminal, "interactive": terminal, "prompt_bound": not terminal}
+    pinned = {key: body[key] for key in ("case_set", "case", "prompt", "private_reference")}
+    return parse_job({**body, "case_pending": True, "case_set": None, "case": None, "prompt": None, "private_reference": None}), pinned
 
 
 class StopPolling(Exception):
@@ -103,6 +112,8 @@ class FakeRush:
         self.renew_attempts = 0
         self.jobs: list[Any] = []  # what claim hands out, then StopPolling
         self.events_after_loss = 0
+        self.pinned_case: Any = None  # what GET /attempts/{id}/case answers (a body, or an exception it raises), after case_delay_s
+        self.case_delay_s = 0.0
 
     def _fenced(self) -> None:
         if self.sealed:
@@ -116,7 +127,18 @@ class FakeRush:
     async def package(self, attempt_id: str, fence: int) -> bytes:
         return b"package"
 
-    async def claim(self, worker_id: str, label: str, mode: str, capabilities: Any) -> Any:
+    async def case(self, attempt_id: str, fence: int) -> Any:
+        self._fenced()
+        await anyio.sleep(self.case_delay_s)
+        if isinstance(self.pinned_case, Exception):
+            raise self.pinned_case
+        return self.pinned_case
+
+    async def terminal_input(self, attempt_id: str, fence: int, after: int) -> list[Any]:
+        await anyio.sleep(0.05)  # nobody types: RUSH answers [] after holding the request
+        return []
+
+    async def claim(self, worker_id: str, label: str, mode: str, capabilities: Any, wait_s: float) -> Any:
         self.claims.append(capabilities)
         if not self.jobs:
             await anyio.sleep(0.5)  # the attempts claimed so far run concurrently: let them finish before the poll loop is ended
@@ -246,6 +268,8 @@ class FakeCase:
         self.launched = False
         self.drained = False
         self.workdir = workdir
+        self.workspace = workdir / "workspace"
+        self.workspace.mkdir(parents=True, exist_ok=True)
 
     def launch(self) -> None:
         self.launched = True

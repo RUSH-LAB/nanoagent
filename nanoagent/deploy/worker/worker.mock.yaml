@@ -46,5 +46,4 @@ dependencies > nanoagent.uploaded.worker.DependenciesConfig:
 
 poll > nanoagent.uploaded.worker.PollConfig:
   idle_s: 0.5
-  max_idle_s: 5
   renew_interval_s: 15

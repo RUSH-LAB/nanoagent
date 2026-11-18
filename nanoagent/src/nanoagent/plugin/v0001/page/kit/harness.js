@@ -65,7 +65,7 @@ export function harnessPage(plugin) {
   async function start() {
     if (runButton.disabled) return;
     terminal.reset();
-    status.textContent = `${task.description} · starting: filling the case's input, then building the terminal`;
+    status.textContent = `${task.description} · starting the terminal`;
     runButton.disabled = true;
     if (taskPick) taskPick.disabled = true;
     let started = false;
@@ -80,7 +80,7 @@ export function harnessPage(plugin) {
       runId = await startRun("harness.run", { harness: "shell", task: task.id, text: task.description }, (name, data) => {
         switch (name) {
           case "harness.preparing":
-            status.textContent = `${label} · ${task.description} · preparing your computer (${Math.round(data.done / 1e6)} of ${Math.round(data.total / 1e6)} MB): the session starts once it is ready`;
+            status.textContent = `${task.description} · preparing your computer (${Math.round(data.done / 1e6)} of ${Math.round(data.total / 1e6)} MB): the session starts once it is ready`;
             break;
           case "harness.output":
             if (!started) {

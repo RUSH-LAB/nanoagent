@@ -5,7 +5,7 @@
 Everything is validated before the first claim: the RUSH token and the OpenRouter key (`OPENROUTER_API_KEY`) must be in the environment, the
 endpoint profile, prices and limits must be well formed, the plugin sandbox must work, the guest tools must be ready and the
 tracer must pass its end-to-end self-test in every published toolchain's runtime image. A claim that returns nothing (204)
-backs off up to `poll.max_idle_s`. Leftovers of a previous run (`rush-*` sandboxes) are reaped first, the advertised
+waited `poll.wait_s` at RUSH for work to be queued, and is made again. Leftovers of a previous run (`rush-*` sandboxes) are reaped first, the advertised
 capabilities come from this machine's CPUs and memory, and a RUSH that cannot be reached is waited out (capped exponential
 backoff), never fatal.
 """
@@ -149,9 +149,10 @@ class DependenciesConfig(Config):
 
 @dataclass
 class PollConfig(Config):
+    # How long RUSH holds a claim with nothing queued, answering the moment something is (at most 30 s).
+    wait_s: float = 20.0
+    # While RUSH cannot be reached the claim is retried with a doubling wait, from idle_s up to max_outage_s.
     idle_s: float = 1.0
-    max_idle_s: float = 15.0
-    # While RUSH cannot be reached the claim is retried with a doubling wait, from idle_s up to this.
     max_outage_s: float = 60.0
     renew_interval_s: float = 15.0
 
@@ -310,7 +311,6 @@ async def serve(config: WorkerConfig, env: dict[str, str] | None = None) -> None
 
 async def poll(config: WorkerConfig, settings: RunnerConfig, worker: RushWorkerClient, runner: AttemptRunner, lookup: HttpxGenerationLookup, background: anyio.abc.TaskGroup) -> None:
     """Claim and run attempts, up to the advertised `concurrency` at once; a claimed attempt keeps the slot it was claimed in."""
-    idle = config.poll.idle_s
     outage: float | None = None  # the current wait while RUSH is unreachable; None when it is reachable
     reached = False  # whether RUSH has answered a claim since startup or the last outage: the "claiming from" line is logged once per True
     slots = anyio.Semaphore(settings.capabilities["concurrency"])
@@ -335,7 +335,7 @@ async def poll(config: WorkerConfig, settings: RunnerConfig, worker: RushWorkerC
     while True:
         await slots.acquire()
         try:
-            job = await worker.claim(settings.worker_id, settings.endpoint.label, settings.endpoint.mode, settings.capabilities)
+            job = await worker.claim(settings.worker_id, settings.endpoint.label, settings.endpoint.mode, settings.capabilities, config.poll.wait_s)
         except RushUnavailable as error:
             slots.release()
             reached = False
@@ -354,12 +354,9 @@ async def poll(config: WorkerConfig, settings: RunnerConfig, worker: RushWorkerC
         if not reached:
             LOG.info("claiming from RUSH: %s", settings.endpoint.label)  # the first answer, 204 or a job: RUSH Lab's health check reads it
             reached = True
-        if job is None:
+        if job is None:  # RUSH held the claim its wait_s and nothing was queued: claim again
             slots.release()
-            await anyio.sleep(idle)
-            idle = min(idle * 2, config.poll.max_idle_s)
             continue
-        idle = config.poll.idle_s
         background.start_soon(attempt, job)
 
 

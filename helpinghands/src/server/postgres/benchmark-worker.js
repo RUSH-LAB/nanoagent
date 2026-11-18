@@ -84,9 +84,8 @@ function createPostgresBenchmarkWorker({pool, config}) {
         `update benchmark_attempt set state = 'leased', fence = fence + 1, worker_id = $2, claimed_at = now(), lease_expires_at = ${lease}
           where attempt_id = $1 returning *`, [picked.attempt_id, workerId],
       )).rows[0];
-      const c = (await client.query('select * from benchmark_run_case where run_id = $1 and case_id = $2', [attempt.run_id, attempt.case_id])).rows[0];
-      const reference = (await client.query('select reference from benchmark_run_private where run_id = $1 and case_id = $2', [attempt.run_id, attempt.case_id])).rows[0];
       const {task} = run;
+      const pinned = await caseOf(client, run, attempt.case_id);
       // The task's instructions as this run works it: the task tools policy's prompt text, which may be the member's own.
       const instructions = run.policy === 'task_tools' ? run.prompt_text : task.instructions;
       return {
@@ -98,21 +97,39 @@ function createPostgresBenchmarkWorker({pool, config}) {
           // The gateway holds a run to its pinned prompt (the first call carries it) but for a session of the Terminal or of a harness
           // saved from one, whose agent is anything a member runs and phrases its own calls.
           prompt_bound: !(run.session && (run.harness_name === 'shell' || !REFERENCE_HARNESSES.includes(run.harness_name))),
+          // The Terminal with someone at it starts before its case is pinned; any other harness reads its case as it starts.
+          terminal: run.session && run.interactive && run.harness_name === 'shell',
         },
         plugin: {id: run.plugin_id, name: run.plugin_name, version: run.version, sha256: run.package_sha256},
-        case_set: {case_set_id: run.case_set_id, digest: run.case_set_digest},
         task: {
           id: run.task_id, kind: task.kind, description: task.description, instructions, plugin_name: run.plugin_name, tools: task.tools, egress_hosts: task.egress_hosts,
         },
-        case: {
-          case_id: c.case_id, position: c.position, kind: c.kind, arguments: c.arguments, context: run.context,
-          input_schema: task.input_schema, output_schema: task.output_schema, content_digest: c.content_digest,
-        },
-        prompt: {system: c.prompt_system, user: c.prompt_user, sha256: c.prompt_sha256},
-        private_reference: reference.reference,
+        // A session's case still being pinned comes later, from GET /attempts/{id}/case.
+        case_pending: !pinned.case,
+        ...(pinned.case ? pinned : {case_set: null, case: null, prompt: null, private_reference: null}),
       };
     }
     return null;
+  }
+
+  /**
+   * The case `caseId` of `run` as a job carries it, `{case_set, case, prompt, private_reference}` once pinned; `{case: null,
+   * pin_error}` while a session's case is being pinned (`pin_error` null) or after its pin failed.
+   */
+  async function caseOf(client, run, caseId) {
+    const c = (await client.query('select * from benchmark_run_case where run_id = $1 and case_id = $2', [run.run_id, caseId])).rows[0];
+    if (c.prompt_sha256 === null) return {case: null, pin_error: c.pin_error};
+    const reference = (await client.query('select reference from benchmark_run_private where run_id = $1 and case_id = $2', [run.run_id, caseId])).rows[0];
+    const {task} = run;
+    return {
+      case_set: {case_set_id: run.case_set_id, digest: run.case_set_digest},
+      case: {
+        case_id: c.case_id, position: c.position, kind: c.kind, arguments: c.arguments, context: run.context,
+        input_schema: task.input_schema, output_schema: task.output_schema, content_digest: c.content_digest,
+      },
+      prompt: {system: c.prompt_system, user: c.prompt_user, sha256: c.prompt_sha256},
+      private_reference: reference.reference,
+    };
   }
 
   /** Lock the member's and the workspace's budget rows for `day` in a fixed order: `{member, workspace}` committed USD. */
@@ -193,6 +210,17 @@ function createPostgresBenchmarkWorker({pool, config}) {
     /** Interrupt attempts whose lease ran out and settle reservations past their deadline, without waiting for a claim. */
     sweep() {
       return system(sweepExpired);
+    },
+
+    /**
+     * The case of attempt `attemptId` leased to `fence`, for a job claimed while it was pending: `{run_id, created_at, case_set, case, prompt,
+     * private_reference}` once pinned, with `case: null` while it is pinned and `pin_error` once its pin failed.
+     */
+    async pinnedCase(userId, attemptId, fence) {
+      return fenced(userId, attemptId, fence, async (client, attempt) => {
+        const run = (await client.query('select * from benchmark_run where run_id = $1', [attempt.run_id])).rows[0];
+        return {run_id: run.run_id, created_at: run.created_at, ...(await caseOf(client, run, attempt.case_id))};
+      });
     },
 
     async renew(userId, attemptId, fence) {

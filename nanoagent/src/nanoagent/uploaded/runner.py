@@ -62,6 +62,7 @@ from nanoagent.uploaded.relay import ServiceRelay
 from nanoagent.uploaded.rush_worker import (
     AttemptJob,
     Canceled,
+    CaseFailed,
     Emitter,
     Lease,
     LeaseLost,
@@ -174,6 +175,27 @@ class AttemptResult:
     outcome: str
     execution: Mapping[str, Any] | None = None
     accounting: Sequence[PendingCall] = ()
+
+
+class PendingCase:
+    """A session's case RUSH is still pinning as its attempt is claimed: fetched while the attempt prepares (and the Terminal runs), then
+    the job with it, or why it could not be pinned."""
+
+    def __init__(self) -> None:
+        self.done = anyio.Event()
+        self.job: AttemptJob | None = None
+        self.error: str | None = None
+
+    def failed_reason(self) -> str:
+        """The execution reason of an attempt whose case could not be pinned, with why (RUSH keeps 200 characters)."""
+        return f"case_failed: {self.error}"[:200]
+
+
+def write_case_files(workspace: Path, job: AttemptJob) -> None:
+    """The case's files in the case workspace, as the Terminal's shell.py writes them when it starts with its case."""
+    assert job.case is not None and job.prompt is not None
+    (workspace / "prompt.md").write_text(job.prompt["user"], encoding="utf-8")
+    (workspace / "request.json").write_text(json.dumps(job.case["arguments"], indent=2) + "\n", encoding="utf-8")
 
 
 class UnknownModelPrice(RuntimeError):
@@ -350,11 +372,14 @@ class AttemptRunner:
         journal = RushJournal(self.worker, lease)
         work = self.config.scratch / job.attempt_id
         work.mkdir(parents=True, exist_ok=True)
+        pending = PendingCase() if job.case_pending else None
         try:
             async with anyio.create_task_group() as renewing:
                 renewing.start_soon(self._renew, job, lease)
+                if pending is not None:
+                    renewing.start_soon(self._fetch_case, job, lease, pending)
                 try:
-                    result = await self._attempt(job, lease, journal, Emitter(journal, self.clock_ns), work)
+                    result = await self._attempt(job, lease, journal, Emitter(journal, self.clock_ns), work, pending)
                 except (LeaseLost, Canceled) as error:
                     lease.fail(error)
                     result = AttemptResult("lease_lost" if isinstance(error, LeaseLost) else "canceled")
@@ -393,7 +418,27 @@ class AttemptRunner:
                 continue
             lease.extend(seconds, requested)
 
-    async def _attempt(self, job: AttemptJob, lease: Lease, journal: RushJournal, emit: Emitter, work: Path) -> AttemptResult:
+    async def _fetch_case(self, job: AttemptJob, lease: Lease, pending: PendingCase) -> None:
+        """Fetch the case RUSH pins while the attempt prepares and runs, until it is pinned, its pin fails, or the lease is lost."""
+        while not lease.lapsed():
+            try:
+                body = await self.worker.case(job.attempt_id, job.fence)
+            except CaseFailed as error:
+                pending.error = error.message
+                pending.done.set()
+                return
+            except (LeaseLost, Canceled, Sealed) as error:
+                lease.fail(error)
+                return
+            except RushUnavailable as error:
+                LOG.warning("attempt %s: reading its case failed: %s", job.attempt_id, error)
+                continue
+            if body is not None:
+                pending.job = job.pinned(body)
+                pending.done.set()
+                return
+
+    async def _attempt(self, job: AttemptJob, lease: Lease, journal: RushJournal, emit: Emitter, work: Path, pending: PendingCase | None) -> AttemptResult:
         cfg = self.config
         if cfg.renew_interval_s >= job.lease_seconds:
             raise RenewalConfigError(f"poll.renew_interval_s ({cfg.renew_interval_s:g}) must be shorter than the server's lease ({job.lease_seconds:g} s)")
@@ -416,7 +461,7 @@ class AttemptRunner:
         await emit.emit(
             rec.AttemptStarted(
                 job.attempt_id, cfg.worker_id, {"label": cfg.endpoint.label, "mode": cfg.endpoint.mode}, run["model"], list(run["dialects"]),
-                job.prompt["sha256"], policy, None if archive is None else archive.manifest.toolchain, run["source_sha256"], cfg.harness_revision,
+                None if job.prompt is None else job.prompt["sha256"], policy, None if archive is None else archive.manifest.toolchain, run["source_sha256"], cfg.harness_revision,
                 dict(limits), list(job.task["egress_hosts"]) if policy == "task_tools" else None,
                 {"reference_tokens_per_second": cfg.reference_tokens_per_second, "clock_tolerance_ns": cfg.clock_tolerance_ns},
                 [*EXPECTED_SOURCES, *(["tool_broker"] if tools else [])],
@@ -439,8 +484,16 @@ class AttemptRunner:
             await in_thread(self.supervisor.prepare_plugin, manifest.root, cfg.plugin_sync_timeout_s)
         if (ended := await self._ended(job, lease, journal)) is not None:
             return ended
+        # Only the Terminal starts before its case is pinned; any other harness reads its case as it starts.
+        if pending is not None and not run["terminal"]:
+            await first_of(pending.done, lease.revoked)
+            if (ended := await self._ended(job, lease, journal)) is not None:
+                return ended
+            if pending.job is None:
+                return await self._finalize(job, journal, "execution_failed", pending.failed_reason())
+            job, pending = pending.job, None
         async with AsyncExitStack() as stack:
-            return await self._case(job, lease, journal, emit, work, archive.manifest.run_argv, profile, artifact, manifest, tools, stack)
+            return await self._case(job, lease, journal, emit, work, archive.manifest.run_argv, profile, artifact, manifest, tools, stack, pending)
 
     async def _ended(self, job: AttemptJob, lease: Lease, journal: RushJournal) -> AttemptResult | None:
         """The result of an attempt whose lease was lost or canceled while it was preparing, before any case ran: canceled is
@@ -543,6 +596,7 @@ class AttemptRunner:
         manifest: PluginManifest,
         tools: tuple[Mapping[str, Any], ...],
         stack: AsyncExitStack,
+        pending: PendingCase | None,
     ) -> AttemptResult:
         cfg, run = self.config, job.run
         run_limits = run["limits"]
@@ -562,8 +616,9 @@ class AttemptRunner:
             tool_container = ToolContainerSpec(name, manifest.root, None, tuple(job.task["egress_hosts"]))
         token = secrets.token_urlsafe(32)
         policy = AttemptPolicy(
-            attempt_id=job.attempt_id, token=token, model=model, dialects=tuple(run["dialects"]), prompt_user=job.prompt["user"],
-            prompt_system=job.prompt["system"], max_model_calls=run_limits["max_model_calls"],
+            attempt_id=job.attempt_id, token=token, model=model, dialects=tuple(run["dialects"]),
+            prompt_user=None if job.prompt is None else job.prompt["user"], prompt_system=None if job.prompt is None else job.prompt["system"],
+            max_model_calls=run_limits["max_model_calls"],
             max_output_tokens_per_call=run_limits["max_output_tokens_per_call"], input_price_bound=input_price, output_price_bound=output_price,
             tools=tuple(ToolPolicy(tool["name"], bool(tool["writes"]), tool["input_schema"], tool["output_schema"]) for tool in tools),
             prompt_bound=run["prompt_bound"],
@@ -599,19 +654,38 @@ class AttemptRunner:
 
         recorded: list[bool] = []  # set once the collector's process evidence is committed
         try:
-            outcome = await self._wait(lease, handle, services, terminal, interactive=run["interactive"])
+            outcome = await self._wait(lease, handle, services, terminal, interactive=run["interactive"], pending=pending)
             await self._revoke(services)
             lease.lapsed()  # a lease that ran out while the computer slept is dropped on waking, not finalized late
             if lease.reason in ("lease_lost", "sealed"):
                 return AttemptResult("lease_lost")
-            if outcome is not None:  # a canceled attempt has no observed exit
+            if outcome is not None:  # a canceled attempt, or one whose case failed, has no observed exit
                 await terminal.flush()
                 await emit.emit(rec.CaseExited(termination_wire(outcome.termination), int(outcome.exited_at * NS)), occurred_ns=int(outcome.exited_at * NS))
             # Quiescence (no call or tool left in flight) is reached after the exit, so it is recorded after it.
             await emit.emit(rec.CaseQuiesced(self.clock_ns()))
-            if outcome is None:  # the attempt was canceled mid-run
+            if outcome is None:
                 await in_thread(handle.close)
-                return await self._finalize(job, journal, "canceled", None, result=AttemptResult("canceled"))
+                if lease.reason is None and pending is not None and pending.error is not None:  # the session ended on its case's failed pin
+                    return await self._finalize(job, journal, "execution_failed", pending.failed_reason())
+                return await self._finalize(job, journal, "canceled", None, result=AttemptResult("canceled"))  # canceled mid-run
+            if pending is not None:  # the session ended before its case was pinned: it is scored only against the pinned case
+                if not pending.done.is_set():
+                    terminal.write(b"\r\n\x1b[1mRUSH\x1b[0m: the task is still being prepared; the session is scored once it is.\r\n")
+                    await terminal.flush()
+                await first_of(pending.done, lease.revoked)
+                lease.lapsed()
+                if lease.reason in ("lease_lost", "sealed"):
+                    return AttemptResult("lease_lost")
+                if lease.reason == "canceled":
+                    await in_thread(handle.close)
+                    return await self._finalize(job, journal, "canceled", None, result=AttemptResult("canceled"))
+                if pending.job is None:
+                    terminal.write(f"\r\n\x1b[1mRUSH\x1b[0m: the task could not be prepared: {pending.error}\r\n".encode())
+                    await terminal.flush()
+                    await in_thread(handle.close)
+                    return await self._finalize(job, journal, "execution_failed", pending.failed_reason())
+                job = pending.job
             try:
                 snapshot = await in_thread(handle.stop_and_drain)
             except SandboxError as error:
@@ -654,14 +728,15 @@ class AttemptRunner:
             LOG.exception("the process evidence of the faulted case could not be recorded")
 
     def _request(self, job: AttemptJob, tools: Sequence[Mapping[str, Any]], base: str) -> dict[str, Any]:
-        run, task, case = job.run, job.task, job.case
+        run, task, case, prompt = job.run, job.task, job.case, job.prompt
         request = {
             "protocol": "rush.harness.v1",
             "attempt_id": job.attempt_id,
             "policy": run["policy"],
             "task": {key: task[key] for key in ("id", "kind", "description", "instructions", "plugin_name")},
-            "case": {key: case[key] for key in ("case_id", "arguments", "context", "input_schema", "output_schema")},
-            "prompt": {key: job.prompt[key] for key in ("system", "user", "sha256")},
+            "case_pending": job.case_pending,
+            "case": None if case is None else {key: case[key] for key in ("case_id", "arguments", "context", "input_schema", "output_schema")},
+            "prompt": None if prompt is None else {key: prompt[key] for key in ("system", "user", "sha256")},
             "workspace": WORKSPACE,
             "openrouter": {"base_url": f"{base}/api/v1", "model": run["model"], "dialects": list(run["dialects"])},
             "tools": {
@@ -676,11 +751,22 @@ class AttemptRunner:
         validate("Request", request)
         return request
 
-    async def _wait(self, lease: Lease, handle: CaseHandle, services: AttemptServices, terminal: Terminal, *, interactive: bool) -> Any:
-        """The case's outcome, or None if the lease was lost or canceled first (the case is killed and drained). The
-        harness's terminal output goes to RUSH as it comes meanwhile, and, when someone is at it, what they type comes back."""
+    async def _wait(self, lease: Lease, handle: CaseHandle, services: AttemptServices, terminal: Terminal, *, interactive: bool, pending: PendingCase | None) -> Any:
+        """The case's outcome, or None if the lease was lost or canceled first, or its ``pending`` case could not be pinned (the case
+        is killed and drained). The harness's terminal output goes to RUSH as it comes meanwhile, and, when someone is at it, what they
+        type comes back; a pending case's files appear in the workspace once it is pinned."""
         done = anyio.Event()
+        failed = anyio.Event()
         box: list[Any] = []
+
+        async def deliver(pending: PendingCase) -> None:
+            await pending.done.wait()
+            if pending.job is not None:
+                await in_thread(write_case_files, handle.workspace, pending.job)
+                return
+            terminal.write(f"\r\n\x1b[1mRUSH\x1b[0m: the task could not be prepared, so the session ends: {pending.error}\r\n".encode())
+            await terminal.flush()
+            failed.set()
 
         async def waiter() -> None:
             # Abandoned when the attempt is cancelled, so its cleanup can close the case (which ends wait()) instead of waiting
@@ -697,13 +783,15 @@ class AttemptRunner:
             group.start_soon(terminal.pump)
             if interactive:
                 group.start_soon(terminal.feed, handle)
-            await first_of(done, lease.revoked)
+            if pending is not None:
+                group.start_soon(deliver, pending)
+            await first_of(done, lease.revoked, failed)
             if not done.is_set():
                 await self._revoke(services)
                 await in_thread(handle.close)  # kills the sandbox, which ends wait()
                 await done.wait()
             group.cancel_scope.cancel()
-        return None if lease.revoked.is_set() else box[0]
+        return None if lease.revoked.is_set() or not box else box[0]
 
     async def _revoke(self, services: AttemptServices) -> None:
         """Reject new calls, stop in-flight model streams, tools and commands, and wait for the calls to settle."""

@@ -145,6 +145,17 @@ def test_a_session_is_one_case_whose_input_the_plugin_model_fills_from_the_reque
     assert name == "echo" and schema["properties"]["value"] and messages[1] == {"role": "user", "content": "Echo hi, please."}
 
 
+def test_a_sessions_frame_is_its_case_set_but_the_case_read_at_once_without_the_model(client: TestClient) -> None:
+    reply = client.post(f"/v1/installs/{client.sha}/benchmark/session-frame", json={"task": "echo", "text": "Echo hi, please."})
+    assert reply.status_code == 200, reply.text
+    frame = reply.json()
+    pinned = session(client).json()
+    assert frame == {key: pinned[key] for key in frame} and frame["case_id"] == pinned["cases"][0]["case_id"]
+    assert "cases" not in frame and "private" not in frame and len(client.model.asked) == 1  # only the pin asked the model
+    refused = client.post(f"/v1/installs/{client.sha}/benchmark/session-frame", json={"task": "nope", "text": "x"})
+    assert refused.status_code == 422 and "unknown task" in refused.json()["error"]
+
+
 def test_a_session_input_that_breaks_the_task_input_and_an_unknown_task_are_refused(client: TestClient) -> None:
     client.model.value = {"wrong": 1}
     assert session(client).status_code == 422 and "do not fit the input of task echo" in session(client).json()["error"]

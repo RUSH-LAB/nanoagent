@@ -41,6 +41,7 @@ def request() -> dict[str, Any]:
         "attempt_id": "3f2b8c1e-8f0a-4f5e-9d3a-1b2c3d4e5f60",
         "policy": "coding",
         "task": {"id": "t", "kind": "agent", "description": "d", "instructions": "i", "plugin_name": "P"},
+        "case_pending": False,
         "case": {"case_id": "c1", "arguments": {}, "context": "", "input_schema": {}, "output_schema": {}},
         "prompt": {"system": None, "user": "hello", "sha256": "b" * 64},
         "workspace": "/rush/workspace",
@@ -65,6 +66,13 @@ def test_uuid_and_uri_formats_are_enforced() -> None:
             validate("Request", broken)
         assert raised.value.code == "schema_violation"
         assert field in raised.value.message
+
+
+def test_a_pending_case_has_neither_case_nor_prompt_and_a_pinned_one_has_both() -> None:
+    validate("Request", {**request(), "case_pending": True, "case": None, "prompt": None})
+    for broken in ({**request(), "case_pending": True}, {**request(), "case": None}, {**request(), "case_pending": True, "case": None}):
+        with pytest.raises(ContractError):
+            validate("Request", broken)
 
 
 def test_unknown_shape_is_rejected() -> None:
