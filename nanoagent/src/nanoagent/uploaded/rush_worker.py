@@ -449,9 +449,14 @@ class RushJournal:
             return record
         sha = await self.put_payload(data[:MAX_PAYLOAD_BYTES], "clean" if len(data) <= MAX_PAYLOAD_BYTES else "truncated")
         marks = {"data_truncated": True, "data_payload_sha256": sha}
+        # Reconciliation must work even when the full data payload is truncated or unavailable.
+        if record["kind"] == "model_call.response":
+            marks.update({key: record["data"][key] for key in ("call_id", "generation_id", "settlement") if key in record["data"]})
         stub = {**_shrink(record["data"], 0), **marks}
         if len(json_bytes(stub)) > MAX_EVENT_DATA_BYTES:  # a multi-byte or heavily escaped string can outgrow the character caps
             stub = marks
+        if len(json_bytes(stub)) > MAX_EVENT_DATA_BYTES:
+            raise ValueError("model response accounting identifiers exceed the event data limit")
         return {**record, "data": stub, "payload_sha256s": [*record["payload_sha256s"], sha]}
 
     async def _commit(self, batch: list[dict[str, Any]]) -> bool:

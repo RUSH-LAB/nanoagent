@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from nanoagent.uploaded import records as R
@@ -423,6 +423,13 @@ def project(
     issues: list[Issue] = []
     records, parse_issues = parse_records(raw_records)
     issues += parse_issues
+    for index, record in enumerate(records):
+        if record.data.get("data_truncated") and record.data.get("data_payload_sha256"):
+            data = load_json(payloads, record.data["data_payload_sha256"])
+            if isinstance(data, dict):
+                records[index] = replace(record, data=data)
+            else:
+                issues.append(Issue("event_data_unavailable", "the full event data payload is missing or truncated", (record.event_id,), "error"))
     n = normalize(records, payloads, issues)
     j = _Join(n, payloads)
     _lifecycle(j)

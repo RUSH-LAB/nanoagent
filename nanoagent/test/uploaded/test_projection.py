@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from nanoagent.uploaded.compare import compare
 from nanoagent.uploaded.projection import PARSER_VERSION, project, to_compare_attempt
 from nanoagent.uploaded.records import Record
@@ -356,3 +358,34 @@ def test_coverage_and_metrics_stay_under_the_servers_64_kib_for_adversarial_inpu
     assert out["omitted"]["rejected"] > 0 and out["omitted"]["redacted"] > 0 and out["status"] == "partial"
     metrics = Metrics(aggregate([]), True, None, None, "é" * 100_000, TimingMethod(1.0, 1)).to_dict()
     assert len(json.dumps(metrics, separators=(",", ":"), ensure_ascii=False).encode()) <= 64 * 1024
+
+
+@pytest.mark.parametrize("retention", ["retained", "missing", "truncated"])
+async def test_projection_restores_large_event_data_or_reports_why_it_cannot(retention: str) -> None:
+    import runner_fakes as fx
+    from nanoagent.uploaded.rush_worker import Lease, RushJournal
+
+    t = worked_example()
+    expected = run(t)
+    journal = RushJournal(fx.StrictRush(), Lease("a", 1))
+    response = next(record for record in t.records if record["kind"] == "model_call.response")
+    call_id = response["data"]["call_id"]
+    response["data"]["padding"] = "x" * 220_000
+    stub = await journal._within_data_limit(response)
+    t.records[t.records.index(response)] = stub
+    sha = stub["data"]["data_payload_sha256"]
+    if retention == "retained":
+        t.payloads.update(journal.payloads)
+    elif retention == "truncated":
+        t.payloads[sha] = b'{"incomplete":'
+    actual = run(t)
+    if retention == "retained":
+        assert actual.model_calls == expected.model_calls
+        assert actual.links == expected.links
+        assert not any(issue.code == "event_data_unavailable" for issue in actual.issues)
+    else:
+        assert actual.coverage.partial
+        assert any(issue.code == "event_data_unavailable" and issue.severity == "error" for issue in actual.issues)
+        call = next(call for call in actual.model_calls if call.call_id == call_id)
+        original = next(call for call in expected.model_calls if call.call_id == call_id)
+        assert call.generation_id == original.generation_id

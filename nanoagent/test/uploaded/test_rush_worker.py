@@ -433,3 +433,19 @@ async def test_events_past_the_budget_are_dropped_and_counted_but_the_worker_rec
     await Emitter(journal, lambda: 1).emit(rec.CaseQuiesced(9))
     assert [event["event_id"] for event in sent] == ["harness-000001", "harness-000002", "harness-000003", "gateway-000001", "worker-000001"]
     assert journal.over_budget == 3 and not journal.closed
+
+
+@pytest.mark.parametrize("payload_limit", [16 << 20, 100])
+async def test_a_large_response_keeps_the_identifiers_needed_to_reconcile_failed_settlement(monkeypatch: pytest.MonkeyPatch, payload_limit: int) -> None:
+    import runner_fakes as fx
+    monkeypatch.setattr("nanoagent.uploaded.rush_worker.MAX_PAYLOAD_BYTES", payload_limit)
+    journal = RushJournal(fx.StrictRush(), Lease("a", 1))
+    # Match the gateway response's field order: generation_id follows the first sixteen fields.
+    data = {f"field_{i}": None for i in range(16)}
+    data.update(call_id="c", generation_id="gen-1", settlement={"action": "settled", "cost_usd": "0.01"}, proposals=[{"arguments": "x" * 220_000}])
+    await journal.append(EvidenceEvent("gateway-000001", "gateway", "model_call.response", 1, 1, data))
+    await journal.append(EvidenceEvent("gateway-000002", "gateway", "model_call.settlement_failed", 2, 2, {"call_id": "c"}))
+    assert pending_calls(journal.records) == [PendingCall("c", "gen-1", settled=False)]
+    response = journal.records[0]["data"]
+    assert response["data_truncated"] and response["generation_id"] == "gen-1"
+    assert journal.redactions[response["data_payload_sha256"]] == ("none" if payload_limit > 100 else "truncated")
