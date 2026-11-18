@@ -49,10 +49,11 @@ const PARAMS = {
   'session.archive': ({id, archived}) => (SESSION_ID.test(id ?? '') && typeof archived === 'boolean'
     ? null
     : 'session.archive needs a session id and archived, true or false'),
+  // The Terminal (`shell`) is free-form, so it takes no text; any other harness works the text.
   'harness.run': ({harness, task, text}) => (HARNESS_NAME.test(harness ?? '') && typeof task === 'string' && task
-    && typeof text === 'string' && text.trim() && text.length <= PROMPT_LIMIT
+    && (harness === 'shell' ? text === undefined : typeof text === 'string' && text.trim() && text.length <= PROMPT_LIMIT)
     ? null
-    : `harness.run needs a harness name, a task id and text of 1 to ${PROMPT_LIMIT} characters`),
+    : `harness.run needs a harness name, a task id and, but for shell, text of 1 to ${PROMPT_LIMIT} characters`),
   'harness.cancel': ({runId}) => (typeof runId === 'string' && runId ? null : 'harness.cancel needs a runId'),
   'harness.input': ({runId, data}) => (typeof runId === 'string' && runId && typeof data === 'string' && data && data.length <= TYPED_LIMIT
     ? null

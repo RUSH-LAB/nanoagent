@@ -29,7 +29,8 @@ import {
  * (`chat.turn`). Only `cancel` stops one.
  *
  * The Harness tab's session (`harness.run`) is a benchmark run of one case, the page's request to one of the plugin's tasks
- * worked by a reference harness on the member's own worker, on a terminal the member works in: the page hears the terminal's
+ * worked by a reference harness on the member's own worker, or of the free-form Terminal (`shell`, no request and no case), on a
+ * terminal the member works in: the page hears the terminal's
  * output as it comes and the outcome (./harness.js), through `harness.done`, and sends what is typed (`harness.input`) and the
  * terminal's size (`harness.resize`); `harness.cancel` cancels the run, as the frame going away does.
  */

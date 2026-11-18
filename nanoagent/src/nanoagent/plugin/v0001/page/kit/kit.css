@@ -444,15 +444,11 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .chat-page > * { min-height: 0; }
 .chat-page .chat { padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
 .chat-page .chat-log:has(> .chat-intro) { align-content: center; }
-/* The Harness tab (kit/harness.js): the task (of a plugin of several) and Start/Stop over the terminal, and its status line. */
-.kit-harness > .harness-page { height: calc(100vh - var(--kit-tabs-height)); box-sizing: border-box; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 10px; padding: 14px 16px; }
-.harness-head { display: flex; gap: 8px; align-items: stretch; }
-.harness-head .input { flex: 1; }
-.harness-ask { display: flex; gap: 8px; align-items: stretch; margin-left: auto; }
+/* The Harness tab (kit/harness.js): only the terminal, filling the tab. */
+.kit-harness > .harness-page { height: calc(100vh - var(--kit-tabs-height)); box-sizing: border-box; display: grid; grid-template-rows: minmax(0, 1fr); padding: 14px 16px; }
 /* The padding is the terminal's own, which the fit add-on measures it by. */
 .harness-terminal { min-height: 0; background: #14161b; border-radius: var(--radius-sm); overflow: hidden; }
 .harness-terminal .xterm { height: 100%; box-sizing: border-box; padding: 8px; }
-.harness-status { margin: 0; font-variant-numeric: tabular-nums; }
 /* Beside the chat, in two tabs (kit/result.js): a turn's graph, and a task's result. */
 .results-pane { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
 .results-tabs { display: flex; gap: 22px; height: 36px; border-bottom: 1px solid var(--border); }

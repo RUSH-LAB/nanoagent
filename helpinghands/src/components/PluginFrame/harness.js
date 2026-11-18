@@ -17,6 +17,8 @@ export function harnessOutcome(attempt, accounting) {
   const metrics = attempt.metrics ?? {};
   return {
     status: attemptStatus(attempt),
+    // A free-form Terminal session has no case: it ends, unscored.
+    ended: attempt.execution?.status === 'ended',
     // An answer, or a refusal, is what the verifier scores; a harness that ended without one has nothing to score.
     scored: ['answered', 'refused'].includes(attempt.execution?.status),
     reason: attempt.execution?.reason ?? null,

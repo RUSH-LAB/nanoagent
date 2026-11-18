@@ -213,13 +213,13 @@
     },
     "Request": {
       "type": "object", "additionalProperties": false,
-      "required": ["protocol", "attempt_id", "policy", "task", "case_pending", "case", "prompt", "workspace", "openrouter", "tools", "exec_url", "events_url", "limits", "interactive"],
+      "required": ["protocol", "attempt_id", "policy", "task", "free_form", "case", "prompt", "workspace", "openrouter", "tools", "exec_url", "events_url", "limits", "interactive"],
       "properties": {
         "protocol": {"$ref": "#/$defs/Protocol"},
         "attempt_id": {"type": "string", "format": "uuid"},
         "policy": {"$ref": "#/$defs/Policy"},
         "task": {"$ref": "#/$defs/Task"},
-        "case_pending": {"type": "boolean", "description": "Whether the case is still being pinned as the harness starts: only the Terminal's, whose person is at it while the plugin's model fills the case from their request. Then case and prompt are null, and the worker writes prompt.md and request.json into the workspace once the case is pinned."},
+        "free_form": {"type": "boolean", "description": "Whether the session has no case: only the Terminal's with a person at it, who runs any agent and prompts it themselves. Then case and prompt are null, nothing is written for a task, and nothing scores the session; its model calls and commands are recorded."},
         "case": {"oneOf": [{"$ref": "#/$defs/Case"}, {"type": "null"}]},
         "prompt": {"oneOf": [{"$ref": "#/$defs/Prompt"}, {"type": "null"}]},
         "workspace": {"const": "/rush/workspace"},
@@ -230,7 +230,7 @@
         "limits": {"$ref": "#/$defs/Limits"},
         "interactive": {"type": "boolean", "description": "Whether a person is at the harness's terminal (a plugin page's Harness tab session), who types at it and ends it: the harness then runs its CLI interactively."}
       },
-      "if": {"properties": {"case_pending": {"const": true}}},
+      "if": {"properties": {"free_form": {"const": true}}},
       "then": {"properties": {"case": {"type": "null"}, "prompt": {"type": "null"}}},
       "else": {"properties": {"case": {"type": "object"}, "prompt": {"type": "object"}}}
     },

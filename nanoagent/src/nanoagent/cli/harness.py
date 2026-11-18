@@ -5,14 +5,16 @@ the member's own worker, and the run folder gets its result and recording.
     nanoagent harness plugin=city-weather harness=codex prompt="Which cities had …"   # one-shot, for scripts
     nanoagent harness plugin=city-weather harness=shell                               # a plain terminal: bring your own agent
 
-`harness=shell` is bash in the case workspace with the gateway preset; `rush save <name>` there makes what the member built a
-harness of theirs, which `harness=<name>` runs again, scored and recorded the same way.
+`harness=shell` is bash in the workspace with the gateway preset, a free-form session: no request and no case, nothing scored, its
+model calls and commands recorded; `rush save <name>` there makes what the member built a harness of theirs, which `harness=<name>`
+runs again, scored and recorded the same way.
 
 It goes through the RUSH that RUSH Lab on this computer is connected to, as the tab does (POST /api/benchmark/sessions and the
 attempt's terminal, docs/contracts/rush-benchmark-api.md): RUSH queues the run at once and pins the case on the member's computer
 meanwhile, and RUSH Lab's worker claims it and runs the harness in microsandbox with its gateway, strace and the plugin's verifier, on the OpenRouter
 key RUSH Lab keeps. This command signs in with RUSH Lab's connection (its `site` and `runner-credentials.json`) and never reads the
-key. Without `prompt`, the first line typed is the request and the terminal is then the harness's, raw, until it exits.
+key. Without `prompt`, the first line typed is the request (but for the shell, which takes none) and the terminal is then the
+harness's, raw, until it exits.
 """
 
 from __future__ import annotations
@@ -221,6 +223,8 @@ def events(rush: httpx.Client, path: str) -> list[dict[str, Any]]:
 
 def verdict(attempt: dict[str, Any]) -> str:
     """right or wrong by the plugin's verifier, or "no verdict" for an attempt with no answer (or refusal) to score, as the tab says."""
+    if attempt["execution"]["status"] == "ended":
+        return "ended"
     if attempt["execution"]["status"] not in ("answered", "refused"):
         return "no verdict"
     return {"pass": "right", "fail": "wrong"}.get(attempt.get("verdict"), "no verdict")
@@ -258,12 +262,13 @@ def main(argv: list[str] | None = None) -> int:
         task = tasks[0] if cfg.task is None else cfg.task
         if task not in tasks:
             raise SystemExit(f"harness: {cfg.plugin}'s tasks are {', '.join(tasks)}, not {task!r}")
-        text = cfg.prompt if cfg.prompt is not None else input(f"{cfg.harness} · {cfg.plugin} · ask: ").strip()
-        if not text:
+        free = cfg.harness == "shell"  # a free-form terminal: no request, no case
+        text = None if free else cfg.prompt if cfg.prompt is not None else input(f"{cfg.harness} · {cfg.plugin} · ask: ").strip()
+        if not free and not text:
             raise SystemExit("harness: the request is empty")
         home = Path(cfg.home) if cfg.home else folder / "runs" / cfg.plugin / f"{datetime.now():%Y_%m_%d_%H%M%S}_{cfg.harness}"
         print(f"{cfg.harness} · {cfg.plugin} · starting: the first session of a harness builds it", file=sys.stderr, flush=True)
-        body = {"plugin_id": cfg.plugin, "task_id": task, "harness": HARNESSES.get(cfg.harness, cfg.harness), "text": text, "interactive": interactive}
+        body = {"plugin_id": cfg.plugin, "task_id": task, "harness": HARNESSES.get(cfg.harness, cfg.harness), "interactive": interactive} | ({} if free else {"text": text})
         run = checked(rush.post(f"{prefix}/benchmark/sessions", json=body | ({} if cfg.model is None else {"model": cfg.model}),
                                 timeout=START_TIMEOUT_S))["run"]  # fmt: skip
         attempt_id = run["cases"][0]["attempts"][0]["attempt_id"]

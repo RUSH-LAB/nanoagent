@@ -137,7 +137,8 @@ class AttemptJob:
     input_schema, output_schema, content_digest}``; ``prompt`` is ``{system, user, sha256}``; ``plugin`` is
     ``{id, name, version, sha256}``. (The claim's ``case_set`` and ``renderer_version`` are the server's bookkeeping.)
     ``case_pending`` is a session's case still being pinned: ``case``, ``prompt`` and ``private_reference`` are None until
-    :meth:`pinned` gives them from :meth:`RushWorkerClient.case`."""
+    :meth:`pinned` gives them from :meth:`RushWorkerClient.case`. ``free_form`` is a Terminal session someone is at, which has no
+    case at all: they run any agent and prompt it themselves, and nothing scores it."""
 
     attempt_id: str
     attempt_no: int
@@ -150,6 +151,7 @@ class AttemptJob:
     private_reference: Any
     lease_seconds: float  # how long the claim, and each renewal, keeps the lease
     case_pending: bool = False
+    free_form: bool = False
 
     def pinned(self, body: Mapping[str, Any]) -> AttemptJob:
         """This job with its case as RUSH pinned it (``GET /attempts/{id}/case``)."""
@@ -161,7 +163,7 @@ def parse_job(body: Mapping[str, Any]) -> AttemptJob:
         if body["kind"] == "attempt":
             return AttemptJob(
                 body["attempt_id"], body["attempt_no"], body["fence"], body["run"], body["task"], body["case"], body["prompt"],
-                body["plugin"], body.get("private_reference"), float(body["lease_seconds"]), body["case_pending"],
+                body["plugin"], body.get("private_reference"), float(body["lease_seconds"]), body["case_pending"], body["free_form"],
             )
     except KeyError as error:
         raise RushError(200, "invalid_job", f"the claimed job lacks {error.args[0]!r}", body) from error

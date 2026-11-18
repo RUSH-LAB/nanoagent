@@ -1,7 +1,6 @@
-"""The member's own terminal in the case's VM: bash in the case workspace, which holds prompt.md (the rendered coding prompt) and
-request.json (the case's input), written by the worker once the case is pinned when the shell starts before it is, with every model SDK pointed at the attempt's gateway and the reference CLIs (bin/: claude,
-codex, pi, hermes, dsh) set up for it. They install and run any agent there (pip and npm install into .rush/), and once they exit,
-the answer.json it left is scored as a coding harness's is.
+"""The member's own terminal in the attempt's VM: bash in the workspace, with every model SDK pointed at the attempt's gateway and
+the reference CLIs (bin/: claude, codex, pi, hermes, dsh) set up for it. The session is free-form: the member installs and runs any
+agent there (pip and npm install into .rush/) and prompts it themselves; its model calls and commands are recorded, and nothing scores it.
 
 Given a command (a harness `rush save` made), it runs that command instead, once, in the same workspace and environment, after
 putting back the files the member built (``workspace/``) and with the Python packages they installed (``packages/``).
@@ -19,14 +18,14 @@ HERE = Path(__file__).resolve().parent
 request = json.loads(Path(os.environ["RUSH_REQUEST"]).read_text(encoding="utf-8"))
 workspace = Path(request["workspace"])
 command = sys.argv[1] if len(sys.argv) > 1 else None
-if command is None and not request["interactive"]:
-    sys.exit("the Terminal is a shell someone works in: start it with someone at it")
+if command is None and not request["free_form"]:
+    sys.exit("the Terminal is a free-form shell someone works in: start it with someone at it")
 
 if (HERE / "workspace").is_dir():
     shutil.copytree(HERE / "workspace", workspace, dirs_exist_ok=True)
     for path in (HERE / "executables").read_text(encoding="utf-8").splitlines():
         (workspace / path).chmod(0o755)
-if not request["case_pending"]:
+if command is not None:  # a saved harness works a case: prompt.md (the rendered coding prompt) and request.json (its input)
     (workspace / "prompt.md").write_text(request["prompt"]["user"], encoding="utf-8")
     (workspace / "request.json").write_text(json.dumps(request["case"]["arguments"], indent=2) + "\n", encoding="utf-8")
 
@@ -42,7 +41,7 @@ env = {
     "RUSH_MODEL": request["openrouter"]["model"], "RUSH_MAX_OUTPUT_TOKENS": str(request["limits"]["max_output_tokens_per_call"]),
     "PYTHONUSERBASE": str(user_base), "NPM_CONFIG_PREFIX": str(npm_prefix),
 }  # fmt: skip
-if not request["case_pending"]:  # a shell that starts before its case reads it from prompt.md once it appears
+if command is not None:
     env["RUSH_PROMPT"] = request["prompt"]["user"]
 if (HERE / "packages").is_dir():
     env["PYTHONPATH"] = str(HERE / "packages")
@@ -54,13 +53,7 @@ if command is not None:
     os.execvpe("bash", ["bash", "-c", command], env)
 
 print(
-    f"\x1b[1mRUSH terminal\x1b[0m · {request['openrouter']['model']} · {workspace}\r\n"
-    + ("\x1b[1mpreparing the task… (prompt.md will appear)\x1b[0m\r\n" if request["case_pending"] else "")
-    + "prompt.md is the task and request.json its input, which the plugin's model filled from the request (in the Harness tab, from\r\n"
-    "the task's description). Write answer.json here, then exit: it is scored like any harness's.\r\n"
-    "claude, codex, pi, hermes and dsh (headless: dsh \"<task>\") are ready, and OPENAI_BASE_URL/OPENAI_API_KEY and ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY reach the\r\n"
-    "model ($RUSH_MODEL) through RUSH's gateway, which records every call. pip and npm -g install into .rush/.\r\n"
-    "`rush save <name> [-- <command>]` saves what you built here as a harness that runs <command> (by default your last one).\r\n",
+    f"\x1b[1m{request['task']['plugin_name']}\x1b[0m\r\nRun any CLI agent here (claude, codex, pi, hermes, dsh)\r\nModels and tracing are set up.\r\n",
     end="",
     flush=True,
 )

@@ -170,61 +170,29 @@ async def test_cancel_woken_wait_that_fails_as_closed_is_still_a_cancel(tmp_path
     assert result.outcome == "canceled" and rig.supervisor.case.closed
 
 
-async def test_the_terminal_starts_before_its_case_is_pinned_and_gets_its_files_once_it_is(tmp_path: Path) -> None:
-    job, pinned = fx.pending_job()
-    rig = Rig(tmp_path, script=fx.CaseScript(block=True, result=SandboxError("missing_result", "ignored"), workspace=answer_file('{"sum": 3}')))
-    rig.rush.pinned_case, rig.rush.case_delay_s = pinned, 0.2
-
-    async def member() -> None:  # works once prompt.md appears, then leaves the shell
-        while rig.supervisor.case is None or not (rig.supervisor.case.workspace / "prompt.md").exists():
-            await anyio.sleep(0.01)
-        rig.supervisor.case.released.set()
-
-    async with anyio.create_task_group() as group:
-        group.start_soon(member)
-        result = await rig.run(job)
-    request = json.loads(rig.supervisor.specs[0].request_json)
-    assert (request["case_pending"], request["case"], request["prompt"]) == (True, None, None)
-    assert rig.services[0].attempt.policy.prompt_user is None and "prompt_sha256" not in rig.rush.of("attempt.started")[0]
-    workspace = rig.supervisor.case.workspace
-    assert (workspace / "prompt.md").read_text() == fx.PROMPT and json.loads((workspace / "request.json").read_text()) == pinned["case"]["arguments"]
-    assert result.execution == {"status": "answered", "reason": None} and rig.references == [pinned["private_reference"]]
-
-
-async def test_a_session_that_ends_before_its_case_is_pinned_is_scored_once_it_is(tmp_path: Path) -> None:
-    job, pinned = fx.pending_job()
+async def test_a_free_form_session_has_no_case_reads_no_result_and_ends_unscored(tmp_path: Path) -> None:
     rig = Rig(tmp_path, script=fx.CaseScript(result=SandboxError("missing_result", "ignored"), workspace=answer_file('{"sum": 3}')))
-    rig.rush.pinned_case, rig.rush.case_delay_s = pinned, 0.2
-    result = await rig.run(job)
-    assert result.execution == {"status": "answered", "reason": None} and rig.references == [pinned["private_reference"]]
-    assert b"still being prepared" in rig.rush.screen
-
-
-async def test_a_failed_pin_ends_the_session_with_its_error_and_no_verdict(tmp_path: Path) -> None:
-    from nanoagent.uploaded.rush_worker import CaseFailed
-
-    job, _ = fx.pending_job()
-    rig = Rig(tmp_path, script=fx.CaseScript(block=True, closed_wait=True))
-    rig.rush.pinned_case, rig.rush.case_delay_s = CaseFailed(422, "case_failed", "the model could not make the input"), 0.1
-    result = await rig.run(job)
-    assert result.execution == {"status": "execution_failed", "reason": "case_failed: the model could not make the input"}
-    assert rig.rush.finalized[0]["verdict"] is None and rig.verified == [] and rig.supervisor.case.closed
-    assert b"the model could not make the input" in rig.rush.screen
+    result = await rig.run(fx.free_job())
+    request = json.loads(rig.supervisor.specs[0].request_json)
+    assert (request["free_form"], request["case"], request["prompt"]) == (True, None, None)
+    assert rig.services[0].attempt.policy.prompt_user is None
+    assert result.execution == {"status": "ended", "reason": None} and rig.verified == []
+    assert rig.rush.finalized[0]["verdict"] is None and rig.rush.of("result.read") == [] and rig.rush.of("collector.health")
 
 
 async def test_any_other_harness_starts_only_once_its_case_is_pinned(tmp_path: Path) -> None:
     from nanoagent.uploaded.rush_worker import CaseFailed
 
-    job, pinned = fx.pending_job(terminal=False)
+    job, pinned = fx.pending_job()
     rig = Rig(tmp_path, script=fx.CaseScript(result=SandboxError("missing_result", "ignored"), workspace=answer_file('{"sum": 3}')))
     rig.rush.pinned_case = pinned
     await rig.run(job)
     request = json.loads(rig.supervisor.specs[0].request_json)
-    assert request["case_pending"] is False and request["prompt"] == pinned["prompt"]
+    assert request["free_form"] is False and request["prompt"] == pinned["prompt"]
     (tmp_path / "failing").mkdir()
     failing = Rig(tmp_path / "failing", script=fx.CaseScript())
     failing.rush.pinned_case = CaseFailed(422, "case_failed", "no such task")
-    result = await failing.run(fx.pending_job(terminal=False)[0])
+    result = await failing.run(fx.pending_job()[0])
     assert result.execution == {"status": "execution_failed", "reason": "case_failed: no such task"} and failing.supervisor.case is None
 
 

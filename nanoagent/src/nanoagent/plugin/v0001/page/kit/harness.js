@@ -14,12 +14,15 @@ const ALTERNATE_SCREEN = new Set([47, 1047, 1049]);
 const bytes = (base64) => Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
 
 /**
- * The status line of an ended session: right or wrong by the plugin's verifier when it gave an answer (or that it ran out of its
- * time, sessions.wall_time_ms), then time, tokens and cost.
+ * The line an ended session prints in its terminal: that it ended (a free-form Terminal session, which nothing scores), or right or
+ * wrong by the plugin's verifier when it gave an answer (or that it ran out of its time, sessions.wall_time_ms), then time, tokens
+ * and cost.
  */
 export function outcomeText(outcome) {
   const verdict = outcome.reason === "timed_out"
     ? "Session time limit reached"
+    : outcome.ended
+    ? "Session ended"
     : !outcome.scored
     ? `No verdict: no answer to score (${outcome.status}${outcome.reason ? `: ${outcome.reason}` : ""})`
     : outcome.verdict === "Pass" ? "Right" : outcome.verdict === "Fail" ? "Wrong" : outcome.verdict;
@@ -28,30 +31,28 @@ export function outcomeText(outcome) {
 }
 
 /**
- * The Harness tab: the terminal, opened when the tab is first shown and again by Start, and one status line; Stop ends the
- * session, as leaving the shell does. The case is the task's input as the plugin's model fills it from the task's description
- * (the shell's prompt.md and request.json show it); a plugin of several tasks picks the task.
+ * The Harness tab: only the terminal, a free-form Terminal session that starts when the tab is first shown, in the plugin (with its
+ * first task's tools, as `nanoagent harness` picks the task by default): the member runs any agent there and prompts it themselves.
+ * Leaving the shell (exit, Ctrl-D) ends the session; its time, tokens and cost print in the terminal, and Enter then starts a new one
+ * there.
  * @returns {HTMLElement}
  */
 export function harnessPage(plugin) {
-  let task = plugin.tasks[0];
+  const task = plugin.tasks[0];
   let runId = null;
-  const taskPick =
-    plugin.tasks.length > 1
-      ? h("select", { class: "input", "aria-label": "Task", onchange: (event) => (task = plugin.tasks.find((one) => one.id === event.target.value)) }, plugin.tasks.map((one) => h("option", { value: one.id, text: one.description })))
-      : null;
-  const runButton = h("button", { type: "button", class: "button primary", text: "Start" });
-  const stop = h("button", { type: "button", class: "button", text: "Stop", hidden: true });
-  const status = h("p", { class: "harness-status muted small-text", role: "status", text: `A terminal on your computer in ${plugin.name}'s task: run any agent, leave answer.json, exit to be scored.` });
+  let ended = false;
   const screen = h("div", { class: "harness-terminal" });
 
   const terminal = new Terminal({ cursorBlink: true, fontSize: 13, scrollback: 5000, theme: { background: "#14161b" } });
   const fit = new FitAddon();
   terminal.loadAddon(fit);
   terminal.parser.registerCsiHandler({ prefix: "?", final: "l" }, (params) => params.some((mode) => ALTERNATE_SCREEN.has(mode)));
-  // What the person types, and the terminal's size, go to the shell while its session runs.
-  const send = (method, params) => runId && request(method, { runId, ...params }).catch((problem) => (status.textContent = problem.message));
-  terminal.onData((data) => send("harness.input", { data }));
+  // What the person types, and the terminal's size, go to the shell while its session runs; once it ended, Enter starts another.
+  const send = (method, params) => runId && request(method, { runId, ...params }).catch((problem) => terminal.write(`\x1b[31m${problem.message}\x1b[0m\r\n`));
+  terminal.onData((data) => {
+    if (ended && data === "\r") start();
+    else send("harness.input", { data });
+  });
   terminal.onResize(({ rows, cols }) => send("harness.resize", { rows, cols }));
   // The terminal opens once its tab is first shown, the size it measures by, and starts its first session then.
   let opened = false;
@@ -68,66 +69,48 @@ export function harnessPage(plugin) {
   }).observe(screen);
 
   async function start() {
-    if (runButton.disabled) return;
+    ended = false;
     terminal.reset();
-    status.textContent = `${task.description} · starting the terminal`;
-    runButton.disabled = true;
-    if (taskPick) taskPick.disabled = true;
-    let started = false;
+    let preparing = false;
     const done = () => {
       runId = null;
-      runButton.disabled = false;
-      if (taskPick) taskPick.disabled = false;
-      stop.hidden = true;
-      stop.disabled = false;
+      ended = true;
+      terminal.write("Press Enter to start a new one.");
     };
     try {
-      runId = await startRun("harness.run", { harness: "shell", task: task.id, text: task.description }, (name, data) => {
+      const id = await startRun("harness.run", { harness: "shell", task: task.id }, (name, data) => {
         switch (name) {
           case "harness.preparing":
-            status.textContent = `${task.description} · preparing your computer (${Math.round(data.done / 1e6)} of ${Math.round(data.total / 1e6)} MB): the session starts once it is ready`;
+            preparing = true;
+            terminal.write(`\r\x1b[KPreparing your computer (${Math.round(data.done / 1e6)} of ${Math.round(data.total / 1e6)} MB): the session starts once it is ready`);
             break;
           case "harness.output":
-            if (!started) {
-              started = true;
-              status.textContent = `${task.description} · running: exit the shell, or Stop, to end the session`;
-            }
+            if (preparing) terminal.write("\r\x1b[K");
+            preparing = false;
             terminal.write(bytes(data.data));
             break;
           case "harness.outcome":
-            status.textContent = outcomeText(data);
+            terminal.write(`\r\n\x1b[1m${outcomeText(data)}\x1b[0m\r\n`);
             break;
           case "harness.error":
-            status.textContent = data.message;
+            terminal.write(`\r\n\x1b[31m${data.message}\x1b[0m\r\n`);
             break;
           case "harness.done":
             done();
             break;
         }
       });
-      if (runButton.disabled) {
-        stop.hidden = false;
+      // A session that ended while it started (its events came with the reply) has nothing left to send to.
+      if (!ended) {
+        runId = id;
         send("harness.resize", { rows: terminal.rows, cols: terminal.cols });
         terminal.focus();
       }
     } catch (problem) {
-      status.textContent = problem.message;
+      terminal.write(`\x1b[31m${problem.message}\x1b[0m\r\n`);
       done();
     }
   }
 
-  runButton.addEventListener("click", () => start());
-  stop.addEventListener("click", async () => {
-    if (!runId) return;
-    stop.disabled = true;
-    try {
-      await request("harness.cancel", { runId });
-    } catch (problem) {
-      stop.disabled = false;
-      status.textContent = `Stop failed: ${problem.message}`;
-    }
-  });
-
-  const head = h("div", { class: "harness-head" }, taskPick, h("div", { class: "harness-ask" }, stop, runButton));
-  return h("section", { class: "harness-page", "aria-label": "Harness" }, head, screen, status);
+  return h("section", { class: "harness-page", "aria-label": "Harness" }, screen);
 }

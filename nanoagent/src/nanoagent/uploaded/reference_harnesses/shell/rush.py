@@ -1,4 +1,5 @@
 """`rush save <name> [-- <command>]`, in the RUSH terminal: what the member built there, saved in RUSH as a harness of theirs.
+`rush help` says what the terminal holds.
 And `rush.py cli <name>`, which bin/'s wrappers run: where the worker installed the CLI <name> (nanoagent.uploaded.clis), installed
 there the first time, with its progress on the terminal.
 
@@ -32,7 +33,15 @@ NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")  # the harness contract's Harn
 CASE_FILES = {"prompt.md", "request.json", "answer.json", ".rush"}
 INSTALLED = ".rush/clis"  # in the workspace: each CLI the session ran, by name, holding its install's key
 UV = "/opt/rush-tools/uv"
-USAGE = "usage: rush save <name> [-- <command>]"
+USAGE = "usage: rush save <name> [-- <command>] | rush help"
+HELP = """\
+agents          claude, codex, pi, hermes and dsh install the first time you type them. dsh runs headless: dsh "<task>".
+model           $RUSH_MODEL, through RUSH's gateway, which records every call. These are set for any SDK:
+                OPENAI_BASE_URL, OPENAI_API_KEY, ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY.
+packages        pip install and npm install -g put packages in .rush/.
+exit            (or Ctrl-D) ends the session; its model calls and commands are kept with it.
+rush save <name> [-- <command>]
+                save what you built here as a harness of yours that runs <command> (by default your last command)."""
 
 
 def fail(message: str) -> None:
@@ -206,6 +215,9 @@ def cli(name: str) -> None:
 def main(argv: list[str]) -> None:
     if len(argv) == 2 and argv[0] == "cli":
         cli(argv[1])
+        return
+    if argv == ["help"]:
+        print(HELP)
         return
     if len(argv) < 2 or argv[0] != "save" or (len(argv) > 2 and argv[2] != "--"):
         fail(USAGE)

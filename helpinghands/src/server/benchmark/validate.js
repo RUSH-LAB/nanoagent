@@ -21,7 +21,8 @@ const MAX_CLAIM_WAIT_S = 30;
 const VERDICTS = ['pass', 'fail'];
 // Why a case failed (nanoagent.plugin.verifier.TASK_VERIFIER_EXPLANATIONS); a failure by `verify_task` alone has none.
 const EXPLANATIONS = ['invalid_answer', 'refused_answer_case', 'answered_refusal_case', 'execution_failed'];
-const EXECUTION_STATUSES = ['answered', 'refused', 'execution_failed', 'build_failed', 'canceled'];
+// `ended`: a free-form Terminal session the member left, which had no case to answer.
+const EXECUTION_STATUSES = ['answered', 'refused', 'execution_failed', 'build_failed', 'canceled', 'ended'];
 // What may carry a verdict: a result the plugin's verifier saw.
 const SCORABLE = new Set(['answered', 'refused', 'execution_failed']);
 

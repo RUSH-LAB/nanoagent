@@ -200,7 +200,7 @@ describe('a session\'s run', () => {
     const {run_id: runId, session} = await service.session(CONTEXT, sessionFrame, source, 'coding', {interactive: true});
     assert.equal(runId, 'r1');
     const [, request, resolved, benchmark, harness, options] = kept[0];
-    assert.deepEqual(options, {session: true, interactive: true}); // a session's run, which the member's results do not list
+    assert.deepEqual(options, {session: true, interactive: true, free: false}); // a session's run, which the member's results do not list
     assert.deepEqual([request.policy, request.source_sha256, request.request_digest.length], ['coding', 'b'.repeat(64), 64]);
     assert.deepEqual(resolved.cases, [{case_id: 'p-01', position: 0, kind: 'answer', arguments: null, expected_error: null, content_digest: null, prompt: null}]);
     assert.deepEqual([benchmark.case_set_id, benchmark.publisher.name, benchmark.plugin.sha256, benchmark.context, harness.name], [null, 'Ada', SHA, 'Add one and two', 'shell']);

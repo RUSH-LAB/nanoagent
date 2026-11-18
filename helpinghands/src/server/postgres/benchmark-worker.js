@@ -76,7 +76,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
       // A run someone else holds (a cancel) is skipped: claim locks an attempt (sweep) before a run, cancel a run before an attempt.
       if (!run || run.canceled_at) continue;
       const picked = (await client.query(
-        `select a.attempt_id from benchmark_attempt a join benchmark_run_case c on c.run_id = a.run_id and c.case_id = a.case_id
+        `select a.attempt_id from benchmark_attempt a left join benchmark_run_case c on c.run_id = a.run_id and c.case_id = a.case_id
           where a.run_id = $1 and a.state = 'queued' order by a.created_at, c.position, a.attempt_id limit 1 for update of a skip locked`, [run.run_id],
       )).rows[0];
       if (!picked) continue;
@@ -85,7 +85,9 @@ function createPostgresBenchmarkWorker({pool, config}) {
           where attempt_id = $1 returning *`, [picked.attempt_id, workerId],
       )).rows[0];
       const {task} = run;
-      const pinned = await caseOf(client, run, attempt.case_id);
+      // A free-form Terminal session's attempt has no case: nothing is pinned for it, and nothing scores it.
+      const free = attempt.case_id === null;
+      const pinned = free ? {case: null} : await caseOf(client, run, attempt.case_id);
       // The task's instructions as this run works it: the task tools policy's prompt text, which may be the member's own.
       const instructions = run.policy === 'task_tools' ? run.prompt_text : task.instructions;
       return {
@@ -97,15 +99,14 @@ function createPostgresBenchmarkWorker({pool, config}) {
           // The gateway holds a run to its pinned prompt (the first call carries it) but for a session of the Terminal or of a harness
           // saved from one, whose agent is anything a member runs and phrases its own calls.
           prompt_bound: !(run.session && (run.harness_name === 'shell' || !REFERENCE_HARNESSES.includes(run.harness_name))),
-          // The Terminal with someone at it starts before its case is pinned; any other harness reads its case as it starts.
-          terminal: run.session && run.interactive && run.harness_name === 'shell',
         },
         plugin: {id: run.plugin_id, name: run.plugin_name, version: run.version, sha256: run.package_sha256},
         task: {
           id: run.task_id, kind: task.kind, description: task.description, instructions, plugin_name: run.plugin_name, tools: task.tools, egress_hosts: task.egress_hosts,
         },
+        free_form: free,
         // A session's case still being pinned comes later, from GET /attempts/{id}/case.
-        case_pending: !pinned.case,
+        case_pending: !free && !pinned.case,
         ...(pinned.case ? pinned : {case_set: null, case: null, prompt: null, private_reference: null}),
       };
     }
@@ -218,6 +219,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
      */
     async pinnedCase(userId, attemptId, fence) {
       return fenced(userId, attemptId, fence, async (client, attempt) => {
+        if (attempt.case_id === null) throw new BenchmarkError(409, 'no_case', 'A free-form Terminal session has no case');
         const run = (await client.query('select * from benchmark_run where run_id = $1', [attempt.run_id])).rows[0];
         return {run_id: run.run_id, created_at: run.created_at, ...(await caseOf(client, run, attempt.case_id))};
       });
@@ -457,6 +459,11 @@ function createPostgresBenchmarkWorker({pool, config}) {
         if (attempt.state === 'final') {
           if (attempt.finalize_digest === digest) return {attempt_id: attemptId, sealed: true, final_cursor: Number(attempt.final_cursor), replayed: true};
           throw new BenchmarkError(409, 'conflicting_duplicate', 'The attempt was finalized with different content');
+        }
+        // A free-form Terminal session has no case to answer: it ends, and only it does.
+        const free = attempt.case_id === null;
+        if (free ? ['answered', 'refused'].includes(body.execution.status) : body.execution.status === 'ended') {
+          throw new BenchmarkError(422, 'invalid_status', free ? `A free-form session has no case to have ${body.execution.status}` : 'Only a free-form session ends with no case');
         }
         const highWater = Number(attempt.next_cursor) - 1;
         if (highWater !== body.final_cursor_expected) {

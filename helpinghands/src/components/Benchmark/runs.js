@@ -3,7 +3,7 @@
 import {primaryMetrics} from './metrics.js';
 
 const EXECUTION_LABELS = {
-  answered: 'Answered', refused: 'Refused', execution_failed: 'Execution failed', build_failed: 'Build failed', canceled: 'Canceled', interrupted: 'Interrupted',
+  answered: 'Answered', refused: 'Refused', execution_failed: 'Execution failed', build_failed: 'Build failed', canceled: 'Canceled', interrupted: 'Interrupted', ended: 'Ended',
 };
 
 export const POLICY_LABELS = {coding: 'Coding', task_tools: 'Task tools'};

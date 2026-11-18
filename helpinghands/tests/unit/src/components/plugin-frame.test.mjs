@@ -436,7 +436,7 @@ describe('the bridge host', () => {
       ['harness.preparing', {done: 5e6, total: 2e7}],
       ['harness.output', {data: base64('\x1b[1mhello\x1b[0m ')}],
       ['harness.output', {data: base64('é')}],
-      ['harness.outcome', {status: 'Answered', scored: true, reason: null, verdict: 'Pass', explanation: '', inputTokens: 120, outputTokens: 30, elapsedMs: 4200, cost: 0.0012}],
+      ['harness.outcome', {status: 'Answered', ended: false, scored: true, reason: null, verdict: 'Pass', explanation: '', inputTokens: 120, outputTokens: 30, elapsedMs: 4200, cost: 0.0012}],
       ['harness.done', {}],
     ]);
   });
@@ -475,7 +475,7 @@ describe('the bridge host', () => {
 
   it('stops a Harness tab session that is waiting for the worker without queuing it', async () => {
     const {posted, calls, send} = await hostWith(() => Response.json({connected: true, worker: {state: 'starting', progress: null}}), {started: false});
-    send('h', 'harness.run', {harness: 'shell', task: 'save-paper-source', text: 'Get it'});
+    send('h', 'harness.run', {harness: 'shell', task: 'save-paper-source'});
     await until(() => eventsOf(posted, 'harness-1').length);
     send('c', 'harness.cancel', {runId: 'harness-1'});
     await until(() => messages(posted).some(message => message.event === 'harness.done'));

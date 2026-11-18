@@ -338,9 +338,10 @@ function createPostgresBenchmark({pool}) {
      * any attempt is claimable. `request` is the validated run request, `resolved` what it resolved to
      * (`resolve` in benchmark/plan.js), `benchmark` the benchmark it was resolved against and `harness` the source's manifest identity;
      * `session` marks a Harness tab or `nanoagent harness` run, never a benchmark result, and `interactive` one whose member works at its
-     * terminal. A concurrent submission under the same key gets the first one's run: `{run_id, replayed}`.
+     * terminal; `free` a free-form Terminal session, with no case and one attempt of none. A concurrent submission under the same key
+     * gets the first one's run: `{run_id, replayed}`.
      */
-    async createRun(context, request, resolved, benchmark, harness, {session = false, interactive = false} = {}) {
+    async createRun(context, request, resolved, benchmark, harness, {session = false, interactive = false, free = false} = {}) {
       const {plan, cases} = resolved;
       return memberWrite(context, async client => {
         await client.query(
@@ -390,6 +391,7 @@ function createPostgresBenchmark({pool}) {
             [crypto.randomUUID(), runId, c.case_id],
           );
         }
+        if (free) await client.query('insert into benchmark_attempt (attempt_id, run_id, case_id, attempt_no) values ($1, $2, null, 1)', [crypto.randomUUID(), runId]);
         return {run_id: runId, replayed: false};
       });
     },

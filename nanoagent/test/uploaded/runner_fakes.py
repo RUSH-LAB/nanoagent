@@ -52,7 +52,7 @@ def job_body(policy: str = "task_tools", limits: dict[str, Any] | None = None, t
         "kind": "attempt", "attempt_id": ATTEMPT_ID, "attempt_no": 1, "fence": 1, "lease_expires_at": "later", "lease_seconds": 60,
         "run": {
             "run_id": "r", "model": "test/model", "endpoint_profile": "mock", "dialects": ["chat_completions"], "source_sha256": "b" * 64,
-            "policy": policy, "limits": {**LIMITS, **(limits or {})}, "interactive": False, "prompt_bound": True, "terminal": False,
+            "policy": policy, "limits": {**LIMITS, **(limits or {})}, "interactive": False, "prompt_bound": True,
         },
         "task": {
             "id": "probe", "kind": "agent", "description": "Sum the numbers.", "instructions": "Be exact.", "plugin_name": "Acceptance probe",
@@ -66,6 +66,7 @@ def job_body(policy: str = "task_tools", limits: dict[str, Any] | None = None, t
         "plugin": {"id": "acceptance-probe", "name": "Acceptance probe", "version": "0.1.0", "sha256": PLUGIN_SHA},
         "case_set": {"case_set_id": "probe@1", "digest": "f" * 64},
         "private_reference": {"digest": "x"},
+        "free_form": False,
         "case_pending": False,
     }
     body.update(overrides)
@@ -76,10 +77,16 @@ def job(**overrides: Any):
     return parse_job(job_body(**overrides))
 
 
-def pending_job(terminal: bool = True, **overrides: Any):
+def free_job():
+    """A free-form Terminal session's job: someone at it, no case set and no case."""
+    body = job_body(policy="coding")
+    body["run"] |= {"interactive": True, "prompt_bound": False}
+    return parse_job({**body, "free_form": True, "case_set": None, "case": None, "prompt": None, "private_reference": None})
+
+
+def pending_job(**overrides: Any):
     """A session's job claimed while its case is pinned, and what ``GET /attempts/{id}/case`` answers once it is."""
     body = job_body(policy="coding", **overrides)
-    body["run"] |= {"terminal": terminal, "interactive": terminal, "prompt_bound": not terminal}
     pinned = {key: body[key] for key in ("case_set", "case", "prompt", "private_reference")}
     return parse_job({**body, "case_pending": True, "case_set": None, "case": None, "prompt": None, "private_reference": None}), pinned
 
