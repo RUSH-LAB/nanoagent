@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from slimconfig import Output, build_output
+from slimconfig import Config, Output, build_output
 
 from nanoagent.core.agent import DecisionModel
 from nanoagent.plugin.runtime import call_tool_async
@@ -203,10 +203,25 @@ def derive_case_set(name: str, cases: CaseSet, manifest, sha256: str, timeout: f
 SESSION = "harness-session"
 
 
-async def session_case_set(model: DecisionModel, manifest, sha256: str, task_id: str, text: str, timeout: float) -> dict[str, Any]:
+@dataclass
+class SessionsConfig(Config):
+    """How every session runs: a Harness tab session, and ``nanoagent harness``."""
+
+    # The model calls one session admits: a person works with the harness, so more than a benchmark case's.
+    max_model_calls: int = 200
+
+    def __post_init__(self) -> None:
+        if self.max_model_calls < 1:
+            raise ValueError(f"sessions.max_model_calls must be >= 1, got {self.max_model_calls}")
+
+
+async def session_case_set(
+    model: DecisionModel, manifest, sha256: str, task_id: str, text: str, timeout: float, sessions: SessionsConfig
+) -> dict[str, Any]:
     """The case set of a Harness tab session: one case to answer, whose input ``model`` fills from ``text``, the member's
     request, as the plugin's Session agent fills a task's input from theirs; ``text`` is its context, so a coding harness
-    reads the request as the member wrote it. Pinned like any case set (:func:`derive_case_set`)."""
+    reads the request as the member wrote it. Pinned like any case set (:func:`derive_case_set`), the run limited by
+    ``sessions``."""
     try:
         task = manifest.task(task_id)
     except KeyError as error:
@@ -217,4 +232,5 @@ async def session_case_set(model: DecisionModel, manifest, sha256: str, task_id:
     except ValueError as error:  # the backend's refusal of an answer cut off, not JSON or not an object
         raise PreparationError(f"the model could not make task {task.id}'s input from the request: {error}") from error
     cases = CaseSet(plugin=manifest.id, task=task.id, context=text, answer=[answer.value], refuse=[])
-    return await asyncio.to_thread(derive_case_set, SESSION, cases, manifest, sha256, timeout)
+    publication = await asyncio.to_thread(derive_case_set, SESSION, cases, manifest, sha256, timeout)
+    return {**publication, "limits": {"max_model_calls": sessions.max_model_calls}}

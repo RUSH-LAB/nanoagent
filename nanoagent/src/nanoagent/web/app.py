@@ -676,7 +676,7 @@ def create_app(
             return JSONResponse({"error": str(error)}, status_code=400)
         try:
             async with plugin_slots:
-                publication = await session_case_set(model, installed.manifest, request.path_params["sha256"], body["task"], body["text"], BENCHMARK_PIN_TIMEOUT)
+                publication = await session_case_set(model, installed.manifest, request.path_params["sha256"], body["task"], body["text"], BENCHMARK_PIN_TIMEOUT, cfg.sessions)
         except PreparationError as error:
             return JSONResponse({"error": str(error)}, status_code=422)
         finally:

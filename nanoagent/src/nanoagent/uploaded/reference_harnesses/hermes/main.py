@@ -1,4 +1,6 @@
-"""Hermes Agent's one-shot mode (`hermes -z`) in the workspace, the model reached through the gateway's chat completions dialect on Hermes's openrouter route."""
+"""Hermes Agent in the workspace as a person runs it on a terminal, the model reached through the gateway's chat completions dialect on
+Hermes's openrouter route: its interactive chat screen when someone is at the terminal (`interactive`), the case's prompt its first
+message, and otherwise its one-shot mode (`hermes -z`)."""
 
 import importlib
 import json
@@ -23,6 +25,19 @@ os.environ.update(
     OPENROUTER_BASE_URL=request["openrouter"]["base_url"],
     OPENROUTER_API_KEY=os.environ["RUSH_ATTEMPT_TOKEN"],
 )
-sys.argv = ["hermes", "-z", request["prompt"]["user"], "--provider", "openrouter", "--model", request["openrouter"]["model"]]
+route = ["--provider", "openrouter", "--model", request["openrouter"]["model"]]
+if request["interactive"]:
+    # `hermes chat` takes no first message, so the prompt goes on its input queue, where what the person types goes; they end it with /exit.
+    cli = importlib.import_module("cli")
+    init = cli.HermesCLI.__init__
+
+    def started(self, *args, **kwargs):
+        init(self, *args, **kwargs)
+        self._pending_input.put(request["prompt"]["user"])
+
+    cli.HermesCLI.__init__ = started
+    sys.argv = ["hermes", "chat", *route]
+else:
+    sys.argv = ["hermes", "-z", request["prompt"]["user"], *route]
 
 importlib.import_module("hermes_cli.main").main()
