@@ -740,14 +740,19 @@ class MicrosandboxSupervisor:
         deps, limits = spec.profile.offline.dependency_mount, spec.limits
         output = max(limits.workspace_bytes, limits.workspace_files * INODE_BYTES)
         volumes = {
-            "/src": _bind(source), CLOSURE_MOUNT: _bind(spec.closure.directory),
-            deps: _disk(max(2 * spec.closure.archive.stat().st_size, spec.closure.entries * INODE_BYTES)),
+            "/src": _bind(source),
             "/build-out": _disk(output), OUTPUT_MOUNT: _bind(out, readonly=False, quota=2 * output), "/tmp": _tmpfs(limits.tmp_bytes),
         }
+        disks = ["/build-out"]
+        if not spec.closure.empty:  # a build with no dependencies has no closure to unpack, so no disk for it
+            volumes[CLOSURE_MOUNT] = _bind(spec.closure.directory)
+            volumes[deps] = _disk(max(2 * spec.closure.archive.stat().st_size, spec.closure.entries * INODE_BYTES))
+            disks.append(deps)
         sandbox = await self._create(name, spec.profile.build_image, limits, Network.none(), volumes)
         try:
-            await self._step(sandbox, "start_failed", "preparing the build's disks", ["chown", CASE_USER, deps, "/build-out"], "root", limits)
-            await self._step(sandbox, "build_failed", "unpacking the dependencies", ["tar", "-xf", f"{CLOSURE_MOUNT}/{CLOSURE_ARCHIVE}", "-C", deps], CASE_USER, limits)
+            await self._step(sandbox, "start_failed", "preparing the build's disks", ["chown", CASE_USER, *disks], "root", limits)
+            if not spec.closure.empty:
+                await self._step(sandbox, "build_failed", "unpacking the dependencies", ["tar", "-xf", f"{CLOSURE_MOUNT}/{CLOSURE_ARCHIVE}", "-C", deps], CASE_USER, limits)
             env = {**spec.profile.offline.env, "HOME": "/tmp", "TMPDIR": "/tmp"}
             started = self._clock()
             argv = spec.manifest.build_argv

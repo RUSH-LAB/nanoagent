@@ -3,6 +3,8 @@ working directories, network policies and the tool launcher. The microVMs themse
 
 from __future__ import annotations
 
+import asyncio
+import tarfile
 from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +15,7 @@ from nanoagent.uploaded.archive import Extracted
 from nanoagent.uploaded.contract import ContractError, HarnessManifest
 from nanoagent.uploaded.sandbox import (
     CASE_USER,
+    CLOSURE_MOUNT,
     GUEST_HOST,
     MSB,
     BuildSpec,
@@ -29,7 +32,7 @@ from nanoagent.uploaded.sandbox import (
     termination_from_root_exit,
 )
 from nanoagent.uploaded.collector import ProcessEvent, ProcessEventKind
-from nanoagent.uploaded.toolchains import toolchain
+from nanoagent.uploaded.toolchains import CLOSURE_ARCHIVE, DependencyClosure, toolchain
 
 PROFILE = toolchain("python-3")
 
@@ -83,6 +86,27 @@ def test_build_rejects_declared_outputs_that_are_not_canonical_relative_paths(su
     with pytest.raises(SandboxError) as caught:
         supervisor.build(BuildSpec("a", PROFILE, manifest((output,)), tmp_path, None, tmp_path))  # type: ignore[arg-type]
     assert caught.value.code == "output_invalid"
+
+
+@pytest.mark.parametrize("dependencies", [False, True])
+def test_build_mounts_a_dependency_disk_only_for_a_closure_with_dependencies(supervisor, tmp_path, monkeypatch, dependencies):
+    # An empty closure got a disk too small for microsandbox to format as ext4, so no Terminal (no lockfiles) could build.
+    closure_dir = tmp_path / "deps"
+    closure_dir.mkdir()
+    with tarfile.open(closure_dir / CLOSURE_ARCHIVE, "w"):
+        pass
+    closure = DependencyClosure(closure_dir, {"demo.whl": "0" * 64} if dependencies else {}, int(dependencies))
+    mounted: dict = {}
+
+    async def create(name, image, limits, network, volumes, **_):
+        mounted.update(volumes)
+        raise SandboxError("start_failed", "stopped by the test")
+
+    monkeypatch.setattr(supervisor, "_create", create)
+    spec = BuildSpec("a", PROFILE, manifest(), tmp_path, closure, tmp_path / "build")
+    with pytest.raises(SandboxError, match="stopped by the test"):
+        asyncio.run(supervisor._build(spec, tmp_path, tmp_path / "out"))
+    assert (PROFILE.offline.dependency_mount in mounted, CLOSURE_MOUNT in mounted, "/build-out" in mounted) == (dependencies, dependencies, True)
 
 
 def test_build_refuses_source_containing_a_link(supervisor, tmp_path):
