@@ -127,7 +127,6 @@ class Supervisor(Protocol):
 
     def prepare_plugin(self, root: Path, timeout_s: float) -> None: ...
 
-    def attach_tool(self, case: Any, tool: ToolContainerSpec) -> None: ...
 
     def tool_launcher(self, name: str) -> ToolLauncher: ...
 
@@ -242,22 +241,6 @@ class WarmTerminal:
     folder: Path
     born: float
     taken: anyio.Event = field(default_factory=anyio.Event)
-
-
-class LateTools:
-    """The tools of a session whose shell starts before them: a call waits until they are up, then runs, or fails with why they
-    could not come up."""
-
-    def __init__(self) -> None:
-        self.up = anyio.Event()
-        self.runner: Any = None
-        self.error = "the session ended before its tools came up"
-
-    async def run(self, name: str, arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
-        await self.up.wait()
-        if self.runner is None:
-            raise ToolError("tool_unavailable", f"the plugin's tools could not start: {self.error}", 503)
-        return await self.runner.run(name, arguments, workspace)
 
 
 class NoTools:
@@ -679,7 +662,7 @@ class AttemptRunner:
             rec.AttemptStarted(
                 job.attempt_id, cfg.worker_id, {"label": cfg.endpoint.label, "mode": cfg.endpoint.mode}, run["model"], list(run["dialects"]),
                 None if job.prompt is None else job.prompt["sha256"], policy, None if archive is None else archive.manifest.toolchain, run["source_sha256"], cfg.harness_revision,
-                dict(limits), list(job.task["egress_hosts"]) if self._tooled(job) else None,
+                dict(limits), list(job.task["egress_hosts"]) if policy == "task_tools" else None,
                 {"reference_tokens_per_second": cfg.reference_tokens_per_second, "clock_tolerance_ns": cfg.clock_tolerance_ns},
                 [*EXPECTED_SOURCES, *(["tool_broker"] if tools else [])],
             )
@@ -702,8 +685,7 @@ class AttemptRunner:
         if (ended := await self._ended(job, lease, journal)) is not None:  # the build is a thread nothing can interrupt, so a cancel is seen after it
             return ended
         LOG.info("attempt %s: harness built", job.attempt_id)  # with the worker log's times, these lines show where a session's start goes
-        # A free-form Terminal session starts its shell first: its plugin and tools come up behind it (`_late_tools`).
-        manifest = None if tools and job.free_form else await in_thread(self._plugin, job, package, work, bool(tools))
+        manifest = await in_thread(self._plugin, job, package, work, bool(tools))
         LOG.info("attempt %s: plugin ready", job.attempt_id)
         if (ended := await self._ended(job, lease, journal)) is not None:
             return ended
@@ -715,7 +697,7 @@ class AttemptRunner:
                 return await self._finalize(job, journal, "execution_failed", pending.failed_reason())
             job, pending = pending.job, None
         async with AsyncExitStack() as stack:
-            return await self._case(job, lease, journal, emit, work, archive.manifest.run_argv, profile, artifact, manifest, package, tools, stack)
+            return await self._case(job, lease, journal, emit, work, archive.manifest.run_argv, profile, artifact, manifest, tools, stack)
 
     async def _ended(self, job: AttemptJob, lease: Lease, journal: RushJournal) -> AttemptResult | None:
         """The result of an attempt whose lease was lost or canceled while it was preparing, before any case ran: canceled is
@@ -727,15 +709,9 @@ class AttemptRunner:
         return AttemptResult("lease_lost")
 
     @staticmethod
-    def _tooled(job: AttemptJob) -> bool:
-        """Whether the attempt has the task's tool container: under the task tools policy, and in a free-form Terminal session, whose
-        agent CLIs reach the tools through the broker's MCP server (`/mcp`)."""
-        return job.run["policy"] == "task_tools" or job.free_form
-
-    @classmethod
-    def _tools(cls, job: AttemptJob) -> tuple[Mapping[str, Any], ...]:
-        """The plugin tools the attempt may call: the task's when it is [_tooled], else none."""
-        return tuple(job.task["tools"]) if cls._tooled(job) else ()
+    def _tools(job: AttemptJob) -> tuple[Mapping[str, Any], ...]:
+        """The plugin tools the attempt may call: the task's, under the task tools policy; none under the coding policy."""
+        return tuple(job.task["tools"]) if job.run["policy"] == "task_tools" else ()
 
     def _build(self, attempt_id: str, run_limits: Mapping[str, Any], archive: Any, profile: ToolchainProfile, work: Path) -> BuildArtifact:
         """The source's built harness: the one an earlier attempt built of the same source, build image and architecture, kept under
@@ -912,8 +888,7 @@ class AttemptRunner:
         run_argv: tuple[str, ...],
         profile: ToolchainProfile,
         artifact: BuildArtifact,
-        manifest: PluginManifest | None,
-        package: bytes,
+        manifest: PluginManifest,
         tools: tuple[Mapping[str, Any], ...],
         stack: AsyncExitStack,
     ) -> AttemptResult:
@@ -936,14 +911,9 @@ class AttemptRunner:
         workspace = Path(WORKSPACE)  # the case workspace, at the path the harness and the tool container both see
         runner: Any = NoTools()
         tool_container = None
-        names = tuple(tool["name"] for tool in tools)
-        name = f"rush-tool-{job.attempt_id}-{secrets.token_hex(4)}"
-        late = LateTools() if tools and manifest is None else None
-        if late is not None:
-            runner = late
-        elif tools:
-            assert manifest is not None
-            runner = self.plugins.tool_runner(manifest, workspace, names, self.supervisor.tool_launcher(name))
+        if tools:
+            name = f"rush-tool-{job.attempt_id}-{secrets.token_hex(4)}"
+            runner = self.plugins.tool_runner(manifest, workspace, tuple(tool["name"] for tool in tools), self.supervisor.tool_launcher(name))
             tool_container = ToolContainerSpec(name, manifest.root, None, tuple(job.task["egress_hosts"]))
         token = secrets.token_urlsafe(32)
         policy = AttemptPolicy(
@@ -951,7 +921,7 @@ class AttemptRunner:
             prompt_user=None if job.prompt is None else job.prompt["user"], prompt_system=None if job.prompt is None else job.prompt["system"],
             max_model_calls=run_limits["max_model_calls"],
             max_output_tokens_per_call=run_limits["max_output_tokens_per_call"], input_price_bound=input_price, output_price_bound=output_price,
-            tools=tuple(ToolPolicy(tool["name"], bool(tool["writes"]), tool["input_schema"], tool["output_schema"], tool["description"]) for tool in tools),
+            tools=tuple(ToolPolicy(tool["name"], bool(tool["writes"]), tool["input_schema"], tool["output_schema"]) for tool in tools),
             prompt_bound=run["prompt_bound"],
         )
         commands = CaseCommands(limits)
@@ -984,12 +954,7 @@ class AttemptRunner:
             LOG.info("attempt %s: case VMs up", job.attempt_id)
         stack.push_async_callback(shielded, lambda: in_thread(handle.close))
         stack.push_async_callback(shielded, lambda: self._revoke(services))  # a fault after this leaves no in-flight call or tool behind
-        if late is not None:
-            # Closed before the case (the stack unwinds in reverse), the tools' session first.
-            group = await stack.enter_async_context(anyio.create_task_group())
-            stack.callback(group.cancel_scope.cancel)
-            group.start_soon(self._late_tools, late, job, package, work, handle, name, names, workspace)
-        elif tools:
+        if tools:
             await stack.enter_async_context(runner)  # the plugin is up before the harness can call it
             LOG.info("attempt %s: plugin tools up", job.attempt_id)
         if warm is not None:  # launched already: the shell starts on its request and token
@@ -1086,26 +1051,6 @@ class AttemptRunner:
         }
         validate("Request", request)
         return request
-
-    async def _late_tools(
-        self, late: LateTools, job: AttemptJob, package: bytes, work: Path, handle: CaseHandle, name: str, names: tuple[str, ...], workspace: Path,
-    ) -> None:
-        """Brings up a running session's plugin (`_plugin`), its tool VM beside the case and its tools' session, which stays open until
-        the attempt ends. A tool call made before then waits in `late`; one that cannot come up fails each call with why."""
-        try:
-            manifest = await in_thread(self._plugin, job, package, work, True)
-            await in_thread(self.supervisor.attach_tool, handle, ToolContainerSpec(name, manifest.root, None, tuple(job.task["egress_hosts"])))
-            runner = self.plugins.tool_runner(manifest, workspace, names, self.supervisor.tool_launcher(name))
-            async with runner:
-                late.runner = runner
-                late.up.set()
-                LOG.info("attempt %s: plugin tools up", job.attempt_id)
-                await anyio.sleep_forever()
-        except Exception as error:
-            LOG.warning("attempt %s: the plugin's tools could not start: %s", job.attempt_id, error)
-            late.error = f"{type(error).__name__}: {error}"
-        finally:
-            late.up.set()
 
     async def _wait(self, lease: Lease, handle: CaseHandle, services: AttemptServices, terminal: Terminal, *, interactive: bool) -> Any:
         """The case's outcome, or None if the lease was lost or canceled first (the case is killed and drained). The harness's terminal

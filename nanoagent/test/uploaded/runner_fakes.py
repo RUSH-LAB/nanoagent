@@ -345,7 +345,6 @@ class FakeSupervisor:
         self.case: FakeCase | None = None
         self.specs: list[Any] = []
         self.prepared: list[Path] = []
-        self.attached: list[Any] = []
         self.probed: list[str] = []
 
     def create_network(self, attempt_id: str, *, internet: bool = False) -> FakeNetwork:
@@ -368,9 +367,6 @@ class FakeSupervisor:
 
     def prepare_plugin(self, root: Path, timeout_s: float) -> None:
         self.prepared.append(root)
-
-    def attach_tool(self, case: Any, tool: Any) -> None:
-        self.attached.append(tool)
 
     def ready(self, profile: Any) -> None:
         self.probed.append(profile.id)

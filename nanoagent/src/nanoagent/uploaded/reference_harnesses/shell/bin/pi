@@ -1,7 +1,7 @@
 #!/bin/sh
 # PI's CLI on RUSH's gateway (its chat completions dialect), as the pi reference harness runs it: pi-ai's openrouter provider routed
-# to the gateway and keyed by the attempt token, the session's model capped at the attempt's output tokens, no update or
-# catalog fetch at startup, and the plugin's tools (shell.py's MCP server) through pi-mcp.ts, as PI has no MCP client.
+# to the gateway and keyed by the attempt token, the session's model capped at the attempt's output tokens, and no update or
+# catalog fetch at startup.
 home="${TMPDIR:-/tmp}/rush-pi"
 if [ ! -d "$home" ]; then
   mkdir -p "$home"
@@ -9,6 +9,5 @@ if [ ! -d "$home" ]; then
     "$OPENAI_BASE_URL" "$RUSH_MODEL" "$RUSH_MAX_OUTPUT_TOKENS" > "$home/models.json"
 fi
 install="$(python /harness/rush.py cli pi)" || exit 1  # installed the first time it is typed (rush.py cli)
-if [ -n "$RUSH_MCP_URL" ]; then set -- -e /harness/pi-mcp.ts "$@"; fi  # the plugin's tools (shell.py), as PI speaks no MCP itself
 PI_CODING_AGENT_DIR="$home" exec node "$install"/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js \
   --provider openrouter --model "$RUSH_MODEL" --offline "$@"

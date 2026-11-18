@@ -2,7 +2,7 @@
 # DeepSeek Harness on RUSH's gateway (pi-ai's openrouter route, its chat completions dialect), as the dsh reference harness runs it:
 # headless (it has no screen of its own: `dsh "<task>"` prints its run), with a patch over that profile routing openrouter to the
 # gateway keyed by the attempt token, the session's model (declaring the effort dsh asks for and the attempt's output cap) for
-# fresh agents, no title call, and the plugin's tools (shell.py's MCP server); nothing waits on an approval.
+# fresh agents, and no title call; nothing waits on an approval.
 home="${TMPDIR:-/tmp}/rush-dsh"
 if [ ! -d "$home" ]; then
   mkdir -p "$home"
@@ -26,19 +26,6 @@ if [ ! -d "$home" ]; then
     model: "$RUSH_MODEL"
     reasoningEffort: "medium"
 EOF
-  if [ -n "$RUSH_MCP_URL" ]; then  # the plugin's tools (shell.py), through dsh's MCP client
-    cat >> "$home/run.patch.yml" <<EOF
-- id: mcp-$RUSH_MCP_NAME
-  name: "@deepseek-ai/dsh-mcp-client"
-  config:
-    serverName: "$RUSH_MCP_NAME"
-    transport: streamable-http
-    url: "$RUSH_MCP_URL"
-    failOnStartupError: true
-    headers:
-      Authorization: "Bearer $RUSH_ATTEMPT_TOKEN"
-EOF
-  fi
 fi
 install="$(python /harness/rush.py cli dsh)" || exit 1  # installed the first time it is typed (rush.py cli)
 # Its version is an option of dsh itself, before the profile's.

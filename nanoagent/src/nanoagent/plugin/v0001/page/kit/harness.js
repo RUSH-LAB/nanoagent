@@ -31,8 +31,9 @@ export function outcomeText(outcome) {
 }
 
 /**
- * The Harness tab: a free-form Terminal session that starts when the tab is first shown, in the plugin (with its first task's tools,
- * as `nanoagent harness` picks the task by default): the member runs any agent there and prompts it themselves. As in an editor's
+ * The Harness tab: a free-form Terminal session that starts when the tab is first shown, on the plugin's first task (as `nanoagent
+ * harness` picks it by default) but, as in an experiment's coding run, none of its tools: the member runs any agent there and
+ * prompts it themselves. As in an editor's
  * terminal panel, they open more terminals in the same VM and workspace ("+"), switch between them by their tabs and close one (×);
  * a terminal whose shell they leave (exit, Ctrl-D) closes too. The session ends with its last terminal; its time, tokens and cost
  * print there, and Enter then starts a new one.

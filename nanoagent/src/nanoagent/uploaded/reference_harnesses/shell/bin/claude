@@ -1,17 +1,12 @@
 #!/bin/sh
 # Claude Code on RUSH's gateway (its Anthropic Messages dialect), as the claude-code reference harness runs it: a home whose
 # first-run questions are answered and the workspace trusted, the attempt token as its auth token (an API key would ask to be
-# approved), the session's model for every call it makes, its smaller model's too, and the plugin's tools (shell.py's MCP server).
+# approved), and the session's model for every call it makes, its smaller model's too.
 home="${TMPDIR:-/tmp}/rush-claude"
 if [ ! -d "$home" ]; then
   mkdir -p "$home/.claude"
-  mcp="" allow=""
-  if [ -n "$RUSH_MCP_URL" ]; then  # the plugin's tools (shell.py), their calls allowed, as -p refuses a tool nobody allowed
-    mcp="$(printf ',"mcpServers":{"%s":{"type":"http","url":"%s","headers":{"Authorization":"Bearer %s"}}}' "$RUSH_MCP_NAME" "$RUSH_MCP_URL" "$RUSH_ATTEMPT_TOKEN")"
-    allow="$(printf ',"permissions":{"allow":["mcp__%s"]}' "$RUSH_MCP_NAME")"
-  fi
-  printf '{"hasCompletedOnboarding":true,"theme":"dark","bypassPermissionsModeAccepted":true,"projects":{"%s":{"hasTrustDialogAccepted":true,"hasCompletedProjectOnboarding":true}}%s}' "$RUSH_WORKSPACE" "$mcp" > "$home/.claude.json"
-  printf '{"skipDangerousModePermissionPrompt":true%s}' "$allow" > "$home/.claude/settings.json"
+  printf '{"hasCompletedOnboarding":true,"theme":"dark","bypassPermissionsModeAccepted":true,"projects":{"%s":{"hasTrustDialogAccepted":true,"hasCompletedProjectOnboarding":true}}}' "$RUSH_WORKSPACE" > "$home/.claude.json"
+  printf '{"skipDangerousModePermissionPrompt":true}' > "$home/.claude/settings.json"
 fi
 install="$(python /harness/rush.py cli claude)" || exit 1  # installed the first time it is typed (rush.py cli)
 HOME="$home" ANTHROPIC_BASE_URL="$ANTHROPIC_BASE_URL" ANTHROPIC_AUTH_TOKEN="$RUSH_ATTEMPT_TOKEN" ANTHROPIC_API_KEY= \

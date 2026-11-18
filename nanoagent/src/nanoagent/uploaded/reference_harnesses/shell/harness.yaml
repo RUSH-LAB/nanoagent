@@ -10,6 +10,6 @@ lockfiles: []
 # `rush save` (rush.py) makes what the member built a harness of its own, built by this same build.sh and run by this shell.py.
 build:
   argv: [sh, build.sh]
-  outputs: [shell.py, bashrc, rush.py, build.sh, pi-mcp.ts, bin]
+  outputs: [shell.py, bashrc, rush.py, build.sh, bin]
 run:
   argv: [python, /harness/shell.py]

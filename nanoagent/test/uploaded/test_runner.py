@@ -180,10 +180,9 @@ async def test_a_free_form_session_has_no_case_reads_no_result_and_ends_unscored
     assert rig.services[0].attempt.policy.prompt_user is None
     assert result.execution == {"status": "ended", "reason": None} and rig.verified == []
     assert rig.rush.finalized[0]["verdict"] is None and rig.rush.of("result.read") == [] and rig.rush.of("collector.health")
-    # Under coding, the session still has the task's tools, for its agent CLIs (the broker's /mcp), in a tool container that
-    # boots beside the case once its shell runs, not before it.
-    assert [tool["name"] for tool in request["tools"]["available"]] == ["wait"] and rig.supervisor.specs[0].tool is None
-    assert rig.rush.of("attempt.started")[0]["egress_hosts"] == ["api.example.com"]
+    # Under coding, the session has none of the task's tools and no tool container, as an experiment's coding agent has none.
+    assert request["tools"]["available"] == [] and rig.supervisor.specs[0].tool is None and rig.supervisor.prepared == []
+    assert "egress_hosts" not in rig.rush.of("attempt.started")[0]
     assert rig.supervisor.probed == ["python-3"]  # the tracer proven in the toolchain's image before the build
 
 
@@ -920,28 +919,6 @@ async def test_a_later_attempt_of_the_same_source_runs_the_build_an_earlier_one_
     assert first.outcome == second.outcome == "finalized" and rig.supervisor.builds == 1
     [kept] = (tmp_path / "scratch" / "builds").iterdir()
     assert rig.supervisor.specs[0].artifact.directory == rig.supervisor.specs[1].artifact.directory == kept / "harness"
-
-
-async def test_a_tool_call_made_before_a_sessions_late_tools_are_up_waits_for_them() -> None:
-    from nanoagent.uploaded.runner import LateTools
-
-    late = LateTools()
-    calls: list[Any] = []
-
-    async def call() -> None:
-        calls.append(await late.run("wait", {}, Path("/w")))
-
-    class Up:
-        async def run(self, name: str, arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
-            return {"ran": name}
-
-    async with anyio.create_task_group() as group:
-        group.start_soon(call)
-        await anyio.sleep(0.01)
-        assert calls == []
-        late.runner = Up()
-        late.up.set()
-    assert calls == [{"ran": "wait"}]
 
 
 async def test_a_terminal_session_is_handed_the_warm_terminal_the_one_before_it_left(tmp_path: Path) -> None:

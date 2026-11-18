@@ -11,7 +11,6 @@ environment the first terminal's shell set up (TERMINAL_ENV).
 
 import json
 import os
-import re
 import shutil
 import signal
 import subprocess
@@ -65,10 +64,6 @@ env = {
 }  # fmt: skip
 if command is not None:
     env["RUSH_PROMPT"] = request["prompt"]["user"]
-tools = [tool["name"] for tool in request["tools"]["available"]]
-if tools:  # the plugin's tools, an MCP server (the broker's /mcp) each CLI's wrapper loads under the plugin's name
-    env["RUSH_MCP_URL"] = request["tools"]["url"].removesuffix("/tools") + "/mcp"
-    env["RUSH_MCP_NAME"] = re.sub(r"[^a-z0-9]+", "_", request["task"]["plugin_name"].lower()).strip("_")[:32]
 if (HERE / "packages").is_dir():
     env["PYTHONPATH"] = str(HERE / "packages")
     path.append(str(HERE / "packages" / "bin"))
