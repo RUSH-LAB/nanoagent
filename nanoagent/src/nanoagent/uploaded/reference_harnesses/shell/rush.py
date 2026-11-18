@@ -158,7 +158,7 @@ def save(name: str, command: str) -> None:
         fail(f"RUSH did not save it: {error.code} {body}")
     packages = 0 if locked is None else sum(1 for line in locked.decode().splitlines() if "==" in line)
     print(f"saved {saved['harness']['name']}@{saved['harness']['version']}: {len(files)} files, {packages} packages, runs: {command}")
-    print(f"run it again with `nanoagent harness plugin=<plugin> harness={name}`, or pick {name} in the Harness tab")
+    print(f"run it again with `nanoagent harness plugin=<plugin> harness={name} prompt=...`")
 
 
 def main(argv: list[str]) -> None:

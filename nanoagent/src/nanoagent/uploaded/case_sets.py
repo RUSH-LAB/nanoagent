@@ -213,9 +213,11 @@ class SessionsConfig(Config):
     # keeps each build for every later session of it, so only the first pays.
     build_output_bytes: int = 3 << 30
     build_wall_ms: int = 1_800_000
+    # The output tokens the plugin's model may spend filling a session's case from the request, its reasoning included.
+    fill_max_tokens: int = 16_384
 
     def __post_init__(self) -> None:
-        for name in ("max_model_calls", "build_output_bytes", "build_wall_ms"):
+        for name in ("max_model_calls", "build_output_bytes", "build_wall_ms", "fill_max_tokens"):
             if getattr(self, name) < 1:
                 raise ValueError(f"sessions.{name} must be >= 1, got {getattr(self, name)}")
 

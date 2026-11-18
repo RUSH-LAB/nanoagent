@@ -669,8 +669,11 @@ def create_app(
         if not isinstance(body, dict) or not isinstance(body.get("task"), str) or not isinstance(body.get("text"), str) or not body["text"].strip():
             return JSONResponse({"error": "the body is {task, text, model?}: a task id and the member's request"}, status_code=400)
         try:
-            choice = validate_run_choice({"model": body["model"]} if "model" in body else {})
-            check_choice(cfg, choice)
+            chosen = {"model": body["model"]} if "model" in body else {}
+            check_choice(cfg, validate_run_choice(chosen))
+            # The output cap of the one call that fills the task's input is the host's (sessions.fill_max_tokens), not a run's:
+            # a reasoning model spends the plugin runs' cap thinking and is cut off before it answers.
+            choice = validate_run_choice({**chosen, "settings": {"max_tokens": cfg.sessions.fill_max_tokens}})
             model, _name, _limits, close = await plugin_model_for(choice)
         except ValidationError as error:
             return JSONResponse({"error": str(error)}, status_code=400)
