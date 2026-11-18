@@ -51,7 +51,7 @@ def extract_tar(data: bytes, destination: Path, *, root_name: str, max_files: in
             try:
                 relative.encode("utf-8")
             except UnicodeEncodeError:  # a name the sandbox wrote in another encoding cannot be extracted on every host or journaled
-                skipped[relative.encode("utf-8", "backslashreplace").decode("ascii")] = "invalid_name"
+                skipped[relative.encode("utf-8", "backslashreplace").decode("utf-8")] = "invalid_name"
                 continue
             if member.isdir():
                 (destination / relative).mkdir(parents=True, exist_ok=True)
