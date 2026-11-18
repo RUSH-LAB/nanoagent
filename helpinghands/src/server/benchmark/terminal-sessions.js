@@ -3,18 +3,20 @@
 const {REFERENCE_LABELS} = require('./leaderboard');
 
 /**
- * Where each agent CLI a Terminal session installs runs from: its package's path, or for Hermes its module, appears in the argv of
- * the process its wrapper execs (the shell reference harness's bin/, nanoagent.uploaded.clis).
+ * The agent CLIs a Terminal session installs, by what the member types: its package's path, or for Hermes its module, appears in
+ * the argv of the process its wrapper execs (the shell reference harness's bin/, nanoagent.uploaded.clis), and the wrapper itself
+ * runs as /harness/bin/<name> until it execs.
  */
 const CLI_MARKERS = Object.freeze([
-  ['claude-code', '@anthropic-ai/claude-code'], ['codex', '@openai/codex'], ['pi', '@earendil-works/pi-coding-agent'],
+  ['claude', '@anthropic-ai/claude-code'], ['codex', '@openai/codex'], ['pi', '@earendil-works/pi-coding-agent'],
   ['hermes', 'hermes_cli'], ['dsh', '@deepseek-ai/dsh'],
 ]);
-// What a Terminal session's argv patterns are in SQL (`ilike any`), to read only the processes of its CLIs.
-const CLI_PATTERNS = CLI_MARKERS.map(([, marker]) => `%${marker}%`);
-// A model call no process record places in one CLI's process.
-const TERMINAL = REFERENCE_LABELS.shell;
-const SEVERAL = `${TERMINAL} (several)`;
+const WRAPPER = /\/harness\/bin\/(claude|codex|pi|hermes|dsh)(?:\s|$)/;
+// The Terminal's own processes (its bash's shell.py, `rush` and a CLI's install), which run no agent.
+const HARNESS = /\/harness\/(?:shell|rush)\.py(?:\s|$)/;
+const SHELLS = new Set(['sh', 'bash', 'dash', 'zsh', 'fish', 'ash']);
+// A model call no process the record shows was running when it started, or that two agents running then could have made.
+const UNKNOWN = 'unknown';
 
 const ns = value => (value === null || value === undefined ? null : Number(value));
 const seconds = (start, end) => (start === null || end === null ? null : (end - start) / 1e9);
@@ -26,13 +28,34 @@ function harnessLabel(name) {
   return REFERENCE_LABELS[name] ?? name;
 }
 
-/** The CLI whose process ran at `at` (ns), when the process record shows exactly one; otherwise the Terminal. */
+/**
+ * The agent a process is, by its argv: one of the CLIs a Terminal session installs, by what the member types, or any other program
+ * by its executable's name (aider, python, node); null for a shell or the Terminal's own processes, which run none.
+ */
+function agentOf(argv) {
+  const line = argv.join(' ');
+  const cli = CLI_MARKERS.find(([, marker]) => line.includes(marker))?.[0] ?? WRAPPER.exec(line)?.[1];
+  if (cli) return cli;
+  if (!argv.length || HARNESS.test(line)) return null;
+  const name = argv[0].slice(argv[0].lastIndexOf('/') + 1);
+  return SHELLS.has(name) ? null : name;
+}
+
+/** The processes with no agent above them in the process tree: what the member ran, leaving out what an agent itself starts. */
+function outermost(processes) {
+  const byId = new Map(processes.map(process => [process.id, process]));
+  return processes.filter(process => {
+    for (let up = byId.get(process.parent); up; up = byId.get(up.parent)) if (up.agent !== null) return false;
+    return process.agent !== null;
+  });
+}
+
+/** The agent whose process ran at `at` (ns), when the outermost agent processes running then are all one agent; otherwise unknown. */
 function agentAt(processes, at) {
-  if (at === null) return TERMINAL;
-  const running = new Set(processes
-    .filter(process => process.start !== null && process.start <= at && (process.end === null || process.end >= at))
-    .map(process => process.agent));
-  return running.size === 1 ? [...running][0] : TERMINAL;
+  if (at === null) return UNKNOWN;
+  const running = processes.filter(process => process.start !== null && process.start <= at && (process.end === null || process.end >= at));
+  const agents = new Set(outermost(running).map(process => process.agent));
+  return agents.size === 1 ? [...agents][0] : UNKNOWN;
 }
 
 /**
@@ -40,18 +63,17 @@ function agentAt(processes, at) {
  * Dashboard shows it beside the chats: its harness, and per harness that worked in it what its model calls took, read and cost (from
  * the gateway), in the figures a chat's usage has, each `{sum, count}` with count 1 when this session knows it and 0 when not. Tool
  * time is the plugin tools', which a terminal has none of, so it is never known; the End-to-End Latency (the profiler's) goes to the
- * session's one harness, and to none when several worked in it. In a free-form Terminal session each model call is the CLI's whose
- * process ran when it started, by the process record, or the Terminal's when none or several did. `calls` and `commands` are what
- * its recording shows.
+ * session's one harness, and to none when several worked in it. In a free-form Terminal session each model call is the agent's whose
+ * process ran when it started (agentAt), and the session is named by its agents in the order they first called a model ("claude,
+ * codex"), or with none by its main command (its longest-running outermost process), or "shell" when it ran none. `calls` and
+ * `commands` are what its recording shows.
  */
 function terminalSession(row) {
   const shell = row.harness_name === 'shell';
-  const processes = row.processes.map(process => {
-    const argv = (process.argv ?? []).join(' ');
-    const found = CLI_MARKERS.find(([, marker]) => argv.includes(marker));
-    return {argv: process.argv ?? [], start: ns(process.start_ns), end: ns(process.end_ns), exitCode: process.exit_code ?? null, agent: found ? REFERENCE_LABELS[found[0]] : null};
-  });
-  const clis = processes.filter(process => process.agent !== null);
+  const processes = row.processes.map(process => ({
+    id: process.span_id, parent: process.parent_id, argv: process.argv ?? [], start: ns(process.start_ns), end: ns(process.end_ns),
+    exitCode: process.exit_code ?? null, agent: agentOf(process.argv ?? []),
+  }));
   const label = harnessLabel(row.harness_name);
   const calls = row.calls
     .filter(call => call.status !== 'rejected')
@@ -59,7 +81,7 @@ function terminalSession(row) {
       const start = ns(call.start_ns);
       const end = ns(call.end_ns);
       return {
-        callId: call.call_id, model: call.model, start, agent: shell ? agentAt(clis, start) : label, durationS: seconds(start, end),
+        callId: call.call_id, model: call.model, start, agent: shell ? agentAt(processes, start) : label, durationS: seconds(start, end),
         inputTokens: call.usage?.input ?? null, outputTokens: call.usage?.output ?? null,
         cost: typeof row.costs[call.call_id] === 'number' ? row.costs[call.call_id] : null,
         request: call.request_sha256 ?? null, response: call.response_sha256 ?? null,
@@ -68,7 +90,9 @@ function terminalSession(row) {
     .sort((x, y) => (x.start ?? Infinity) - (y.start ?? Infinity));
   const final = row.state === 'final';
   const agents = [...new Set(calls.map(call => call.agent))];
-  const harness = !shell ? label : agents.length > 1 ? SEVERAL : agents[0] ?? TERMINAL;
+  const lasted = process => (process.start === null ? 0 : (process.end ?? Infinity) - process.start);
+  const main = outermost(processes).sort((x, y) => lasted(y) - lasted(x))[0];
+  const harness = !shell ? label : agents.length ? agents.join(', ') : main?.agent ?? 'shell';
   const groups = agents.length ? agents : [harness];
   const elapsed = typeof row.elapsed_ms === 'number' ? row.elapsed_ms / 1000 : null;
   const harnesses = groups.map(agent => {
@@ -105,4 +129,4 @@ function terminalSession(row) {
   };
 }
 
-module.exports = {CLI_PATTERNS, terminalSession};
+module.exports = {terminalSession};

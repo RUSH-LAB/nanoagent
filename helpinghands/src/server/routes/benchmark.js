@@ -18,7 +18,7 @@ const {REFERENCE_HARNESSES, checkReference, referenceHarnessOf, referencePolicy,
 const {previewBody, runBody, benchmarkPublication, importBody, publicationFrame, SHA256, object, string} = require('../benchmark/validate');
 const {checkTaskAgainstEntry} = require('../benchmark/entry-check');
 const {leaderboard} = require('../benchmark/leaderboard');
-const {CLI_PATTERNS, terminalSession} = require('../benchmark/terminal-sessions');
+const {terminalSession} = require('../benchmark/terminal-sessions');
 const {listen, wake} = require('../benchmark/wake');
 const {MAX_SOURCE_BYTES, TERMINAL_LIMITS} = require('../benchmark/limits');
 
@@ -298,7 +298,7 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       if (req.method !== 'GET') return wrongMethod();
       read();
       const pluginId = string(url.searchParams.get('plugin_id'), 'plugin_id');
-      const rows = await repository.terminalRows(context, {pluginId, patterns: CLI_PATTERNS});
+      const rows = await repository.terminalRows(context, {pluginId, atCalls: true});
       return json(res, 200, {sessions: rows.map(row => {
         const {calls, commands, ...session} = terminalSession(row);
         return session;
