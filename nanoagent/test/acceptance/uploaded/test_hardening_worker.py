@@ -104,11 +104,13 @@ def test_generation_lookup_reconciles_in_the_background_and_historical_reads_nev
             assert call["admission"]["cost_usd"] == pytest.approx(COST) and call["admission"]["provenance"]["source"] == "generation_lookup"
         totals = client.accounting(attempt)["totals"]
         assert totals["uncertain_calls"] == 0 and totals["reserved_usd"] == 0 and totals["settled_usd"] == pytest.approx(COST * len(after))
-        # Bounded retries: each generation 404ed first (it was inside its delay), was found once, and was never asked about again.
+        # Bounded retries: the first lookup 404ed (it was inside its delay), and each generation was found once and never asked
+        # about again. Calls are looked up one after another, so a later generation's delay may have passed by its first lookup.
         lookups = sess.handle.ledger.lookups
+        assert lookups[0].status == 404, [(lookup.generation_id, lookup.status) for lookup in lookups]
         for generation_id in generation_ids:
             statuses = [lookup.status for lookup in lookups if lookup.generation_id == generation_id]
-            assert statuses[0] == 404 and statuses.count(200) == 1 and statuses[-1] == 200 and len(statuses) <= len(DEFAULT_DELAYS_S) + 1, statuses
+            assert statuses.count(200) == 1 and statuses[-1] == 200 and len(statuses) <= len(DEFAULT_DELAYS_S) + 1, statuses
 
         # A second attempt, so step 4 has two sealed attempts to compare; wait for its reconciliation too.
         second = sess.rerun("second", first)
