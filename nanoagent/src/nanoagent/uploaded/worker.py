@@ -18,6 +18,7 @@ import logging
 import math
 import os
 import shutil
+import tempfile
 import time
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -28,6 +29,7 @@ import anyio
 from omegaconf import MISSING
 from slimconfig import Config, Run
 
+from nanoagent.plugin import sandbox
 from nanoagent.uploaded.collector import SeccheckCollector
 from nanoagent.uploaded.dockercli import CliDockerRunner, DockerRunner
 from nanoagent.uploaded.endpoint import EndpointProfile, parse_endpoint
@@ -273,6 +275,11 @@ async def serve(config: WorkerConfig, env: dict[str, str] | None = None) -> None
     LOG.info("machine: %d CPUs, %d MiB memory", machine.cpus, machine.memory_bytes >> 20)
     settings = runner_config(config, env, machine)
     isolate()
+    # The plugin verifier scores every case in this sandbox. A host that refuses it (Ubuntu's AppArmor restriction on
+    # unprivileged user namespaces, say) fails here, before a claim spends the member's key on runs nothing can score.
+    with tempfile.TemporaryDirectory() as probe:
+        sandbox.check(Path(probe))
+    LOG.info("plugin sandbox verified")
     uv = shutil.which("uv")
     if uv is None:
         raise WorkerConfigError("uv is not on PATH: plugin tools are prepared and run with it")

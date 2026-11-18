@@ -24,8 +24,14 @@ on:
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/benchmark-worker
 
+# A newer push to a pull request supersedes its run; a run that publishes is never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -51,6 +57,12 @@ jobs:
           tags: rush-benchmark-worker:test
           cache-from: type=gha,scope=benchmark-worker-${{ matrix.runner }}
           cache-to: type=gha,scope=benchmark-worker-${{ matrix.runner }},mode=max
+      # The plugin sandbox (bwrap) works in unprivileged user namespaces, which Docker Desktop's VM allows and the runner's
+      # Ubuntu AppArmor strips of capabilities. The sysctl is the host kernel's, so the privileged container below inherits
+      # it; on a host that keeps the restriction the worker refuses to start (worker.py, `sandbox.check`). Setuid bwrap is no
+      # way around it: it refuses --size.
+      - name: Sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       # The gVisor tests need the worker's Linux host: dockerd, runsc-rush and the packet filter, which the entrypoint brings up.
       - name: gVisor tests
         run: |
@@ -92,6 +104,7 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: write

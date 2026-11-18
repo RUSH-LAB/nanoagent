@@ -105,8 +105,8 @@ export const BENCHMARK_WORKER_CONTAINER = 'rush-dev-worker';
 export function benchmarkWorkerUnavailable(env, {spawnSyncImpl = spawnSync} = {}) {
   if (!env.OPENROUTER_API_KEY?.trim()) return 'OPENROUTER_API_KEY is not in .env or the shell';
   const info = spawnSyncImpl('docker', ['info'], {encoding: 'utf8', stdio: 'ignore'});
-  if (info.error?.code === 'ENOENT') return 'docker is not installed: install Docker Desktop, Colima or Docker Engine';
-  return info.status === 0 ? null : 'docker is not running: start Docker Desktop, Colima or Docker Engine';
+  if (info.error?.code === 'ENOENT') return 'docker is not installed: install Docker Desktop or Docker Engine';
+  return info.status === 0 ? null : 'docker is not running: start Docker Desktop or Docker Engine';
 }
 
 /** `docker build` arguments for the worker image from the NanoAgent checkout (its Dockerfile takes that folder as its context). */

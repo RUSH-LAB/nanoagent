@@ -6,7 +6,6 @@
 
 export const LINK = {
   desktop: 'https://www.docker.com/products/docker-desktop/',
-  colima: 'https://github.com/abiosoft/colima',
   engine: 'https://docs.docker.com/engine/install/',
   homebrew: 'https://brew.sh',
 };
@@ -15,7 +14,6 @@ export const LINK = {
 const INSTALL = {
   darwin: [
     {title: 'Docker Desktop', commands: ['brew install --cask docker'], then: 'Open Docker.app once.'},
-    {title: 'Colima (free, command line only)', commands: ['brew install colima docker', 'colima start --cpu 4 --memory 8']},
   ],
   win32: [
     {title: 'Docker Desktop (WSL 2 backend)', commands: ['winget install -e --id Docker.DockerDesktop']},
@@ -26,10 +24,7 @@ const INSTALL = {
 };
 
 const START = {
-  darwin: [
-    {title: 'Docker Desktop', then: 'Open Docker Desktop.'},
-    {title: 'Colima', commands: ['colima start']},
-  ],
+  darwin: [{title: 'Docker Desktop', then: 'Open Docker Desktop.'}],
   win32: [{title: 'Docker Desktop', then: 'Open Docker Desktop.'}],
   linux: [{title: 'Docker Engine', commands: ['sudo systemctl start docker']}],
 };

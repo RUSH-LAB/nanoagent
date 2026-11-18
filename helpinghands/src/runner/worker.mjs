@@ -17,6 +17,8 @@ import readline from 'node:readline';
 import {LINK} from './docker-help.js';
 
 // The one place the image is named. RUSH Lab never pulls a tag: each build pins the digest it was tested with.
+// TODO: pin the image benchmark-worker-image.yml publishes from production (ghcr.io/rush-lab/benchmark-worker, tested and
+// attested in CI) instead of this one, built locally and pushed by hand to a personal namespace.
 export const WORKER_IMAGE = 'ghcr.io/hosung-k1m/benchmark-worker@sha256:810a1bd9c476b672fd231fc0877da02491ff173845e939c02d25b45b8f2c4cdb';
 
 // What Docker's VM should have (docker info): the worker's sandboxes and the toolchain images need room. Below either, the
@@ -43,6 +45,7 @@ const CHECKS = [
 
 // The proofs the worker logs once each (nanoagent/uploaded/worker.py), in the order it makes them; the last ends startup.
 const PROOFS = [
+  ['plugin sandbox verified', 'plugin sandbox'],
   ['leftover reaping passed', 'leftover cleanup'],
   ['collector probe passed', 'toolchain probes'],
   ['egress filter verified', 'egress filter'],
@@ -53,7 +56,7 @@ const CLAIMING = 'claiming from RUSH';
 
 /** Where to get Docker on `platform`, with links. */
 function installAdvice(platform) {
-  if (platform === 'darwin') return `Install Docker Desktop (${LINK.desktop}) or Colima (${LINK.colima}), then open RUSH Lab again or press Re-check.`;
+  if (platform === 'darwin') return `Install Docker Desktop (${LINK.desktop}), then open RUSH Lab again or press Re-check.`;
   if (platform === 'win32') return `Install Docker Desktop with the WSL 2 backend (${LINK.desktop}), then press Re-check.`;
   return `Install Docker Engine (${LINK.engine}), then press Re-check.`;
 }
@@ -233,8 +236,7 @@ export function benchmarkWorker({
     async 'docker-daemon'() {
       const result = await docker(['info', '--format', '{{json .}}'], {env: await env()});
       if (result.code !== 0) {
-        return ['fail', 'Docker is installed but not running.',
-          platform === 'darwin' ? 'Start Docker Desktop, or run `colima start`, then press Re-check.' : 'Start Docker Desktop, then press Re-check.'];
+        return ['fail', 'Docker is installed but not running.', 'Start Docker Desktop, then press Re-check.'];
       }
       try {
         info = JSON.parse(result.tail.join('\n'));
@@ -248,7 +250,7 @@ export function benchmarkWorker({
       // The container's own startup (proofs) is what shows the rest.
       if ((info.SecurityOptions ?? []).some(option => String(option).includes('rootless'))) {
         return ['fail', 'Docker runs rootless here, which cannot run the privileged containers the benchmark worker needs.',
-          'Use Docker Desktop, Colima, or a rootful Docker Engine, then press Re-check.'];
+          'Use Docker Desktop or a rootful Docker Engine, then press Re-check.'];
       }
       return ['pass', 'Allowed.'];
     },
@@ -257,7 +259,7 @@ export function benchmarkWorker({
       const summaryText = `${info.NCPU ?? '?'} CPUs, ${gib.toFixed(1)} GiB memory`;
       if ((info.NCPU ?? 0) < MIN_CPUS || (info.MemTotal ?? 0) < MIN_MEMORY_BYTES) {
         return ['warn', `Docker has ${summaryText}; the worker wants at least ${MIN_CPUS} CPUs and ${MIN_MEMORY_BYTES / 1024 ** 3} GiB, and may be slow or fail.`,
-          'Give Docker more in Docker Desktop (Settings, Resources) or Colima (`colima start --cpu 4 --memory 8`).'];
+          'Give Docker more in Docker Desktop (Settings, Resources).'];
       }
       return ['pass', summaryText];
     },

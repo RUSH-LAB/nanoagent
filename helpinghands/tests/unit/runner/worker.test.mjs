@@ -9,7 +9,7 @@ import {readConcurrency, writeConcurrency} from '../../../src/runner/lab.mjs';
 import {workerNotice} from '../../../src/components/Benchmark/worker.js';
 
 const INFO = {ServerVersion: '29.8', NCPU: 8, MemTotal: 16 * 1024 ** 3, SecurityOptions: ['name=seccomp,profile=builtin']};
-const PROOF_LINES = ['leftover reaping passed', 'collector probe passed: python-3', 'egress filter verified', 'advertised capabilities: {}'];
+const PROOF_LINES = ['plugin sandbox verified', 'leftover reaping passed', 'collector probe passed: python-3', 'egress filter verified', 'advertised capabilities: {}'];
 const CLAIMING_LINE = 'claiming from RUSH: openrouter';
 const settle = () => new Promise(resolve => setTimeout(resolve, 20));
 
@@ -361,10 +361,10 @@ test('the Benchmark screens say what each worker state needs', () => {
 });
 
 test('Docker install and start commands per OS live in one place', () => {
-  assert.deepEqual(installOptions('darwin').map(option => option.commands[0]), ['brew install --cask docker', 'brew install colima docker']);
+  assert.deepEqual(installOptions('darwin').map(option => option.commands[0]), ['brew install --cask docker']);
   assert.deepEqual(installOptions('win32')[0].commands, ['winget install -e --id Docker.DockerDesktop']);
   assert.deepEqual(installOptions('linux')[0].commands, ['curl -fsSL https://get.docker.com | sh', 'sudo usermod -aG docker $USER']);
-  assert.deepEqual(startOptions('darwin').flatMap(option => option.commands ?? []), ['colima start']);
+  assert.deepEqual(startOptions('darwin').flatMap(option => option.commands ?? []), []);
   assert.deepEqual(startOptions('linux')[0].commands, ['sudo systemctl start docker']);
 });
 

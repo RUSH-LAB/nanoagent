@@ -14,7 +14,7 @@ export function workerNotice(status) {
   switch (worker.state) {
     case 'ready': return {tone: 'ok', text: 'Benchmark worker ready.'};
     case 'no-key': return {tone: 'bad', text: 'Add your OpenRouter key in Settings to run benchmarks.'};
-    case 'no-docker': return {tone: 'bad', text: worker.message ?? 'Docker is not available: install Docker Desktop, Colima or Docker Engine, and start it.'};
+    case 'no-docker': return {tone: 'bad', text: worker.message ?? 'Docker is not available: install Docker Desktop or Docker Engine, and start it.'};
     case 'pulling': return {tone: 'wait', text: `Pulling the benchmark worker image${progressText(worker.progress)}…`};
     case 'failed': return {tone: 'bad', text: `The benchmark worker failed: ${worker.message ?? 'no reason was given'}`};
     default: return {tone: 'wait', text: 'Starting the benchmark worker…'};

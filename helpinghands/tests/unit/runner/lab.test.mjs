@@ -431,12 +431,12 @@ test('refuses an id no plugin has, and removes a plugin it could not finish, say
 
 test('shellVars carries DOCKER_HOST, DOCKER_CONTEXT and DOCKER_CONFIG from the shell, and leaves unset ones out', {skip: process.platform === 'win32'}, async () => {
   const saved = {...process.env};
-  Object.assign(process.env, {DOCKER_HOST: 'unix:///tmp/docker.sock', DOCKER_CONTEXT: 'colima'});
+  Object.assign(process.env, {DOCKER_HOST: 'unix:///tmp/docker.sock', DOCKER_CONTEXT: 'desktop-linux'});
   delete process.env.DOCKER_CONFIG;
   try {
     const vars = await shellVars('/bin/sh', ['PATH', 'DOCKER_HOST', 'DOCKER_CONTEXT', 'DOCKER_CONFIG']);
     assert.equal(vars.DOCKER_HOST, 'unix:///tmp/docker.sock');
-    assert.equal(vars.DOCKER_CONTEXT, 'colima');
+    assert.equal(vars.DOCKER_CONTEXT, 'desktop-linux');
     assert.ok(vars.PATH);
     assert.equal('DOCKER_CONFIG' in vars, false);
   } finally {

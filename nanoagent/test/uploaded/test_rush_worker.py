@@ -276,6 +276,24 @@ def test_machine_is_read_from_docker_info() -> None:
         machine_of(ScriptedDocker({}, returncode=1))
 
 
+async def test_a_host_whose_plugin_sandbox_fails_stops_the_worker_before_it_claims(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from nanoagent.uploaded import worker
+
+    refused = "the bwrap sandbox does not confine plugins on this machine: bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+
+    def refuse(_root: Path) -> None:
+        raise RuntimeError(refused)
+
+    monkeypatch.setattr(worker, "CliDockerRunner", lambda: ScriptedDocker({}, info='{"NCPU": 8, "MemTotal": 17179869184}'))
+    monkeypatch.setattr(worker, "isolate", lambda: None)
+    monkeypatch.setattr(worker.sandbox, "check", refuse)
+    monkeypatch.setattr(worker, "SeccheckCollector", lambda _socket: pytest.fail("the collector started"))
+    monkeypatch.setattr(worker, "RushWorkerClient", lambda *_: pytest.fail("RUSH was contacted"))
+    with pytest.raises(RuntimeError) as raised:
+        await worker.serve(_config(tmp_path), {"RUSH_WORKER_TOKEN": "t", "OPENROUTER_API_KEY": "k"})
+    assert str(raised.value) == refused
+
+
 def test_reaping_removes_only_names_starting_with_rush_dash() -> None:
     docker = ScriptedDocker({"container": "rush-case-1\nnot-rush-case\nmyrush-x\n", "network": "bridge\nrush-net-a\n", "volume": "rush-ws-1\nrush-out-1\nother\n"})
     reaped = reap_leftovers(docker)
