@@ -159,6 +159,7 @@ class SyncedPlugins:
 
 
 WARM_GO = json.dumps({"wait_go": True}).encode()  # a warm terminal's request until a session hands it its own (`CaseHandle.go`)
+WARM_RECIPE = "warm.json"  # under the scratch folder: the last Terminal session's limits, the warm terminal's after a start
 WARM_MAX_AGE_S = 600.0  # a warm terminal nobody took is replaced after this, well within any session's wall time
 
 
@@ -215,6 +216,7 @@ class WarmRecipe:
     """What a Terminal session's case is made of, so the next one can be ready before it is claimed: `key` must match it."""
 
     key: tuple[Any, ...]
+    run_limits: Mapping[str, Any]
     profile: ToolchainProfile
     run_argv: tuple[str, ...]
     artifact: BuildArtifact
@@ -478,6 +480,13 @@ class AttemptRunner:
         """Keep one Terminal session's case booted with its shell waiting, made as the last Terminal session's was, so the next
         one is handed it on claim (`_take_warm`) and its prompt shows at once; replaced when taken, when the recipe changes, and
         after WARM_MAX_AGE_S unused. Runs for the worker's life; the first Terminal session after a start finds none."""
+        saved = self.config.scratch / WARM_RECIPE
+        if saved.is_file():  # a session before this start left its limits: the first session after it finds a terminal warm too
+            try:
+                self._recipe = await in_thread(self._shell_recipe, json.loads(saved.read_text()))
+                self._rewarm.set()
+            except Exception:
+                LOG.exception("the Terminal's build for a warm terminal at start failed")
         while True:
             await self._rewarm.wait()
             self._rewarm = anyio.Event()
@@ -529,12 +538,34 @@ class AttemptRunner:
         await shielded(warm.relay.aclose)
         shutil.rmtree(warm.folder, ignore_errors=True)
 
+    def _shell_recipe(self, run_limits: Mapping[str, Any]) -> WarmRecipe:
+        """The recipe of a Terminal session under ``run_limits``: the shell this worker's NanoAgent builds (`build_reference`, as
+        the member's computer does for a session), kept like any build, or built now."""
+        archive = inspect_zip(build_reference("shell"), self.config.source_limits)
+        profile = toolchain(archive.manifest.toolchain)
+        self.supervisor.ready(profile)
+        work = self.config.scratch / f"warm-build-{uuid.uuid4().hex[:8]}"
+        work.mkdir(parents=True)
+        try:
+            artifact = self._build("warm-build", run_limits, archive, profile, work)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        return self._recipe_of(archive.source_sha256, profile, archive.manifest.run_argv, artifact, run_limits)
+
+    def _recipe_of(
+        self, source_sha256: str, profile: ToolchainProfile, run_argv: tuple[str, ...], artifact: BuildArtifact, run_limits: Mapping[str, Any],
+    ) -> WarmRecipe:
+        limits = case_limits(run_limits, self.config.limits)
+        internet = run_limits["internet_access"]
+        return WarmRecipe((source_sha256, profile.id, str(artifact.directory), limits, internet), dict(run_limits), profile, tuple(run_argv), artifact, limits, internet)
+
     def _take_warm(self, recipe: WarmRecipe) -> WarmTerminal | None:
         """The warm terminal, when it is made as ``recipe`` says and still young; the next one starts warming either way."""
         warm = self._warm
         if self._recipe is None or self._recipe.key != recipe.key:
             self._recipe = recipe
             self._rewarm.set()
+            (self.config.scratch / WARM_RECIPE).write_text(json.dumps(recipe.run_limits))
         if warm is None or warm.recipe.key != recipe.key or self.clock_ns() / NS - warm.born > WARM_MAX_AGE_S:
             return None
         self._warm = None
@@ -654,7 +685,7 @@ class AttemptRunner:
             return await self._finalize(job, journal, "build_failed", error.code)
         await in_thread(self.supervisor.ready, profile)  # the tracer proven in its image, once: a failure is the platform's, not the source's
         try:
-            artifact = await in_thread(self._build, job, archive, profile, work)
+            artifact = await in_thread(self._build, job.attempt_id, run["limits"], archive, profile, work)
         except ContractError as error:
             # The build is not part of the trace or the metrics; the worker log keeps its message, the attempt its code.
             LOG.warning("build of %s failed: %s: %s", job.attempt_id, error.code, error.message)
@@ -697,7 +728,7 @@ class AttemptRunner:
         """The plugin tools the attempt may call: the task's when it is [_tooled], else none."""
         return tuple(job.task["tools"]) if cls._tooled(job) else ()
 
-    def _build(self, job: AttemptJob, archive: Any, profile: ToolchainProfile, work: Path) -> BuildArtifact:
+    def _build(self, attempt_id: str, run_limits: Mapping[str, Any], archive: Any, profile: ToolchainProfile, work: Path) -> BuildArtifact:
         """The source's built harness: the one an earlier attempt built of the same source, build image and architecture, kept under
         the scratch folder's builds/ (read-only to every case, so one serves all), or built now and kept there."""
         builds = self.config.scratch / BUILDS
@@ -706,7 +737,7 @@ class AttemptRunner:
         if (kept / BUILT).is_file():
             built = json.loads((kept / BUILT).read_text())
             return BuildArtifact(kept / "harness", tuple(built["outputs"]), built["digest"], b"", b"", 0.0)
-        return self._keep(self._build_now(job, archive, profile, work), kept)
+        return self._keep(self._build_now(attempt_id, run_limits, archive, profile, work), kept)
 
     def _plugin(self, job: AttemptJob, package: bytes, work: Path, tooled: bool) -> PluginManifest:
         """The attempt's plugin. Without tools it is unpacked into the attempt's folder. With them it is the one an earlier attempt
@@ -765,7 +796,7 @@ class AttemptRunner:
             scratch = work / f"cli-{uuid.uuid4().hex[:8]}"
             scratch.mkdir(parents=True)
             started = time.monotonic()
-            install = asyncio.ensure_future(in_thread(lambda: self._keep(self._build_now(job, archive, profile, scratch), kept)))
+            install = asyncio.ensure_future(in_thread(lambda: self._keep(self._build_now(job.attempt_id, job.run["limits"], archive, profile, scratch), kept)))
             while not install.done():
                 await asyncio.wait({install}, timeout=1)
                 yield {"bytes": tree_bytes(scratch / "deps")}  # the verified downloads so far
@@ -780,21 +811,20 @@ class AttemptRunner:
             yield {"installed": cli.label, "version": version, "bytes": tree_bytes(kept), "seconds": round(time.monotonic() - started)}
         yield {"path": f"{CLIS_DIR}/{key}/harness", "key": key}
 
-    def _build_now(self, job: AttemptJob, archive: Any, profile: ToolchainProfile, work: Path) -> BuildArtifact:
+    def _build_now(self, attempt_id: str, run_limits: Mapping[str, Any], archive: Any, profile: ToolchainProfile, work: Path) -> BuildArtifact:
         source_root = work / "source"
         source_root.mkdir()
         extract(archive, source_root)
         closure = resolve_dependencies(
             profile, source_root, archive.manifest.lockfiles, work / "deps", index_url=self.config.index_urls.get(profile.id),
-            timeout_s=job.run["limits"]["build_wall_ms"] / 1000, index_urls=self.config.index_urls,
+            timeout_s=run_limits["build_wall_ms"] / 1000, index_urls=self.config.index_urls,
         )
-        run_limits = job.run["limits"]
         # The build's output volume is a tmpfs charged to the build's memory, so the build has bounds of its own.
         limits = replace(
             case_limits(run_limits, self.config.limits), memory_bytes=run_limits["build_memory_mb"] << 20, workspace_bytes=run_limits["build_output_bytes"],
             workspace_files=run_limits["build_files"], tmp_bytes=run_limits["build_tmp_bytes"], wall_s=run_limits["build_wall_ms"] / 1000,
         )
-        return self.supervisor.build(BuildSpec(job.attempt_id, profile, archive.manifest, source_root, closure, work / "build", limits))
+        return self.supervisor.build(BuildSpec(attempt_id, profile, archive.manifest, source_root, closure, work / "build", limits))
 
     async def _case(
         self,
@@ -821,10 +851,7 @@ class AttemptRunner:
         # A Terminal session takes the warm terminal when it is made as this session's case would be.
         warm = None
         if job.free_form:
-            warm = self._take_warm(WarmRecipe(
-                (run["source_sha256"], profile.id, str(artifact.directory), limits, run_limits["internet_access"]), profile, run_argv, artifact, limits,
-                run_limits["internet_access"],
-            ))
+            warm = self._take_warm(self._recipe_of(run["source_sha256"], profile, run_argv, artifact, run_limits))
         if warm is not None:
             folder = warm.folder
             stack.push_async_callback(shielded, lambda: anyio.to_thread.run_sync(shutil.rmtree, folder, True))

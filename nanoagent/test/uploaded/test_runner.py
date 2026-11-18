@@ -926,4 +926,18 @@ async def test_a_terminal_session_is_handed_the_warm_terminal_the_one_before_it_
         assert second.execution == {"status": "ended", "reason": None}
         request, token = warm.went
         assert request["free_form"] is True and token and len(rig.supervisor.specs) >= 2
+        assert json.loads((tmp_path / "scratch" / "warm.json").read_text()) == fx.LIMITS  # kept for the worker's next start
+        group.cancel_scope.cancel()
+
+
+async def test_a_worker_start_warms_a_terminal_from_the_limits_the_last_session_left(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    (tmp_path / "scratch" / "warm.json").write_text(json.dumps(fx.LIMITS))
+    async with anyio.create_task_group() as group:
+        group.start_soon(rig.runner.keep_warm)
+        with anyio.fail_after(10):
+            while rig.runner._warm is None:
+                await anyio.sleep(0.01)
+        [spec] = rig.supervisor.specs
+        assert json.loads(spec.request_json) == {"wait_go": True} and spec.run_argv == ("python", "/harness/shell.py") and rig.supervisor.case.launched
         group.cancel_scope.cancel()
