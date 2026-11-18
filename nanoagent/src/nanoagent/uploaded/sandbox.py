@@ -1061,7 +1061,7 @@ class _Case:
                 return
             started = threading.Event()
             session = f"terminal-{terminal}"
-            self._run(self._sandbox.exec("mkdir", ["-p", "-m", "0755", f"{TRACE_DIR}/{session}"], user="root", timeout=30))
+            self._run(_call(lambda: self._sandbox.exec("mkdir", ["-p", "-m", "0755", f"{TRACE_DIR}/{session}"], user="root", timeout=30)))
             cmd, args = _traced(session, self.spec.run_argv)
             limits = self.spec.limits
             self._terminals[terminal] = self._s._loop.submit(_run(

@@ -38,6 +38,7 @@ class Terminal:
         self._sent: dict[int, int] = {}
         self._opened = {0}
         self._closed: set[int] = set()  # the terminals RUSH was told ended
+        self._failed: set[int] = set()  # the terminals that could not open
         self._sending = anyio.Lock()
 
     def write(self, terminal: int, data: bytes) -> None:
@@ -56,7 +57,7 @@ class Terminal:
     async def flush(self, case: Any) -> None:
         """Sends what every terminal wrote, then that each terminal of ``case`` (a `CaseHandle`) that ended did, after its output."""
         async with self._sending:
-            ended = case.ended_terminals()  # before the output: a terminal writes nothing after it ended
+            ended = case.ended_terminals() | self._failed  # before the output: a terminal writes nothing after it ended
             for terminal in list(self._pending):
                 while True:
                     with self._lock:
@@ -79,7 +80,7 @@ class Terminal:
 
     async def feed(self, case: Any, lease: Lease) -> None:
         """Passes what the member sends to ``case``'s terminals (a `CaseHandle`), in order, until cancelled: a size for a terminal not
-        yet open opens it. RUSH answers this read as soon as the session is canceled (the member opened another) or its lease lost,
+        yet open opens it, and one that cannot open ends with why printed in it. RUSH answers this read as soon as the session is canceled (the member opened another) or its lease lost,
         which fails ``lease`` at once, so the case is killed in well under a second rather than at the next renewal."""
         after = 0
         while True:
@@ -94,7 +95,11 @@ class Terminal:
                     await anyio.to_thread.run_sync(case.close_terminal, terminal)
                 elif terminal not in self._opened:
                     self._opened.add(terminal)
-                    await anyio.to_thread.run_sync(case.open_terminal, terminal, item["rows"], item["cols"], partial(self.write, terminal))
+                    try:
+                        await anyio.to_thread.run_sync(case.open_terminal, terminal, item["rows"], item["cols"], partial(self.write, terminal))
+                    except Exception as error:  # noqa: BLE001 - it ends this terminal, with why, not the session
+                        self.write(terminal, f"\x1b[0m[RUSH: this terminal could not open: {type(error).__name__}: {error}]\r\n".encode())
+                        self._failed.add(terminal)
                 else:
                     data = None if item["data"] is None else base64.b64decode(item["data"])
                     await anyio.to_thread.run_sync(case.terminal_input, terminal, data, item["rows"], item["cols"])
