@@ -49,7 +49,9 @@ def test_without_lab_it_is_whichever_of_rush_lab_and_rush_lab_dev_is_signed_in(t
 
 
 def test_a_sealed_attempt_reads_as_right_wrong_or_no_verdict_with_its_answer() -> None:
-    assert [verdict({"verdict": v}) for v in ("pass", "fail", None)] == ["right", "wrong", "no verdict"]
+    answered = {"execution": {"status": "answered"}}
+    assert [verdict(answered | {"verdict": v}) for v in ("pass", "fail", None)] == ["right", "wrong", "no verdict"]
+    assert verdict({"execution": {"status": "execution_failed"}, "verdict": "fail"}) == "no verdict"  # no answer.json: nothing scored
     recording = [
         {"kind": "model_call.response", "data": {}},
         {"kind": "result.read", "data": {"outcome": {"status": "answered", "answer": {"x": 1}}}},

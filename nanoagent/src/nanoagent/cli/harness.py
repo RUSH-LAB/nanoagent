@@ -3,6 +3,10 @@ the member's own worker, and the run folder gets its result and recording.
 
     nanoagent harness plugin=city-weather harness=claude-code                         # interactive: the CLI's own screen here
     nanoagent harness plugin=city-weather harness=codex prompt="Which cities had …"   # one-shot, for scripts
+    nanoagent harness plugin=city-weather harness=shell                               # a plain terminal: bring your own agent
+
+`harness=shell` is bash in the case workspace with the gateway preset; `rush save <name>` there makes what the member built a
+harness of theirs, which `harness=<name>` runs again, scored and recorded the same way.
 
 It goes through the RUSH that RUSH Lab on this computer is connected to, as the tab does (POST /api/benchmark/sessions and the
 attempt's terminal, docs/contracts/rush-benchmark-api.md): RUSH pins the case on the member's computer, queues the run, and RUSH
@@ -38,8 +42,9 @@ from nanoagent.extensions import PACKAGED_CONFIGS
 from nanoagent.runtime.config import load_config_args
 
 DEFAULT_CONFIG = str(PACKAGED_CONFIGS / "harness.yaml")
-# The command's names of the reference harnesses, each the one RUSH builds; rush is NanoAgent's own.
-HARNESSES = {"rush": "nanoagent", "claude-code": "claude-code", "codex": "codex", "pi": "pi", "dsh": "dsh", "hermes": "hermes"}
+# The command's names of the reference harnesses, each the one RUSH builds; rush is NanoAgent's own. Any other name is one the
+# member saved from a shell session (`rush save`), which RUSH looks up.
+HARNESSES = {"rush": "nanoagent", "claude-code": "claude-code", "codex": "codex", "pi": "pi", "dsh": "dsh", "hermes": "hermes", "shell": "shell"}
 # The data folders of RUSH Lab and RUSH Lab Dev (helpinghands/desktop/config.yaml's labels).
 LABELS = ("lab.mochi.lab", "lab.mochi.lab.dev")
 # RUSH waits this long for the member's computer to pin the case and build the harness (helpinghands/src/server/ai.js).
@@ -51,7 +56,7 @@ RETRY_S = 1.5
 class HarnessCommandConfig(Config):
     # The id of a plugin installed in one of the member's workspaces.
     plugin: str = MISSING
-    # rush, claude-code, codex, pi, dsh or hermes.
+    # rush, claude-code, codex, pi, dsh, hermes, shell (a terminal of your own), or a harness you saved with `rush save`.
     harness: str = MISSING
     # The request, for a one-shot run nobody is at; null: the first line typed, and the member works at the harness's terminal.
     prompt: str | None = MISSING
@@ -214,7 +219,9 @@ def events(rush: httpx.Client, path: str) -> list[dict[str, Any]]:
 
 
 def verdict(attempt: dict[str, Any]) -> str:
-    """right or wrong by the plugin's verifier, or "no verdict" for an attempt it did not score."""
+    """right or wrong by the plugin's verifier, or "no verdict" for an attempt with no answer (or refusal) to score, as the tab says."""
+    if attempt["execution"]["status"] not in ("answered", "refused"):
+        return "no verdict"
     return {"pass": "right", "fail": "wrong"}.get(attempt.get("verdict"), "no verdict")
 
 
@@ -238,11 +245,11 @@ def summary_line(result: dict[str, Any], path: Path) -> str:
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
     cfg = load_config_args(HarnessCommandConfig, [f"harness_cfg={DEFAULT_CONFIG}", *argv])
-    if cfg.harness not in HARNESSES:
-        raise SystemExit(f"harness: harness is one of {', '.join(HARNESSES)}, not {cfg.harness!r}")
     interactive = cfg.prompt is None
     if interactive and not sys.stdin.isatty():
         raise SystemExit("harness: without prompt= the session is interactive and needs a terminal")
+    if cfg.harness == "shell" and not interactive:
+        raise SystemExit("harness: the shell is a terminal you work in; drop prompt=")
     folder, site, token = connection(find_lab(app_data()) if cfg.lab is None else Path(cfg.lab))
     with httpx.Client(base_url=site, headers={"Authorization": f"Bearer {token}", "Origin": site}, timeout=60.0) as rush:
         prefix, app = find_plugin(rush, cfg.plugin, cfg.workspace)
@@ -255,7 +262,7 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("harness: the request is empty")
         home = Path(cfg.home) if cfg.home else folder / "runs" / cfg.plugin / f"{datetime.now():%Y_%m_%d_%H%M%S}_{cfg.harness}"
         print(f"{cfg.harness} · {cfg.plugin} · starting: the first session of a harness builds it", file=sys.stderr, flush=True)
-        body = {"plugin_id": cfg.plugin, "task_id": task, "harness": HARNESSES[cfg.harness], "text": text, "interactive": interactive}
+        body = {"plugin_id": cfg.plugin, "task_id": task, "harness": HARNESSES.get(cfg.harness, cfg.harness), "text": text, "interactive": interactive}
         run = checked(rush.post(f"{prefix}/benchmark/sessions", json=body | ({} if cfg.model is None else {"model": cfg.model}),
                                 timeout=START_TIMEOUT_S))["run"]  # fmt: skip
         attempt_id = run["cases"][0]["attempts"][0]["attempt_id"]

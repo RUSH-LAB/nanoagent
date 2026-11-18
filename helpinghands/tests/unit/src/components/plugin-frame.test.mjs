@@ -110,7 +110,7 @@ describe('nanoagent.ui/v1 requests', () => {
       ['session.shown', {id: 'not-an-id'}],
       ['plugin.version', {}],
       ['plugin.version', {version: ''}],
-      ['harness.run', {harness: 'mine', task: 'save-paper-source', text: 'hi'}],
+      ['harness.run', {harness: 'Not a name', task: 'save-paper-source', text: 'hi'}],
       ['harness.run', {harness: 'nanoagent', task: '', text: 'hi'}],
       ['harness.run', {harness: 'nanoagent', task: 'save-paper-source', text: ' '}],
       ['harness.cancel', {}],

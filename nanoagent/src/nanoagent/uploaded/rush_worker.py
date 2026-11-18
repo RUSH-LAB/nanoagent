@@ -288,6 +288,12 @@ class RushWorkerClient:
         response = await self._send("GET", f"/attempts/{attempt_id}/terminal-input", params={"after": after}, headers={FENCE_HEADER: str(fence)})
         return response.json()["inputs"]
 
+    async def save_harness(self, attempt_id: str, fence: int, data: bytes) -> Mapping[str, Any]:
+        """Saves the harness ZIP ``data`` that the attempt's session made (`rush save`) as its member's: RUSH's
+        ``{source_sha256, size, harness: {name, version, dialects}}``. Saving the same ZIP again changes nothing."""
+        response = await self._send("POST", f"/attempts/{attempt_id}/harness", content=data, headers={FENCE_HEADER: str(fence), "Content-Type": "application/zip"})
+        return response.json()
+
     async def spans(self, attempt_id: str, body: Mapping[str, Any]) -> None:
         await self._json("POST", f"/attempts/{attempt_id}/spans", body)
 

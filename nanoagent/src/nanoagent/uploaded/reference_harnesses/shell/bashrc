@@ -1,0 +1,10 @@
+# The RUSH terminal's bash (shell.py). History stays in memory: `rush` reads its own line from it, as typed (so "$RUSH_PROMPT"
+# after `--` is kept, not expanded), and the last command before it.
+HISTFILE=/dev/null
+HISTCONTROL=
+PS1='\[\e[1m\]rush\[\e[0m\]:\w\$ '
+rush() {
+  RUSH_LINE="$(HISTTIMEFORMAT= history 1 | sed 's/^ *[0-9]*\*\{0,1\} *//')" \
+  RUSH_LAST="$(HISTTIMEFORMAT= history | sed 's/^ *[0-9]*\*\{0,1\} *//' | sed '$d' | grep -v '^rush\( \|$\)' | tail -n 1)" \
+    python /harness/rush.py "$@"
+}

@@ -1,6 +1,7 @@
 // The Harness tab every plugin's page has (kit/shell.js): the person picks a harness and asks, and one of the plugin's tasks
 // is worked by that harness on their own computer, as a benchmark case is, on a terminal they work in: the harness's own
-// screen, live, which they type at until it ends.
+// screen, live, which they type at until it ends. Terminal is a plain shell there, where they bring their own agent and save it
+// (`rush save`) as a harness of theirs, which the picker then offers too.
 
 import { startRun, request } from "./bridge.js";
 import { h } from "./dom.js";
@@ -20,6 +21,7 @@ export const HARNESSES = [
   ["pi", "PI", "Codes its answer with its own tools from the task's prompt."],
   ["dsh", "DSH", "Codes its answer with its own tools from the task's prompt."],
   ["hermes", "Hermes", "Codes its answer with its own tools from the task's prompt."],
+  ["shell", "Terminal", "A shell in the task's workspace, the model a call away through RUSH: run any agent, leave answer.json, exit. `rush save <name>` keeps it."],
 ];
 
 // Leaving the alternate screen (DEC private modes 47, 1047 and 1049): a full-screen program's last screen stays shown when it ends.
@@ -45,13 +47,27 @@ export function harnessPage(plugin) {
   let task = plugin.tasks[0];
   let runId = null;
   const about = h("p", { class: "muted small-text" });
-  const choices = HARNESSES.map(([id, label]) => h("button", { type: "button", class: "button small", "aria-pressed": String(id === harness), text: label, onclick: () => pick(id) }));
+  // The reference harnesses, then the person's own as RUSH lists them.
+  const options = [...HARNESSES];
+  const button = ([id, label]) => h("button", { type: "button", class: "button small", "aria-pressed": String(id === harness), text: label, onclick: () => pick(id) });
+  const choices = options.map(button);
+  const pickRow = h("div", { class: "harness-pick", role: "group", "aria-label": "Harness" }, choices);
   function pick(id) {
     harness = id;
-    for (const [index, button] of choices.entries()) button.setAttribute("aria-pressed", String(HARNESSES[index][0] === id));
-    about.textContent = HARNESSES.find(([each]) => each === id)[2];
+    for (const [index, choice] of choices.entries()) choice.setAttribute("aria-pressed", String(options[index][0] === id));
+    about.textContent = options.find(([each]) => each === id)[2];
   }
   pick(harness);
+  request("harness.saved")
+    .then(({ harnesses }) => {
+      for (const saved of harnesses) {
+        const option = [saved.name, saved.name, `Your harness, saved from a Terminal session (version ${saved.version}): runs what you saved, from the task's prompt.`];
+        options.push(option);
+        choices.push(button(option));
+        pickRow.append(choices.at(-1));
+      }
+    })
+    .catch((problem) => (status.textContent = problem.message));
   const taskPick =
     plugin.tasks.length > 1
       ? h("select", { class: "input", "aria-label": "Task", onchange: (event) => (task = plugin.tasks.find((one) => one.id === event.target.value)) }, plugin.tasks.map((one) => h("option", { value: one.id, text: one.description })))
@@ -83,7 +99,7 @@ export function harnessPage(plugin) {
   async function submit() {
     const text = input.value.trim();
     if (!text || runButton.disabled) return;
-    const label = HARNESSES.find(([id]) => id === harness)[1];
+    const label = options.find(([id]) => id === harness)[1];
     terminal.reset();
     status.textContent = `${label} · ${task.description} · starting: the first session of a harness builds it`;
     runButton.disabled = true;
@@ -147,7 +163,7 @@ export function harnessPage(plugin) {
     }
   });
 
-  const head = h("div", { class: "harness-head" }, h("div", { class: "harness-pick", role: "group", "aria-label": "Harness" }, choices), about, taskPick);
+  const head = h("div", { class: "harness-head" }, pickRow, about, taskPick);
   const ask = h("div", { class: "harness-ask" }, input, stop, runButton);
   return h("section", { class: "harness-page", "aria-label": "Harness" }, head, ask, screen, status);
 }

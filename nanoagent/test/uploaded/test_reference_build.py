@@ -26,7 +26,7 @@ def manifest_of(data: bytes) -> dict:
 
 
 def test_the_references_are_the_folders_and_each_manifest_carries_its_folders_name() -> None:
-    assert NAMES == ("claude-code", "codex", "dsh", "hermes", "nanoagent", "pi")
+    assert NAMES == ("claude-code", "codex", "dsh", "hermes", "nanoagent", "pi", "shell")
     for name in NAMES:
         assert yaml.safe_load((FOLDER / name / "harness.yaml").read_text())["name"] == name
 

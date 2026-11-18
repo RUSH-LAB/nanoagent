@@ -1,0 +1,13 @@
+protocol: rush.harness.v1
+name: shell
+version: "1"
+dialects: [chat_completions, responses, anthropic_messages]
+toolchain: python-3
+lockfiles: []
+# The member's own terminal: bash in the case workspace, the gateway preset (shell.py). `rush save` (rush.py) makes what they
+# built a harness of its own, run by this same shell.py.
+build:
+  argv: [sh, -c, "cp shell.py bashrc rush.py /build-out/"]
+  outputs: [shell.py, bashrc, rush.py]
+run:
+  argv: [python, /harness/shell.py]

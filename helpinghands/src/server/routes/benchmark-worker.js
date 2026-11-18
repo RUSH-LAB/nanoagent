@@ -11,7 +11,8 @@ const {BenchmarkError} = require('../benchmark/errors');
 const {stringifyJson} = require('../benchmark/json');
 const {UUID, jsonBody, rawBody, sendFailure} = require('../benchmark/http');
 const v = require('../benchmark/validate');
-const {positiveSetting} = require('../benchmark/limits');
+const {MAX_SOURCE_BYTES, positiveSetting} = require('../benchmark/limits');
+const {uploadedHarnessOf} = require('../benchmark/harness');
 
 const MAX_PAYLOAD_BYTES = positiveSetting('BENCHMARK_PAYLOAD_MAX_BYTES', 16 * 1024 * 1024);
 // A read of a terminal's input waits this long for the member to send some, looking every INPUT_POLL_MS.
@@ -23,7 +24,7 @@ const REDACTIONS = ['none', 'redacted', 'truncated'];
 const ROUTE = new RegExp([
   '^/api/benchmark-worker/(?:',
   '(claim)',
-  '|attempts/([^/]+)/(renew|source|package|admissions|events|terminal|terminal-input|spans|finalize|accounting)',
+  '|attempts/([^/]+)/(renew|source|package|admissions|events|terminal|terminal-input|harness|spans|finalize|accounting)',
   '|attempts/([^/]+)/admissions/([^/]+)/(settle)',
   '|attempts/([^/]+)/payloads/([^/]+)',
   ')$',
@@ -91,6 +92,15 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
           if (inputs.length || closed || Date.now() >= until) return json(res, 200, {inputs});
           await sleep(INPUT_POLL_MS);
         }
+      }
+      // A harness the member saved from the attempt's Terminal session (`rush save`): their own, as if uploaded to its workspace.
+      if (jobPart === 'harness') {
+        wanted('POST', jobId);
+        const fence = fenceHeader(req);
+        req.setTimeout(120_000);
+        const data = await rawBody(req, MAX_SOURCE_BYTES, 'source_too_large');
+        const workspaceId = await worker.sessionWorkspace(userId, jobId, fence);
+        return json(res, 201, await services.repository.saveSource({userId, workspaceId}, data, uploadedHarnessOf(data)));
       }
       wanted('POST', jobId);
       const input = await body();

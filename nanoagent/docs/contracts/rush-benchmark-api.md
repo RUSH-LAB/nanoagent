@@ -195,7 +195,11 @@ The server, in this order:
 
 ## `POST /sessions`
 
-One session of a plugin page's Harness tab, or of `nanoagent harness`: `{"plugin_id", "task_id", "harness", "text", "interactive", "model"?}`. The member's computer fills task `task_id`'s input from `text` with the model every plugin run uses and pins the one case; RUSH builds the reference harness `harness` and queues a run of that case on the endpoint RUSH Lab's worker serves, on `model` (an OpenRouter model id) when given, else the model every run uses. `interactive` (required) is whether the member is at the harness's terminal: such a run is a session (`run.interactive` in its claim, not listed by `GET /runs`); one that is not (`nanoagent harness prompt=…`) runs on its own to its answer and is listed like any run. `201 {"run": <run>}`; `503 runner_offline`, `409 app_unavailable`, `pin_failed`, `400 unknown_reference`.
+One session of a plugin page's Harness tab, or of `nanoagent harness`: `{"plugin_id", "task_id", "harness", "text", "interactive", "model"?}`. The member's computer fills task `task_id`'s input from `text` with the model every plugin run uses and pins the one case; RUSH builds the reference harness `harness` (or takes the latest version of the member's own harness `harness` that a Terminal session saved into this workspace, which works under `coding`) and queues a run of that case on the endpoint RUSH Lab's worker serves, on `model` (an OpenRouter model id) when given, else the model every run uses. `interactive` (required) is whether the member is at the harness's terminal: such a run is a session (`run.interactive` in its claim, not listed by `GET /runs`); one that is not (`nanoagent harness prompt=…`) runs on its own to its answer and is listed like any run. `201 {"run": <run>}`; `503 runner_offline`, `409 app_unavailable`, `pin_failed`, `400 unknown_harness`.
+
+## `GET /harnesses`
+
+The harnesses the caller saved from Terminal sessions (`harness: "shell"`, `rush save`) with a source in this workspace, each at its latest version, newest first: `200 {"harnesses": [{"name", "version", "saved_at"}]}`. Needs `content:read`.
 
 ## `GET /runs?limit=&before=`
 
@@ -501,6 +505,10 @@ Raw bytes. Headers: `X-Rush-Fence`, `X-Rush-Redaction: none|redacted|truncated` 
 ## `GET /attempts/{id}/terminal-input?after=<seq>`
 
 Header `X-Rush-Fence`. What the member sent a session's terminal after `after`: `200 {"inputs": [{"seq", "data": "<base64>|null", "rows", "cols"}]}`, keystrokes or a resize, in order. RUSH holds the request up to 15 s for some to come, then answers `[]`.
+
+## `POST /attempts/{id}/harness`
+
+Header `X-Rush-Fence`, `Content-Type: application/zip`. A harness the member saved from the attempt's session (`rush save` in the Terminal, which the worker checks as a source first), kept as their own upload to the run's workspace: `201` as `POST /sources` answers, with its errors (`400 reserved_harness_name`, `409 harness_version_taken`, `413 source_too_large`, ...); `403 not_a_session` for a run nobody works in.
 
 ## `POST /attempts/{id}/spans`
 

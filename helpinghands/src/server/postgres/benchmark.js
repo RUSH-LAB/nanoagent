@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const {BenchmarkError} = require('../benchmark/errors');
 const {checkTaskAgainstEntry} = require('../benchmark/entry-check');
 const {CAPABILITY_WINDOW_S} = require('../benchmark/limits');
+const {REFERENCE_HARNESSES} = require('../benchmark/harness');
 const {stringifyJson} = require('../benchmark/json');
 const {RENDERER_VERSION, sha256Hex} = require('../benchmark/prompt');
 const {latestByCase, runScore, sumMetrics} = require('../benchmark/rules');
@@ -291,6 +292,29 @@ function createPostgresBenchmark({pool}) {
         );
       });
       return {source_sha256: sha256, size: data.length, harness};
+    },
+    /**
+     * The latest version of the caller's own harness `name` whose source this workspace keeps, as `saveSource` answers: a harness
+     * a Terminal session saved (no reference harness's name is ever a member's). Null when they have none.
+     */
+    async savedHarness(context, name) {
+      return member(context, async client => {
+        const row = (await client.query(
+          `select s.sha256, s.size, s.harness_name, s.harness_version, s.dialects from benchmark_harness_version v
+             join benchmark_source s on s.sha256 = v.source_sha256 and s.user_id = v.owner_id and s.workspace_id = $3
+            where v.owner_id = $1 and v.name = $2 order by v.created_at desc limit 1`, [context.userId, name, context.workspaceId],
+        )).rows[0];
+        return row ? {source_sha256: row.sha256, size: row.size, harness: {name: row.harness_name, version: row.harness_version, dialects: row.dialects}} : null;
+      });
+    },
+    /** The caller's own harnesses with a source in this workspace, each at its latest version, newest first: `[{name, version, saved_at}]`. */
+    async savedHarnesses(context) {
+      return member(context, async client => (await client.query(
+        `select * from (select distinct on (v.name) v.name, v.version, v.created_at as saved_at from benchmark_harness_version v
+            join benchmark_source s on s.sha256 = v.source_sha256 and s.user_id = v.owner_id and s.workspace_id = $2
+           where v.owner_id = $1 and v.name <> all($3) order by v.name, v.created_at desc) latest order by saved_at desc`,
+        [context.userId, context.workspaceId, REFERENCE_HARNESSES],
+      )).rows);
     },
     /** The caller's source `sha256`: `{harness: {name, version, dialects}}`, or null. */
     async source(context, sha256) {

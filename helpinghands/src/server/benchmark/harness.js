@@ -17,7 +17,7 @@ const validate = new Ajv2020({strict: false, allErrors: true}).compile({$schema:
 
 // The reference harnesses NanoAgent ships (nanoagent/src/nanoagent/uploaded/reference_harnesses/<name>/; a unit test keeps this list equal to its folders).
 // Their names are reserved: a member's own upload may not take one, and a reference ZIP reaches the server only through the reference route.
-const REFERENCE_HARNESSES = Object.freeze(['claude-code', 'codex', 'dsh', 'hermes', 'nanoagent', 'pi']);
+const REFERENCE_HARNESSES = Object.freeze(['claude-code', 'codex', 'dsh', 'hermes', 'nanoagent', 'pi', 'shell']);
 
 /** The policy reference harness `name` works under: NanoAgent's the task's tools, every other harness the coding prompt. */
 const referencePolicy = name => (name === 'nanoagent' ? 'task_tools' : 'coding');

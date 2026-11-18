@@ -9,7 +9,9 @@ const {allowed} = require('../../../src/runner/protocol.js');
 const {MODEL} = require('../../../src/server/ai-settings.js');
 const {createBenchmarkService} = require('../../../src/server/benchmark/service.js');
 const {benchmarkPublication} = require('../../../src/server/benchmark/validate.js');
+const {BenchmarkError} = require('../../../src/server/benchmark/errors.js');
 const route = loadRoute('benchmark');
+const workerRoute = require('../../../src/server/routes/benchmark-worker.js');
 const CONTEXT = {userId: 'u', workspaceId: 'w', membershipId: 'm', role: 'owner'};
 const SHA = 'a'.repeat(64);
 const PATH = '/api/benchmark/sessions';
@@ -30,6 +32,8 @@ build: {argv: [npm, ci], outputs: [node_modules]}
 run: {argv: [node, main.js]}
 `)}));
 
+const SAVED = {source_sha256: 'c'.repeat(64), size: 9, harness: {name: 'my-agent', version: '0123456789ab', dialects: ['chat_completions']}};
+
 function ctxFor({computer, app = {value: {id: 'p', sha256: SHA, status: 'ready'}}} = {}) {
   const calls = [];
   const on = computer ?? {
@@ -42,6 +46,7 @@ function ctxFor({computer, app = {value: {id: 'p', sha256: SHA, status: 'ready'}
       repository: {
         saveSource: async (context, data, harness) => ({source_sha256: 'b'.repeat(64), size: data.length, harness}),
         run: async (context, id) => ({run_id: id}),
+        savedHarness: async (context, name) => (name === 'my-agent' ? SAVED : null),
       },
     },
     runners: {computer: () => on},
@@ -81,11 +86,18 @@ describe('POST /api/benchmark/sessions', () => {
   });
 
   it('refuses a harness that is no reference harness, a missing field, and says why pinning failed', async () => {
-    assert.deepEqual((await post(ctxFor().ctx, {...BODY, harness: 'mine'})).payload.code, 'unknown_reference');
+    assert.deepEqual((await post(ctxFor().ctx, {...BODY, harness: 'mine'})).payload.code, 'unknown_harness');
     assert.equal((await post(ctxFor().ctx, {...BODY, text: ''})).status, 400);
     const failing = ctxFor({computer: {benchmarkSession: async () => ({error: 'p has an unknown task: nope', status: 422})}});
     const {status, payload} = await post(failing.ctx, BODY);
     assert.deepEqual([status, payload.code, payload.error], [422, 'pin_failed', 'p has an unknown task: nope']);
+  });
+
+  it('reruns a harness the member saved from a Terminal session, its latest version under the coding prompt, with nothing to build', async () => {
+    const {ctx, calls} = ctxFor();
+    assert.equal((await post(ctx, {...BODY, harness: 'my-agent'})).status, 201);
+    assert.deepEqual(calls.map(([what]) => what), ['open', 'pin', 'session']);
+    assert.deepEqual([calls[2][2], calls[2][3]], [SAVED, 'coding']);
   });
 
   it('runs only on the member\'s own computer, and only an app of theirs that is ready', async () => {
@@ -97,6 +109,58 @@ describe('POST /api/benchmark/sessions', () => {
 
   it('is a request the relay lets through to NanoAgent', () => {
     assert.ok(allowed('POST', `/v1/installs/${SHA}/benchmark/session`));
+  });
+});
+
+describe('GET /api/benchmark/harnesses', () => {
+  it('lists the harnesses the member saved in this workspace', async () => {
+    const harnesses = [{name: 'my-agent', version: '0123456789ab', saved_at: 'now'}];
+    const ctx = makeCtx({benchmark: {service: {}, repository: {savedHarnesses: async context => (context.workspaceId === 'w' ? harnesses : [])}}});
+    const {status, payload} = await invoke(route, {path: '/api/benchmark/harnesses', requestContext: CONTEXT, ctx});
+    assert.deepEqual([status, payload], [200, {harnesses}]);
+  });
+});
+
+describe('POST /api/benchmark-worker/attempts/{id}/harness', () => {
+  const ATTEMPT = '00000000-0000-4000-8000-000000000009';
+  const savedZip = name => Buffer.from(zipSync({'harness.yaml': strToU8(`protocol: rush.harness.v1
+name: ${name}
+version: "0123456789ab"
+dialects: [chat_completions]
+toolchain: python-3
+lockfiles: []
+build: {argv: [sh, -c, "cp -R shell.py executables workspace /build-out/"], outputs: [shell.py, executables, workspace]}
+run: {argv: [python, /harness/shell.py, "bash run.sh"]}
+`)}));
+  const send = async (data, session = true) => {
+    const saved = [];
+    const ctx = makeCtx({benchmark: {
+      worker: {
+        authenticate: async bearer => (bearer === 'cred' ? 'u' : null),
+        sessionWorkspace: async (userId, attemptId, fence) => {
+          if (!session) throw new BenchmarkError(403, 'not_a_session', 'Only a session someone works in saves a harness');
+          return userId === 'u' && attemptId === ATTEMPT && fence === 3 ? 'w' : null;
+        },
+      },
+      repository: {saveSource: async (context, zip, harness) => { saved.push([context, harness]); return {source_sha256: 'c'.repeat(64), size: zip.length, harness}; }},
+    }});
+    const result = await invoke(workerRoute, {
+      method: 'POST', path: `/api/benchmark-worker/attempts/${ATTEMPT}/harness`, headers: {authorization: 'Bearer cred', 'x-rush-fence': '3'}, ctx, auth: null,
+      onRequest: req => setTimeout(() => { req.emit('data', data); req.emit('end'); }, 5),
+    });
+    return {...result, saved};
+  };
+
+  it('keeps the harness a session saved as the member\'s own upload to the run\'s workspace', async () => {
+    const {status, payload, saved} = await send(savedZip('my-agent'));
+    assert.deepEqual([status, payload.harness.name], [201, 'my-agent']);
+    assert.deepEqual(saved, [[{userId: 'u', workspaceId: 'w'}, {name: 'my-agent', version: '0123456789ab', dialects: ['chat_completions']}]]);
+  });
+
+  it('refuses a reference harness\'s name and a run nobody works in', async () => {
+    assert.equal((await send(savedZip('shell'))).payload.code, 'reserved_harness_name');
+    const refused = await send(savedZip('my-agent'), false);
+    assert.deepEqual([refused.status, refused.payload.code, refused.saved], [403, 'not_a_session', []]);
   });
 });
 

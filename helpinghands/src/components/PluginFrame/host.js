@@ -264,6 +264,11 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
       await cancelHarness(run);
       return {result: {}};
     },
+    'harness.saved': async () => {
+      const response = await request('/api/benchmark/harnesses');
+      if (!response.ok) throw await failed(response, 'Could not list your harnesses');
+      return {result: {harnesses: (await response.json()).harnesses}};
+    },
     'harness.input': async ({runId, data}) => toTerminal(runId, {data}),
     'harness.resize': async ({runId, rows, cols}) => toTerminal(runId, {rows, cols}),
     'sessions.list': async () => {

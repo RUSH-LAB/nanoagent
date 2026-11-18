@@ -499,6 +499,7 @@ class AttemptRunner:
         services = self.services_factory(
             policy=policy, endpoint=cfg.endpoint, admission=RushAdmission(self.worker, lease), journal=journal, tool_runner=runner,
             command_runner=commands, workspace=workspace, clock_ns=self.clock_ns,
+            save_harness=lambda data: self.worker.save_harness(job.attempt_id, job.fence, data),
         )
         services.attempt.lease_lapsed = lease.lapsed  # the services refuse new work once the lease's known expiry passes
         relay = await self.relay.start(job.attempt_id, network, services.app, work)

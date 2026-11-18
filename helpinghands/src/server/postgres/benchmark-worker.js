@@ -217,6 +217,15 @@ function createPostgresBenchmarkWorker({pool, config}) {
       });
     },
 
+    /** The workspace of the attempt's run, a Harness tab session's, whose member saves a harness from it: 403 `not_a_session` for any other run. */
+    async sessionWorkspace(userId, attemptId, fence) {
+      return fenced(userId, attemptId, fence, async (client, attempt) => {
+        const {session} = (await client.query('select session from benchmark_run where run_id = $1', [attempt.run_id])).rows[0];
+        if (!session) throw new BenchmarkError(403, 'not_a_session', 'Only a session someone works in saves a harness');
+        return attempt.workspace_id;
+      });
+    },
+
     /** Reserve `reserveUsd` for model call `callId` against the attempt, member and workspace. */
     async admit(userId, attemptId, fence, callId, reserveUsd) {
       return fenced(userId, attemptId, fence, async (client, attempt) => {

@@ -14,15 +14,14 @@ const {BenchmarkError} = require('../benchmark/errors');
 const {parseJson, stringifyJson} = require('../benchmark/json');
 const {compareAttempts, compareRuns} = require('../benchmark/compare');
 const {UUID, jsonBody, losslessBody, rawBody, sendFailure} = require('../benchmark/http');
-const {checkReference, referenceHarnessOf, referencePolicy, uploadedHarnessOf} = require('../benchmark/harness');
+const {REFERENCE_HARNESSES, checkReference, referenceHarnessOf, referencePolicy, uploadedHarnessOf} = require('../benchmark/harness');
 const {previewBody, runBody, benchmarkPublication, terminalInputBody, SHA256, object, string} = require('../benchmark/validate');
-const {positiveSetting} = require('../benchmark/limits');
+const {MAX_SOURCE_BYTES} = require('../benchmark/limits');
 
 // The endpoint profile of the worker RUSH Lab runs (nanoagent/deploy/worker/worker.openrouter.yaml), which a Harness tab session runs on.
 const SESSION_ENDPOINT = 'openrouter';
 // What a Harness tab session's request may hold: what a plugin page's prompt may (PluginFrame/protocol.js).
 const SESSION_TEXT_LIMIT = 50_000;
-const MAX_SOURCE_BYTES = positiveSetting('BENCHMARK_SOURCE_MAX_BYTES', 50 * 1024 * 1024);
 const STREAM_POLL_MS = 300;
 // A terminal's output is read this often while its harness runs, so typing echoes promptly.
 const TERMINAL_POLL_MS = 50;
@@ -31,7 +30,7 @@ const PAGE = 1000;
 
 const ROUTE = new RegExp([
   '^/api/benchmark/(?:',
-  '(defaults|benchmarks|benchmarks/pinned|sessions|previews|sources|runs|compare|compare/attempts|worker-credentials)',
+  '(defaults|benchmarks|benchmarks/pinned|sessions|harnesses|previews|sources|runs|compare|compare/attempts|worker-credentials)',
   '|worker-credentials/([^/]+)',
   '|benchmarks/([^/]+)(?:/(results))?',
   '|runs/([^/]+)(?:/(cancel)|/cases/([^/]+)/(rerun))?',
@@ -230,7 +229,8 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       return json(res, published.created ? 201 : 200, published);
     }
     // One session of a plugin page's Harness tab, or of `nanoagent harness`: the member's request to one task of their installed app,
-    // worked once by a reference harness. The member's computer fills the task's input from the request with the model every plugin run
+    // worked once by a reference harness, or by a harness of theirs that a Terminal session saved (`rush save`), which works the
+    // coding prompt like any harness but NanoAgent's. The member's computer fills the task's input from the request with the model every plugin run
     // uses and pins the case, as it pins a benchmark's, and builds the harness; the run is queued like a benchmark run, on the endpoint
     // RUSH Lab's worker serves. `interactive` says whether the member is at the harness's terminal (the
     // tab, the command without a prompt); `model`, when given, is the harness's model in place of the one every run uses.
@@ -244,7 +244,11 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       const text = string(body.text, 'text', {max: SESSION_TEXT_LIMIT});
       if (typeof body.interactive !== 'boolean') throw new BenchmarkError(400, 'invalid_request', 'interactive must be a boolean');
       const model = string(body.model, 'model', {optional: true}) ?? aiSettings.MODEL.model;
-      checkReference(harness);
+      const reference = REFERENCE_HARNESSES.includes(harness);
+      const saved = reference ? null : await repository.savedHarness(context, harness);
+      if (!reference && !saved) {
+        throw new BenchmarkError(400, 'unknown_harness', `${harness} is neither a reference harness (${REFERENCE_HARNESSES.join(', ')}) nor one you saved from a Terminal session in this workspace`);
+      }
       const computer = ctx.runners.computer(context.userId);
       if (!computer) return json(res, 503, {error: RUNNER_OFFLINE, code: 'runner_offline'});
       const opened = await ctx.workspaceApps.open(context, pluginId, computer);
@@ -253,11 +257,21 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       const pinned = await computer.benchmarkSession(opened.value.sha256, JSON.stringify({task: taskId, text, model: aiSettings.MODEL}));
       if (pinned.error) return json(res, pinned.status, {error: pinned.error, code: 'pin_failed'});
       const publication = benchmarkPublication({...parseJson(pinned.value), model, endpoint_profile: SESSION_ENDPOINT});
-      const built = await computer.benchmarkReferenceHarness(harness);
-      if (built.error) return json(res, built.status, {error: built.error, code: 'reference_unavailable'});
-      const source = await repository.saveSource(context, built.value, referenceHarnessOf(built.value, harness));
-      const {run_id: id} = await service.session(context, publication, source, referencePolicy(harness), {interactive: body.interactive});
+      let source = saved;
+      if (reference) {
+        const built = await computer.benchmarkReferenceHarness(harness);
+        if (built.error) return json(res, built.status, {error: built.error, code: 'reference_unavailable'});
+        source = await repository.saveSource(context, built.value, referenceHarnessOf(built.value, harness));
+      }
+      const policy = reference ? referencePolicy(harness) : 'coding';
+      const {run_id: id} = await service.session(context, publication, source, policy, {interactive: body.interactive});
       return json(res, 201, {run: await repository.run(context, id)});
+    }
+    // The harnesses the member saved from Terminal sessions in this workspace, each at its latest version, newest first.
+    if (top === 'harnesses') {
+      if (req.method !== 'GET') return wrongMethod();
+      read();
+      return json(res, 200, {harnesses: await repository.savedHarnesses(context)});
     }
     if (top === 'previews') {
       if (req.method !== 'POST') return wrongMethod();
