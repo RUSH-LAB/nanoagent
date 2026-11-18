@@ -39,7 +39,7 @@ MAX_EVENT_DATA_BYTES = 200 * 1024
 # (MAX_MODEL_CALLS), so 40,000, which with the budget and the worker's few records stays under RUSH's 100,000.
 EVENT_BUDGET = 55_000
 KEPT_SOURCES = frozenset({WORKER, "gateway"})
-DROPPABLE_KINDS = frozenset({"model_call.rejected"})
+DROPPABLE_KINDS = frozenset({"model_call.rejected", "journal.backpressure"})
 STUB_KEYS = (16, 8, 4)  # entries a stub keeps per nesting level; deeper levels are dropped
 STUB_STRING = 64  # characters a stub keeps of a string
 

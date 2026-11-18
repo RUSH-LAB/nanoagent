@@ -780,17 +780,27 @@ async def test_one_event_with_a_huge_unknown_key_does_not_unscore_the_case(tmp_p
     assert rejected["data_truncated"] and rejected["http_status"] == 400
 
 
-async def test_harness_event_spam_past_the_event_budget_is_dropped_and_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("queue_pressure", [False, True])
+async def test_harness_event_spam_past_the_event_budget_is_dropped_and_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, queue_pressure: bool) -> None:
+    class SlowRush(fx.StrictRush):
+        async def append_events(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            await anyio.sleep(0.001)
+            return await super().append_events(*args, **kwargs)
+
     monkeypatch.setattr("nanoagent.uploaded.rush_worker.EVENT_BUDGET", 40)
-    rush = fx.StrictRush(max_events=60)
+    rush = (SlowRush if queue_pressure else fx.StrictRush)(max_events=60)
     rig = Rig(tmp_path, rush=rush, script=fx.CaseScript(block=True), verify=CaseVerdict("fail", 0.0, None))
     rig.runner.project = default_project
 
     async def post(client: httpx.AsyncClient) -> None:
+        if queue_pressure:
+            rig.services[0].attempt.recorder._max_items = 1
         for _ in range(80):
             await client.post("/events", content=b"not json")  # a rejected post is journaled too
 
     result = await _with_harness(rig, post)
+    if queue_pressure:
+        assert rush.of("journal.backpressure")  # these harness-multiplied gateway records must obey the same budget
     assert result.outcome == "finalized" and rush.refusals == [] and len(rush.events) <= 60
     [final] = rush.finalized
     assert final["verdict"] == "fail" and final["coverage"]["status"] == "partial" and "event_budget" in final["coverage"]["loss_reasons"]
