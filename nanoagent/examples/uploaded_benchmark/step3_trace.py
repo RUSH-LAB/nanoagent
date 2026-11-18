@@ -84,9 +84,11 @@ class ReadTrace(Run):
     def main(self) -> None:
         config = self.config
         with config.server.client() as client:
+            # Events first: RUSH seals them in the transaction that makes the attempt final, so a sealed read is never
+            # paired with an attempt read before its finalize.
+            events, sealed, final_cursor, high_water = read_events(client, config)
             attempt = client.attempt(config.attempt_id)
             title = run_title(client.run(attempt["run_id"]))
-            events, sealed, final_cursor, high_water = read_events(client, config)
             found = client.spans(config.attempt_id, kind=config.span_kind, status=config.span_status, q=config.span_query, limit=config.span_limit)
             payloads = []
             for digest in config.payloads:
