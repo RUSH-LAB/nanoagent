@@ -1,11 +1,10 @@
-import React, {useCallback, useEffect, useMemo, useRef} from 'react';
+import React, {useCallback, useMemo} from 'react';
 import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
 import {benchmarkApi} from './api';
 import {attemptStatus, explanationText, verdictText} from './runs';
-import {followStream} from './sse';
 import {buildTrace} from './traceModel';
 import {spansCut} from './pagination';
-import useLoad from './useLoad';
+import useLoad, {useLiveReload} from './useLoad';
 import TraceActivity from './TraceActivity';
 import Metrics from './MetricsPanel';
 import styles from './styles.module.css';
@@ -17,21 +16,8 @@ export default function TraceView({attemptId, onBack, backLabel = 'All runs'}) {
   const model = useMemo(() => buildTrace(spans.data ?? {}), [spans.data]);
   const sealed = attempt.data?.sealed;
 
-  const reloadSoon = useRef(null);
-  const reload = useCallback(() => {
-    if (reloadSoon.current) return;
-    reloadSoon.current = setTimeout(() => { reloadSoon.current = null; attempt.reload(); spans.reload(); }, 1000);
-  }, [attempt.reload, spans.reload]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (sealed !== false) return undefined;
-    const controller = new AbortController();
-    followStream({attemptId, open: benchmarkApi.openStream, read: benchmarkApi.readStream, signal: controller.signal, onFrame: reload}).then(() => {
-      if (!controller.signal.aborted) reload();
-    });
-    return () => controller.abort();
-  }, [attemptId, sealed, reload]);
-  // Cleared and forgotten: a hidden section (Shell's <Activity>) keeps its refs, and a stale one would stop every reload after.
-  useEffect(() => () => { clearTimeout(reloadSoon.current); reloadSoon.current = null; }, []);
+  const reload = useCallback(() => { attempt.reload(); spans.reload(); }, [attempt.reload, spans.reload]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLiveReload(sealed === false ? [attemptId] : [], reload);
 
   const a = attempt.data;
 

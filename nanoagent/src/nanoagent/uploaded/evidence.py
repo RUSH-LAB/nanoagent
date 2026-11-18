@@ -13,11 +13,11 @@ import json
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, get_args
 
 
 Source = Literal["gateway", "tool_broker", "exec", "harness"]
-SOURCES: tuple[Source, ...] = ("gateway", "tool_broker", "exec", "harness")
+SOURCES: tuple[Source, ...] = get_args(Source)
 
 CLEAN = "clean"
 REDACTED = "redacted"
@@ -85,7 +85,7 @@ class _Write:
     sha256: str = ""
 
 
-@dataclass
+@dataclass(frozen=True)
 class Backpressure:
     """A time a caller had to wait because the unwritten queue was full (the journal is slower than the evidence)."""
 

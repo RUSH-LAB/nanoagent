@@ -63,6 +63,17 @@ async function chargeAttemptStorage(client, userId, attemptId, bytes) {
   await client.query('update benchmark_attempt set stored_bytes = stored_bytes + $2 where attempt_id = $1', [attemptId, bytes]);
 }
 
+/** Whether `sql`, a `select 1 ...`, finds a row. */
+async function exists(client, sql, values) {
+  return (await client.query(sql, values)).rowCount > 0;
+}
+
+/** The bytes of `value` as JSON text, which is what a stored `jsonb` of it is charged as. */
+const jsonBytes = value => Buffer.byteLength(JSON.stringify(value));
+
+/** What a statement sets to end an attempt, after its `state = 'final'` and `execution_status`: finalized now, its events sealed at the last cursor. */
+const SEAL = 'finalized_at = now(), sealed = true, final_cursor = next_cursor - 1';
+
 /** Nanosecond values are bigints; JSON carries them as decimal strings. */
 const NS = /^-?\d{1,19}$/;
 function nanoseconds(value) {
@@ -73,4 +84,4 @@ function nanoseconds(value) {
   return undefined;
 }
 
-module.exports = {chargeAttemptStorage, chargeStorage, inTransaction, nanoseconds};
+module.exports = {SEAL, chargeAttemptStorage, chargeStorage, exists, inTransaction, jsonBytes, nanoseconds};

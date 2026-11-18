@@ -1,5 +1,7 @@
 'use strict';
 
+const {SEAL} = require('./benchmark-context');
+
 /**
  * Settle what time alone has ended, inside `client`'s transaction (a system transaction): attempts whose
  * lease ran out become interrupted keeping their evidence,
@@ -13,8 +15,7 @@
  */
 async function sweepExpired(client) {
   await client.query(
-    `update benchmark_attempt set state = 'final', execution_status = 'interrupted', finalized_at = now(), sealed = true,
-       final_cursor = next_cursor - 1
+    `update benchmark_attempt set state = 'final', execution_status = 'interrupted', ${SEAL}
       where attempt_id in (select attempt_id from benchmark_attempt where state = 'leased' and lease_expires_at < now()
         order by attempt_id for update skip locked)`);
   await client.query(

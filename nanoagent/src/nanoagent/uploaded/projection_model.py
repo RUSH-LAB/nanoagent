@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from nanoagent.uploaded.evidence import json_bytes
-from nanoagent.uploaded.timing import TimingMethod, TimingReport
+from nanoagent.uploaded.timing import TimingMethod, TimingReport, Unknown
 from nanoagent.uploaded.usage import NormalizedUsage, UsageAggregate
 
 PARSER_VERSION = "uploaded-projection/1"
@@ -90,7 +90,6 @@ class ModelCall:
     http_status: int | None
     maybe_reached: bool | None
     usage: NormalizedUsage | None
-    usage_error: str | None
     proposals: tuple[Proposal, ...]
     submitted_sha256: str | None
     effective_sha256: str | None
@@ -105,7 +104,6 @@ class ModelCall:
     error: Any
     rejected: Mapping[str, Any] | None
     evidence: tuple[str, ...]
-    parser_version: str = PARSER_VERSION
 
 
 @dataclass(frozen=True)
@@ -125,7 +123,6 @@ class ToolInvocation:
     error: Mapping[str, Any] | None
     rejected: Mapping[str, Any] | None
     evidence: tuple[str, ...]
-    parser_version: str = PARSER_VERSION
 
 
 @dataclass(frozen=True)
@@ -146,7 +143,6 @@ class Command:
     error: Mapping[str, Any] | None
     rejected: Mapping[str, Any] | None
     evidence: tuple[str, ...]
-    parser_version: str = PARSER_VERSION
 
 
 Identity = tuple[int, int]  # (tgid, start_time)
@@ -164,7 +160,6 @@ class ProcessInfo:
     exit_code: int | None
     signal: int | None
     evidence: tuple[str, ...]
-    parser_version: str = PARSER_VERSION
 
 
 @dataclass(frozen=True)
@@ -180,7 +175,6 @@ class HarnessSpan:
     data: Mapping[str, Any]
     end_data: Mapping[str, Any]
     evidence: tuple[str, ...]
-    parser_version: str = PARSER_VERSION
 
 
 @dataclass(frozen=True)
@@ -188,7 +182,6 @@ class AttemptInfo:
     attempt_id: str | None
     worker_id: str | None
     endpoint_label: str | None
-    endpoint_mode: str | None
     model: str | None
     dialects: tuple[str, ...]
     prompt_sha256: str | None
@@ -273,14 +266,9 @@ class TraceCoverage:
 
         out: dict[str, Any] = {
             "status": "partial" if self.partial else "complete",
-            "reasons": capped("reasons", self.reasons, COVERAGE_ITEMS, text(COVERAGE_TEXT_BYTES)),
-            "expected_sources": capped("expected_sources", self.expected_sources, COVERAGE_ITEMS, text(COVERAGE_TEXT_BYTES)),
-            "observed_sources": capped("observed_sources", self.observed_sources, COVERAGE_ITEMS, text(COVERAGE_TEXT_BYTES)),
-            "missing_sources": capped("missing_sources", self.missing_sources, COVERAGE_ITEMS, text(COVERAGE_TEXT_BYTES)),
+            **{name: capped(name, getattr(self, name), COVERAGE_ITEMS, text(COVERAGE_TEXT_BYTES)) for name in ("reasons", "expected_sources", "observed_sources", "missing_sources")},
             "collector_complete": self.collector_complete,
-            "loss_reasons": capped("loss_reasons", self.loss_reasons, COVERAGE_ITEMS, text(COVERAGE_TEXT_BYTES)),
-            "truncated": capped("truncated", self.truncated, COVERAGE_ITEMS, text(COVERAGE_TEXT_BYTES)),
-            "redacted": capped("redacted", self.redacted, COVERAGE_ITEMS, text(COVERAGE_TEXT_BYTES)),
+            **{name: capped(name, getattr(self, name), COVERAGE_ITEMS, text(COVERAGE_TEXT_BYTES)) for name in ("loss_reasons", "truncated", "redacted")},
             "rejected": capped("rejected", self.rejected, COVERAGE_ITEMS, lambda r: {
                 "source": _clip_bytes(r.source, 100), "kind": _clip_bytes(r.kind, 100), "code": _clip_bytes(r.code, 100),
                 "message": _clip_bytes(r.message, COVERAGE_TEXT_BYTES), "evidence": [_clip_bytes(e, 100) for e in r.evidence[:COVERAGE_EVIDENCE]],
@@ -307,8 +295,6 @@ class Metrics:
 
     def to_dict(self, unavailable: str | None = None) -> dict[str, Any]:
         """``unavailable`` replaces the reason a case that never ran has no timing."""
-        from nanoagent.uploaded.timing import Unknown
-
         usage = self.usage
         out: dict[str, Any] = {
             "total_tokens": int(usage.total.known),
@@ -358,7 +344,6 @@ class Projection:
     tool_invocations: tuple[ToolInvocation, ...]
     commands: tuple[Command, ...]
     processes: tuple[ProcessInfo, ...]
-    harness_spans: tuple[HarnessSpan, ...]
     spans: tuple[SpanOut, ...]
     links: tuple[LinkOut, ...]
     coverage: TraceCoverage

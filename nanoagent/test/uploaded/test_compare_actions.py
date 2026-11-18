@@ -8,7 +8,6 @@ from nanoagent.uploaded.compare import (
     FieldCoverage,
     RunConditions,
     canonical_json,
-    command_input,
     compare,
     json_diff,
 )
@@ -26,7 +25,7 @@ def read(action_id: str = "r", path: str = "config.yaml") -> Action:
 
 
 def cmd(action_id: str, *argv: str, **kw) -> Action:
-    return act(action_id, "command", argv[0], command_input(list(argv), "/work"), **kw)
+    return act(action_id, "command", argv[0], {"argv": list(argv), "cwd": "/work"}, **kw)
 
 
 def attempt(*actions: Action, covered: bool = True, conditions: RunConditions = RunConditions(), estimated_ns: int | None = None) -> Attempt:

@@ -4,15 +4,20 @@ from decimal import Decimal
 
 import pytest
 
-from nanoagent.uploaded.dialects import AssembledResponse, assemble_body, assemble_stream, split_sse
+from nanoagent.uploaded.dialects import assemble_body, assemble_stream, split_sse
 from nanoagent.uploaded.usage import NOT_DISPATCHED, MalformedUsageError, NormalizedUsage, aggregate, reconcile, usage_for
+
+def from_body(dialect, body):
+    """The usage of a non-streaming response body, a Responses body needing a terminal status to assemble."""
+    return usage_for(assemble_body(dialect, {"status": "completed", **body} if dialect == "responses" else body))
+
 
 # The live experiment: every dialect returned 51 input and 6 output tokens at $0.00003.
 
 
 def test_chat_exact_numbers_from_live_experiment():
     body = {"id": "gen-1", "usage": {"prompt_tokens": 51, "completion_tokens": 6, "total_tokens": 57, "cost": 0.00003}}
-    usage = usage_for("chat_completions", body)
+    usage = from_body("chat_completions", body)
     assert (usage.input, usage.output, usage.total, usage.supplied_total, usage.cost_usd) == (51, 6, 57, 57, Decimal("0.00003"))
     assert usage.discrepancies == ()
     assert (usage.cache_read, usage.cache_write, usage.reasoning) == (None, None, None)
@@ -20,17 +25,17 @@ def test_chat_exact_numbers_from_live_experiment():
 
 
 def test_responses_exact_numbers_from_live_experiment():
-    usage = usage_for("responses", {"usage": {"input_tokens": 51, "output_tokens": 6, "cost": 0.00003}})
+    usage = from_body("responses", {"usage": {"input_tokens": 51, "output_tokens": 6, "cost": 0.00003}})
     assert (usage.input, usage.output, usage.total, usage.cost_usd) == (51, 6, 57, Decimal("0.00003"))
 
 
 def test_anthropic_exact_numbers_from_live_experiment():
-    usage = usage_for("anthropic_messages", {"usage": {"input_tokens": 51, "output_tokens": 6}})
+    usage = from_body("anthropic_messages", {"usage": {"input_tokens": 51, "output_tokens": 6}})
     assert (usage.input, usage.output, usage.total, usage.cache_read, usage.cache_write) == (51, 6, 57, 0, 0)
 
 
 def test_chat_cache_and_reasoning_are_parts_not_additions():
-    usage = usage_for(
+    usage = from_body(
         "chat_completions",
         {
             "usage": {
@@ -46,7 +51,7 @@ def test_chat_cache_and_reasoning_are_parts_not_additions():
 
 
 def test_responses_cache_and_reasoning():
-    usage = usage_for(
+    usage = from_body(
         "responses",
         {
             "usage": {
@@ -61,22 +66,22 @@ def test_responses_cache_and_reasoning():
 
 
 def test_supplied_total_discrepancy_is_recorded():
-    usage = usage_for("chat_completions", {"usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 99}})
+    usage = from_body("chat_completions", {"usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 99}})
     assert usage.total == 15 and usage.supplied_total == 99
     assert len(usage.discrepancies) == 1 and "99" in usage.discrepancies[0]
 
 
 def test_missing_usage_stays_unknown():
-    usage = usage_for("chat_completions", {"id": "x"})
+    usage = from_body("chat_completions", {"id": "x"})
     assert (usage.input, usage.output, usage.total, usage.cost_usd) == (None, None, None, None)
     assert usage.provenance.endswith("no_usage")
 
 
 def test_invalid_count_is_rejected():
     with pytest.raises(MalformedUsageError):
-        usage_for("chat_completions", {"usage": {"prompt_tokens": -1}})
+        from_body("chat_completions", {"usage": {"prompt_tokens": -1}})
     with pytest.raises(MalformedUsageError):
-        usage_for("chat_completions", {"usage": {"prompt_tokens": "51"}})
+        from_body("chat_completions", {"usage": {"prompt_tokens": "51"}})
 
 
 def sse(data: str) -> bytes:
@@ -90,7 +95,7 @@ def test_chat_stream_usage_chunk_with_empty_choices_is_used():
         + sse("[DONE]")
     )
     assembled = assemble_stream("chat_completions", frames)
-    usage = usage_for("chat_completions", assembled)
+    usage = usage_for(assembled)
     assert (usage.input, usage.output, usage.total, usage.cost_usd) == (51, 6, 57, Decimal("0.00003"))
     assert usage.provenance == "chat_completions:stream" and usage.source_ids == ("gen-1",)
 
@@ -108,16 +113,10 @@ def test_anthropic_cumulative_usage_across_lifecycle_with_cache():
         + event("message_delta", '{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":6}}')
         + event("message_stop", '{"type":"message_stop"}')
     )
-    usage = usage_for("anthropic_messages", assemble_stream("anthropic_messages", frames, {"X-Generation-Id": "gen-h"}))
+    usage = usage_for(assemble_stream("anthropic_messages", frames, {"X-Generation-Id": "gen-h"}))
     assert (usage.input, usage.output, usage.total) == (51, 6, 57)
     assert (usage.cache_read, usage.cache_write, usage.reasoning) == (40, 8, None)
     assert usage.source_ids == ("msg_1", "gen-h")
-
-
-def test_usage_for_body_matches_assembled_body():
-    body = {"id": "gen-2", "choices": [], "usage": {"prompt_tokens": 1, "completion_tokens": 2}}
-    assembled: AssembledResponse = assemble_body("chat_completions", body)
-    assert usage_for("chat_completions", assembled).total == usage_for("chat_completions", body).total == 3
 
 
 def test_not_dispatched_is_all_zero():
@@ -126,9 +125,9 @@ def test_not_dispatched_is_all_zero():
 
 
 def test_aggregate_known_subtotal_and_missing_counts():
-    a = usage_for("chat_completions", {"usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.5}})
-    b = usage_for("chat_completions", {"usage": {"prompt_tokens": 7, "completion_tokens": 1, "prompt_tokens_details": {"cached_tokens": 3}}})
-    c = usage_for("chat_completions", {})
+    a = from_body("chat_completions", {"usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.5}})
+    b = from_body("chat_completions", {"usage": {"prompt_tokens": 7, "completion_tokens": 1, "prompt_tokens_details": {"cached_tokens": 3}}})
+    c = from_body("chat_completions", {})
     total = aggregate([a, b, c])
     assert total.calls == 3
     assert (total.input.known, total.input.missing) == (17, 1)
@@ -145,12 +144,12 @@ def test_aggregate_of_empty_complete_attempt_is_zero_with_nothing_missing():
 
 
 def test_aggregate_includes_not_dispatched_as_zero():
-    total = aggregate([NOT_DISPATCHED, usage_for("responses", {"usage": {"input_tokens": 4, "output_tokens": 1}})])
+    total = aggregate([NOT_DISPATCHED, from_body("responses", {"usage": {"input_tokens": 4, "output_tokens": 1}})])
     assert (total.input.known, total.input.missing, total.cache_write.missing) == (4, 0, 1)
 
 
 def test_reconcile_replaces_fields_keeps_earlier_values_and_ids():
-    provisional = usage_for(
+    provisional = from_body(
         "chat_completions",
         {"id": "gen-1", "usage": {"prompt_tokens": 51, "completion_tokens": 6, "prompt_tokens_details": {"cache_write_tokens": 2}}},
     )

@@ -47,6 +47,10 @@ _COMPLETION_MARKERS = {
 }
 
 
+def _allowed_headers(headers: Mapping[str, str]) -> dict[str, str]:
+    return {name: headers[name] for name in ALLOWED_RESPONSE_HEADERS if name in headers}
+
+
 def _may_complete(dialect: str, frame: SseFrame) -> bool:
     data = frame.data or ""
     markers = _COMPLETION_MARKERS[dialect]
@@ -197,10 +201,8 @@ class _Call:
     dialect: str
     span_id: str | None
     stream: bool
-    bound_usd: Decimal
     submitted_sha: str
     effective_sha: str
-    request_headers: dict[str, str]
     upstream: UpstreamRequest
     scope: anyio.CancelScope | None = None
     abort_reason: str | None = None
@@ -237,16 +239,27 @@ class _State:
     usage_error: str | None = None
     registrations: list[dict[str, Any]] = field(default_factory=list)  # when each proposal became callable
 
+    def proposals(self) -> Sequence[ToolProposal]:
+        """The tool proposals of a response that completed; none otherwise."""
+        return self.assembled.tool_proposals if self.assembled is not None and self.terminal == "completed" else ()
+
+    def register(self, proposal: ToolProposal, registered_ns: int | None, early: bool) -> bool:
+        """Record when ``proposal`` became callable; False when it already was."""
+        if any(entry["tool_call_id"] == proposal.call_id for entry in self.registrations):
+            return False
+        self.registrations.append({"tool_call_id": proposal.call_id, "frame_index": proposal.completed_frame, "registered_ns": registered_ns, "early": early})
+        return True
+
 
 class Gateway:
     def __init__(
-        self, attempt: Attempt, endpoint: EndpointProfile, admission: Admission, transport: UpstreamTransport, registry: ProposalRegistry | None = None
+        self, attempt: Attempt, endpoint: EndpointProfile, admission: Admission, transport: UpstreamTransport, registry: ProposalRegistry
     ) -> None:
         self.attempt = attempt
         self.endpoint = endpoint
         self.admission = admission
         self.transport = transport
-        self.registry = registry or ProposalRegistry()
+        self.registry = registry
         self._admitted = 0
         self._prompt_satisfied = False
         self._inflight: dict[str, _Call] = {}
@@ -301,9 +314,7 @@ class Gateway:
         headers.update({name: request.headers[name] for name in FORWARDED_REQUEST_HEADERS if name in request.headers})
         upstream = UpstreamRequest(self.endpoint.url_for(SUFFIXES[dialect]), headers, effective_bytes)
         recorded = {name: request.headers[name] for name in RECORDED_REQUEST_HEADERS if name in request.headers}
-        call = _Call(
-            call_id, dialect, span_id, bool(body.get("stream")), bound, submitted_sha, await self.recorder.payload(effective_bytes), recorded, upstream
-        )
+        call = _Call(call_id, dialect, span_id, bool(body.get("stream")), submitted_sha, await self.recorder.payload(effective_bytes), upstream)
         try:
             self.attempt.require_active()  # after the last await: a revocation that began meanwhile has already swept `_inflight`
         except ServiceError:
@@ -381,16 +392,14 @@ class Gateway:
         assembled = state.assembled
         if assembled is not None and state.usage is None:
             try:
-                state.usage = usage_for(call.dialect, assembled)
+                state.usage = usage_for(assembled)
             except MalformedUsageError as error:
                 state.usage_error = str(error)
         if not state.maybe_reached:
             state.usage = NOT_DISPATCHED
-        proposals = assembled.tool_proposals if assembled is not None and terminal == "completed" else ()
-        registered = {entry["tool_call_id"] for entry in state.registrations}
+        proposals = state.proposals()
         for proposal in proposals:
-            if proposal.call_id not in registered:
-                state.registrations.append({"tool_call_id": proposal.call_id, "frame_index": proposal.completed_frame, "registered_ns": state.completed_ns, "early": False})
+            state.register(proposal, state.completed_ns, early=False)
         self.registry.close(call.call_id, proposals)
         if terminal == "completed" and state.http_status is not None and 200 <= state.http_status < 300:
             self._prompt_satisfied = True
@@ -407,7 +416,6 @@ class Gateway:
         self.publish(call, state)
         terminal = state.terminal or "internal_error"
         assembled = state.assembled
-        proposals = assembled.tool_proposals if assembled is not None and terminal == "completed" else ()
         # The response is journaled before the settlement round trip, which can be slow, so a paid call is never lost from it.
         settlement, commit = self._settlement(call, state, terminal)
         payloads = [call.submitted_sha, call.effective_sha]
@@ -428,7 +436,7 @@ class Gateway:
             "settlement": settlement,
             "usage": jsonable(state.usage),
             "usage_error": state.usage_error,
-            "proposals": [jsonable(proposal) for proposal in proposals],
+            "proposals": [jsonable(proposal) for proposal in state.proposals()],
             "registrations": state.registrations,
         }
         if assembled is not None:
@@ -520,6 +528,11 @@ class _Relay:
     def _aborted_terminal(self) -> str:
         return self.call.abort_reason or "interrupted"
 
+    def _publish_aborted(self) -> None:
+        self.state.terminal = self._aborted_terminal()
+        self.state.completed_ns = self._clock()
+        self.gateway.publish(self.call, self.state)
+
     async def _read(self, chunks: AsyncIterator[bytes]) -> object:
         """The next chunk, `END`, or `ABORTED` when revocation or the client's departure cancelled the wait."""
         with anyio.CancelScope() as scope:
@@ -541,7 +554,7 @@ class _Relay:
             self.call.abort("client_disconnected")
 
     def _headers(self, upstream_headers: Mapping[str, str], extra: Mapping[str, str] | None = None) -> list[tuple[bytes, bytes]]:
-        kept = {name: upstream_headers[name] for name in ALLOWED_RESPONSE_HEADERS if name in upstream_headers}
+        kept = _allowed_headers(upstream_headers)
         kept.update(extra or {})
         kept[CALL_HEADER.lower()] = self.call.call_id
         return [(name.encode(), value.encode()) for name, value in kept.items()]
@@ -578,7 +591,7 @@ class _Relay:
                 if call.abort_reason == "revoked":
                     await self._reply_error(send, ServiceError(403, "revoked", "the attempt's service admission was revoked"))
                 return
-            state.http_status, state.headers, state.headers_ns = upstream.status, {n: upstream.headers[n] for n in ALLOWED_RESPONSE_HEADERS if n in upstream.headers}, self._clock()
+            state.http_status, state.headers, state.headers_ns = upstream.status, _allowed_headers(upstream.headers), self._clock()
             if upstream.status == 200 and call.stream and upstream.headers.get("content-type", "").startswith("text/event-stream"):
                 await self._relay_stream(upstream, send)
             else:
@@ -615,9 +628,7 @@ class _Relay:
         while True:
             chunk = await self._read(chunks)
             if chunk is ABORTED or call.abort_reason:
-                state.terminal = self._aborted_terminal()
-                state.completed_ns = self._clock()
-                self.gateway.publish(call, state)
+                self._publish_aborted()
                 # End the truncated stream; the harness sees no terminal event and treats it as cut.
                 await self._send(send, {"type": "http.response.body", "body": b""})
                 state.delivered_ns = self._clock()
@@ -625,7 +636,6 @@ class _Relay:
                 return
             if chunk is END:
                 break
-            assert isinstance(chunk, bytes)
             now = self._clock()
             new_frames = 0
             state.first_byte_ns = state.first_byte_ns or now
@@ -669,9 +679,8 @@ class _Relay:
         except MalformedCaptureError:
             return  # the final assembly reports it
         for proposal in partial.tool_proposals:
-            if proposal.call_id is not None and proposal.completed_frame is not None and not any(r["tool_call_id"] == proposal.call_id for r in state.registrations):
+            if proposal.call_id is not None and proposal.completed_frame is not None and state.register(proposal, now, early=True):
                 self.gateway.registry.register(call.call_id, proposal)
-                state.registrations.append({"tool_call_id": proposal.call_id, "frame_index": proposal.completed_frame, "registered_ns": now, "early": True})
 
     async def _relay_body(self, upstream: UpstreamResponse, send: Send) -> None:
         state, call = self.state, self.call
@@ -679,16 +688,13 @@ class _Relay:
         while True:
             chunk = await self._read(chunks)
             if chunk is ABORTED or call.abort_reason:
-                state.terminal = self._aborted_terminal()
-                state.completed_ns = self._clock()
-                self.gateway.publish(call, state)
+                self._publish_aborted()
                 if call.abort_reason == "revoked":
                     await self._reply_error(send, ServiceError(403, "revoked", "the attempt's service admission was revoked"))
                     state.delivered_ns = self._clock()
                 return
             if chunk is END:
                 break
-            assert isinstance(chunk, bytes)
             state.first_byte_ns = state.first_byte_ns or self._clock()
             body += chunk
             if len(body) > MAX_RESPONSE_BYTES:

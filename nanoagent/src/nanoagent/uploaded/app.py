@@ -24,8 +24,6 @@ from nanoagent.uploaded.execservice import CommandRunner, ExecService
 from nanoagent.uploaded.gateway import SUFFIXES, Admission, Gateway, HttpxTransport, ProposalRegistry, UpstreamTransport
 
 API = "/api/v1"
-# Event errors that mean the same event arrived with conflicting content.
-CONFLICTS = {"conflicting_duplicate"}
 
 
 class AttemptServices:
@@ -43,10 +41,11 @@ class AttemptServices:
         workspace: Path,
         transport: UpstreamTransport | None = None,
         clock_ns: Callable[[], int] = time.monotonic_ns,
+        lease_lapsed: Callable[[], bool] = lambda: False,
         proposal_wait_s: float = 30.0,
     ) -> None:
         recorder = Recorder(journal, clock_ns, [policy.token, endpoint.api_key])
-        self.attempt = Attempt(policy, recorder, workspace, clock_ns)
+        self.attempt = Attempt(policy, recorder, workspace, clock_ns, lease_lapsed)
         self.registry = ProposalRegistry()
         self._owned_transport = transport is None
         self.transport = transport or HttpxTransport()
@@ -111,7 +110,8 @@ class AttemptServices:
                 event = decode_json_object(raw, self.attempt.policy.max_request_bytes)
                 receipt = self.events.accept(event)
             except EventError as error:
-                raise ServiceError(409 if error.code in CONFLICTS else 422, error.code, error.message) from error
+                # conflicting_duplicate means the same event arrived with conflicting content.
+                raise ServiceError(409 if error.code == "conflicting_duplicate" else 422, error.code, error.message) from error
             except ContractError as error:
                 raise from_contract(error) from error
         except ServiceError as error:

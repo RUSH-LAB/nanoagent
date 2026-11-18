@@ -81,20 +81,6 @@ class DuplicateCall(RushError):
     pass
 
 
-class UnknownCall(RushError):
-    pass
-
-
-class AlreadySettled(RushError):
-    pass
-
-
-class CursorMismatch(RushError):
-    @property
-    def high_water_cursor(self) -> int | None:
-        return self.body.get("high_water_cursor")
-
-
 class RushUnavailable(Exception):
     """The server could not be reached, or kept answering 5xx, through every retry."""
 
@@ -106,10 +92,11 @@ _BY_CODE: dict[str, type[RushError]] = {
     "conflicting_duplicate": ConflictingDuplicate,
     "budget_exhausted": BudgetExhausted,
     "duplicate_call": DuplicateCall,
-    "unknown_call": UnknownCall,
-    "already_settled": AlreadySettled,
-    "cursor_mismatch": CursorMismatch,
 }
+
+
+def json_body(body: Mapping[str, Any]) -> dict[str, Any]:
+    return {"content": json_bytes(body), "headers": {"Content-Type": "application/json"}}
 
 
 def rush_error(response: httpx.Response) -> RushError:
@@ -199,10 +186,7 @@ class RushWorkerClient:
         raise RushUnavailable(f"{method} {path} failed after {attempts} attempts: {last!r}") from last
 
     async def _json(self, method: str, path: str, body: Mapping[str, Any] | None = None, *, retry: bool = True) -> Any:
-        kwargs: dict[str, Any] = {}
-        if body is not None:
-            kwargs = {"content": json_bytes(body), "headers": {"Content-Type": "application/json"}}
-        response = await self._send(method, path, retry=retry, **kwargs)
+        response = await self._send(method, path, retry=retry, **({} if body is None else json_body(body)))
         return response.json() if response.content else None
 
     # -- leases ------------------------------------------------------------------------------------------------
@@ -211,7 +195,7 @@ class RushWorkerClient:
         """Claim an attempt; ``capabilities`` is the worker's maximum for each numeric limit and its ``internet_access`` support,
         which the server stores for the endpoint label and matches the run's limits against."""
         body = {"worker_id": worker_id, "endpoint_profile": {"label": label, "mode": mode}, "capabilities": dict(capabilities)}
-        response = await self._send("POST", "/claim", content=json_bytes(body), headers={"Content-Type": "application/json"})
+        response = await self._send("POST", "/claim", **json_body(body))
         return None if response.status_code == 204 else parse_job(response.json())
 
     async def renew(self, attempt_id: str, fence: int) -> float:
@@ -371,18 +355,6 @@ class RushAdmission:
         await self._client.settle(self._lease.attempt_id, call_id, "uncertain", None, {"source": "outcome_unknown"})
 
 
-def wire_event(event: EvidenceEvent) -> dict[str, Any]:
-    return {
-        "event_id": event.event_id,
-        "source": event.source,
-        "kind": event.kind,
-        "sequence": event.sequence,
-        "occurred_ns": event.monotonic_ns,
-        "data": dict(event.data),
-        "payload_sha256s": list(event.payload_sha256s),
-    }
-
-
 def _shrink(value: Any, depth: int) -> Any:
     """``value`` cut to a bounded size: long strings clipped, only the first few entries of each level kept, deeper levels None."""
     if isinstance(value, str):
@@ -403,6 +375,7 @@ class RushJournal:
 
     client: RushWorkerClient
     lease: Lease
+    event_budget: int = EVENT_BUDGET
     records: list[dict[str, Any]] = field(default_factory=list)
     payloads: dict[str, bytes] = field(default_factory=dict)
     redactions: dict[str, str] = field(default_factory=dict)  # payload digest -> none, redacted or truncated
@@ -417,7 +390,17 @@ class RushJournal:
     _lock: anyio.Lock = field(default_factory=anyio.Lock)
 
     async def append(self, event: EvidenceEvent) -> None:
-        await self.append_record(wire_event(event))
+        await self.append_record(
+            {
+                "event_id": event.event_id,
+                "source": event.source,
+                "kind": event.kind,
+                "sequence": event.sequence,
+                "occurred_ns": event.monotonic_ns,
+                "data": dict(event.data),
+                "payload_sha256s": list(event.payload_sha256s),
+            }
+        )
 
     async def append_records(self, records: Sequence[Mapping[str, Any]]) -> None:
         for record in records:
@@ -429,7 +412,7 @@ class RushJournal:
             self.dropped += 1
             return
         droppable = record["source"] not in KEPT_SOURCES or record["kind"] in DROPPABLE_KINDS
-        if droppable and self.accepted >= EVENT_BUDGET:
+        if droppable and self.accepted >= self.event_budget:
             self.over_budget += 1  # reported in the coverage
             return
         self.accepted += 1
@@ -465,8 +448,7 @@ class RushJournal:
         try:
             receipt = await self.client.append_events(self.lease.attempt_id, self.lease.fence, batch)
         except (LeaseLost, Canceled, Sealed) as error:
-            self.lease.fail(error)
-            self.closed = True
+            self._lost(error)
             return False
         self.high_water = max(self.high_water, int(receipt["high_water_cursor"]))
         self.records.extend(batch)
@@ -476,17 +458,21 @@ class RushJournal:
     async def put_payload(self, data: bytes, redaction: str) -> str:
         sha = sha256_hex(data)
         self.payloads[sha] = data
-        self.redactions[sha] = "none" if redaction == "clean" else redaction
+        wire_redaction = "none" if redaction == "clean" else redaction
+        self.redactions[sha] = wire_redaction
         if self.closed or sha in self._uploaded:
             return sha
         try:
-            await self.client.put_payload(self.lease.attempt_id, self.lease.fence, sha, data, "none" if redaction == "clean" else redaction)
+            await self.client.put_payload(self.lease.attempt_id, self.lease.fence, sha, data, wire_redaction)
         except (LeaseLost, Canceled, Sealed) as error:
-            self.lease.fail(error)
-            self.closed = True
+            self._lost(error)
             return sha
         self._uploaded.add(sha)
         return sha
+
+    def _lost(self, error: RushError) -> None:
+        self.lease.fail(error)
+        self.closed = True
 
     def close(self) -> None:
         """Stop committing: the attempt is sealed or its lease is gone."""

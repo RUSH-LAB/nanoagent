@@ -7,7 +7,7 @@ reported as Unknown rather than as an absence or a difference.
 """
 
 import json
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, fields
 from decimal import Decimal
 from typing import Literal
 
@@ -23,10 +23,6 @@ Key = tuple[str, str, str]
 def canonical_json(value: JsonValue) -> str:
     """Sorted object keys, preserved array order, no insignificant whitespace."""
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
-def command_input(argv: list[str], cwd: str) -> JsonValue:
-    return {"argv": argv, "cwd": cwd}
 
 
 @dataclass(frozen=True)
@@ -140,7 +136,7 @@ class Comparison:
     conditions: tuple[ConditionDiff, ...]
     estimate_delta_ns: int | Unknown
     rows: tuple[Row, ...]
-    first_difference: int | None = field(default=None)
+    first_difference: int | None = None
 
     def differences_only(self) -> tuple[Row, ...]:
         return tuple(row for row in self.rows if not row.is_equal)
@@ -224,21 +220,21 @@ def _reachable(actions: tuple[Action, ...]) -> dict[str, set[str]]:
     return reach
 
 
-def _trusted_overlap(x: Action, y: Action) -> bool:
-    if x.coverage.timing != "complete" or y.coverage.timing != "complete":
-        return False
-    if None in (x.start_ns, x.end_ns, y.start_ns, y.end_ns):
-        return False
-    return x.start_ns < y.end_ns and y.start_ns < x.end_ns  # type: ignore[operator]
-
-
 def _timed(x: Action) -> bool:
     return x.coverage.timing == "complete" and x.start_ns is not None and x.end_ns is not None
 
 
+def _trusted_overlap(x: Action, y: Action) -> bool:
+    return _timed(x) and _timed(y) and x.start_ns < y.end_ns and y.start_ns < x.end_ns  # type: ignore[operator]
+
+
+def _linked(x: Action, y: Action, reach: dict[str, set[str]]) -> bool:
+    return y.action_id in reach[x.action_id] or x.action_id in reach[y.action_id]
+
+
 def _resolved(x: Action, y: Action, reach: dict[str, set[str]]) -> bool:
     """Whether recorded links or a trusted clock establish which of two actions came first."""
-    if y.action_id in reach[x.action_id] or x.action_id in reach[y.action_id]:
+    if _linked(x, y, reach):
         return True
     return _timed(x) and _timed(y) and not _trusted_overlap(x, y)
 
@@ -262,8 +258,7 @@ def _arrange(attempt: Attempt, reach: dict[str, set[str]]) -> dict[Scope, list[_
             for j in range(i + 1, len(actions)):
                 y = actions[j]
                 grouped = x.group is not None and x.group == y.group
-                ordered = y.action_id in reach[x.action_id] or x.action_id in reach[y.action_id]
-                if grouped or (_trusted_overlap(x, y) and not ordered):
+                if grouped or (_trusted_overlap(x, y) and not _linked(x, y, reach)):
                     parent[find(j)] = find(i)
         units: dict[int, list[int]] = {}
         for i in range(len(actions)):
@@ -309,6 +304,10 @@ class _Item:
     reason: str | None = None
 
 
+def _item_order(item: _Item) -> tuple[int, int]:
+    return (0, item.a[0].pos) if item.a else (1, item.b[0].pos)
+
+
 def _resolve_gap(
     a_rest: list[_Placed], b_rest: list[_Placed], scope: Scope, a_covered: bool, b_covered: bool
 ) -> list[_Item]:
@@ -339,7 +338,7 @@ def _resolve_gap(
                 items.append(_Item("only_b", (), (y,)))
             else:
                 items.append(_Item("unknown", (), (y,), f"A has no action coverage for scope {'/'.join(scope) or 'root'}"))
-    return sorted(items, key=lambda it: (0, it.a[0].pos) if it.a else (1, it.b[0].pos))
+    return sorted(items, key=_item_order)
 
 
 def _scope_items(scope: Scope, a: list[_Placed], b: list[_Placed], a_att: Attempt, b_att: Attempt) -> list[_Item]:
@@ -363,7 +362,7 @@ def _scope_items(scope: Scope, a: list[_Placed], b: list[_Placed], a_att: Attemp
     for k, (a_gap, b_gap) in enumerate(gaps):
         gap_items = [_Item("same", (x,), (moved[x.pos],)) for x in a_gap if x.pos in moved]
         gap_items += _resolve_gap([x for x in a_gap if x.pos not in moved], [y for y in b_gap if y.pos not in moved_b], scope, a_covered, b_covered)
-        items.extend(sorted(gap_items, key=lambda it: (0, it.a[0].pos) if it.a else (1, it.b[0].pos)))
+        items.extend(sorted(gap_items, key=_item_order))
         if k < len(anchors):
             i, j = anchors[k]
             items.append(_Item("same", (a[i],), (b[j],)))

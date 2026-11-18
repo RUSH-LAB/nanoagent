@@ -55,8 +55,6 @@ The profile is RUSH's dashboard figures, measured alike for every harness:
 
 import asyncio
 import base64
-import hashlib
-import io
 import json
 import logging
 import os
@@ -64,7 +62,6 @@ import resource
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 import time
 import traceback
@@ -90,7 +87,7 @@ from nanoagent.harness.subprocess import SubprocessRunner
 from nanoagent.llm.openrouter import OpenRouterConfig
 from nanoagent.plugin import load_manifest, sandbox
 from nanoagent.plugin.install import INSTALL_HOSTS, SYNC
-from nanoagent.plugin.python import PluginPython, plugin_python
+from nanoagent.plugin.python import PluginPython
 from nanoagent.plugin.tasks import ModelDecider, PinnedReference, TaskNotSubmitted, run_task
 from nanoagent.plugin.verifier import Verification, verify_task
 from nanoagent.profiler import RunProfile, accumulate_usage, normalize_usage
@@ -101,6 +98,16 @@ from nanoagent.trajectory.atif import AtifTrajectory, to_atif
 from nanoagent.uploaded.answer import read_answer
 from nanoagent.uploaded.case_sets import CaseSet, Refusal, pin
 from nanoagent.uploaded.case_sets import reference_tool as uploaded_reference_tool
+from nanoagent.uploaded.plugin_package import isolate, unpack_package
+
+
+async def pin_timed(
+    manifest, tool: str | None, arguments: dict[str, Any], refusal: Refusal | None, timeout: float
+) -> tuple[dict[str, Any] | None, str | None, float | None]:
+    started = time.monotonic()
+    reference, rejection = await pin(manifest, tool, arguments, refusal, timeout)
+    return reference, rejection, None if tool is None else time.monotonic() - started
+
 
 def reference_tool(task) -> str | None:
     """The uploaded benchmark's `reference_tool`, except that the local plugin benchmark pins every case and so
@@ -228,7 +235,6 @@ class SingleRunConfig(Config):
 
 @dataclass
 class Case:
-    id: str
     # The plugin's folder, its agent task and the case's input.
     plugin: str
     task: str
@@ -360,15 +366,7 @@ class Timed:
         return self.runner.availability()
 
 
-async def nanoagent_work(
-    config: SingleRunConfig, case: Case, workspace: Path, reference: PinnedReference | None, reference_seconds: float | None
-) -> Work:
-    """NanoAgent working the case's plugin task as RUSH Lab does; a tool task as an agent task, its
-    agent given the task's tools, with the tool that pinned the answer as its reference."""
-    manifest = load_manifest(case.plugin)
-    task = manifest.task(case.task)
-    if task.runner == "tool":
-        task = replace(task, runner="agent", reference=reference_tool(task))
+def nanoagent_model(config: SingleRunConfig):
     loop = config.nanoagent
     prices = config.prices[config.model]
     llm = OpenRouterConfig(
@@ -382,7 +380,20 @@ async def nanoagent_work(
     )
     # The config's endpoint, and the key from the variable it names (OpenRouterConfig leaves both to
     # the client's defaults: OpenRouter itself and OPENROUTER_API_KEY).
-    model = replace(llm.runtime(), base_url=config.openrouter.base_url, api_key=api_key(config))
+    return replace(llm.runtime(), base_url=config.openrouter.base_url, api_key=api_key(config))
+
+
+async def nanoagent_work(
+    config: SingleRunConfig, case: Case, workspace: Path, reference: PinnedReference | None, reference_seconds: float | None
+) -> Work:
+    """NanoAgent working the case's plugin task as RUSH Lab does; a tool task as an agent task, its
+    agent given the task's tools, with the tool that pinned the answer as its reference."""
+    manifest = load_manifest(case.plugin)
+    task = manifest.task(case.task)
+    if task.runner == "tool":
+        task = replace(task, runner="agent", reference=reference_tool(task))
+    loop = config.nanoagent
+    model = nanoagent_model(config)
     marks: dict[str, float] = {}
     result: AgentResult | None = None
     decider: ModelDecider | None = None
@@ -478,7 +489,21 @@ async def nanoagent_work(
         if decider is not None:
             # The decider stopped (its limits, a tool it chose failing): its run fails with what it did.
             result = replace(decider.record(), stop_reason=StopReason.ERROR, error=error)
-    ended = time.monotonic()
+    return nanoagent_finished(config, result, marks, timeline, output, refused, error, verification, time.monotonic(), reference_seconds)
+
+
+def nanoagent_finished(
+    config: SingleRunConfig,
+    result: AgentResult | None,
+    marks: dict[str, float],
+    timeline: list[dict[str, Any]],
+    output: dict[str, Any] | None,
+    refused: str | None,
+    error: str | None,
+    verification: Verification | None,
+    ended: float,
+    reference_seconds: float | None,
+) -> Work:
     if result is None:
         assert error is not None, "NanoAgent's task ended without its agent running"
         # The agent failed before its first step: nothing measured, nothing said.
@@ -598,44 +623,36 @@ async def other_work(config: SingleRunConfig, case: Case, workspace: Path) -> Wo
     )
 
 
-def unpack(database: str, psql: str, plugin: str, folder: Path) -> str:
-    """Unpack the marketplace package of ``plugin`` into ``folder`` after checking its SHA-256."""
+def psql_rows(psql: str, database: str, query: str, what: str, **variables: str) -> list[list[str]]:
     found = subprocess.run(
-        [psql, database, "--no-psqlrc", "-At", "-F", "\t", "-v", "ON_ERROR_STOP=1", "-v", f"id={plugin}"],
-        input=PACKAGE_QUERY,
+        [
+            psql,
+            database,
+            "--no-psqlrc",
+            "-At",
+            "-F",
+            "\t",
+            "-v",
+            "ON_ERROR_STOP=1",
+            *[arg for name, value in variables.items() for arg in ("-v", f"{name}={value}")],
+        ],
+        input=query,
         capture_output=True,
         text=True,
     )
     if found.returncode != 0:
-        raise RuntimeError(f"psql could not read {plugin} from {database}: {found.stderr.strip()}")
-    rows = [line for line in found.stdout.splitlines() if line]
+        raise RuntimeError(f"psql could not read {what} from {database}: {found.stderr.strip()}")
+    return [line.split("\t") for line in found.stdout.splitlines() if line]
+
+
+def unpack(database: str, psql: str, plugin: str, folder: Path) -> str:
+    """Unpack the marketplace package of ``plugin`` into ``folder`` after checking its SHA-256."""
+    rows = psql_rows(psql, database, PACKAGE_QUERY, plugin, id=plugin)
     if len(rows) != 1:
         raise RuntimeError(f"the marketplace has {len(rows)} packages of {plugin}, not one")
-    version, sha256, encoded = rows[0].split("\t")
-    package = base64.b64decode(encoded)
-    if hashlib.sha256(package).hexdigest() != sha256:
-        raise RuntimeError(f"{plugin} {version}'s package does not match the SHA-256 the marketplace recorded")
-    with tarfile.open(fileobj=io.BytesIO(package), mode="r:gz") as archive:
-        tops = {Path(member.name).parts[0] for member in archive.getmembers()}
-        if tops != {plugin}:
-            raise RuntimeError(f"{plugin}'s package holds {sorted(tops)}, not the one folder {plugin}")
-        archive.extractall(folder, filter="data")
+    version, sha256, encoded = rows[0]
+    unpack_package(base64.b64decode(encoded), sha256, plugin, folder)
     return version
-
-
-def isolate() -> PluginPython:
-    """Configure the sandbox plugin tools run in, on this platform; the Python they run on."""
-    kind = {"darwin": "seatbelt", "linux": "bwrap"}.get(sys.platform)
-    if kind is None:
-        raise RuntimeError(f"benchmark isolation is unsupported on {sys.platform}")
-    python = plugin_python(sys.executable)
-    if kind == "bwrap" and Path(sys._base_executable).parent.parent.is_symlink() and "UV_PYTHON_INSTALL_DIR" not in os.environ:
-        # uv-managed venvs may use a version alias as well as the resolved runtime prefix.
-        managed = Path(subprocess.check_output(["uv", "python", "dir"], text=True).strip())
-        if python.prefix.is_relative_to(managed):
-            os.environ["UV_PYTHON_INSTALL_DIR"] = str(managed)
-    sandbox.configure(kind, python)
-    return python
 
 
 @contextmanager
@@ -648,6 +665,14 @@ def prepared_plugin(source: Path, python: PluginPython, timeout: float) -> Itera
         with sandbox.launch(sync, root=root, env={}, writable=[root], hosts=INSTALL_HOSTS) as (argv, env):
             subprocess.run(argv, cwd=root, env=env, check=True, timeout=timeout)
         yield root
+
+
+@contextmanager
+def plugin_folder(database: str, psql: str, plugin: str, python: PluginPython, sync_timeout: float) -> Iterator[Path]:
+    with tempfile.TemporaryDirectory(prefix="nanoagent-benchmark-unpacked-") as unpacked:
+        unpack(database, psql, plugin, Path(unpacked))
+        with prepared_plugin(Path(unpacked, plugin), python, sync_timeout) as root:
+            yield root
 
 
 def judge(manifest, task, case: Case, work: Work, reference: dict[str, Any] | None, refuse: bool, workspace: Path) -> tuple[bool, str]:
@@ -742,6 +767,60 @@ def cpu() -> float:
     return own.ru_utime + own.ru_stime + children.ru_utime + children.ru_stime
 
 
+def tokens_of(usage: dict[str, Any]) -> dict[str, int]:
+    usage = normalize_usage(usage)
+    return {name: usage.get(name, 0) for name in ("prompt_tokens", "completion_tokens", "cached_tokens", "cache_write_tokens", "reasoning_tokens")}
+
+
+def single_run(
+    config: SingleRunConfig, task, version: str, case: Case, refuse: bool, work: Work, correct: bool, verdict: str, reference: dict[str, Any] | None
+) -> SingleRun:
+    own = dict(work.profile)
+    reported = own.pop("reported", None)
+    tokens = tokens_of(own["usage"])
+    steps = own["steps"]
+    return SingleRun(
+        harness=config.harness.value,
+        model=config.model.value,
+        base_url=config.openrouter.base_url,
+        plugin=config.cases.plugin,
+        task=task.id,
+        plugin_version=version,
+        case=config.case,
+        arguments=case.arguments,
+        expected="refuse" if refuse else "answer",
+        correct=correct,
+        verdict=verdict,
+        latency_seconds=work.seconds,
+        model_seconds=own["model_s"],
+        tools_seconds=own["tools_s"],
+        overhead_seconds=max(0.0, work.seconds - own["model_s"] - own["tools_s"]),
+        input_tokens=tokens["prompt_tokens"],
+        output_tokens=tokens["completion_tokens"],
+        cost=cost(tokens, config.prices[config.model]),
+        cached_input_tokens=tokens["cached_tokens"],
+        cache_write_tokens=tokens["cache_write_tokens"],
+        reasoning_tokens=tokens["reasoning_tokens"],
+        ttft_seconds=own["ttft_s"],
+        generation_seconds=own["generation_s"],
+        reference_seconds=work.reference_seconds,
+        check_seconds=work.check_seconds,
+        cpu_seconds=work.cpu_seconds,
+        steps=len(steps),
+        model_calls=sum(len(step["model_calls"]) for step in steps),
+        tool_calls=sum(len(step["tool_calls"]) for step in steps),
+        stop_reason=work.stop_reason,
+        answer=work.answer,
+        output=work.output,
+        refused=work.refused,
+        error=work.error,
+        reference=reference,
+        profile=own,
+        reported=reported,
+        timeline=work.timeline,
+    )
+
+
 class SingleRunner(Run):
     """Pin the case's answer, run the harness on it, profile it and judge its answer."""
 
@@ -776,14 +855,11 @@ class SingleRunner(Run):
                 raise ValueError(f"{config.pinned} pins {pinned_case.case}, not {config.case}")
             reference, reference_seconds = pinned_case.reference, pinned_case.reference_seconds
         else:
-            pin_started = time.monotonic()
-            reference, _ = asyncio.run(pin(manifest, tool, arguments, refusal, config.timeout))
-            reference_seconds = None if tool is None else time.monotonic() - pin_started
+            reference, _, reference_seconds = asyncio.run(pin_timed(manifest, tool, arguments, refusal, config.timeout))
         # NanoAgent is given no pinned answer when no tool pins a case to answer.
         pinned = None if tool is None and not refuse else PinnedReference(reference)
         workspace = Path(self.layout.workspace).resolve()
         case = Case(
-            id=config.case,
             plugin=str(folder),
             task=task.id,
             arguments=arguments,
@@ -801,53 +877,7 @@ class SingleRunner(Run):
         else:
             work = asyncio.run(other_work(config, case, workspace))
         correct, verdict = judge(manifest, task, case, work, reference, refuse, workspace)
-        own = dict(work.profile)
-        reported = own.pop("reported", None)
-        usage = normalize_usage(own["usage"])
-        tokens = {
-            name: usage.get(name, 0) for name in ("prompt_tokens", "completion_tokens", "cached_tokens", "cache_write_tokens", "reasoning_tokens")
-        }
-        steps = own["steps"]
-        self.layout.result = run = SingleRun(
-            harness=config.harness.value,
-            model=config.model.value,
-            base_url=config.openrouter.base_url,
-            plugin=config.cases.plugin,
-            task=task.id,
-            plugin_version=version,
-            case=case.id,
-            arguments=arguments,
-            expected="refuse" if refuse else "answer",
-            correct=correct,
-            verdict=verdict,
-            latency_seconds=work.seconds,
-            model_seconds=own["model_s"],
-            tools_seconds=own["tools_s"],
-            overhead_seconds=max(0.0, work.seconds - own["model_s"] - own["tools_s"]),
-            input_tokens=tokens["prompt_tokens"],
-            output_tokens=tokens["completion_tokens"],
-            cost=cost(tokens, config.prices[config.model]),
-            cached_input_tokens=tokens["cached_tokens"],
-            cache_write_tokens=tokens["cache_write_tokens"],
-            reasoning_tokens=tokens["reasoning_tokens"],
-            ttft_seconds=own["ttft_s"],
-            generation_seconds=own["generation_s"],
-            reference_seconds=work.reference_seconds,
-            check_seconds=work.check_seconds,
-            cpu_seconds=work.cpu_seconds,
-            steps=len(steps),
-            model_calls=sum(len(step["model_calls"]) for step in steps),
-            tool_calls=sum(len(step["tool_calls"]) for step in steps),
-            stop_reason=work.stop_reason,
-            answer=work.answer,
-            output=work.output,
-            refused=work.refused,
-            error=work.error,
-            reference=reference,
-            profile=own,
-            reported=reported,
-            timeline=work.timeline,
-        )
+        self.layout.result = run = single_run(config, task, version, case, refuse, work, correct, verdict, reference)
         self.layout.messages = work.messages
         print(
             f"{run.harness} · {run.case}: {'right' if run.correct else 'wrong'} · latency {run.latency_seconds:.1f}s"

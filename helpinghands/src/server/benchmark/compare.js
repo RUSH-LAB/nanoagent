@@ -14,21 +14,22 @@ const MAX_DIFF_EDITS = 2000;
 // How many shared cases' rendered prompts one comparison diffs line by line; the rest show as wholly replaced.
 const MAX_RENDERED_DIFFS = 50;
 
+const unknownAttempt = attemptId => new BenchmarkError(404, 'unknown_attempt', `No such attempt: ${attemptId}`);
 const tooLarge = (attemptId, what) => new BenchmarkError(413, 'evidence_too_large', `Attempt ${attemptId} is too large to compare: it has over ${what}`);
 
 /** Everything one sealed attempt stored that the comparison reads, under the member's own access. */
 async function evidenceOf(repository, context, attemptId) {
   const attempt = await repository.attempt(context, attemptId);
-  if (!attempt) throw new BenchmarkError(404, 'unknown_attempt', `No such attempt: ${attemptId}`);
+  if (!attempt) throw unknownAttempt(attemptId);
   if (!attempt.sealed) throw new BenchmarkError(409, 'attempt_not_sealed', `Attempt ${attemptId} is not sealed; compare only sealed attempts`);
   const run = await repository.run(context, attempt.run_id);
   const pinned = run?.cases.find(candidate => candidate.case_id === attempt.case_id);
-  if (!pinned) throw new BenchmarkError(404, 'unknown_attempt', `No such attempt: ${attemptId}`);
+  if (!pinned) throw unknownAttempt(attemptId);
   const records = [];
   let eventBytes = 0;
   for (let after = 0;;) {
     const page = await repository.events(context, attemptId, after, PAGE);
-    if (!page) throw new BenchmarkError(404, 'unknown_attempt', `No such attempt: ${attemptId}`);
+    if (!page) throw unknownAttempt(attemptId);
     records.push(...page.events);
     eventBytes += page.events.reduce((sum, event) => sum + Buffer.byteLength(JSON.stringify(event.data)), 0);
     if (eventBytes > MAX_EVIDENCE_EVENT_BYTES) throw tooLarge(attemptId, `${MAX_EVIDENCE_EVENT_BYTES} bytes of events`);
@@ -58,6 +59,14 @@ async function evidenceOf(repository, context, attemptId) {
   };
 }
 
+/** Throws `not_same_verifier` unless `a` and `b` (`{package_sha256, task_id}`) are the same task verifier; `what` names what is compared. */
+function checkSameVerifier(a, b, what) {
+  const differing = Object.keys(a).filter(key => a[key] !== b[key]);
+  if (differing.length) {
+    throw new BenchmarkError(409, 'not_same_verifier', `The ${what} do not share a task verifier: ${differing.join(', ')} differ`, {differing});
+  }
+}
+
 /**
  * The comparison of two sealed attempts of the same pinned case (same package digest, task and case content digest), from their
  * stored evidence alone. NanoAgent computes it with the projection and comparison the CLI's step 4 runs
@@ -65,10 +74,7 @@ async function evidenceOf(repository, context, attemptId) {
  */
 async function compareAttempts({repository, ai, context, a, b}) {
   const [first, second] = [await evidenceOf(repository, context, a), await evidenceOf(repository, context, b)];
-  const differing = Object.keys(first.verifier).filter(key => first.verifier[key] !== second.verifier[key]);
-  if (differing.length) {
-    throw new BenchmarkError(409, 'not_same_verifier', `The attempts do not share a task verifier: ${differing.join(', ')} differ`, {differing});
-  }
+  checkSameVerifier(first.verifier, second.verifier, 'attempts');
   if (first.identity.content_digest !== second.identity.content_digest) {
     throw new BenchmarkError(409, 'not_same_case', 'The attempts are not the same pinned case: their content digests differ', {differing: ['content_digest']});
   }
@@ -142,10 +148,7 @@ async function compareRuns({repository, context, a, b}) {
   };
   const [first, second] = [await load(a), await load(b)];
   const verifier = run => ({package_sha256: run.case_set.plugin.sha256, task_id: run.case_set.task_id});
-  const differing = Object.keys(verifier(first.run)).filter(key => verifier(first.run)[key] !== verifier(second.run)[key]);
-  if (differing.length) {
-    throw new BenchmarkError(409, 'not_same_verifier', `The runs do not share a task verifier: ${differing.join(', ')} differ`, {differing});
-  }
+  checkSameVerifier(verifier(first.run), verifier(second.run), 'runs');
   const [left, right] = [configOf(first.run), configOf(second.run)];
   const config = Object.keys(left).map(field => ({field, a: left[field], b: right[field], differs: canonicalJson(left[field]) !== canonicalJson(right[field])}));
   // Cases align by content, the n-th occurrence of a digest in one run with the n-th in the other.

@@ -15,15 +15,6 @@ if TYPE_CHECKING:
     from nanoagent.uploaded.projection_model import Projection
 
 
-def _coverage(redactions: Mapping[str, str], **shas: str | None) -> dict[str, str]:
-    """Per-field evidence: missing when the digest is unknown, redacted/truncated per the stored status."""
-    out: dict[str, str] = {}
-    for name, sha in shas.items():
-        status = redactions.get(sha or "", "none")
-        out[name] = "missing" if sha is None else ("complete" if status == "none" else "redacted")
-    return out
-
-
 def _field(sha: str | None, present: bool, redactions: Mapping[str, str]) -> str:
     if redactions.get(sha or "", "none") != "none":
         return "redacted"
@@ -64,14 +55,13 @@ def to_compare_attempt(p: Projection, payloads: Mapping[str, bytes] | None = Non
             continue
         sid = f"m:{c.call_id}"
         usage = c.usage
-        cov = _coverage(redactions, input=c.effective_sha256, output=c.response_sha256)
         actions.append(
             Action(
                 sid, "model_call", c.model or "", {"model": c.model, "request_sha256": c.effective_sha256}, p.scopes.get(sid, ()), c.dispatched_ns, c.completed_ns, tuple(after.get(sid, ())),
                 None, c.terminal, {"finish_reason": c.finish_reason, "proposals": [{"name": x.name, "arguments": x.arguments} for x in c.proposals]},
                 None if c.dispatched_ns is None or c.completed_ns is None else c.completed_ns - c.dispatched_ns,
                 usage.total if usage else None, usage.cost_usd if usage else None,
-                FieldCoverage(input=cov["input"], output="complete" if c.terminal else "missing", status="complete" if c.terminal else "missing",
+                FieldCoverage(input=_field(c.effective_sha256, c.effective_sha256 is not None, redactions), output="complete" if c.terminal else "missing", status="complete" if c.terminal else "missing",
                               timing="complete" if c.completed_ns is not None else "missing",
                               tokens="complete" if usage and usage.total is not None else "missing", cost="complete" if usage and usage.cost_usd is not None else "missing"),
             )  # fmt: skip

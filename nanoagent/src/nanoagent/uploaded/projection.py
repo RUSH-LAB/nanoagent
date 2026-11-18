@@ -124,7 +124,7 @@ def _lifecycle(j: _Join) -> tuple[int | None, int | None]:
         attributes={"attempt_id": n.attempt.attempt_id, "harness_revision": n.attempt.harness_revision, "prompt_sha256": n.attempt.prompt_sha256,
                     "model": n.attempt.model, "evidence": [r.event_id for r in w.get(R.ATTEMPT_STARTED, ())]},
     )  # fmt: skip
-    launched, exited, quiesced = (next(iter(w.get(k, ())), None) for k in (R.CASE_LAUNCHED, R.CASE_EXITED, R.CASE_QUIESCED))
+    launched, exited, quiesced = (n.first(k) for k in (R.CASE_LAUNCHED, R.CASE_EXITED, R.CASE_QUIESCED))
     launch_ns = int(launched.data["launch_ns"]) if launched else None
     quiesce_ns = int(quiesced.data["quiesced_ns"]) if quiesced else None
     if launched:
@@ -250,12 +250,11 @@ def _causal_proposals(j: _Join) -> None:
             LinkOut("proposal_invocation", f"m:{mid}/{tcid}", f"t:{t.call_id}", "broker_cause_adaptation" if t.adapted else "broker_cause",
                     {"model_call_id": mid, "tool_call_id": tcid, "adapted": t.adapted, "adaptation": t.adaptation, "evidence": list(t.evidence)})  # fmt: skip
         )
-        if proposal.early and (call.completed_ns is None or t.start_ns is None or t.start_ns < call.completed_ns):
-            j.causal.append((mid, tool_node(t.call_id), proposal.frame_index, 0))  # type: ignore[arg-type]
-        else:
+        frame, lag = proposal.frame_index, 0
+        if not (proposal.early and (call.completed_ns is None or t.start_ns is None or t.start_ns < call.completed_ns)):
             # Launched after the response ended (never early, or the harness waited): it starts a measured gap after the modeled end.
-            lag = 0 if call.completed_ns is None or t.start_ns is None else max(0, t.start_ns - call.completed_ns)
-            j.causal.append((mid, tool_node(t.call_id), None, lag))  # type: ignore[arg-type]
+            frame, lag = None, 0 if call.completed_ns is None or t.start_ns is None else max(0, t.start_ns - call.completed_ns)
+        j.causal.append((mid, tool_node(t.call_id), frame, lag))  # type: ignore[arg-type]
 
 
 def _causal_results(j: _Join) -> None:
@@ -306,7 +305,6 @@ def _causal_results(j: _Join) -> None:
 
 
 def _json_text(value: Any) -> Any:
-    
     try:
         return json.loads(value) if isinstance(value, str) else None
     except ValueError:
@@ -444,7 +442,6 @@ def project(
     _harness_references(j)
     timing, unavailable, timing_issues = build_timing(n, j.placements, j.causal, payloads, j.refs_ok)
     n.issues.extend(timing_issues)
-    w = n.worker
     coverage = _coverage(n, redactions or {})
     admitted = [c for c in n.model_calls if c.rejected is None and c.admitted_ns is not None]
     usages = [c.usage or UNKNOWN_USAGE for c in admitted]
@@ -462,8 +459,8 @@ def project(
         timing_method=method,
     )
     root = j.spans[0]
-    j.spans[0] = SpanOut(**{**root.__dict__, "status": "partial" if coverage.partial else "ok"})
-    result = (w.get(R.RESULT_READ) or [None])[0]
+    j.spans[0] = replace(root, status="partial" if coverage.partial else "ok")
+    result = n.first(R.RESULT_READ)
     return Projection(
         parser_version=PARSER_VERSION,
         attempt=n.attempt,
@@ -471,7 +468,6 @@ def project(
         tool_invocations=tuple(n.tools),
         commands=tuple(n.commands),
         processes=tuple(n.processes),
-        harness_spans=tuple(n.harness_spans),
         spans=tuple(j.spans),
         links=tuple(j.links),
         coverage=coverage,

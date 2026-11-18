@@ -1,4 +1,6 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
+import {benchmarkApi} from './api';
+import {followStream} from './sse';
 
 /**
  * `load()` read now and again by `reload()`: `{data, error, loading, reload}`. A read again keeps the last data on screen
@@ -29,4 +31,29 @@ export function usePoll(reload, ms, active) {
     const timer = setInterval(reload, ms);
     return () => clearInterval(timer);
   }, [reload, ms, active]);
+}
+
+/**
+ * Call `reload` (at most once a second) whenever an attempt in `attemptIds` commits an event: each one's stream is followed,
+ * resuming from its last cursor, and once it ends.
+ */
+export function useLiveReload(attemptIds, reload) {
+  const live = attemptIds.join(',');
+  const soon = useRef(null);
+  const reloadSoon = useCallback(() => {
+    if (soon.current) return;
+    soon.current = setTimeout(() => { soon.current = null; reload(); }, 1000);
+  }, [reload]);
+  useEffect(() => {
+    if (!live) return undefined;
+    const controller = new AbortController();
+    for (const attemptId of live.split(',')) {
+      followStream({attemptId, open: benchmarkApi.openStream, read: benchmarkApi.readStream, signal: controller.signal, onFrame: reloadSoon}).then(() => {
+        if (!controller.signal.aborted) reloadSoon();
+      });
+    }
+    return () => controller.abort();
+  }, [live, reloadSoon]);
+  // Cleared and forgotten: a hidden section (Shell's <Activity>) keeps its refs, and a stale one would stop every reload after.
+  useEffect(() => () => { clearTimeout(soon.current); soon.current = null; }, []);
 }

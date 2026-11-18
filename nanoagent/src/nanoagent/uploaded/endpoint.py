@@ -12,15 +12,11 @@ openrouter:
 
 from __future__ import annotations
 
-import os
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
-
-import yaml
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 MODES = ("openrouter", "mock")
@@ -78,9 +74,8 @@ def _check_mock_url(url: str, hosts: tuple[str, ...]) -> None:
         raise EndpointConfigError("upstream_not_allowed", f"mock upstream host {hostname!r} is not in openrouter.mock_hosts {list(hosts)}")
 
 
-def parse_endpoint(config: Mapping[str, Any], env: Mapping[str, str] | None = None) -> EndpointProfile:
-    """Validate the `openrouter` mapping and resolve its credential from ``env`` (default: the process environment)."""
-    env = os.environ if env is None else env
+def parse_endpoint(config: Mapping[str, Any], env: Mapping[str, str]) -> EndpointProfile:
+    """Validate the `openrouter` mapping and resolve its credential from ``env``."""
     unknown = sorted(set(config) - KEYS)
     if unknown:
         raise EndpointConfigError("unknown_key", f"unknown openrouter keys {unknown}; allowed: {sorted(KEYS)}")
@@ -106,12 +101,3 @@ def parse_endpoint(config: Mapping[str, Any], env: Mapping[str, str] | None = No
     if not key.strip():
         raise EndpointConfigError("credential_missing", f"environment variable {env_name} is unset or empty")
     return EndpointProfile(label, mode, url, env_name, hosts, key)
-
-
-def load_endpoint(path: str | Path, env: Mapping[str, str] | None = None) -> EndpointProfile:
-    """Read the worker YAML at ``path`` and validate its `openrouter` block."""
-    document = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-    block = document.get("openrouter") if isinstance(document, dict) else None
-    if not isinstance(block, dict):
-        raise EndpointConfigError("missing_key", f"{path} has no `openrouter` mapping")
-    return parse_endpoint(block, env)

@@ -65,7 +65,6 @@ def test_every_profile_image_is_pinned_by_digest():
     for profile in TOOLCHAINS.values():
         for image in (profile.build_image, profile.runtime_image):
             assert "@sha256:" in image and len(image.split("sha256:")[1]) == 64
-    assert toolchain("python-3").offline.network == "none"
 
 
 def test_closure_is_staged_with_every_hash_verified(source, index, tmp_path):
@@ -130,7 +129,7 @@ def test_requirements_for_other_environments_are_skipped_by_marker(source, index
     assert len(stage(source, index, tmp_path).files) == 1
 
 
-def test_a_transient_download_failure_is_retried_but_a_404_is_not(monkeypatch):
+def test_a_transient_download_failure_is_retried_but_a_404_is_not():
     calls = []
 
     class Response:
@@ -149,24 +148,21 @@ def test_a_transient_download_failure_is_retried_but_a_404_is_not(monkeypatch):
             raise TimeoutError("read timed out")
         return Response()
 
-    monkeypatch.setattr("nanoagent.uploaded.toolchains.time.sleep", lambda _: None)
-    monkeypatch.setattr("nanoagent.uploaded.toolchains.urllib.request.urlopen", flaky)
-    assert read_url("http://x/y", 1, 10) == b"ok" and len(calls) == 3
+    assert read_url("http://x/y", 1, 10, urlopen=flaky, sleep=lambda _: None) == b"ok" and len(calls) == 3
 
     def missing(url, timeout):
         calls.append(url)
         raise urllib.error.HTTPError(url, 404, "nope", None, None)
 
     calls.clear()
-    monkeypatch.setattr("nanoagent.uploaded.toolchains.urllib.request.urlopen", missing)
     with pytest.raises(urllib.error.HTTPError):
-        read_url("http://x/y", 1, 10)
+        read_url("http://x/y", 1, 10, urlopen=missing, sleep=lambda _: None)
     assert len(calls) == 1
 
 
 def test_no_lockfiles_means_an_empty_closure_without_an_index(source, tmp_path):
     closure = resolve_dependencies(toolchain("python-3"), source, (), tmp_path / "deps", index_url=None)
-    assert closure.empty and closure.directory.is_dir()
+    assert not closure.files and closure.directory.is_dir()
 
 
 def test_lockfiles_without_a_configured_index_fail_closed(source, tmp_path):

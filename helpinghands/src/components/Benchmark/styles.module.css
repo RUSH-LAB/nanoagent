@@ -227,7 +227,6 @@ ol.actions button { width: 100%; padding: 0.3rem 0.6rem; border: 0; background: 
 @media (max-width: 680px) { .twin { grid-template-columns: minmax(0, 1fr); } }
 
 
-.workerBad { color: var(--ifm-color-danger-dark); }
 .workerChecks { list-style: none; padding: 0; margin: 0.75rem 0; }
 .workerChecks li { padding: 0.4rem 0; border-bottom: 1px solid var(--site-hairline); }
 .workerChecks li[data-state='fail'] strong { color: var(--ifm-color-danger-dark); }

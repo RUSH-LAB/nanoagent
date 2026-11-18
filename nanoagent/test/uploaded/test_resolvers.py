@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from nanoagent.uploaded.resolvers import _go_hash1, _write
+from nanoagent.uploaded.resolvers import _go_hash1, _write, plan_npm
 from nanoagent.uploaded.toolchains import ToolchainError, resolve_dependencies, toolchain
 
 
@@ -136,13 +136,9 @@ def test_npm_lock_keys_that_are_not_package_paths_are_rejected(tmp_path: Path, k
     fail("invalid_lockfile", "javascript-22", npm_source(tmp_path, {key: entry}), tmp_path, ("package-lock.json",), tmp_path)
 
 
-def test_npm_skips_entries_for_other_os_and_cpu_and_nests_scopes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("nanoagent.uploaded.resolvers.platform.machine", lambda: "aarch64")
+def test_npm_skips_entries_for_other_os_and_cpu_and_nests_scopes(tmp_path: Path) -> None:
     tarball = tgz({"package/index.js": b"1"})
     integrity = "sha512-" + base64.b64encode(hashlib.sha512(tarball).digest()).decode()
-    registry = tmp_path / "registry"
-    (registry / "p").mkdir(parents=True)
-    (registry / "p/a.tgz").write_bytes(tarball)
     entry = {"version": "1.0.0", "resolved": "https://r.example/p/a.tgz", "integrity": integrity}
     wrong = {"version": "1.0.0", "resolved": "https://r.example/p/missing.tgz", "integrity": integrity}
     source = npm_source(
@@ -155,8 +151,22 @@ def test_npm_skips_entries_for_other_os_and_cpu_and_nests_scopes(tmp_path: Path,
             "node_modules/notmac": entry | {"os": ["!darwin"]},
         },
     )
+    planned = plan_npm(source, ("package-lock.json",), machine="aarch64")
+    assert [artifact.key for artifact in planned] == ["node_modules/@s/a", "node_modules/@s/a/node_modules/b", "node_modules/notmac"]
+    assert {artifact.path for artifact in planned} == {"p/a.tgz"}
+
+
+def test_npm_nests_scoped_and_nested_packages_on_disk(tmp_path: Path) -> None:
+    tarball = tgz({"package/index.js": b"1"})
+    integrity = "sha512-" + base64.b64encode(hashlib.sha512(tarball).digest()).decode()
+    registry = tmp_path / "registry"
+    (registry / "p").mkdir(parents=True)
+    (registry / "p/a.tgz").write_bytes(tarball)
+    entry = {"version": "1.0.0", "resolved": "https://r.example/p/a.tgz", "integrity": integrity}
+    source = npm_source(tmp_path, {"node_modules/@s/a": entry, "node_modules/@s/a/node_modules/b": entry})
     closure = stage("javascript-22", source, registry, ("package-lock.json",), tmp_path)
-    assert (tmp_path / "deps/node_modules/@s/a/node_modules/b/index.js").is_file() and (tmp_path / "deps/node_modules/notmac/index.js").is_file()
+    assert (tmp_path / "deps/node_modules/@s/a/index.js").is_file()
+    assert (tmp_path / "deps/node_modules/@s/a/node_modules/b/index.js").is_file()
     assert set(closure.files) == {"p/a.tgz"}  # type: ignore[attr-defined]
 
 

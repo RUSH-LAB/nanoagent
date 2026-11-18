@@ -149,22 +149,39 @@ export function containerSite(site) {
   return url.origin;
 }
 
-/** `docker run` arguments for the worker (secrets by name only: they are in the environment of the docker process). */
-export function workerArgs({name, site, worker, concurrency = 1}) {
+/**
+ * `docker run` arguments for the worker image (secrets by name only: they are in the environment of the docker process). `lifetime` is
+ * `-d` or `--rm`; `volumes` are the two named volumes, /var/lib/docker's and the worker's home; `overrides` follow the other `--` ones.
+ * Two dockerds on one /var/lib/docker corrupt it, so each caller names volumes of its own.
+ */
+export function workerRunArgs({lifetime, name, volumes: [dockerVolume, homeVolume], image, baseUrl, workerId, overrides = []}) {
   return [
-    'run', '-d', '--init', '--privileged', '--cgroupns=private', '--name', name,
+    'run', lifetime, '--init', '--privileged', '--cgroupns=private', '--name', name,
     '--add-host', 'host.docker.internal:host-gateway',
-    // Volumes of this connection's own (its name has the site and member, so RUSH Lab and RUSH Lab Dev never share): two dockerds on one
-    // /var/lib/docker corrupt it, and `npm start` and the acceptance suite have theirs (rush-worker-*, rush-acceptance-*).
-    '-v', `${name}-docker:/var/lib/docker`, '-v', `${name}-home:/home/rush/rush-worker`,
+    '-v', `${dockerVolume}:/var/lib/docker`, '-v', `${homeVolume}:/home/rush/rush-worker`,
     '-e', 'RUSH_WORKER_TOKEN', '-e', 'OPENROUTER_API_KEY',
-    WORKER_IMAGE,
+    image,
     'python', '-m', 'nanoagent.uploaded.worker',
     'config=/opt/nanoagent/deploy/gvisor/worker.openrouter.yaml', 'home=/home/rush/rush-worker/run',
-    '--', `rush.base_url=${containerSite(site)}`, `worker_id=${worker}`,
-    // The attempts the member lets it run at once; the worker clamps it to the machine's CPUs.
-    `limits.concurrency=${concurrency}`,
+    '--', `rush.base_url=${baseUrl}`, `worker_id=${workerId}`,
+    ...overrides,
   ];
+}
+
+/** `docker run` arguments for a connection's worker. */
+export function workerArgs({name, site, worker, concurrency = 1}) {
+  return workerRunArgs({
+    lifetime: '-d',
+    name,
+    // Volumes of this connection's own (its name has the site and member, so RUSH Lab and RUSH Lab Dev never share): `npm start` and
+    // the acceptance suite have theirs (rush-worker-*, rush-acceptance-*).
+    volumes: [`${name}-docker`, `${name}-home`],
+    image: WORKER_IMAGE,
+    baseUrl: containerSite(site),
+    workerId: worker,
+    // The attempts the member lets it run at once; the worker clamps it to the machine's CPUs.
+    overrides: [`limits.concurrency=${concurrency}`],
+  });
 }
 
 const blank = ([id, label]) => ({id, label, state: 'pending', message: null, fix: null});
@@ -212,29 +229,32 @@ export function benchmarkWorker({
     if (checks.every(entry => entry.state === 'pass' || entry.state === 'warn')) return {state: 'ready', message: null};
     return {state: 'starting', message: null};
   };
-  const concurrency = () => ({setting: concurrencySetting, cpus: info?.NCPU ?? null, effective: advertised?.concurrency ?? null});
-  const publish = () => report({...summary(), platform, concurrency: concurrency(), progress, checks, log: logTail});
+  const snapshot = () => ({
+    ...summary(), platform, concurrency: {setting: concurrencySetting, cpus: info?.NCPU ?? null, effective: advertised?.concurrency ?? null}, progress, checks, log: logTail,
+  });
+  const publish = () => report(snapshot());
   const mark = (checkId, state, message = null, fix = null) => {
     Object.assign(check(checkId), {state, message, fix});
     if (state === 'fail' || state === 'wait') log(`${check(checkId).label}: ${message}${fix ? ` ${fix}` : ''}`);
     publish();
   };
 
-  const env = async () => dockerEnv();
+  // `docker args` in the member's environment, for the calls that pass no other options.
+  const run = async args => docker(args, {env: await dockerEnv()});
   const removeContainer = async () => {
     container = false;
-    await docker(['rm', '--force', name], {env: await env()});
+    await run(['rm', '--force', name]);
   };
 
   const checkers = {
     async 'docker-cli'() {
-      const result = await docker(['--version'], {env: await env()});
+      const result = await run(['--version']);
       if (result.error?.code === 'ENOENT') return ['fail', 'Docker is not installed.', installAdvice(platform)];
       if (result.error || result.code !== 0) return ['fail', `docker did not run: ${result.error?.message ?? result.tail.at(-1)}`, installAdvice(platform)];
       return ['pass', result.tail.at(-1) ?? 'docker found'];
     },
     async 'docker-daemon'() {
-      const result = await docker(['info', '--format', '{{json .}}'], {env: await env()});
+      const result = await run(['info', '--format', '{{json .}}']);
       if (result.code !== 0) {
         return ['fail', 'Docker is installed but not running.', 'Start Docker Desktop, then press Re-check.'];
       }
@@ -264,13 +284,13 @@ export function benchmarkWorker({
       return ['pass', summaryText];
     },
     async image() {
-      const present = await docker(['image', 'inspect', WORKER_IMAGE], {env: await env()});
+      const present = await run(['image', 'inspect', WORKER_IMAGE]);
       if (present.code === 0) return ['pass', 'Present.'];
       const layers = new Set();
       const done = new Set();
       progress = {done: 0, total: 0};
       const pulled = await docker(['pull', WORKER_IMAGE], {
-        env: await env(),
+        env: await dockerEnv(),
         onLine(line) {
           const layer = line.match(/^([0-9a-f]{12}): (.+)$/);
           if (!layer) return;
@@ -326,10 +346,6 @@ export function benchmarkWorker({
 
   /** Mint a credential and run the container, then follow it until it exits. */
   async function launch(mine) {
-    return transition(mine, () => launchCurrent(mine));
-  }
-
-  async function launchCurrent(mine) {
     await removeContainer();
     if (mine !== generation) return;
     mark('proofs', 'running', 'Starting the worker.');
@@ -352,7 +368,7 @@ export function benchmarkWorker({
     logTail = [];
     advertised = null;
     concurrencySetting = concurrencyInUse = readConcurrency();
-    const dockerEnvironment = await env();
+    const dockerEnvironment = await dockerEnv();
     if (mine !== generation) return;
     const started = await docker(workerArgs({name, site, worker: `lab-${device.replace(/[^A-Za-z0-9_-]/g, '-')}`, concurrency: concurrencyInUse}), {
       env: {...dockerEnvironment, RUSH_WORKER_TOKEN: credential.token, OPENROUTER_API_KEY: keyInUse},
@@ -378,7 +394,7 @@ export function benchmarkWorker({
     let proofsDone = false;
     const proofText = () => `Passed: ${[...seen].join(', ') || 'none yet'}.`;
     const logs = docker(['logs', '--follow', name], {
-      env: await env(),
+      env: await dockerEnv(),
       onLine(line) {
         if (mine !== generation) return;
         appendLog(line);
@@ -405,7 +421,7 @@ export function benchmarkWorker({
         }
       },
     });
-    const exited = await docker(['wait', name], {env: await env()});
+    const exited = await run(['wait', name]);
     await logs;
     if (mine !== generation) return;
     container = false;
@@ -441,7 +457,7 @@ export function benchmarkWorker({
         if (mine !== generation) return;
         checks = CHECKS.map(blank);
       }
-      await launch(mine);
+      await transition(mine, () => launch(mine));
     } catch (error) {
       if (mine === generation) mark(checks.find(entry => entry.state === 'running')?.id ?? 'proofs', 'fail', error.message);
     }
@@ -452,7 +468,7 @@ export function benchmarkWorker({
     const mine = ++generation;
     await transition(mine, async () => {
       if (!container) return;
-      await docker(['stop', '--time', String(STOP_SECONDS), name], {env: await env()});
+      await run(['stop', '--time', String(STOP_SECONDS), name]);
       await removeContainer();
     });
     return mine;
@@ -484,7 +500,7 @@ export function benchmarkWorker({
       if (mine !== generation) return;
       for (const checkId of ['key', 'proofs', 'claims']) Object.assign(check(checkId), blank([checkId, check(checkId).label]));
       logTail = [];
-      if (await chain(mine, ['key'])) await launch(mine);
+      if (await chain(mine, ['key'])) await transition(mine, () => launch(mine));
     },
     /** The member set the runner concurrency: kept in the local settings, and the worker restarted with it as a key change does. */
     async setConcurrency(value) {
@@ -507,6 +523,6 @@ export function benchmarkWorker({
       await chain(mine, ['docker-cli', 'docker-daemon', 'privileged', 'resources', 'key']);
       return undefined;
     },
-    snapshot: () => ({...summary(), platform, concurrency: concurrency(), progress, checks, log: logTail}),
+    snapshot,
   };
 }

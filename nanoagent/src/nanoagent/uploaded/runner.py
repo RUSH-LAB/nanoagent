@@ -1,7 +1,7 @@
 """The attempt runner: one leased attempt from claim to finalize (docs/plans/uploaded-harness-benchmarks.md, "Architecture").
 
 Everything it touches is injected: the sandbox supervisor, the worker API client, the service relay, the clocks, the
-verifier, the services factory, the plugin loader and projection. The lifecycle and the API calls it makes:
+verifier, the dependency resolver, the services factory, the plugin loader and projection. The lifecycle and the API calls it makes:
 
 1. fetch source and package under the fence; `inspect_zip`; record `attempt.started`. A rejected source, an unknown
    toolchain, a dependency or build failure finalizes `build_failed` with the error code and runs nothing.
@@ -47,16 +47,18 @@ from nanoagent.uploaded.answer import read_answer
 from nanoagent.uploaded.app import AttemptServices
 from nanoagent.uploaded.attempt import AttemptPolicy, ToolPolicy
 from nanoagent.uploaded.broker import PluginToolRunner, ToolError
-from nanoagent.uploaded.collector import ProcessEvent, ProcessEventKind, ProcessEvidence, launched_processes
+from nanoagent.uploaded.collector import ProcessEventKind, ProcessEvidence, launched_processes
 from nanoagent.uploaded.contract import Answered, ContractError, Refused, validate, validate_result
 from nanoagent.uploaded.endpoint import EndpointProfile
 from nanoagent.uploaded.execservice import ExecError
 from nanoagent.uploaded.plugin_package import unpack_package
+from nanoagent.uploaded.projection import project as project_trace
 from nanoagent.uploaded.reconcile import PendingCall, pending_calls
 from nanoagent.uploaded.relay import ServiceRelay
 from nanoagent.uploaded.rush_worker import (
     AttemptJob,
     Canceled,
+    EVENT_BUDGET,
     Emitter,
     Lease,
     LeaseLost,
@@ -82,7 +84,7 @@ from nanoagent.uploaded.sandbox import (
     WORKSPACE,
 )
 from nanoagent.uploaded.source import SourceLimits, extract, inspect_zip
-from nanoagent.uploaded.toolchains import ToolchainProfile, resolve_dependencies, toolchain
+from nanoagent.uploaded.toolchains import DependencyClosure, ToolchainProfile, resolve_dependencies, toolchain
 
 LOG = logging.getLogger(__name__)
 NS = 1_000_000_000
@@ -153,6 +155,8 @@ class RunnerConfig:
     plugin_sync_timeout_s: float = 600.0
     renew_interval_s: float = 15.0
     harness_revision: str = __version__
+    snapshot_event_diff_bytes: int = SNAPSHOT_EVENT_DIFF_BYTES
+    event_budget: int = EVENT_BUDGET
 
 
 @dataclass(frozen=True)
@@ -171,13 +175,6 @@ class UnknownModelPrice(RuntimeError):
 
 class RenewalConfigError(RuntimeError):
     pass
-
-
-def default_project(records: list[dict[str, Any]], payloads: Mapping[str, bytes], redactions: Mapping[str, str]) -> Any:
-    """The seam to trace projection: records, payload bytes and each payload's redaction status in, a `Projection` out."""
-    from nanoagent.uploaded.projection import project
-
-    return project(records, payloads, redactions)
 
 
 def termination_wire(termination: Termination) -> dict[str, Any]:
@@ -258,15 +255,12 @@ def process_facts(evidence: ProcessEvidence, to_monotonic_ns: Callable[[int], in
             case ProcessEventKind.EXEC | ProcessEventKind.CONTAINER_START:
                 facts.append((when, rec.ProcessExec(event.thread_group_id, event.thread_group_start_time_ns, list(event.argv), event.cwd, when, launch_ids.get(event.identity))))
             case ProcessEventKind.TASK_EXIT if event.thread_id == event.thread_group_id:
-                facts.append((when, _exit_fact(event, when)))
+                if event.exit_signal is not None:
+                    facts.append((when, rec.ProcessExit(event.thread_group_id, event.thread_group_start_time_ns, when, signal=event.exit_signal)))
+                else:
+                    facts.append((when, rec.ProcessExit(event.thread_group_id, event.thread_group_start_time_ns, when, exit_code=event.exit_code or 0)))
     facts.sort(key=lambda pair: pair[0])
     return [fact for _, fact in facts], [when for when, _ in facts]
-
-
-def _exit_fact(event: ProcessEvent, when: int) -> rec.ProcessExit:
-    if event.exit_signal is not None:
-        return rec.ProcessExit(event.thread_group_id, event.thread_group_start_time_ns, when, signal=event.exit_signal)
-    return rec.ProcessExit(event.thread_group_id, event.thread_group_start_time_ns, when, exit_code=event.exit_code or 0)
 
 
 NUMERIC_LIMITS = (
@@ -314,7 +308,8 @@ class AttemptRunner:
         wall_clock_ns: Callable[[], int] = time.time_ns,
         services_factory: Callable[..., AttemptServices] = AttemptServices,
         verify_task_case: Callable[..., Any] = verify_task_verifier_case,
-        project: Callable[[list[dict[str, Any]], Mapping[str, bytes], Mapping[str, str]], Any] = default_project,
+        resolve_dependencies: Callable[..., DependencyClosure] = resolve_dependencies,
+        project: Callable[[list[dict[str, Any]], Mapping[str, bytes], Mapping[str, str]], Any] = project_trace,  # records, payload bytes and redactions in, a `Projection` out
     ) -> None:
         self.config = config
         self.supervisor = supervisor
@@ -325,13 +320,14 @@ class AttemptRunner:
         self.wall_clock_ns = wall_clock_ns
         self.services_factory = services_factory
         self.verify_task_case = verify_task_case
+        self.resolve_dependencies = resolve_dependencies
         self.project = project
 
     # -- attempts ------------------------------------------------------------------------------------------------
 
     async def run(self, job: AttemptJob) -> AttemptResult:
         lease = Lease(job.attempt_id, job.fence, lease_s=job.lease_seconds, clock_ns=self.clock_ns, wall_clock_ns=self.wall_clock_ns)
-        journal = RushJournal(self.worker, lease)
+        journal = RushJournal(self.worker, lease, event_budget=self.config.event_budget)
         work = self.config.scratch / job.attempt_id
         work.mkdir(parents=True, exist_ok=True)
         try:
@@ -374,8 +370,8 @@ class AttemptRunner:
                 LOG.warning("attempt %s: lease renewal failed: %s", job.attempt_id, error)
                 if lease.lapsed():
                     return
-                continue
-            lease.extend(seconds, requested)
+            else:
+                lease.extend(seconds, requested)
 
     async def _attempt(self, job: AttemptJob, lease: Lease, journal: RushJournal, emit: Emitter, work: Path) -> AttemptResult:
         cfg = self.config
@@ -390,25 +386,13 @@ class AttemptRunner:
         package = await self.worker.package(job.attempt_id, job.fence)
         if (ended := await self._ended(job, lease, journal)) is not None:
             return ended
-        rejection: ContractError | None = None
-        archive = None
+        tools = self._tools(job)
         try:
             archive = inspect_zip(source, cfg.source_limits)
-        except ContractError as error:
-            rejection = error
-        tools = self._tools(job)
-        await emit.emit(
-            rec.AttemptStarted(
-                job.attempt_id, cfg.worker_id, {"label": cfg.endpoint.label, "mode": cfg.endpoint.mode}, run["model"], list(run["dialects"]),
-                job.prompt["sha256"], policy, None if archive is None else archive.manifest.toolchain, run["source_sha256"], cfg.harness_revision,
-                dict(limits), list(job.task["egress_hosts"]) if policy == "task_tools" else None,
-                {"reference_tokens_per_second": cfg.reference_tokens_per_second, "clock_tolerance_ns": cfg.clock_tolerance_ns},
-                [*EXPECTED_SOURCES, *(["tool_broker"] if tools else [])],
-            )
-        )
-        if archive is None:
-            assert rejection is not None
+        except ContractError as rejection:
+            await self._emit_started(emit, job, tools, None)
             return await self._finalize(job, journal, "build_failed", rejection.code)
+        await self._emit_started(emit, job, tools, archive.manifest.toolchain)
         try:
             profile = toolchain(archive.manifest.toolchain)
             artifact = await in_thread(self._build, job, archive, profile, work)
@@ -425,6 +409,18 @@ class AttemptRunner:
             return ended
         async with AsyncExitStack() as stack:
             return await self._case(job, lease, journal, emit, work, archive.manifest.run_argv, profile, artifact, manifest, tools, stack)
+
+    async def _emit_started(self, emit: Emitter, job: AttemptJob, tools: tuple[Mapping[str, Any], ...], toolchain_id: str | None) -> None:
+        cfg, run, policy = self.config, job.run, job.run["policy"]
+        await emit.emit(
+            rec.AttemptStarted(
+                job.attempt_id, cfg.worker_id, {"label": cfg.endpoint.label, "mode": cfg.endpoint.mode}, run["model"], list(run["dialects"]),
+                job.prompt["sha256"], policy, toolchain_id, run["source_sha256"], cfg.harness_revision,
+                dict(run["limits"]), list(job.task["egress_hosts"]) if policy == "task_tools" else None,
+                {"reference_tokens_per_second": cfg.reference_tokens_per_second, "clock_tolerance_ns": cfg.clock_tolerance_ns},
+                [*EXPECTED_SOURCES, *(["tool_broker"] if tools else [])],
+            )
+        )
 
     async def _ended(self, job: AttemptJob, lease: Lease, journal: RushJournal) -> AttemptResult | None:
         """The result of an attempt whose lease was lost or canceled while it was preparing, before any case ran: canceled is
@@ -444,11 +440,11 @@ class AttemptRunner:
         source_root = work / "source"
         source_root.mkdir()
         extract(archive, source_root)
-        closure = resolve_dependencies(
-            profile, source_root, archive.manifest.lockfiles, work / "deps", index_url=self.config.index_urls.get(profile.id),
-            timeout_s=job.run["limits"]["build_wall_ms"] / 1000,
-        )
         run_limits = job.run["limits"]
+        closure = self.resolve_dependencies(
+            profile, source_root, archive.manifest.lockfiles, work / "deps", index_url=self.config.index_urls.get(profile.id),
+            timeout_s=run_limits["build_wall_ms"] / 1000,
+        )
         # The build's output volume is a tmpfs charged to the build's memory, so the build has bounds of its own.
         limits = replace(
             case_limits(run_limits, self.config.limits), memory_bytes=run_limits["build_memory_mb"] << 20, workspace_bytes=run_limits["build_output_bytes"],
@@ -456,7 +452,7 @@ class AttemptRunner:
         )
         return self.supervisor.build(BuildSpec(job.attempt_id, profile, archive.manifest, source_root, closure, work / "build", limits))
 
-    async def _case(
+    async def _launch_case(
         self,
         job: AttemptJob,
         lease: Lease,
@@ -469,7 +465,7 @@ class AttemptRunner:
         manifest: PluginManifest,
         tools: tuple[Mapping[str, Any], ...],
         stack: AsyncExitStack,
-    ) -> AttemptResult:
+    ) -> tuple[CaseHandle, AttemptServices, CaseCommands, int]:
         cfg, run = self.config, job.run
         run_limits = run["limits"]
         model = run["model"]
@@ -499,26 +495,47 @@ class AttemptRunner:
         services = self.services_factory(
             policy=policy, endpoint=cfg.endpoint, admission=RushAdmission(self.worker, lease), journal=journal, tool_runner=runner,
             command_runner=commands, workspace=workspace, clock_ns=self.clock_ns,
+            lease_lapsed=lease.lapsed,  # the services refuse new work once the lease's known expiry passes
         )
-        services.attempt.lease_lapsed = lease.lapsed  # the services refuse new work once the lease's known expiry passes
-        relay = await self.relay.start(job.attempt_id, network, services.app, work)
+        relay = await self.relay.start(job.attempt_id, network, services.app)
         stack.push_async_callback(shielded, relay.aclose)
         request = self._request(job, tools, relay.base_url)
         spec = CaseSpec(job.attempt_id, profile, run_argv, artifact, json.dumps(request).encode(), token, network, work / "case", None, limits, tool_container)
         offset = self.wall_clock_ns() - self.clock_ns()
         handle = await in_thread(self.supervisor.create_case, spec)
         stack.push_async_callback(shielded, lambda: in_thread(handle.close))
-        stack.push_async_callback(shielded, lambda: self._revoke(services))  # a fault after this leaves no in-flight call or tool behind
+        stack.push_async_callback(shielded, lambda: services.revoke(self.config.drain_timeout_s))  # a fault after this leaves no in-flight call or tool behind
         if tools:
             await stack.enter_async_context(runner)  # the plugin is up before the harness can call it
         await in_thread(handle.launch)
         commands.handle = handle
         await emit.emit(rec.CaseLaunched(handle.container_id, self.clock_ns(), list(run_argv)))
+        return handle, services, commands, offset
 
-        recorded: list[bool] = []  # set once the collector's process evidence is committed
+    async def _case(
+        self,
+        job: AttemptJob,
+        lease: Lease,
+        journal: RushJournal,
+        emit: Emitter,
+        work: Path,
+        run_argv: tuple[str, ...],
+        profile: ToolchainProfile,
+        artifact: BuildArtifact,
+        manifest: PluginManifest,
+        tools: tuple[Mapping[str, Any], ...],
+        stack: AsyncExitStack,
+    ) -> AttemptResult:
+        handle, services, commands, offset = await self._launch_case(job, lease, journal, emit, work, run_argv, profile, artifact, manifest, tools, stack)
+
+        def to_monotonic_ns(wall: int) -> int:
+            return wall - offset
+
+        recorded = False  # set once the collector's process evidence is committed
         try:
             outcome = await self._wait(lease, handle, services)
-            await self._revoke(services)
+            # Reject new calls, stop in-flight model streams, tools and commands, and wait for the calls to settle.
+            await services.revoke(self.config.drain_timeout_s)
             lease.lapsed()  # a lease that ran out while the computer slept is dropped on waking, not finalized late
             if lease.reason in ("lease_lost", "sealed"):
                 return AttemptResult("lease_lost")
@@ -529,27 +546,10 @@ class AttemptRunner:
             if outcome is None:  # the attempt was canceled mid-run
                 await in_thread(handle.close)
                 return await self._finalize(job, journal, "canceled", None, result=AttemptResult("canceled"))
-            try:
-                snapshot = await in_thread(handle.stop_and_drain)
-            except SandboxError as error:
-                if error.code != "snapshot_too_large":
-                    raise
-                snapshot = None  # the harness left more than the workspace bound: a failed case, not a platform fault
-                LOG.info("attempt %s: %s", job.attempt_id, error.message)
-            if snapshot is not None:
-                await self._record_snapshot(journal, emit, snapshot)
-            if counters := handle.cpu_counters():  # empty when a container's cgroup was unreadable: CPU stays Unknown
-                await emit.emit(rec.CpuCounters(counters))
-            if snapshot is None:
-                status, case_outcome = "execution_failed", {"status": "execution_failed", "reason": "invalid_result"}
-                frozen = work / "overflow"  # the verifier gets an empty workspace: nothing was frozen
-                frozen.mkdir()
-            else:
-                status, case_outcome = await self._read_outcome(handle, outcome.termination, job, snapshot.directory, snapshot.skipped)
-                frozen = snapshot.directory
+            status, case_outcome, frozen = await self._freeze(job, journal, emit, work, handle, outcome)
             evidence = await in_thread(handle.evidence)
-            await self._record_processes(emit, evidence, lambda wall: wall - offset, commands.outcomes)
-            recorded.append(True)
+            await self._record_processes(emit, evidence, to_monotonic_ns, commands.outcomes)
+            recorded = True
             await emit.emit(rec.ResultRead(case_outcome))
             verdict = await self._verify(manifest, job, case_outcome, frozen, evidence)
             reason = case_outcome.get("reason") if status == "execution_failed" else None
@@ -558,8 +558,29 @@ class AttemptRunner:
             raise
         except Exception:
             if not recorded:
-                await self._record_fault_evidence(emit, handle, lambda wall: wall - offset, commands.outcomes)
+                await self._record_fault_evidence(emit, handle, to_monotonic_ns, commands.outcomes)
             raise
+
+    async def _freeze(self, job: AttemptJob, journal: RushJournal, emit: Emitter, work: Path, handle: CaseHandle, outcome: Any) -> tuple[str, dict[str, Any], Path]:
+        try:
+            snapshot = await in_thread(handle.stop_and_drain)
+        except SandboxError as error:
+            if error.code != "snapshot_too_large":
+                raise
+            snapshot = None  # the harness left more than the workspace bound: a failed case, not a platform fault
+            LOG.info("attempt %s: %s", job.attempt_id, error.message)
+        if snapshot is not None:
+            await self._record_snapshot(journal, emit, snapshot)
+        if counters := handle.cpu_counters():  # empty when a container's cgroup was unreadable: CPU stays Unknown
+            await emit.emit(rec.CpuCounters(counters))
+        if snapshot is None:
+            status, case_outcome = "execution_failed", {"status": "execution_failed", "reason": "invalid_result"}
+            frozen = work / "overflow"  # the verifier gets an empty workspace: nothing was frozen
+            frozen.mkdir()
+        else:
+            status, case_outcome = await self._read_outcome(handle, outcome.termination, job, snapshot.directory, snapshot.skipped)
+            frozen = snapshot.directory
+        return status, case_outcome, frozen
 
     async def _record_fault_evidence(self, emit: Emitter, handle: CaseHandle, to_monotonic_ns: Callable[[int], int], commands: Sequence[ExecOutcome]) -> None:
         """After a platform fault: stop the case and commit the process evidence the collector has, so the interrupted
@@ -611,15 +632,11 @@ class AttemptRunner:
             group.start_soon(waiter)
             await first_of(done, lease.revoked)
             if not done.is_set():
-                await self._revoke(services)
+                await services.revoke(self.config.drain_timeout_s)
                 await in_thread(handle.close)  # kills the sandbox, which ends wait()
                 await done.wait()
             group.cancel_scope.cancel()
         return None if lease.revoked.is_set() else box[0]
-
-    async def _revoke(self, services: AttemptServices) -> None:
-        """Reject new calls, stop in-flight model streams, tools and commands, and wait for the calls to settle."""
-        await services.revoke(self.config.drain_timeout_s)
 
     async def _record_snapshot(self, journal: RushJournal, emit: Emitter, snapshot: Any) -> None:
         diff = []
@@ -635,7 +652,7 @@ class AttemptRunner:
         shown, size = [], 0
         for entry in diff:
             size += len(json.dumps(entry))
-            if size > SNAPSHOT_EVENT_DIFF_BYTES:
+            if size > self.config.snapshot_event_diff_bytes:
                 break
             shown.append(entry)
         await emit.emit(rec.SnapshotTaken(shown, payload, diff_truncated=len(shown) < len(diff)), payloads=[payload])

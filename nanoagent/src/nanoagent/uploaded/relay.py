@@ -23,7 +23,7 @@ import uvicorn
 from starlette.types import ASGIApp
 
 from nanoagent.uploaded.dockercli import DockerRunner
-from nanoagent.uploaded.sandbox import AttemptNetwork, SandboxError, _checked
+from nanoagent.uploaded.sandbox import AttemptNetwork, SandboxError, checked
 from nanoagent.uploaded.toolchains import HOLDER_IMAGE
 
 PORT = 8080
@@ -38,7 +38,7 @@ class RelayHandle(Protocol):
 
 
 class ServiceRelay(Protocol):
-    async def start(self, attempt_id: str, network: AttemptNetwork, app: ASGIApp, workdir: Path) -> RelayHandle:
+    async def start(self, attempt_id: str, network: AttemptNetwork, app: ASGIApp) -> RelayHandle:
         """Serve ``app`` and expose it on ``network``."""
 
 
@@ -51,7 +51,7 @@ class _Server(uvicorn.Server):
 class _Handle:
     base_url: str
     _server: uvicorn.Server
-    _task: object
+    _task: asyncio.Future
     _docker: DockerRunner
     _container: str
     _sockdir: Path
@@ -61,7 +61,7 @@ class _Handle:
             self._docker.run(["rm", "-f", self._container])
             self._server.should_exit = True
             with anyio.move_on_after(15):
-                await self._task  # type: ignore[misc]
+                await self._task
             shutil.rmtree(self._sockdir, ignore_errors=True)
 
 
@@ -71,12 +71,11 @@ class DockerRelay:
         self._image = image
         self._ready_timeout_s = ready_timeout_s
 
-    async def start(self, attempt_id: str, network: AttemptNetwork, app: ASGIApp, workdir: Path) -> RelayHandle:
+    async def start(self, attempt_id: str, network: AttemptNetwork, app: ASGIApp) -> RelayHandle:
         # A Unix socket path is limited to about 100 bytes, which a scratch path can exceed: use a short private directory.
         sockdir = Path(tempfile.mkdtemp(prefix="rs-"))
         sockdir.chmod(0o711)
         socket = sockdir / SOCKET_NAME
-        socket.unlink(missing_ok=True)
         server = _Server(uvicorn.Config(app, uds=str(socket), log_level="warning"))
         task = asyncio.ensure_future(server.serve())
         with anyio.fail_after(self._ready_timeout_s):
@@ -94,8 +93,8 @@ class DockerRelay:
                 "--log-opt=max-size=1m", "--mount", f"type=bind,src={sockdir},dst=/sock",
                 "--entrypoint", "python", self._image, "-c", FORWARDER, f"/sock/{SOCKET_NAME}", str(PORT),
             ]
-            container = _checked(self._docker.run(args), "relay_failed", "create the relay").text()
-            _checked(self._docker.run(["start", container]), "relay_failed", "start the relay")
+            container = checked(self._docker.run(args), "relay_failed", "create the relay").text()
+            checked(self._docker.run(["start", container]), "relay_failed", "start the relay")
             deadline = time.monotonic() + self._ready_timeout_s
             while b"ready" not in self._docker.run(["logs", container]).stdout:
                 if time.monotonic() > deadline:

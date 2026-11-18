@@ -1,8 +1,9 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {defaultPolicy, maximumCost, submitBatch} from '../../../../src/components/Benchmark/batch.js';
-import {comparisonRows, comparisonTotals, harnessKey, harnessesOf} from '../../../../src/components/Benchmark/harnessComparison.js';
+import {comparableScore, comparisonRows, comparisonTotals, harnessKey, harnessesOf} from '../../../../src/components/Benchmark/harnessComparison.js';
 import {allPages, SPAN_LIMIT, spansCut} from '../../../../src/components/Benchmark/pagination.js';
+import {mapPool} from '../../../../src/components/Benchmark/pool.js';
 import {screenOf, searchFor} from '../../../../src/components/Benchmark/location.js';
 
 const score = (passed, total = 2) => ({passed, total, scored: total, unscored: 0, verifier_errors: 0, complete: true, value: passed / total});
@@ -83,5 +84,23 @@ describe('multi-benchmark workflow', () => {
     assert.deepEqual(screenOf(searchFor({view: 'new', benchmarks: [id], harness})).initialSelection, {benchmarks: [id], harness});
     const pair = `${id},2f0c0000-aaaa-4bbb-8ccc-dddddddddddd`;
     assert.equal(screenOf(searchFor({runs: pair, fromHarness: true})).fromHarness, true);
+  });
+
+  it('counts a run as comparable only when it is complete and every case is scored', () => {
+    const score = {complete: true, total: 2, scored: 2, unscored: 0, verifier_errors: 0, passed: 2};
+    const run = {status: 'complete', score};
+    assert.equal(comparableScore(run), score);
+    for (const [status, change] of [['complete', {complete: false}], ['complete', {total: 0, scored: 0}], ['complete', {scored: 1, unscored: 1}], ['complete', {verifier_errors: 1}], ['running', {}]]) {
+      assert.equal(comparableScore({status, score: {...score, ...change}}), null, JSON.stringify([status, change]));
+    }
+    assert.equal(comparableScore(undefined), null);
+  });
+
+  it('maps items in order with at most the limit in flight', async () => {
+    let flying = 0, peak = 0;
+    const out = await mapPool([1, 2, 3, 4, 5], 2, async n => { flying += 1; peak = Math.max(peak, flying); await new Promise(resolve => setTimeout(resolve, 5 - n)); flying -= 1; return n * 2; });
+    assert.deepEqual(out, [2, 4, 6, 8, 10]);
+    assert.equal(peak, 2);
+    assert.deepEqual(await mapPool([], 6, async n => n), []);
   });
 });

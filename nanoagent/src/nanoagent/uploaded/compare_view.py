@@ -11,7 +11,7 @@ from dataclasses import fields, is_dataclass
 from decimal import Decimal
 from typing import Any
 
-from nanoagent.uploaded.compare import Comparison, compare
+from nanoagent.uploaded.compare import compare
 from nanoagent.uploaded.projection import project, to_compare_attempt
 from nanoagent.uploaded.timing import Unknown
 
@@ -45,26 +45,6 @@ def _side(side: Any, name: str) -> tuple[list[Mapping[str, Any]], dict[str, byte
     return side["records"], data, {str(sha): str(status) for sha, status in redactions.items()}
 
 
-def build_rows(result: Comparison, differences_only: bool = False) -> list[dict[str, Any]]:
-    """Rows (only the differing ones when ``differences_only``), each with its index among all rows."""
-    kept = result.differences_only() if differences_only else result.rows
-    index = {id(row): i for i, row in enumerate(result.rows)}
-    return [{"index": index[id(row)], **plain(row)} for row in kept]
-
-
-def build_header(result: Comparison, conditions: tuple[Any, Any]) -> dict[str, Any]:
-    """The conditions of both sides with every flagged difference, and the estimate delta (or why it is withheld)."""
-    estimate = result.estimate_delta_ns
-    return {
-        "conditions_a": plain(conditions[0]),
-        "conditions_b": plain(conditions[1]),
-        "condition_differences": [plain(d) for d in result.conditions if d.state == "different"],
-        "unknown_fields": [d.name for d in result.conditions if d.state == "unknown"],
-        "estimate_delta_ns": None if isinstance(estimate, Unknown) else estimate,
-        "estimate_withheld": estimate.reason if isinstance(estimate, Unknown) else None,
-    }
-
-
 def compare_attempts(a: Any, b: Any) -> dict[str, Any]:
     """``{conditions_a, conditions_b, condition_differences, unknown_fields, estimate_delta_ns, estimate_withheld, rows,
     first_difference}`` for attempts ``a`` and ``b``, each ``{records, payloads (base64 by SHA-256), redactions}``. Rows are
@@ -74,8 +54,14 @@ def compare_attempts(a: Any, b: Any) -> dict[str, Any]:
         records, payloads, redactions = _side(side, name)
         sides.append(to_compare_attempt(project(records, payloads, redactions), payloads, redactions))
     result = compare(*sides)
+    estimate = result.estimate_delta_ns
     return {
-        **build_header(result, (sides[0].conditions, sides[1].conditions)),
-        "rows": build_rows(result),
+        "conditions_a": plain(sides[0].conditions),
+        "conditions_b": plain(sides[1].conditions),
+        "condition_differences": [plain(d) for d in result.conditions if d.state == "different"],
+        "unknown_fields": [d.name for d in result.conditions if d.state == "unknown"],
+        "estimate_delta_ns": None if isinstance(estimate, Unknown) else estimate,
+        "estimate_withheld": estimate.reason if isinstance(estimate, Unknown) else None,
+        "rows": [{"index": i, **plain(row)} for i, row in enumerate(result.rows)],
         "first_difference": result.first_difference,
     }

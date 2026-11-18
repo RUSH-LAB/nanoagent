@@ -16,7 +16,7 @@ from omegaconf import MISSING
 from slimconfig import Config, Folder, Layout, Output, Run, load_layout, load_output, plain_output, write_output
 
 from step1_make_cases import PluginBugs
-from step2_single_run import SingleRunLayout, logged
+from step2_single_run import SingleRun, SingleRunLayout, logged
 
 # The harness with the plugin's tools; every other harness is a coding harness.
 PLUGIN_HARNESS = "nanoagent"
@@ -149,6 +149,38 @@ def clipped(value: Any) -> Any:
     return value
 
 
+def run_line(result: SingleRun) -> RunLine:
+    return RunLine(
+        plugin=result.plugin,
+        task=result.task,
+        case=result.case,
+        harness=result.harness,
+        correct=result.correct,
+        verdict=result.verdict,
+        failed=result.stop_reason in {"timeout", "error"},
+        **{name: getattr(result, name) for name in FIGURES},
+    )
+
+
+def print_report(harnesses: list[HarnessLine], tasks: list[TaskLine], runs: list[RunLine]) -> None:
+    print(
+        f"{'harness':<10} {'right':>6} {'errors':>6} {'latency':>8} {'model':>7} {'tools':>7} {'overhead':>8} {'input':>9} {'output':>7} {'cost':>8} {'cpu':>6}"
+    )
+    for line in harnesses:
+        print(
+            f"{line.harness:<10} {f'{line.correct}/{line.runs}':>6} {line.errors:>6} {line.latency_seconds:>7.1f}s {line.model_seconds:>6.1f}s"
+            f" {line.tools_seconds:>6.1f}s {line.overhead_seconds:>7.1f}s {line.input_tokens:>9,.0f} {line.output_tokens:>7,.0f}"
+            f" ${line.cost:>7.4f} {line.cpu_seconds:>5.1f}s"
+        )
+    for line in tasks:
+        print(f"{line.plugin} · {line.task}: " + ", ".join(f"{own.harness} {own.correct}/{own.runs}" for own in line.harnesses))
+    for run in runs:
+        if not run.correct:
+            print(f"{run.harness} · {run.task} · {run.case}: wrong · {run.verdict}")
+    for (plugin, task), own in coding_failed(runs).items():
+        print(f"every coding harness failed · {plugin} · {task}: " + "; ".join(f"{run.harness}: {run.verdict[:200]}" for run in own))
+
+
 class GetReport(Run):
     """Read every run and sum it up by harness, overall and for every plugin task."""
 
@@ -178,18 +210,7 @@ class GetReport(Run):
                     messages=clipped(plain_output(run_layout.messages)),
                 )
             )
-            runs.append(
-                RunLine(
-                    plugin=result.plugin,
-                    task=result.task,
-                    case=result.case,
-                    harness=result.harness,
-                    correct=result.correct,
-                    verdict=result.verdict,
-                    failed=result.stop_reason in {"timeout", "error"},
-                    **{name: getattr(result, name) for name in FIGURES},
-                )
-            )
+            runs.append(run_line(result))
         harnesses = by_harness(runs)
         tasks = [
             TaskLine(plugin=plugin, task=task, harnesses=by_harness([run for run in runs if (run.plugin, run.task) == (plugin, task)]))
@@ -207,22 +228,7 @@ class GetReport(Run):
                 raise RuntimeError(f"{path} is {os.path.getsize(path):,} bytes, over the {MOST_BYTES:,} a plugin file may hold")
         index = Path(self.layout.page) / "index.html"
         shutil.copyfile(APP, index)
-        print(
-            f"{'harness':<10} {'right':>6} {'errors':>6} {'latency':>8} {'model':>7} {'tools':>7} {'overhead':>8} {'input':>9} {'output':>7} {'cost':>8} {'cpu':>6}"
-        )
-        for line in harnesses:
-            print(
-                f"{line.harness:<10} {f'{line.correct}/{line.runs}':>6} {line.errors:>6} {line.latency_seconds:>7.1f}s {line.model_seconds:>6.1f}s"
-                f" {line.tools_seconds:>6.1f}s {line.overhead_seconds:>7.1f}s {line.input_tokens:>9,.0f} {line.output_tokens:>7,.0f}"
-                f" ${line.cost:>7.4f} {line.cpu_seconds:>5.1f}s"
-            )
-        for line in tasks:
-            print(f"{line.plugin} · {line.task}: " + ", ".join(f"{own.harness} {own.correct}/{own.runs}" for own in line.harnesses))
-        for run in runs:
-            if not run.correct:
-                print(f"{run.harness} · {run.task} · {run.case}: wrong · {run.verdict}")
-        for (plugin, task), own in coding_failed(runs).items():
-            print(f"every coding harness failed · {plugin} · {task}: " + "; ".join(f"{run.harness}: {run.verdict[:200]}" for run in own))
+        print_report(harnesses, tasks, runs)
         print(f"{len(plugin_runs)} plugin files; the app: {index.resolve()}")
 
 

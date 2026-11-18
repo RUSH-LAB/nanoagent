@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from dataclasses import dataclass
 from typing import Any
 
 from nanoagent.uploaded.contract import ContractError, validate
+from nanoagent.uploaded.evidence import json_bytes
 
 ROOT_KIND = "agent"
 
@@ -24,10 +24,6 @@ class Receipt:
     digest: str
 
 
-def canonical_json(event: dict[str, Any]) -> bytes:
-    return json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-
-
 class HarnessEventLog:
     """Accepts schema-valid events for one attempt, enforcing sequence and span topology."""
 
@@ -41,7 +37,7 @@ class HarnessEventLog:
     def accept(self, event: dict[str, Any]) -> Receipt:
         validate("HarnessEvent", event)
         emitter, sequence = event["emitter_id"], event["sequence"]
-        content = canonical_json(event)
+        content = json_bytes(event)
         previous = self._receipts.get((emitter, sequence))
         if previous is not None:
             if previous[0] != content:

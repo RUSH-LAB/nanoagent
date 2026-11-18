@@ -13,12 +13,11 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from nanoagent.uploaded.reference_harnesses.nanoagent.assemble import assemble
+from nanoagent.uploaded.reference_harnesses.nanoagent.assemble import IGNORE, assemble
 from nanoagent.uploaded.source_zip import zip_folder
 
 FOLDER = Path(__file__).resolve().parent / "reference_harnesses"
 NAMES = tuple(sorted(entry.name for entry in FOLDER.iterdir() if entry.is_dir() and entry.name != "__pycache__"))
-VERSION_LENGTH = 12
 MANIFEST = "harness.yaml"
 
 
@@ -28,7 +27,7 @@ def content_version(folder: Path) -> str:
     for entry in sorted(folder.rglob("*"), key=lambda entry: entry.relative_to(folder).as_posix()):
         if entry.is_file():
             digest.update(entry.relative_to(folder).as_posix().encode() + b"\0" + hashlib.sha256(entry.read_bytes()).digest())
-    return digest.hexdigest()[:VERSION_LENGTH]
+    return digest.hexdigest()[:12]
 
 
 def build_reference(name: str) -> bytes:
@@ -40,7 +39,7 @@ def build_reference(name: str) -> bytes:
         if name == "nanoagent":
             assemble(folder)
         else:
-            shutil.copytree(FOLDER / name, folder, ignore=shutil.ignore_patterns("__pycache__"))
+            shutil.copytree(FOLDER / name, folder, ignore=IGNORE)
         manifest = folder / MANIFEST
         stamped, count = re.subn(r"^version:.*$", f'version: "{content_version(folder)}"', manifest.read_text(encoding="utf-8"), count=1, flags=re.MULTILINE)
         if not count:

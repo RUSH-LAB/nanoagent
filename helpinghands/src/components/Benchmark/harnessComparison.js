@@ -11,7 +11,7 @@ export function harnessesOf(results) {
 }
 
 /** A completed result takes precedence; within each status the newest run comes first. */
-export function orderedRuns(runs) {
+function orderedRuns(runs) {
   return [...runs].sort((a, b) => Number(b.status === 'complete') - Number(a.status === 'complete') || Date.parse(b.created_at) - Date.parse(a.created_at) || a.run_id.localeCompare(b.run_id));
 }
 

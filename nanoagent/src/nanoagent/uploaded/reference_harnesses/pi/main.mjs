@@ -9,7 +9,7 @@ import {readFileSync} from "node:fs";
 
 const request = JSON.parse(readFileSync(process.env.RUSH_REQUEST, "utf8"));
 const {base_url: baseUrl, model: modelId} = request.openrouter;
-const maxTokens = request.limits?.max_output_tokens_per_call;
+const maxTokens = request.limits.max_output_tokens_per_call;
 
 // Bundled, so Bedrock's implementation is registered here rather than imported at run time from a file that is not there.
 setBedrockProviderModule(bedrockProviderModule);
@@ -23,7 +23,7 @@ const agent = new Agent({
     thinkingLevel: "medium",
     tools: createCodingTools(request.workspace),
   },
-  streamFn: (model, context, options) => models.streamSimple(model, context, {...options, ...(maxTokens ? {maxTokens} : {})}),
+  streamFn: (model, context, options) => models.streamSimple(model, context, {...options, maxTokens}),
   getApiKey: () => process.env.RUSH_ATTEMPT_TOKEN,
 });
 process.once("SIGTERM", () => agent.abort());

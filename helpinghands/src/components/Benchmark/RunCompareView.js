@@ -2,6 +2,7 @@ import React, {useMemo, useState} from 'react';
 import clsx from 'clsx';
 import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
 import {benchmarkApi} from './api';
+import {harnessLabel} from './labels';
 import {attemptsComparable, caseOutcomeChanged, configRows, diffChanged, diffLines, egressSides, orderedCases, pairedVerdicts, sideCells} from './runCompare';
 import {POLICY_LABELS, outcomeText, scoreText, verdictText} from './runs';
 import useLoad from './useLoad';
@@ -193,7 +194,7 @@ function Prompts({prompt, names}) {
 export default function CompareRuns({a, b, initialCaseKey, go, onBack}) {
   const result = useLoad(async () => {
     const [comparison, first, second] = await Promise.all([benchmarkApi.compareRuns(a, b), benchmarkApi.run(a), benchmarkApi.run(b)]);
-    return {comparison, names: {a: `${first.run.harness.name} v${first.run.harness.version}`, b: `${second.run.harness.name} v${second.run.harness.version}`}};
+    return {comparison, names: {a: harnessLabel(first.run.harness), b: harnessLabel(second.run.harness)}};
   }, [a, b]);
   const [view, setView] = useState('cases');
   const data = result.data?.comparison;

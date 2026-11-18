@@ -37,4 +37,4 @@ child.on("error", (error) => {
   console.error(`claude failed to start: ${error.message}`);
   process.exit(1);
 });
-child.on("exit", (code, signal) => process.exit(code === 0 ? 0 : 1));
+child.on("exit", (code) => process.exit(code === 0 ? 0 : 1));

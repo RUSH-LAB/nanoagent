@@ -48,11 +48,11 @@ class ToolchainError(ContractError):
     """A toolchain or dependency problem; `code` is stable (`unknown_toolchain`, `dependency_unavailable`, ...)."""
 
 
-def read_url(url: str, timeout: float, limit: int) -> bytes:
+def read_url(url: str, timeout: float, limit: int, *, urlopen=urllib.request.urlopen, sleep=time.sleep) -> bytes:
     """Reads up to `limit + 1` bytes of an HTTP(S) URL, retrying network errors and 5xx with backoff; other HTTP errors raise at once."""
     for attempt in range(DOWNLOAD_ATTEMPTS):
         try:
-            with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310 - callers check the scheme
+            with urlopen(url, timeout=timeout) as response:  # noqa: S310 - callers check the scheme
                 return response.read(limit + 1)
         except urllib.error.HTTPError as error:
             if error.code < 500 or attempt == DOWNLOAD_ATTEMPTS - 1:
@@ -60,15 +60,14 @@ def read_url(url: str, timeout: float, limit: int) -> bytes:
         except OSError:  # URLError and timeouts
             if attempt == DOWNLOAD_ATTEMPTS - 1:
                 raise
-        time.sleep(2**attempt)
+        sleep(2**attempt)
     raise AssertionError("unreachable")
 
 
 @dataclass(frozen=True)
 class OfflinePolicy:
-    """What the build sandbox may do: no network at all, dependencies only from the read-only closure."""
+    """What the build sandbox may do: dependencies only from the read-only closure (the build has no network)."""
 
-    network: str  # always "none": the closure is staged by the worker beforehand
     dependency_mount: str
     env: Mapping[str, str]
 
@@ -102,7 +101,7 @@ _JRE_21 = "eclipse-temurin@sha256:dff6eb46527bd293a3c06bbbe9e64e8c9f91f01905b5ab
 
 
 def _offline(**env: str) -> OfflinePolicy:
-    return OfflinePolicy(network="none", dependency_mount=DEPENDENCY_MOUNT, env=env)
+    return OfflinePolicy(dependency_mount=DEPENDENCY_MOUNT, env=env)
 
 
 TOOLCHAINS: Mapping[str, ToolchainProfile] = {
@@ -125,20 +124,10 @@ TOOLCHAINS: Mapping[str, ToolchainProfile] = {
     "java-21": ToolchainProfile("java-21", _JDK_21, _JRE_21, "maven-lock", _offline()),
 
     "python-3": ToolchainProfile(
-        id="python-3",
-        build_image=_PYTHON_3_12_SLIM,
-        runtime_image=_PYTHON_3_12_SLIM,
-        resolver="python-hashed-wheels",
-        offline=OfflinePolicy(
-            network="none",
-            dependency_mount=DEPENDENCY_MOUNT,
-            env={
-                "PIP_NO_INDEX": "1",
-                "PIP_FIND_LINKS": DEPENDENCY_MOUNT,
-                "PIP_DISABLE_PIP_VERSION_CHECK": "1",
-                "PIP_NO_CACHE_DIR": "1",
-                "PYTHONDONTWRITEBYTECODE": "1",
-            },
+        "python-3", _PYTHON_3_12_SLIM, _PYTHON_3_12_SLIM, "python-hashed-wheels",
+        _offline(
+            PIP_NO_INDEX="1", PIP_FIND_LINKS=DEPENDENCY_MOUNT, PIP_DISABLE_PIP_VERSION_CHECK="1", PIP_NO_CACHE_DIR="1",
+            PYTHONDONTWRITEBYTECODE="1",
         ),
         runtime_env={"PYTHONDONTWRITEBYTECODE": "1", "PYTHONUNBUFFERED": "1"},
     ),
@@ -164,10 +153,6 @@ class DependencyClosure:
 
     directory: Path
     files: Mapping[str, str]  # file name to sha256
-
-    @property
-    def empty(self) -> bool:
-        return not self.files
 
 
 class ResolveBudget:
@@ -200,7 +185,7 @@ class PinnedRequirement:
     filenames: frozenset[str] = frozenset()  # known file names (uv.lock); empty when only hashes pin the files
 
 
-def _read_lockfile(source_root: Path, relative: str) -> bytes:
+def read_lockfile(source_root: Path, relative: str) -> bytes:
     path = source_root / relative
     if path.is_symlink() or not path.is_file():
         raise ToolchainError("lockfile_missing", f"declared lockfile {relative} is not a regular file in the source")
@@ -450,18 +435,15 @@ class PythonWheelResolver:
         self._index = index
         self._target = target or PythonTarget()
 
-    def _applies(self, requirement: Requirement) -> bool:
-        return _marker_holds(None if requirement.marker is None else str(requirement.marker), self._target, requirement.name)
-
     def _pins(self, source_root: Path, lockfiles: tuple[str, ...]) -> list[PinnedRequirement]:
         pins: list[PinnedRequirement] = []
         for relative in lockfiles:
-            data = _read_lockfile(source_root, relative)
+            data = read_lockfile(source_root, relative)
             if relative.endswith("uv.lock"):
                 pins.extend(parse_uv_lock(data, relative, self._target))
             elif relative.endswith(".txt"):
                 for requirement, hashes in parse_requirements(data.decode("utf-8"), relative):
-                    if self._applies(requirement):
+                    if _marker_holds(None if requirement.marker is None else str(requirement.marker), self._target, requirement.name):
                         version = next(iter(requirement.specifier)).version
                         pins.append(PinnedRequirement(canonicalize_name(requirement.name), version, hashes))
             else:
@@ -469,8 +451,7 @@ class PythonWheelResolver:
         return pins
 
     def stage(
-        self, profile: ToolchainProfile, source_root: Path, lockfiles: tuple[str, ...], destination: Path,
-        timeout_s: float = DEFAULT_RESOLVE_TIMEOUT_S,
+        self, source_root: Path, lockfiles: tuple[str, ...], destination: Path, timeout_s: float = DEFAULT_RESOLVE_TIMEOUT_S
     ) -> DependencyClosure:
         pins = set(self._pins(source_root, lockfiles))  # a pin repeated across lockfile lines is fetched once
         destination.mkdir(parents=True, exist_ok=True)
@@ -516,19 +497,6 @@ class PythonWheelResolver:
         return staged
 
 
-class NoDependencyResolver:
-    """For a project with `lockfiles: []`: the closure is empty and nothing is fetched."""
-
-    def stage(
-        self, profile: ToolchainProfile, source_root: Path, lockfiles: tuple[str, ...], destination: Path,
-        timeout_s: float = DEFAULT_RESOLVE_TIMEOUT_S,
-    ) -> DependencyClosure:
-        if lockfiles:
-            raise ToolchainError("unsupported_lockfile", "internal: the empty resolver was given lockfiles")
-        destination.mkdir(parents=True, exist_ok=True)
-        return DependencyClosure(destination, {})
-
-
 def resolve_dependencies(
     profile: ToolchainProfile,
     source_root: Path,
@@ -544,7 +512,8 @@ def resolve_dependencies(
     Resolution is bounded: `timeout_s` of wall clock (checked between downloads, `dependency_timeout`) and `MAX_CLOSURE_BYTES` /
     `MAX_CLOSURE_FILES` of artifacts (`dependency_too_large`)."""
     if not lockfiles:
-        return NoDependencyResolver().stage(profile, source_root, lockfiles, destination)
+        destination.mkdir(parents=True, exist_ok=True)
+        return DependencyClosure(destination, {})
     if index_url is None:
         raise ToolchainError("index_unavailable", "the manifest declares lockfiles but no dependency index is configured")
     if profile.resolver == "none":
@@ -554,5 +523,5 @@ def resolve_dependencies(
     if profile.resolver in ECOSYSTEMS:
         return stage_ecosystem(profile, source_root, lockfiles, destination, index_url, timeout_s)
     if profile.resolver == "python-hashed-wheels":
-        return PythonWheelResolver(open_index(index_url), target).stage(profile, source_root, lockfiles, destination, timeout_s)
+        return PythonWheelResolver(open_index(index_url), target).stage(source_root, lockfiles, destination, timeout_s)
     raise ToolchainError("unknown_resolver", f"toolchain {profile.id} names resolver {profile.resolver!r}")

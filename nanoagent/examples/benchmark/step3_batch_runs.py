@@ -30,7 +30,6 @@ import shutil
 import signal
 import subprocess
 import sys
-import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -50,10 +49,9 @@ from step2_single_run import (
     SingleRunConfig,
     isolate,
     logged,
-    pin,
-    prepared_plugin,
+    pin_timed,
+    plugin_folder,
     reference_tool,
-    unpack,
 )
 
 SINGLE_RUN = Path(__file__).with_name("step2_single_run.py")
@@ -115,42 +113,52 @@ def case_ids(config: BatchConfig, cases: Cases) -> list[str]:
     return [f"{cases.plugin}-{number:02d}" for number in numbers]
 
 
-def interleaved(jobs: list[tuple[Path, Cases, str, Harness]]) -> list[tuple[Path, Cases, str, Harness]]:
+@dataclass(frozen=True)
+class Job:
+    path: Path
+    cases: Cases
+    case: str
+    harness: Harness
+
+    def case_folder(self, root: Path) -> Path:
+        return root / self.cases.plugin / self.cases.task / self.case
+
+    def home(self, root: Path) -> Path:
+        return self.case_folder(root) / self.harness.value
+
+
+def interleaved(jobs: list[Job]) -> list[Job]:
     """The jobs round-robin by plugin, so the runs going at once are of different plugins and no
     plugin's data source is asked by all its runs together."""
-    by_plugin: dict[str, list] = {}
+    by_plugin: dict[str, list[Job]] = {}
     for job in jobs:
-        by_plugin.setdefault(job[1].plugin, []).append(job)
+        by_plugin.setdefault(job.cases.plugin, []).append(job)
     rounds = max((len(own) for own in by_plugin.values()), default=0)
     return [own[i] for i in range(rounds) for own in by_plugin.values() if i < len(own)]
 
 
-def pin_cases(single: SingleRunConfig, jobs: list[tuple[Path, Cases, str, Harness]], folder: Path) -> None:
+def pin_cases(single: SingleRunConfig, jobs: list[Job], folder: Path) -> None:
     """Pin every case the jobs run that is not pinned yet, once, each plugin unpacked once for it."""
     todo: dict[str, tuple[Cases, list[str]]] = {}
-    for _, cases, case, _ in jobs:
-        if not (folder / cases.plugin / cases.task / case / "pinned.json").is_file():
-            own = todo.setdefault(f"{cases.plugin}/{cases.task}", (cases, []))[1]
-            if case not in own:
-                own.append(case)
+    for job in jobs:
+        if not (job.case_folder(folder) / "pinned.json").is_file():
+            own = todo.setdefault(f"{job.cases.plugin}/{job.cases.task}", (job.cases, []))[1]
+            if job.case not in own:
+                own.append(job.case)
     if not todo:
         return
     python = isolate()
     for cases, ids in todo.values():
-        with tempfile.TemporaryDirectory(prefix="nanoagent-benchmark-pin-") as unpacked:
-            unpack(single.database, single.psql, cases.plugin, Path(unpacked))
-            with prepared_plugin(Path(unpacked, cases.plugin), python, single.sync_timeout) as root:
-                manifest = load_manifest(root)
-                tool = reference_tool(manifest.task(cases.task))
-                for case in ids:
-                    arguments, refusal = cases.case(case)
-                    started = time.monotonic()
-                    reference, rejection = asyncio.run(pin(manifest, tool, arguments, refusal, single.timeout))
-                    path = folder / cases.plugin / cases.task / case / "pinned.json"
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    seconds = None if tool is None else time.monotonic() - started
-                    write_output(str(path), Pinned(case=case, reference=reference, reference_error=rejection, reference_seconds=seconds))
-                    print(f"pinned {case}")
+        with plugin_folder(single.database, single.psql, cases.plugin, python, single.sync_timeout) as root:
+            manifest = load_manifest(root)
+            tool = reference_tool(manifest.task(cases.task))
+            for case in ids:
+                arguments, refusal = cases.case(case)
+                reference, rejection, seconds = asyncio.run(pin_timed(manifest, tool, arguments, refusal, single.timeout))
+                path = folder / cases.plugin / cases.task / case / "pinned.json"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                write_output(str(path), Pinned(case=case, reference=reference, reference_error=rejection, reference_seconds=seconds))
+                print(f"pinned {case}")
 
 
 def stop_group(process: subprocess.Popen) -> int:
@@ -160,6 +168,39 @@ def stop_group(process: subprocess.Popen) -> int:
     except ProcessLookupError:
         pass
     return process.wait()
+
+
+def load_jobs(config: BatchConfig) -> list[Job]:
+    tasks: dict[tuple[str, str], Path] = {}
+    jobs = []
+    for path in sorted(Path(config.cases).glob("step1_*_cases.json")):
+        cases = load_output(str(path), Cases)
+        if config.plugins and cases.plugin not in config.plugins:
+            continue
+        if (cases.plugin, cases.task) in tasks:
+            raise ValueError(f"{path} and {tasks[cases.plugin, cases.task]} are both {cases.plugin}'s task {cases.task}")
+        tasks[cases.plugin, cases.task] = path
+        jobs += [Job(path, cases, case, harness) for case in case_ids(config, cases) for harness in config.harnesses]
+    unknown = set(config.plugins) - {plugin for plugin, _ in tasks}
+    if unknown:
+        raise ValueError(f"no cases file in {config.cases} for {', '.join(sorted(unknown))}")
+    if not jobs:
+        raise ValueError(f"the batch has no runs: no cases files in {config.cases}, no cases or no harnesses")
+    return jobs
+
+
+def fetch_packages(single: SingleRunConfig, harnesses: list[Harness], folder: Path) -> None:
+    packages = {
+        single.harnesses[harness].options[Option.PACKAGE]
+        for harness in harnesses
+        if harness is not Harness.NANOAGENT and Option.PACKAGE in single.harnesses[harness].options
+    }
+    for package in sorted(packages):
+        cache = npm_package_cache(folder, package)
+        cache.mkdir(parents=True, exist_ok=True)
+        with coding_environment(cache, credential_names=set()) as (prefix, env):
+            env["npm_config_cache"] = str(cache)
+            fetch_npm(package, prefix, env, cwd=cache, timeout=single.npm_timeout)
 
 
 class BatchRuns(Run):
@@ -181,38 +222,14 @@ class BatchRuns(Run):
             raise ValueError(f"cpus_per_run must be 1 to this machine's {cores} cores, not {config.cpus_per_run}")
         if config.max_parallel < 1:
             raise ValueError(f"max_parallel must be at least 1, not {config.max_parallel}")
-        tasks: dict[tuple[str, str], Path] = {}
-        jobs = []
-        for path in sorted(Path(config.cases).glob("step1_*_cases.json")):
-            cases = load_output(str(path), Cases)
-            if config.plugins and cases.plugin not in config.plugins:
-                continue
-            if (cases.plugin, cases.task) in tasks:
-                raise ValueError(f"{path} and {tasks[cases.plugin, cases.task]} are both {cases.plugin}'s task {cases.task}")
-            tasks[cases.plugin, cases.task] = path
-            jobs += [(path, cases, case, harness) for case in case_ids(config, cases) for harness in config.harnesses]
-        unknown = set(config.plugins) - {plugin for plugin, _ in tasks}
-        if unknown:
-            raise ValueError(f"no cases file in {config.cases} for {', '.join(sorted(unknown))}")
-        if not jobs:
-            raise ValueError(f"the batch has no runs: no cases files in {config.cases}, no cases or no harnesses")
+        jobs = load_jobs(config)
         folder = Path(self.layout.runs).resolve()
-        left = [job for job in jobs if not (folder / job[1].plugin / job[1].task / job[2] / job[3].value / "result.json").is_file()]
+        left = [job for job in jobs if not (job.home(folder) / "result.json").is_file()]
         skipped, jobs = len(jobs) - len(left), interleaved(left)
         # Step 2's config as every run gets it, and the npx packages the batch's harnesses start, as
         # its harnesses table pins them.
         single = load_config(SingleRunConfig, [config.single_run, *config.overrides])
-        packages = {
-            single.harnesses[harness].options[Option.PACKAGE]
-            for harness in config.harnesses
-            if harness is not Harness.NANOAGENT and Option.PACKAGE in single.harnesses[harness].options
-        }
-        for package in sorted(packages):
-            cache = npm_package_cache(folder, package)
-            cache.mkdir(parents=True, exist_ok=True)
-            with coding_environment(cache, credential_names=set()) as (prefix, env):
-                env["npm_config_cache"] = str(cache)
-                fetch_npm(package, prefix, env, cwd=cache, timeout=single.npm_timeout)
+        fetch_packages(single, config.harnesses, folder)
         pin_cases(single, jobs, folder)
         deadline = single.npm_timeout + single.sync_timeout + single.timeout + VERIFIER_TIMEOUT + SLACK
         side_by_side = max(1, min(len(jobs), cores // config.cpus_per_run, config.max_parallel))
@@ -224,52 +241,8 @@ class BatchRuns(Run):
         print(
             f"{len(jobs)} runs ({skipped} finished before), {side_by_side} at once, {config.cpus_per_run} cores each{'' if pinned else ' (this OS does not pin processes to cores)'}"
         )
-
-        def run(job: tuple[Path, Cases, str, Harness]) -> BatchRun:
-            path, cases, case, harness = job
-            home = folder / cases.plugin / cases.task / case / harness.value
-            # A run that wrote no result starts again from an empty folder.
-            shutil.rmtree(home, ignore_errors=True)
-            home.parent.mkdir(parents=True, exist_ok=True)
-            place = places.get()
-            started = time.monotonic()
-            try:
-                with open(home.parent / f"{harness.value}.log", "w", encoding="utf-8") as log:
-                    process = subprocess.Popen(
-                        [
-                            sys.executable,
-                            str(SINGLE_RUN),
-                            f"config={config.single_run}",
-                            f"home={home}",
-                            "--",
-                            f"cases={path.resolve()}",
-                            f"case={case}",
-                            f"harness={harness.value}",
-                            *config.overrides,
-                            f"batch_runs={folder.resolve()}",
-                            f"pinned={home.parent / 'pinned.json'}",
-                            "inherit_process_group=true",
-                        ],
-                        stdout=log,
-                        stderr=subprocess.STDOUT,
-                        start_new_session=True,
-                        preexec_fn=(lambda: os.sched_setaffinity(0, place)) if pinned else None,
-                    )
-                    try:
-                        process.wait(timeout=deadline)
-                    except subprocess.TimeoutExpired:
-                        print(f"{harness.value} · {cases.task} · {case}: ran past its {deadline:g}s deadline", file=log, flush=True)
-                    finally:
-                        # Descendants may outlive the run, even when it exits on its own.
-                        status = stop_group(process)
-            finally:
-                places.put(place)
-            seconds = time.monotonic() - started
-            print(f"{harness.value} · {cases.task} · {case}: {'done' if status == 0 else f'status {status}'} in {seconds:.0f}s")
-            return BatchRun(plugin=cases.plugin, task=cases.task, case=case, harness=harness.value, status=status, seconds=seconds)
-
         with ThreadPoolExecutor(side_by_side) as pool:
-            runs = list(pool.map(run, jobs))
+            runs = list(pool.map(lambda job: self.run_job(job, folder, places, pinned, deadline), jobs))
         self.layout.batch = Batch(side_by_side=side_by_side, skipped=skipped, runs=runs)
         missing = [
             f"{run.plugin}/{run.task}/{run.case}/{run.harness}"
@@ -278,6 +251,49 @@ class BatchRuns(Run):
         ]
         if missing:
             raise RuntimeError(f"no result from {', '.join(missing)}: see each run's .log in {folder}")
+
+    def run_job(self, job: Job, folder: Path, places: queue.Queue[set[int]], pinned: bool, deadline: float) -> BatchRun:
+        config = self.config
+        home = job.home(folder)
+        # A run that wrote no result starts again from an empty folder.
+        shutil.rmtree(home, ignore_errors=True)
+        home.parent.mkdir(parents=True, exist_ok=True)
+        place = places.get()
+        started = time.monotonic()
+        try:
+            with open(home.parent / f"{job.harness.value}.log", "w", encoding="utf-8") as log:
+                process = subprocess.Popen(
+                    [
+                        sys.executable,
+                        str(SINGLE_RUN),
+                        f"config={config.single_run}",
+                        f"home={home}",
+                        "--",
+                        f"cases={job.path.resolve()}",
+                        f"case={job.case}",
+                        f"harness={job.harness.value}",
+                        *config.overrides,
+                        f"batch_runs={folder.resolve()}",
+                        f"pinned={home.parent / 'pinned.json'}",
+                        "inherit_process_group=true",
+                    ],
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                    preexec_fn=(lambda: os.sched_setaffinity(0, place)) if pinned else None,
+                )
+                try:
+                    process.wait(timeout=deadline)
+                except subprocess.TimeoutExpired:
+                    print(f"{job.harness.value} · {job.cases.task} · {job.case}: ran past its {deadline:g}s deadline", file=log, flush=True)
+                finally:
+                    # Descendants may outlive the run, even when it exits on its own.
+                    status = stop_group(process)
+        finally:
+            places.put(place)
+        seconds = time.monotonic() - started
+        print(f"{job.harness.value} · {job.cases.task} · {job.case}: {'done' if status == 0 else f'status {status}'} in {seconds:.0f}s")
+        return BatchRun(plugin=job.cases.plugin, task=job.cases.task, case=job.case, harness=job.harness.value, status=status, seconds=seconds)
 
 
 if __name__ == "__main__":

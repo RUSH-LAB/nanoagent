@@ -9,7 +9,7 @@
 const crypto = require('crypto');
 const {BenchmarkError} = require('../benchmark/errors');
 const {stringifyJson} = require('../benchmark/json');
-const {UUID, jsonBody, rawBody, sendFailure} = require('../benchmark/http');
+const {UUID, jsonBody, rawBody, segment, handle} = require('../benchmark/http');
 const v = require('../benchmark/validate');
 const {positiveSetting} = require('../benchmark/limits');
 
@@ -42,17 +42,13 @@ function sendBytes(res, {data, sha256}) {
 
 module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
   if (!pathname.startsWith('/api/benchmark-worker/')) return undefined;
-  const {readBody, benchmark: services} = ctx;
-  // A claim carries case arguments and references with the spelling of their numbers, so a response writes them with the same serializer.
-  const json = (res, status, data, opts) => ctx.json(res, status, data, {...opts, stringify: stringifyJson});
-  try {
-    if (!services) return json(res, 503, {error: 'Benchmarks need PostgreSQL (DATABASE_URL)', code: 'benchmark_disabled'});
+  const {readBody} = ctx;
+  return handle(ctx, res, async (json, {worker}) => {
     const bearer = /^Bearer (\S+)$/.exec(req.headers.authorization ?? '')?.[1];
-    const userId = bearer ? await services.worker.authenticate(bearer) : null;
+    const userId = bearer ? await worker.authenticate(bearer) : null;
     if (!userId) return json(res, 401, {error: 'Send Authorization: Bearer <worker credential>, a credential you minted and have not revoked', code: 'unauthorized'});
     const match = ROUTE.exec(pathname);
     if (!match) return json(res, 404, {error: 'Not found', code: 'not_found'});
-    const {worker} = services;
     const [, claim, jobId, jobPart, settleAttempt, callId, , payloadAttempt, sha256] = match;
     const body = () => jsonBody(req, readBody);
     const wanted = (method, id) => {
@@ -77,7 +73,7 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
       }
       wanted('POST', jobId);
       const input = await body();
-      if (jobPart === 'renew') return json(res, 200, await worker.renew(userId, jobId, v.fenceOf(v.object(input, 'The body'))));
+      if (jobPart === 'renew') return json(res, 200, await worker.renew(userId, jobId, v.fenceOf(input)));
       if (jobPart === 'admissions') {
         const {fence, callId: id, reserveUsd} = v.admissionBody(input);
         return json(res, 201, await worker.admit(userId, jobId, fence, id, reserveUsd));
@@ -99,13 +95,7 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
     }
     if (settleAttempt !== undefined) {
       wanted('POST', settleAttempt);
-      let call;
-      try {
-        call = decodeURIComponent(callId);
-      } catch {
-        throw new BenchmarkError(400, 'invalid_request', 'The call id is not a valid URL path segment');
-      }
-      return json(res, 200, await worker.settle(userId, settleAttempt, call, v.settleBody(await body())));
+      return json(res, 200, await worker.settle(userId, settleAttempt, segment(callId, 'The call id'), v.settleBody(await body())));
     }
     if (payloadAttempt !== undefined) {
       wanted('PUT', payloadAttempt);
@@ -119,7 +109,5 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
       return json(res, 200, await worker.putPayload(userId, payloadAttempt, fence, {sha256, data, redaction, contentType}));
     }
     return json(res, 404, {error: 'Not found', code: 'not_found'});
-  } catch (error) {
-    return sendFailure(json, res, error);
-  }
+  });
 };

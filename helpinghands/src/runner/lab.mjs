@@ -686,7 +686,7 @@ async function main() {
     fs.mkdirSync(path.join(data, 'logs'), {recursive: true});
     await stopLeftovers();
     for (const id of removeOtherSites(data, config)) queueRemoval(pendingRemovals, id);
-    await removePending(true);
+    logRemovalFailures(await removePending());
     const {shell} = os.userInfo();
     // Not awaited: the member's shell may take a while to say its PATH, and NanoAgent need not wait for it.
     installCommand({home: os.homedir(), root, config, shell, windows: WINDOWS, readPath: () => memberPath(shell)});
@@ -717,11 +717,13 @@ async function main() {
     }
   }
 
-  /** Try the removals still queued: a failure stays queued for the next pass, and is logged when `report` is set. */
-  async function removePending(report) {
-    for (const {id, error} of await retryRemovals(pendingRemovals, {dockerEnv, present: new Set(installedConnections().keys())})) {
-      if (report) log(`Benchmark worker: ${error.message}`, id);
-    }
+  /** Try the removals still queued: a failure stays queued for the next pass; the failures, {id, error}. */
+  function removePending() {
+    return retryRemovals(pendingRemovals, {dockerEnv, present: new Set(installedConnections().keys())});
+  }
+
+  function logRemovalFailures(failures) {
+    for (const {id, error} of failures) log(`Benchmark worker: ${error.message}`, id);
   }
 
   /** The connections on this computer: id to what its `installed` file says. */
@@ -739,7 +741,7 @@ async function main() {
   async function watch() {
     const present = installedConnections();
     // Removals that failed before (Docker down) are tried again, quietly: a connection's own first try is logged.
-    await removePending(false);
+    await removePending();
     let removed = false;
     for (const [id, connection] of connections) {
       if (present.has(id)) continue;
@@ -749,7 +751,7 @@ async function main() {
       await stopConnection(connection);
       queueRemoval(pendingRemovals, id);
     }
-    if (removed) await removePending(true);
+    if (removed) logRemovalFailures(await removePending());
     for (const [id, installed] of present) {
       let connection = connections.get(id);
       if (connection && connection.installed !== installed) {

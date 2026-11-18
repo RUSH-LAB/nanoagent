@@ -35,12 +35,10 @@ class ServerConfig(Config):
     token_env: str = MISSING
 
     def client(self) -> BenchmarkClient:
-        token = os.environ.get(self.token_env) or _missing_token(self.token_env)
+        token = os.environ.get(self.token_env)
+        if not token:
+            raise RuntimeError(f"environment variable {self.token_env} holds no Better Auth session token")
         return BenchmarkClient(self.base_url, self.workspace_id, token)
-
-
-def _missing_token(name: str) -> str:
-    raise RuntimeError(f"environment variable {name} holds no Better Auth session token")
 
 
 class BenchmarkError(Exception):
@@ -175,6 +173,10 @@ class BenchmarkClient:
             raise self._error(response)
         return response
 
+    @staticmethod
+    def _params(**filters: Any) -> dict[str, Any]:
+        return {name: value for name, value in filters.items() if value is not None}
+
     def _json(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         return self._request(method, path, **kwargs).json()
 
@@ -201,8 +203,7 @@ class BenchmarkClient:
 
     def benchmarks(self, plugin_id: str | None = None, version: str | None = None) -> list[dict[str, Any]]:
         """Every published benchmark, newest first, optionally of one plugin and (with ``plugin_id``) one plugin version."""
-        filters = {"plugin_id": plugin_id, "version": version}
-        return self._json("GET", f"{self._prefix}/benchmarks", params={k: v for k, v in filters.items() if v is not None})["benchmarks"]
+        return self._json("GET", f"{self._prefix}/benchmarks", params=self._params(plugin_id=plugin_id, version=version))["benchmarks"]
 
     def benchmark(self, benchmark_id: str) -> dict[str, Any]:
         """One benchmark with its case set: the task, context and cases (never the private references)."""
@@ -217,8 +218,7 @@ class BenchmarkClient:
 
     def benchmark_results(self, benchmark_id: str, limit: int = 50, before: str | None = None) -> list[dict[str, Any]]:
         """Run summaries of every member's runs of the benchmark, newest first."""
-        params: dict[str, Any] = {"limit": limit, **({} if before is None else {"before": before})}
-        return self._json("GET", f"{self._prefix}/benchmarks/{quote(benchmark_id, safe='')}/results", params=params)["runs"]
+        return self._json("GET", f"{self._prefix}/benchmarks/{quote(benchmark_id, safe='')}/results", params=self._params(limit=limit, before=before))["runs"]
 
     def preview(self, benchmark_id: str, policy: str) -> dict[str, Any]:
         """The run of ``policy`` (`coding` or `task_tools`) on the benchmark as the server pins it: the rendered prompts, effective limits and cases."""
@@ -240,8 +240,7 @@ class BenchmarkClient:
 
     def list_runs(self, limit: int = 50, before: str | None = None) -> list[dict[str, Any]]:
         """The caller's own runs in this workspace as run summaries, newest first."""
-        params: dict[str, Any] = {"limit": limit, **({} if before is None else {"before": before})}
-        return self._json("GET", f"{self._prefix}/runs", params=params)["runs"]
+        return self._json("GET", f"{self._prefix}/runs", params=self._params(limit=limit, before=before))["runs"]
 
     def run(self, run_id: str) -> dict[str, Any]:
         return self._json("GET", f"{self._prefix}/runs/{run_id}")["run"]
@@ -266,15 +265,12 @@ class BenchmarkClient:
     def attempt(self, attempt_id: str) -> dict[str, Any]:
         return self._json("GET", f"{self._prefix}/attempts/{attempt_id}")["attempt"]
 
-    def events_page(self, attempt_id: str, after: int = 0, limit: int = 200) -> dict[str, Any]:
-        return self._json("GET", f"{self._prefix}/attempts/{attempt_id}/events", params={"after": after, "limit": limit})
-
     def events(self, attempt_id: str, after: int = 0) -> EventLog:
         """Every committed event after ``after``, read page by page."""
         events: list[dict[str, Any]] = []
         cursor = after
         while True:
-            page = self.events_page(attempt_id, cursor, EVENT_PAGE)
+            page = self._json("GET", f"{self._prefix}/attempts/{attempt_id}/events", params={"after": cursor, "limit": EVENT_PAGE})
             fresh = [event for event in page["events"] if event["cursor"] > cursor]
             events += fresh
             if fresh:
@@ -317,8 +313,7 @@ class BenchmarkClient:
     def spans(
         self, attempt_id: str, *, kind: str | None = None, status: str | None = None, q: str | None = None, limit: int | None = None
     ) -> dict[str, Any]:
-        filters = {"kind": kind, "status": status, "q": q, "limit": limit}
-        return self._json("GET", f"{self._prefix}/attempts/{attempt_id}/spans", params={k: v for k, v in filters.items() if v is not None})
+        return self._json("GET", f"{self._prefix}/attempts/{attempt_id}/spans", params=self._params(kind=kind, status=status, q=q, limit=limit))
 
     def payload(self, attempt_id: str, sha256: str) -> Payload:
         """The payload's bytes, which must hash to ``sha256``."""

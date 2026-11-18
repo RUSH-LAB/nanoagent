@@ -126,11 +126,6 @@ def probe_evidence(container_id=PROBE_ID, *, complete=True, exited=True) -> Proc
     return ProcessEvidence(container_id, tuple(events), complete, () if complete else ("dropped",), 2, 0, 0, 0, 1, 0)
 
 
-@pytest.fixture(autouse=True)
-def no_evidence_wait(monkeypatch):
-    monkeypatch.setattr("nanoagent.uploaded.sandbox.EXEC_EVIDENCE_WAIT_S", 0.0)
-
-
 @pytest.fixture
 def docker():
     return FakeDocker()
@@ -143,7 +138,7 @@ def collector():
 
 @pytest.fixture
 def supervisor(docker, collector):
-    s = DockerSandboxSupervisor(docker, collector=collector, clock=iter(range(1000)).__next__, wall_clock_ns=lambda: 7)
+    s = DockerSandboxSupervisor(docker, collector=collector, clock=iter(range(1000)).__next__, wall_clock_ns=lambda: 7, evidence_wait_s=0.0)
     s.startup(PROFILE)
     docker.calls.clear()
     collector.discarded.clear()
@@ -169,7 +164,7 @@ def test_exit_status_maps_to_clean_nonzero_oom_or_timeout_and_never_infers_a_sig
 
 
 def test_member_source_is_refused_until_the_collector_self_test_passes(docker, collector, tmp_path):
-    s = DockerSandboxSupervisor(docker, collector=collector)
+    s = DockerSandboxSupervisor(docker, collector=collector, evidence_wait_s=0.0)
     with pytest.raises(SandboxError) as caught:
         s.start_case(case_spec(s, tmp_path))
     assert caught.value.code == "collector_unverified"
@@ -395,7 +390,7 @@ def test_managed_exec_runs_in_the_case_sandbox_with_its_identity_and_bounded_tim
 
 def test_managed_exec_timeout_needs_timeouts_exit_code_and_an_elapsed_deadline(docker, collector, tmp_path):
     now = [0.0]
-    s = DockerSandboxSupervisor(docker, collector=collector, clock=lambda: now[0], wall_clock_ns=lambda: 7)
+    s = DockerSandboxSupervisor(docker, collector=collector, clock=lambda: now[0], wall_clock_ns=lambda: 7, evidence_wait_s=0.0)
     s.startup(PROFILE)
     handle = s.start_case(case_spec(s, tmp_path, limits=Limits(wall_s=100)))
 
@@ -614,7 +609,7 @@ def tool_spec(tmp_path, **kw):
 def tooled(docker, collector, tmp_path, **kw):
     uv = tmp_path / "uv"
     uv.write_text("")
-    s = DockerSandboxSupervisor(docker, collector=collector, uv=uv, **kw)
+    s = DockerSandboxSupervisor(docker, collector=collector, uv=uv, evidence_wait_s=0.0, **kw)
     s.startup(PROFILE)
     return s, uv
 
@@ -782,7 +777,7 @@ def test_concurrent_workspace_views_of_one_case_copy_one_at_a_time(docker, colle
             live -= 1
         return None, tmp_path / "copy"
 
-    s._copy_out = copy_out
+    s._ops.copy_out = copy_out
 
     def view():
         with launcher.workspace_view():

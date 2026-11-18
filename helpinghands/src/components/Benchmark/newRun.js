@@ -1,12 +1,11 @@
 /** Labels shared by benchmark publication, results, and harness setup. */
 import {personLabel} from './runs.js';
+import {plural} from './labels.js';
 
 export const POLICIES = [
   ['coding', 'Coding', 'Use this for a coding agent or standalone solver. It receives a prompt with the case inputs and schemas, uses its own tools such as scripts or shell commands, and writes answer.json in the case workspace. Plugin tools are unavailable.'],
   ['task_tools', 'Task tools', 'Use this to test a harness with the plugin’s task instructions and tools. The harness can call the approved plugin tools through RUSH and writes its answer or refusal to the RUSH_RESULT path.'],
 ];
-
-const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`;
 
 /** A benchmark's card: name, task, creator, cases, model, runs and runners. */
 export const benchmarkCard = benchmark => ({

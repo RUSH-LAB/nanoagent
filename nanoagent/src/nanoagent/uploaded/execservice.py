@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 from typing import Any, Protocol
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from nanoagent.uploaded.attempt import CALL_HEADER, Attempt, ServiceError, error_response, from_contract, new_call_id
+from nanoagent.uploaded.attempt import CALL_HEADER, Attempt, ServiceError, from_contract, new_call_id, tool_error_response
 from nanoagent.uploaded.contract import ContractError, decode_and_validate, path_problem, validate, validate_argv
-from nanoagent.uploaded.evidence import json_bytes
 
 
 class ExecError(Exception):
@@ -54,17 +52,11 @@ class ExecService:
             return await self._run(request_id, call, span_id)
         except ServiceError as error:
             await self.attempt.recorder.record("exec", "exec.rejected", {"request_id": request_id, "code": error.code, "message": error.message, "http_status": error.status, "span_id": span_id})
-            return self._error(error, request_id)
-
-    @staticmethod
-    def _error(error: ServiceError, call_id: str) -> Response:
-        response = error_response(error, call_id)
-        validate("ToolResult", json.loads(response.body))
-        return response
+            return tool_error_response(error, request_id)
 
     async def _run(self, request_id: str, call: dict[str, Any], span_id: str | None) -> Response:
         recorder = self.attempt.recorder
-        command_sha = await recorder.payload(json_bytes({"argv": call["argv"], "cwd": call["cwd"]}))
+        command_sha = await recorder.json_payload({"argv": call["argv"], "cwd": call["cwd"]})
         await recorder.record("exec", "exec.started", {"request_id": request_id, "span_id": span_id, "cwd": call["cwd"], "timeout_ms": call["timeout_ms"], "command_sha256": command_sha}, [command_sha])
         started = self.attempt.clock_ns()
         failure: ServiceError | None = None
@@ -86,9 +78,9 @@ class ExecService:
         if failure is not None or result is None:
             failure = failure or ServiceError(500, "exec_failed", "the runner returned nothing")
             await recorder.record("exec", "exec.completed", {"request_id": request_id, "launch_id": launch_id, "ok": False, "duration_ns": duration, "error": {"code": failure.code, "message": failure.message}})
-            return self._error(failure, launch_id or request_id)
-        stdout_sha = await recorder.payload(json_bytes(result["stdout"]))
-        stderr_sha = await recorder.payload(json_bytes(result["stderr"]))
+            return tool_error_response(failure, launch_id or request_id)
+        stdout_sha = await recorder.json_payload(result["stdout"])
+        stderr_sha = await recorder.json_payload(result["stderr"])
         await recorder.record(
             "exec",
             "exec.completed",

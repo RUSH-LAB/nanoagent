@@ -18,6 +18,7 @@ HERE = Path(__file__).resolve().parent
 SOURCE = HERE.parents[2]
 OWN = ("harness.yaml", "main.py", "requirements.txt")
 # Whole packages, and single modules of packages whose `__init__` is left out.
+IGNORE = shutil.ignore_patterns("__pycache__")
 PACKAGES = ("core", "profiler")
 MODULES = (
     "plugin/dataflow.py",
@@ -37,12 +38,12 @@ def assemble(destination: Path) -> Path:
     destination.mkdir(parents=True)
     for name in OWN:
         shutil.copy2(HERE / name, destination / name)
-    shutil.copytree(HERE / "taskharness", destination / "taskharness", ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(HERE / "taskharness", destination / "taskharness", ignore=IGNORE)
     package = destination / "nanoagent"
     package.mkdir()
     shutil.copy2(SOURCE / "__init__.py", package / "__init__.py")
     for name in PACKAGES:
-        shutil.copytree(SOURCE / name, package / name, ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copytree(SOURCE / name, package / name, ignore=IGNORE)
     for module in MODULES:
         (package / module).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(SOURCE / module, package / module)

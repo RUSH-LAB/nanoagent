@@ -50,7 +50,6 @@ class SourceLimits:
 @dataclass(frozen=True)
 class SourceEntry:
     path: str
-    member: str
     size: int
     is_directory: bool
 
@@ -113,10 +112,11 @@ def _check_names(infos: list[zipfile.ZipInfo]) -> list[SourceEntry]:
             code = "duplicate_path" if seen[key] == path else "colliding_path"
             raise SourceError(code, f"{path!r} collides with {seen[key]!r}")
         seen[key] = path
+        _reject_special(info, path)
         parents = [_fold(str(parent)) for parent in PurePosixPath(path).parents if str(parent) != "."]
         directories.update(parents)
         (directories if is_directory else files).add(key)
-        entries.append(SourceEntry(path, info.filename, info.file_size, is_directory))
+        entries.append(SourceEntry(path, info.file_size, is_directory))
     clash = files & directories
     if clash:
         raise SourceError("path_conflict", f"{seen[min(clash)]!r} is both a file and a directory")
@@ -157,8 +157,6 @@ def inspect_zip(data: bytes, limits: SourceLimits) -> SourceArchive:
             if info.flag_bits & 0x1:
                 raise SourceError("encrypted", f"{info.filename!r} is encrypted")
         entries = _check_names(infos)
-        for info, entry in zip(infos, entries, strict=True):
-            _reject_special(info, entry.path)
         _check_sizes(infos, len(data), limits)
         for info, entry in zip(infos, entries, strict=True):
             if entry.is_directory:
@@ -220,7 +218,7 @@ def _write_file(root_fd: int, archive: zipfile.ZipFile, entry: SourceEntry, limi
     try:
         os.fchmod(fd, 0o644)
         try:
-            with archive.open(entry.member) as member:
+            with archive.open(entry.path) as member:
                 while chunk := member.read(CHUNK):
                     written += len(chunk)
                     if written > limits.max_file_bytes or written_total + written > limits.max_total_bytes:

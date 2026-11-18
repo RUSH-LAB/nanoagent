@@ -1,10 +1,12 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
 import {benchmarkApi} from './api';
+import {harnessLabel, plural} from './labels';
 import {defaultPolicy, maximumCost, submitBatch} from './batch';
 import {comparableScore} from './harnessComparison';
 import {POLICIES, harnessFacts} from './newRun';
 import {POLICY_LABELS, scoreText} from './runs';
+import {mapPool} from './pool';
 import useLoad from './useLoad';
 import PrepareHarness from './PrepareHarness';
 import CaseSetView from './CaseSetView';
@@ -74,16 +76,8 @@ export default function BatchRunForm({go, initialSelection}) {
       if (loading) return;
       loading = true;
       const entries = batchRef.current.entries.filter(item => item.runId);
-      const pairs = new Array(entries.length);
-      let next = 0;
-      async function read() {
-        while (next < entries.length) {
-          const index = next++;
-          pairs[index] = [entries[index].runId, (await benchmarkApi.run(entries[index].runId)).run];
-        }
-      }
       try {
-        await Promise.all(Array.from({length: Math.min(6, entries.length)}, read));
+        const pairs = await mapPool(entries, 6, async entry => [entry.runId, (await benchmarkApi.run(entry.runId)).run]);
         if (active) { setLive(Object.fromEntries(pairs)); setRefreshError(''); }
       } catch (error) { if (active) setRefreshError(`Could not refresh run progress: ${error.message}`); }
       finally { loading = false; }
@@ -103,7 +97,7 @@ export default function BatchRunForm({go, initialSelection}) {
     try {
       const result = await get();
       if (expected && (result.harness.name !== expected.harness.name || result.harness.version !== expected.harness.version)) {
-        throw new Error(`Choose ${expected.harness.name} v${expected.harness.version} to run the missing benchmarks.`);
+        throw new Error(`Choose ${harnessLabel(expected.harness)} to run the missing benchmarks.`);
       }
       setSource({...result, name});
     } catch (error) { setSourceError(error); } finally { setUploading(false); }
@@ -136,14 +130,15 @@ export default function BatchRunForm({go, initialSelection}) {
 
   if (batch) {
     const outstanding = batch.entries.filter(item => !item.runId);
-    const finished = batch.entries.filter(item => live[item.runId]?.status === 'complete').length;
-    const passed = batch.entries.filter(item => {const run = live[item.runId]; return run?.status === 'complete' && run.score?.complete && run.score.total > 0 && run.score.scored === run.score.total && run.score.passed === run.score.total;}).length;
-    const running = batch.entries.filter(item => live[item.runId]?.status === 'running').length;
-    const queued = batch.entries.filter(item => live[item.runId]?.status === 'queued').length;
+    const count = status => batch.entries.filter(item => live[item.runId]?.status === status).length;
+    const finished = count('complete');
+    const passed = batch.entries.filter(item => {const score = comparableScore(live[item.runId]); return score && score.passed === score.total;}).length;
+    const running = count('running');
+    const queued = count('queued');
     const stale = batch.entries.filter(item => !item.runId && ['stale_preview', 'unknown_preview'].includes(item.code));
     return <div className={styles.newRun}>
       <button type="button" className={styles.link} disabled={busy} onClick={() => {setBatch(null); setReview(null);}}>← Run another selection</button>
-      <h2>{batch.source.harness.name} v{batch.source.harness.version}</h2>
+      <h2>{harnessLabel(batch.source.harness)}</h2>
       <p className={styles.fieldHint}>{POLICY_LABELS[batch.policy]} · {finished} of {batch.entries.length} complete · {passed} passed · {running} running · {queued} queued · started {new Date(batch.createdAt).toLocaleString()}</p>
       {problem && <p className={styles.error} role="alert">{problem}</p>}
       {refreshError && <p className={styles.error} role="alert">{refreshError}</p>}
@@ -158,7 +153,7 @@ export default function BatchRunForm({go, initialSelection}) {
   return <div className={styles.newRun}>
     <h2>Benchmark Your Harness</h2>
     <p className={styles.fieldHint}>Choose a harness once and run it across any number of published plugin benchmarks.</p>
-    {expected && <p className={styles.note}>Running missing benchmarks for {expected.harness.name} v{expected.harness.version} · {POLICY_LABELS[expected.policy]}. Choose that same harness source below.</p>}
+    {expected && <p className={styles.note}>Running missing benchmarks for {harnessLabel(expected.harness)} · {POLICY_LABELS[expected.policy]}. Choose that same harness source below.</p>}
     <section className={styles.section}>
       <h3 className={styles.sectionHeading}>1. Choose a harness</h3>
       <div className={styles.form}><label>Harness source ZIP<input type="file" accept=".zip,application/zip" disabled={busy || uploading} onChange={event => {const file = event.target.files[0]; if (file) {setReference(''); if (!expected) setPolicy(defaultPolicy(null)); choose(() => benchmarkApi.uploadSource(file), file.name);}}} /></label></div>
@@ -175,9 +170,9 @@ export default function BatchRunForm({go, initialSelection}) {
       <p className={styles.fieldHint}>{selected.length} selected · {picked.reduce((n, item) => n + item.case_count, 0)} cases</p>
       <div className={styles.toolbar}><input className={styles.searchInput} type="search" disabled={busy} placeholder="Search plugins or benchmarks" aria-label="Search plugins or benchmarks" value={query} onChange={event => setQuery(event.target.value)} /><button type="button" className={styles.secondaryButton} disabled={busy} onClick={() => updateSelection([...new Set([...selected, ...matches.map(item => item.benchmark_id)])])}>Select shown</button><button type="button" className={styles.secondaryButton} disabled={busy} onClick={() => updateSelection(selected.filter(id => !matches.some(item => item.benchmark_id === id)))}>Clear shown</button></div>
       {picked.length !== selected.length && <p className={styles.warn}>Some selected benchmarks are no longer available. <button type="button" className={styles.link} onClick={() => updateSelection(picked.map(item => item.benchmark_id))}>Remove unavailable benchmarks</button></p>}
-      <div className={styles.benchmarkList}>{matches.map(item => <label key={item.benchmark_id} className={styles.benchmarkOption}><input type="checkbox" disabled={busy} checked={selected.includes(item.benchmark_id)} onChange={event => updateSelection(event.target.checked ? [...selected, item.benchmark_id] : selected.filter(id => id !== item.benchmark_id))} /><span><strong>{item.plugin.name}</strong><small>{item.name} · v{item.plugin.version} · {item.task_id} · {item.case_count} case{item.case_count === 1 ? '' : 's'} · {item.model}</small></span></label>)}</div>
+      <div className={styles.benchmarkList}>{matches.map(item => <label key={item.benchmark_id} className={styles.benchmarkOption}><input type="checkbox" disabled={busy} checked={selected.includes(item.benchmark_id)} onChange={event => updateSelection(event.target.checked ? [...selected, item.benchmark_id] : selected.filter(id => id !== item.benchmark_id))} /><span><strong>{item.plugin.name}</strong><small>{item.name} · v{item.plugin.version} · {item.task_id} · {plural(item.case_count, 'case')} · {item.model}</small></span></label>)}</div>
       {!matches.length && <p className={styles.fieldHint}>No benchmarks match this search.</p>}
-      <div className={styles.actionBar}><button type="button" className={styles.primaryButton} disabled={!source || !selected.length || busy || uploading} onClick={preview}>{busy ? 'Checking benchmarks…' : `Review ${selected.length} benchmark${selected.length === 1 ? '' : 's'}`}</button></div>
+      <div className={styles.actionBar}><button type="button" className={styles.primaryButton} disabled={!source || !selected.length || busy || uploading} onClick={preview}>{busy ? 'Checking benchmarks…' : `Review ${plural(selected.length, 'benchmark')}`}</button></div>
     </section>
     {problem && <p className={styles.error} role="alert">{problem}</p>}
     {review && <section className={styles.section}>
@@ -188,6 +183,6 @@ export default function BatchRunForm({go, initialSelection}) {
       <p className={styles.fieldHint}>Benchmarks needing attention will not be submitted. Review them again after resolving their errors.</p>
       <button type="button" className={styles.primaryButton} disabled={busy || !review.some(item => item.preview)} onClick={start}>{busy ? 'Submitting…' : `Run ${review.filter(item => item.preview).length} ready benchmarks`}</button>
     </section>}
-    {saved?.length > 0 && <section className={styles.section}><h3 className={styles.sectionHeading}>Recent batches on this computer</h3>{saved.map(item => <p key={item.id}><button type="button" className={styles.link} onClick={() => {setProblem(''); setBatch(item);}}>{item.source.harness.name} v{item.source.harness.version} · {item.entries.length} benchmarks · {new Date(item.createdAt).toLocaleString()}</button></p>)}</section>}
+    {saved?.length > 0 && <section className={styles.section}><h3 className={styles.sectionHeading}>Recent batches on this computer</h3>{saved.map(item => <p key={item.id}><button type="button" className={styles.link} onClick={() => {setProblem(''); setBatch(item);}}>{harnessLabel(item.source.harness)} · {item.entries.length} benchmarks · {new Date(item.createdAt).toLocaleString()}</button></p>)}</section>}
   </div>;
 }

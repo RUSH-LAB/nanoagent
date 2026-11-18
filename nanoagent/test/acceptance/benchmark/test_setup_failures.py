@@ -59,7 +59,7 @@ def test_bad_sha_fails_the_run_before_any_result(tmp_path: Path, fake_psql: Call
     home = tmp_path / "run"
     done = run_step2(home, overrides(fake_psql(sha256="0" * 64), "acceptance-probe-01"))
     assert done.returncode != 0
-    assert "does not match the SHA-256" in done.stdout + done.stderr + (home / "run.log").read_text()
+    assert "does not match SHA-256" in done.stdout + done.stderr + (home / "run.log").read_text()
     assert not (home / "result.json").exists()
 
 

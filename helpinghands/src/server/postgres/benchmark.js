@@ -7,7 +7,7 @@ const {stringifyJson} = require('../benchmark/json');
 const {RENDERER_VERSION, sha256Hex} = require('../benchmark/prompt');
 const {latestByCase, runScore, sumMetrics} = require('../benchmark/rules');
 const {MAX_ATTEMPT_LINKS, MAX_ATTEMPTS_PER_CASE, MAX_EVENT_PAGE_BYTES, MAX_TRACE_PAGE_BYTES} = require('../benchmark/limits');
-const {chargeStorage, inTransaction} = require('./benchmark-context');
+const {SEAL, chargeStorage, exists, inTransaction} = require('./benchmark-context');
 const {sweepExpired} = require('./benchmark-sweep');
 
 /** The previews a member keeps. */
@@ -47,6 +47,26 @@ function runStatus(run, attempts) {
   return current.some(attempt => attempt.state === 'leased' || attempt.state === 'final') ? 'running' : 'queued';
 }
 
+const benchmarkRow = row => ({
+  benchmark_id: row.benchmark_id, name: row.name,
+  plugin: {id: row.plugin_id, name: row.plugin_name, version: row.plugin_version, sha256: row.package_sha256},
+  task_id: row.task_id, task_kind: row.task.kind, publisher: {id: row.publisher_id, name: row.publisher_name, github: row.publisher_github},
+  case_set_id: row.case_set_id, case_set_digest: row.case_set_digest, digest: row.digest,
+  model: row.model, endpoint_profile: row.endpoint_label, limits: row.limits, coding_template: row.coding_template, task_instructions: row.task_instructions,
+  renderer_version: RENDERER_VERSION, published_at: row.published_at,
+  case_count: Number(row.case_count), answer_count: Number(row.answer_count), refuse_count: Number(row.refuse_count),
+  run_count: Number(row.run_count), runner_count: Number(row.runner_count),
+});
+const BENCHMARK_SELECT = `select b.benchmark_id, b.name, b.plugin_id, b.plugin_version, b.model, b.endpoint_label, b.limits, b.coding_template, b.task_instructions,
+  b.digest, b.published_at, b.publisher_id, u.display_name as publisher_name, u.github_login as publisher_github,
+  s.case_set_id, s.plugin_name, s.package_sha256, s.task_id, s.task, s.context, s.digest as case_set_digest,
+  (select count(*) from benchmark_case_set_case c where c.case_set_id = s.case_set_id) as case_count,
+  (select count(*) from benchmark_case_set_case c where c.case_set_id = s.case_set_id and c.kind = 'answer') as answer_count,
+  (select count(*) from benchmark_case_set_case c where c.case_set_id = s.case_set_id and c.kind = 'refuse') as refuse_count,
+  st.run_count, st.runner_count
+  from benchmark b join benchmark_case_set s on s.case_set_id = b.case_set_id join app_user u on u.id = b.publisher_id
+  cross join lateral benchmark_stats(b.benchmark_id) st`;
+
 /**
  * Benchmarks, previews, sources, and the member's runs (migration 0052). Every read is as the
  * member, so row-level security shows a run only to the member who submitted it, in a workspace
@@ -64,41 +84,19 @@ function createPostgresBenchmark({pool}) {
    * only to its owner, and only then does the transaction act as the system and lock it.
    */
   const ownRunWrite = (context, runId, operation) => inTransaction(pool, {userId: context.userId, workspaceId: context.workspaceId}, async client => {
-    if (!(await client.query('select 1 from benchmark_run where run_id = $1', [runId])).rowCount) throw new BenchmarkError(404, 'unknown_run', 'No such run');
+    if (!(await exists(client, 'select 1 from benchmark_run where run_id = $1', [runId]))) throw new BenchmarkError(404, 'unknown_run', 'No such run');
     await client.query("select set_config('app.benchmark_system', 'on', true)");
     return operation(client);
   });
 
-  const benchmarkRow = row => ({
-    benchmark_id: row.benchmark_id, name: row.name,
-    plugin: {id: row.plugin_id, name: row.plugin_name, version: row.plugin_version, sha256: row.package_sha256},
-    task_id: row.task_id, task_kind: row.task.kind, publisher: {id: row.publisher_id, name: row.publisher_name, github: row.publisher_github},
-    case_set_id: row.case_set_id, case_set_digest: row.case_set_digest, digest: row.digest,
-    model: row.model, endpoint_profile: row.endpoint_label, limits: row.limits, coding_template: row.coding_template, task_instructions: row.task_instructions,
-    renderer_version: RENDERER_VERSION, published_at: row.published_at,
-    case_count: Number(row.case_count), answer_count: Number(row.answer_count), refuse_count: Number(row.refuse_count),
-    run_count: Number(row.run_count), runner_count: Number(row.runner_count),
-  });
-  const BENCHMARK_SELECT = `select b.benchmark_id, b.name, b.plugin_id, b.plugin_version, b.model, b.endpoint_label, b.limits, b.coding_template, b.task_instructions,
-    b.digest, b.published_at, b.publisher_id, u.display_name as publisher_name, u.github_login as publisher_github,
-    s.case_set_id, s.plugin_name, s.package_sha256, s.task_id, s.task, s.context, s.digest as case_set_digest,
-    (select count(*) from benchmark_case_set_case c where c.case_set_id = s.case_set_id) as case_count,
-    (select count(*) from benchmark_case_set_case c where c.case_set_id = s.case_set_id and c.kind = 'answer') as answer_count,
-    (select count(*) from benchmark_case_set_case c where c.case_set_id = s.case_set_id and c.kind = 'refuse') as refuse_count,
-    st.run_count, st.runner_count
-    from benchmark b join benchmark_case_set s on s.case_set_id = b.case_set_id join app_user u on u.id = b.publisher_id
-    cross join lateral benchmark_stats(b.benchmark_id) st`;
-
   /** The run `row` as the API shows it. */
   async function runDetail(client, row) {
     const runId = row.run_id;
-    const results = [];
-    for (const [sql, values] of [
-      ['select * from benchmark_run_case where run_id = $1 order by position', [runId]],
-      ['select * from benchmark_attempt where run_id = $1 order by case_id, attempt_no', [runId]],
-      ['select size from benchmark_source where workspace_id = $1 and user_id = $2 and sha256 = $3', [row.workspace_id, row.user_id, row.source_sha256]],
-    ]) results.push((await client.query(sql, values)).rows);
-    const [cases, attempts, source] = results;
+    const {rows: cases} = await client.query('select * from benchmark_run_case where run_id = $1 order by position', [runId]);
+    const {rows: attempts} = await client.query('select * from benchmark_attempt where run_id = $1 order by case_id, attempt_no', [runId]);
+    const {rows: source} = await client.query(
+      'select size from benchmark_source where workspace_id = $1 and user_id = $2 and sha256 = $3', [row.workspace_id, row.user_id, row.source_sha256],
+    );
     const latest = latestByCase(attempts);
     return {
       run_id: runId, status: runStatus(row, attempts), created_at: row.created_at, canceled_at: row.canceled_at,
@@ -147,7 +145,7 @@ function createPostgresBenchmark({pool}) {
     async benchmarkResults(context, benchmarkId, {limit, before}) {
       await sweep();
       return member(context, async client => {
-        if (!(await client.query('select 1 from benchmark where benchmark_id = $1', [benchmarkId])).rowCount) return null;
+        if (!(await exists(client, 'select 1 from benchmark where benchmark_id = $1', [benchmarkId]))) return null;
         return (await client.query('select * from benchmark_results($1, $2, $3)', [benchmarkId, limit, before])).rows.map(runSummary);
       });
     },
@@ -263,7 +261,7 @@ function createPostgresBenchmark({pool}) {
             });
           }
         }
-        if (!(await client.query('select 1 from benchmark_source where workspace_id = $1 and user_id = $2 and sha256 = $3', [context.workspaceId, context.userId, sha256])).rowCount) {
+        if (!(await exists(client, 'select 1 from benchmark_source where workspace_id = $1 and user_id = $2 and sha256 = $3', [context.workspaceId, context.userId, sha256]))) {
           await chargeStorage(client, context.userId, data.length);
         }
         await client.query(
@@ -303,7 +301,7 @@ function createPostgresBenchmark({pool}) {
            select sha256, package from market_plugin_version where plugin_id = $1 and sha256 = $2 limit 1 on conflict do nothing`,
           [benchmark.plugin.id, benchmark.plugin.sha256],
         );
-        if (!(await client.query('select 1 from benchmark_package where sha256 = $1', [benchmark.plugin.sha256])).rowCount) {
+        if (!(await exists(client, 'select 1 from benchmark_package where sha256 = $1', [benchmark.plugin.sha256]))) {
           throw new BenchmarkError(409, 'package_unavailable', `${benchmark.plugin.id} ${benchmark.plugin.version} is no longer published, so its benchmark cannot be run`);
         }
         const runId = crypto.randomUUID();
@@ -397,7 +395,7 @@ function createPostgresBenchmark({pool}) {
     },
     async spans(context, attemptId, {kind, status, q, limit}) {
       return member(context, async client => {
-        if (!(await client.query('select 1 from benchmark_attempt where attempt_id = $1', [attemptId])).rowCount) return null;
+        if (!(await exists(client, 'select 1 from benchmark_attempt where attempt_id = $1', [attemptId]))) return null;
         const escaped = q ? `%${q.replace(/[\\%_]/g, '\\$&')}%` : null;
         // Each read ends at its row limit or once its bytes pass MAX_TRACE_PAGE_BYTES, whichever comes first (it always holds one row).
         const spanRows = (await client.query(
@@ -429,7 +427,7 @@ function createPostgresBenchmark({pool}) {
     async accounting(context, attemptId) {
       await sweep();
       return member(context, async client => {
-        if (!(await client.query('select 1 from benchmark_attempt where attempt_id = $1', [attemptId])).rowCount) return null;
+        if (!(await exists(client, 'select 1 from benchmark_attempt where attempt_id = $1', [attemptId]))) return null;
         const calls = (await client.query(
           `select d.call_id, d.status, d.reserve_usd::float8 as reserve_usd, d.cost_usd::float8 as cost_usd, d.provenance, d.created_at, d.settled_at,
              a.version, a.record
@@ -490,8 +488,7 @@ function createPostgresBenchmark({pool}) {
         await client.query('select run_id from benchmark_run where run_id = $1 for update', [runId]);
         await client.query('update benchmark_run set canceled_at = coalesce(canceled_at, now()) where run_id = $1', [runId]);
         const queued = await client.query(
-          `update benchmark_attempt set state = 'final', execution_status = 'canceled', finalized_at = now(), sealed = true,
-             final_cursor = next_cursor - 1 where run_id = $1 and state = 'queued'`, [runId]);
+          `update benchmark_attempt set state = 'final', execution_status = 'canceled', ${SEAL} where run_id = $1 and state = 'queued'`, [runId]);
         const leased = await client.query(
           "update benchmark_attempt set cancel_requested = true where run_id = $1 and state = 'leased'", [runId]);
         return {canceled_attempts: queued.rowCount, signaled_attempts: leased.rowCount};

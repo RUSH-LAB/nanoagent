@@ -7,14 +7,12 @@ Pure functions over bytes and JSON. Nothing is repaired: a frame or body that do
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
 Dialect = Literal["chat_completions", "responses", "anthropic_messages"]
 Status = Literal["completed", "failed", "incomplete", "interrupted", "error"]
-
-DIALECTS: tuple[Dialect, ...] = ("chat_completions", "responses", "anthropic_messages")
 
 
 class MalformedCaptureError(ValueError):
@@ -216,12 +214,12 @@ def _data_frames(frames: Sequence[SseFrame]) -> list[SseFrame]:
 class _Proposal:
     """Mutable proposal under assembly."""
 
-    def __init__(self, started: int | None, **ids: Any) -> None:
+    def __init__(self, started: int | None, *, call_id: str | None = None, name: str = "", arguments: str | None = None, **ids: Any) -> None:
         self.ids = ids
-        self.name = ""
-        self.call_id: str | None = None
+        self.name = name
+        self.call_id = call_id
         self.fragments: list[str] = []
-        self.arguments: str | None = None  # an authoritative complete value, when the dialect sends one
+        self.arguments = arguments  # an authoritative complete value, when the dialect sends one
         self.started = started
         self.completed: int | None = None
 
@@ -342,10 +340,14 @@ def _chat_proposals(choice: int, calls: Sequence[dict[str, Any]]) -> list[ToolPr
     proposals = []
     for position, call in enumerate(calls):
         function = call.get("function") or {}
-        proposal = _Proposal(None, choice_index=choice, tool_index=position)
-        proposal.call_id = call.get("id")
-        proposal.name = function.get("name") or ""
-        proposal.arguments = function.get("arguments") or ""
+        proposal = _Proposal(
+            None,
+            call_id=call.get("id"),
+            name=function.get("name") or "",
+            arguments=function.get("arguments") or "",
+            choice_index=choice,
+            tool_index=position,
+        )
         proposals.append(proposal.freeze())
     return proposals
 
@@ -388,11 +390,8 @@ _RESPONSES_TERMINAL: dict[str, Status] = {
 }
 
 
-def _responses_item(output_index: int, item: Mapping[str, Any], frame: int | None) -> _Proposal:
-    proposal = _Proposal(frame, item_id=item.get("id"), output_index=output_index)
-    proposal.call_id = item.get("call_id")
-    proposal.name = item.get("name") or ""
-    return proposal
+def _responses_item(output_index: int, item: Mapping[str, Any], frame: int | None, arguments: str | None = None) -> _Proposal:
+    return _Proposal(frame, call_id=item.get("call_id"), name=item.get("name") or "", arguments=arguments, item_id=item.get("id"), output_index=output_index)
 
 
 def _assemble_responses_stream(frames: Sequence[SseFrame], headers: Mapping[str, str] | None, requested_model: str | None) -> AssembledResponse:
@@ -477,9 +476,7 @@ def _assemble_responses_body(body: Mapping[str, Any], headers: Mapping[str, str]
     proposals: list[ToolProposal] = []
     for output_index, item in enumerate(body.get("output") or []):
         if item.get("type") == "function_call":
-            proposal = _responses_item(output_index, item, None)
-            proposal.arguments = item.get("arguments") or ""
-            proposals.append(proposal.freeze())
+            proposals.append(_responses_item(output_index, item, None, item.get("arguments") or "").freeze())
         elif item.get("type") == "message":
             text += [part.get("text", "") for part in item.get("content") or [] if part.get("type") == "output_text"]
     return _response(
@@ -524,11 +521,7 @@ def _assemble_anthropic_stream(frames: Sequence[SseFrame], headers: Mapping[str,
             _merge_usage(usage, message.get("usage"))
         elif kind == "content_block_start" and (event.get("content_block") or {}).get("type") == "tool_use":
             block = event["content_block"]
-            proposal = _Proposal(frame.index, block_index=event["index"])
-            proposal.call_id, proposal.name = block.get("id"), block.get("name") or ""
-            if block.get("input"):
-                proposal.arguments = json.dumps(block["input"])
-            blocks[event["index"]] = proposal
+            blocks[event["index"]] = _anthropic_tool(block, event["index"], frame.index, json.dumps(block["input"]) if block.get("input") else None)
         elif kind == "content_block_delta":
             _anthropic_delta(blocks, text, event, frame.index)
         elif kind == "content_block_stop" and event.get("index") in blocks:
@@ -557,6 +550,10 @@ def _assemble_anthropic_stream(frames: Sequence[SseFrame], headers: Mapping[str,
     )
 
 
+def _anthropic_tool(block: Mapping[str, Any], index: int, started: int | None, arguments: str | None) -> _Proposal:
+    return _Proposal(started, call_id=block.get("id"), name=block.get("name") or "", arguments=arguments, block_index=index)
+
+
 def _anthropic_delta(blocks: dict[int, _Proposal], text: list[str], event: Mapping[str, Any], frame: int) -> None:
     delta = event.get("delta") or {}
     if delta.get("type") == "text_delta":
@@ -576,10 +573,7 @@ def _assemble_anthropic_body(body: Mapping[str, Any], headers: Mapping[str, str]
         if block.get("type") == "text":
             text.append(block.get("text") or "")
         elif block.get("type") == "tool_use":
-            proposal = _Proposal(None, block_index=index)
-            proposal.call_id, proposal.name = block.get("id"), block.get("name") or ""
-            proposal.arguments = json.dumps(block.get("input"))
-            proposals.append(proposal.freeze())
+            proposals.append(_anthropic_tool(block, index, None, json.dumps(block.get("input"))).freeze())
     return _response(
         "anthropic_messages",
         headers,
@@ -594,30 +588,18 @@ def _assemble_anthropic_body(body: Mapping[str, Any], headers: Mapping[str, str]
     )
 
 
-_STREAMS = {
-    "chat_completions": _assemble_chat_stream,
-    "responses": _assemble_responses_stream,
-    "anthropic_messages": _assemble_anthropic_stream,
-}
-_BODIES = {
-    "chat_completions": _assemble_chat_body,
-    "responses": _assemble_responses_body,
-    "anthropic_messages": _assemble_anthropic_body,
-}
-
-
 def assemble_stream(
     dialect: Dialect, frames: Sequence[SseFrame], headers: Mapping[str, str] | None = None, requested_model: str | None = None
 ) -> AssembledResponse:
     """Assemble a streamed response from its frames in arrival order."""
-    return _STREAMS[dialect](frames, headers, requested_model)
+    return _HANDLERS[dialect].stream(frames, headers, requested_model)
 
 
 def assemble_body(
     dialect: Dialect, body: Mapping[str, Any], headers: Mapping[str, str] | None = None, requested_model: str | None = None
 ) -> AssembledResponse:
     """Assemble a non-streaming JSON response body."""
-    return _BODIES[dialect](body, headers, requested_model)
+    return _HANDLERS[dialect].body(body, headers, requested_model)
 
 
 # --- Requests -----------------------------------------------------------------------------------------------------
@@ -662,13 +644,26 @@ def _anthropic_request(body: Mapping[str, Any]) -> tuple[list[str], list[ToolRes
     return names, results
 
 
-_REQUESTS = {"chat_completions": _chat_request, "responses": _responses_request, "anthropic_messages": _anthropic_request}
+@dataclass(frozen=True)
+class _Handlers:
+    """One dialect's response assembly for a stream and for a body, and its request parsing."""
+
+    stream: Callable[[Sequence[SseFrame], Mapping[str, str] | None, str | None], AssembledResponse]
+    body: Callable[[Mapping[str, Any], Mapping[str, str] | None, str | None], AssembledResponse]
+    request: Callable[[Mapping[str, Any]], tuple[list[str], list[ToolResultSent]]]
+
+
+_HANDLERS: dict[Dialect, _Handlers] = {
+    "chat_completions": _Handlers(_assemble_chat_stream, _assemble_chat_body, _chat_request),
+    "responses": _Handlers(_assemble_responses_stream, _assemble_responses_body, _responses_request),
+    "anthropic_messages": _Handlers(_assemble_anthropic_stream, _assemble_anthropic_body, _anthropic_request),
+}
 
 
 def parse_request(dialect: Dialect, body: Mapping[str, Any]) -> ParsedModelRequest:
     """Extract the model, stream flag, declared tool names and tool results sent back to the model."""
     try:
-        names, results = _REQUESTS[dialect](body)
+        names, results = _HANDLERS[dialect].request(body)
     except (KeyError, TypeError, AttributeError) as error:
         raise MalformedBodyError(f"{dialect} request is malformed: {error!r}") from error
     return ParsedModelRequest(dialect, body.get("model"), bool(body.get("stream")), tuple(names), tuple(results))

@@ -46,7 +46,7 @@ class CaseSet:
         """The input of case ``id`` (<plugin>-<n>, the inputs to answer first), and its refusal when it
         is a case to refuse."""
         inputs = [(arguments, None) for arguments in self.answer] + [(refusal.arguments, refusal) for refusal in self.refuse]
-        ids = [f"{self.plugin}-{index:02d}" for index in range(1, len(inputs) + 1)]
+        ids = case_ids(self)
         if id not in ids:
             raise ValueError(f"{self.plugin}'s cases are {ids[0]} to {ids[-1]}, not {id}")
         return inputs[ids.index(id)]

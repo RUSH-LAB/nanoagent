@@ -28,11 +28,11 @@ function createBenchmarkService({repository}) {
     return {capabilities, resolved: resolve({benchmark, policy: request.policy, capabilities})};
   }
 
-  const view = ({plan, cases}, benchmark, capabilities) => ({
+  const view = ({plan}, benchmark, capabilities) => ({
     benchmark: summaryOf(benchmark), policy: plan.policy, prompt: plan.prompt,
     limits: {effective: plan.limits, capabilities}, egress_hosts: plan.egress_hosts, endpoint_profile: plan.endpoint_profile, model: plan.model,
     renderer_version: plan.renderer_version, unverified_egress: plan.limits.internet_access,
-    cases: cases.map(({case_id: caseId, position, kind, content_digest: contentDigest, prompt}) => ({case_id: caseId, position, kind, content_digest: contentDigest, prompt})),
+    cases: plan.cases,
   });
 
   return Object.freeze({

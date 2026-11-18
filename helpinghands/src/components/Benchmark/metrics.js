@@ -5,6 +5,8 @@
  * (`{total, missing_attempts}`).
  */
 
+import {plural} from './labels.js';
+
 const TOKENS = [
   ['total_tokens', 'Total tokens', 'total'],
   ['input_tokens', 'Input tokens', 'input'],
@@ -27,7 +29,7 @@ export function formatMs(ms) {
 
 const formatNs = ns => (Number.isFinite(ns) ? formatMs(ns / 1e6) : 'Unknown');
 
-const missingText = (count, unit) => (count > 0 ? `${count} ${unit}${count === 1 ? '' : 's'} without it` : null);
+const missingText = (count, unit) => (count > 0 ? `${plural(count, unit)} without it` : null);
 
 /**
  * The six primary metrics, in order: `{key, label, value, text, missing}`. `value` is the known subtotal (or null), `text`

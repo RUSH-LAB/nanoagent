@@ -108,8 +108,7 @@ async def hit(client, endpoint: str):
 async def test_every_service_accepts_work_while_the_lease_is_valid(tmp_path: Path, endpoint: str) -> None:
     clock = Clock()
     lease = Lease("a", 1, lease_s=60, clock_ns=clock)
-    rig = sf.make_rig(tmp_path, sf.ScriptedTransport(sf.chat_ok()))
-    rig.services.attempt.lease_lapsed = lease.lapsed
+    rig = sf.make_rig(tmp_path, sf.ScriptedTransport(sf.chat_ok()), lease_lapsed=lease.lapsed)
     clock.advance(59)
     async with rig.client() as client:
         response = await hit(client, endpoint)
@@ -120,8 +119,7 @@ async def test_every_service_accepts_work_while_the_lease_is_valid(tmp_path: Pat
 async def test_every_service_refuses_new_work_once_the_lease_lapsed(tmp_path: Path, endpoint: str) -> None:
     clock = Clock()
     lease = Lease("a", 1, lease_s=60, clock_ns=clock)
-    rig = sf.make_rig(tmp_path, sf.ScriptedTransport(sf.chat_ok()))
-    rig.services.attempt.lease_lapsed = lease.lapsed
+    rig = sf.make_rig(tmp_path, sf.ScriptedTransport(sf.chat_ok()), lease_lapsed=lease.lapsed)
     clock.advance(61)
     async with rig.client() as client:
         response = await hit(client, endpoint)
@@ -133,8 +131,7 @@ async def test_every_service_refuses_new_work_once_the_lease_lapsed(tmp_path: Pa
 async def test_a_renewed_lease_keeps_every_service_open(tmp_path: Path) -> None:
     clock = Clock()
     lease = Lease("a", 1, lease_s=60, clock_ns=clock)
-    rig = sf.make_rig(tmp_path, sf.ScriptedTransport(sf.chat_ok()))
-    rig.services.attempt.lease_lapsed = lease.lapsed
+    rig = sf.make_rig(tmp_path, sf.ScriptedTransport(sf.chat_ok()), lease_lapsed=lease.lapsed)
     clock.advance(50)
     lease.extend(60, clock())
     clock.advance(50)  # 100 s after the claim: past the first expiry, inside the renewed one

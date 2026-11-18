@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
 
-from nanoagent.uploaded.endpoint import OPENROUTER_BASE_URL, EndpointConfigError, load_endpoint, parse_endpoint
+from nanoagent.uploaded.endpoint import OPENROUTER_BASE_URL, EndpointConfigError, parse_endpoint
 
 ENV = {"OPENROUTER_API_KEY": "sk-real", "MOCK_KEY": "synthetic"}
 PRODUCTION: dict[str, Any] = {"label": "production", "mode": "openrouter", "upstream_base_url": OPENROUTER_BASE_URL, "api_key_env": "OPENROUTER_API_KEY"}
@@ -75,16 +74,6 @@ def test_shape_errors_are_specific(overrides: dict[str, Any], code: str) -> None
     rejected({**PRODUCTION, **overrides}, code)
 
 
-def test_missing_keys(tmp_path: Path) -> None:
+def test_missing_keys() -> None:
     for key in ("label", "mode", "upstream_base_url", "api_key_env"):
         rejected({k: v for k, v in PRODUCTION.items() if k != key}, "missing_key")
-    path = tmp_path / "worker.yaml"
-    path.write_text("other: 1\n")
-    with pytest.raises(EndpointConfigError, match="no `openrouter` mapping"):
-        load_endpoint(path, ENV)
-
-
-def test_loads_from_the_worker_yaml(tmp_path: Path) -> None:
-    path = tmp_path / "worker.yaml"
-    path.write_text("openrouter:\n  label: dev\n  mode: mock\n  upstream_base_url: http://127.0.0.1:9/api/v1\n  api_key_env: MOCK_KEY\n  mock_hosts: [127.0.0.1]\nother: {}\n")
-    assert load_endpoint(path, ENV).destination == "http://127.0.0.1:9"

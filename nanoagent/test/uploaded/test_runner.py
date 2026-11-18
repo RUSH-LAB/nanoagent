@@ -19,14 +19,15 @@ from nanoagent.uploaded.app import AttemptServices
 from nanoagent.uploaded.execservice import ExecError
 from nanoagent.uploaded.collector import ProcessEvent, ProcessEventKind, ProcessEvidence
 from nanoagent.uploaded.rush_worker import LeaseLost, RushError, RushUnavailable
-from nanoagent.uploaded.runner import EXEC_THREADS, AttemptRunner, CaseCommands, RunnerConfig, default_project
+from nanoagent.uploaded.runner import EXEC_THREADS, AttemptRunner, CaseCommands, RunnerConfig
 from nanoagent.uploaded.sandbox import SandboxError, Termination, TerminationKind
+from nanoagent.uploaded.projection import project
 from nanoagent.uploaded.toolchains import DependencyClosure
 from nanoagent.uploaded.worker import runner_config  # noqa: F401  (imported so the worker module stays importable)
 
 
 class Rig:
-    def __init__(self, tmp_path: Path, *, rush: fx.FakeRush | None = None, script: fx.CaseScript | None = None, build_error: Exception | None = None, case_error: Exception | None = None, transport: Any = None, verify: Any = None, clock_ns: Any = None) -> None:
+    def __init__(self, tmp_path: Path, *, rush: fx.FakeRush | None = None, script: fx.CaseScript | None = None, build_error: Exception | None = None, case_error: Exception | None = None, transport: Any = None, verify: Any = None, clock_ns: Any = None, resolve: Any = None, **config_fields: Any) -> None:
         self.rush = rush or fx.FakeRush()
         self.supervisor = fx.FakeSupervisor(tmp_path, script, build_error, case_error)
         self.relay = fx.FakeRelay()
@@ -50,12 +51,12 @@ class Rig:
 
         config = RunnerConfig(
             "w-1", sf.make_endpoint(), {"test/model": (sf.Decimal("0.000001"), sf.Decimal("0.000004"))}, tmp_path / "scratch",
-            capabilities=fx.CAPABILITIES, renew_interval_s=0.05, drain_timeout_s=3,
+            capabilities=fx.CAPABILITIES, renew_interval_s=0.05, drain_timeout_s=3, **config_fields,
         )
         (tmp_path / "scratch").mkdir()
         self.runner = AttemptRunner(
             config, supervisor=self.supervisor, worker=self.rush, relay=self.relay, plugins=fx.FakePlugins(),  # type: ignore[arg-type]
-            services_factory=services_factory, verify_task_case=verify_case, project=fx.fake_project, **({} if clock_ns is None else {"clock_ns": clock_ns}),
+            services_factory=services_factory, verify_task_case=verify_case, project=fx.fake_project, **({} if clock_ns is None else {"clock_ns": clock_ns}), **({} if resolve is None else {"resolve_dependencies": resolve}),
         )
 
     async def run(self, job: Any = None):
@@ -655,7 +656,7 @@ def many_processes(n: int) -> ProcessEvidence:
 
 async def test_a_harness_with_thousands_of_processes_posts_its_spans_in_chunks_and_is_finalized(tmp_path: Path) -> None:
     rig = Rig(tmp_path, rush=StrictSpansRush(), script=fx.CaseScript(evidence=many_processes(2100)), verify=CaseVerdict("fail", 0.0, None))
-    rig.runner.project = default_project
+    rig.runner.project = project
     result = await rig.run()
     assert result.outcome == "finalized" and rig.rush.finalized[0]["verdict"] == "fail"
     assert len(rig.rush.span_bodies) >= 2
@@ -694,23 +695,21 @@ async def test_a_lost_lease_during_the_span_upload_is_still_a_lost_lease(tmp_pat
     assert result.outcome == "lease_lost" and rig.rush.finalized == []
 
 
-async def test_the_build_gets_the_runs_wall_time_for_resolving_dependencies(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_the_build_gets_the_runs_wall_time_for_resolving_dependencies(tmp_path: Path) -> None:
     seen: list[float] = []
 
     def resolve(*args: Any, timeout_s: float, **kwargs: Any) -> Any:
         seen.append(timeout_s)
         return DependencyClosure(tmp_path, {})
 
-    monkeypatch.setattr("nanoagent.uploaded.runner.resolve_dependencies", resolve)
-    rig = Rig(tmp_path)
+    rig = Rig(tmp_path, resolve=resolve)
     await rig.run()
     assert seen == [600.0]  # the job's build_wall_ms
 
 
 @pytest.mark.parametrize("cap", [10**6, 10])
-async def test_a_snapshot_event_carries_the_diff_that_fits_and_says_when_it_is_cut(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap: int) -> None:
-    monkeypatch.setattr("nanoagent.uploaded.runner.SNAPSHOT_EVENT_DIFF_BYTES", cap)
-    rig = Rig(tmp_path, verify=CaseVerdict("pass", 1.0, None))
+async def test_a_snapshot_event_carries_the_diff_that_fits_and_says_when_it_is_cut(tmp_path: Path, cap: int) -> None:
+    rig = Rig(tmp_path, verify=CaseVerdict("pass", 1.0, None), snapshot_event_diff_bytes=cap)
     assert (await rig.run()).outcome == "finalized"
     [snapshot] = rig.rush.of("snapshot.taken")
     if cap == 10:
@@ -781,16 +780,15 @@ async def test_one_event_with_a_huge_unknown_key_does_not_unscore_the_case(tmp_p
 
 
 @pytest.mark.parametrize("queue_pressure", [False, True])
-async def test_harness_event_spam_past_the_event_budget_is_dropped_and_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, queue_pressure: bool) -> None:
+async def test_harness_event_spam_past_the_event_budget_is_dropped_and_reported(tmp_path: Path, queue_pressure: bool) -> None:
     class SlowRush(fx.StrictRush):
         async def append_events(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
             await anyio.sleep(0.001)
             return await super().append_events(*args, **kwargs)
 
-    monkeypatch.setattr("nanoagent.uploaded.rush_worker.EVENT_BUDGET", 40)
     rush = (SlowRush if queue_pressure else fx.StrictRush)(max_events=60)
-    rig = Rig(tmp_path, rush=rush, script=fx.CaseScript(block=True), verify=CaseVerdict("fail", 0.0, None))
-    rig.runner.project = default_project
+    rig = Rig(tmp_path, rush=rush, script=fx.CaseScript(block=True), verify=CaseVerdict("fail", 0.0, None), event_budget=40)
+    rig.runner.project = project
 
     async def post(client: httpx.AsyncClient) -> None:
         if queue_pressure:
@@ -816,7 +814,7 @@ async def test_fifty_thousand_short_processes_stay_under_the_real_event_cap(tmp_
         events.append(ProcessEvent(2 * i + 1, ProcessEventKind.TASK_EXIT, 1_000_500 + i, "c1", pid, 5000 + i, pid, 5000 + i, 1, "true", "/", False, exit_code=0))
     rush = fx.StrictRush()
     rig = Rig(tmp_path, rush=rush, script=fx.CaseScript(evidence=ProcessEvidence("c1", tuple(events), True, (), len(events), 0, 0, 0, 1, 0)), verify=CaseVerdict("fail", 0.0, None))
-    rig.runner.project = default_project
+    rig.runner.project = project
     result = await rig.run()
     assert result.outcome == "finalized" and rush.refusals == [] and len(rush.events) <= 100_000
     [final] = rush.finalized
@@ -826,7 +824,7 @@ async def test_fifty_thousand_short_processes_stay_under_the_real_event_cap(tmp_
 async def test_rejection_messages_do_not_overflow_the_finalize_coverage(tmp_path: Path) -> None:
     rush = fx.StrictRush()
     rig = Rig(tmp_path, rush=rush, script=fx.CaseScript(block=True), verify=CaseVerdict("fail", 0.0, None))
-    rig.runner.project = default_project
+    rig.runner.project = project
 
     async def post(client: httpx.AsyncClient) -> None:
         for sequence in range(3):

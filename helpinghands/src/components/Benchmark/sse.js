@@ -3,13 +3,13 @@
  * Cursors are per attempt, start at 1 and are committed in order, so an event at or below the last one seen is a repeat.
  */
 
-export const initialStream = (after = 0) => ({cursor: after, count: 0, sealed: false, finalCursor: null});
+export const initialStream = (after = 0) => ({cursor: after, sealed: false, finalCursor: null});
 
 /** The stream's state after one parsed frame `{event, data}`: `event` frames advance the cursor, `sealed` ends it. */
 export function foldFrame(state, frame) {
   if (frame.event === 'sealed') return {...state, sealed: true, finalCursor: frame.data?.final_cursor ?? state.cursor};
   if (frame.event !== 'event' || !(frame.data?.cursor > state.cursor)) return state;
-  return {...state, cursor: frame.data.cursor, count: state.count + 1};
+  return {...state, cursor: frame.data.cursor};
 }
 
 /** The path to open the stream at, resuming after `cursor`. */

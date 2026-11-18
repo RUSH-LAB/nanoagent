@@ -52,6 +52,8 @@ function keyList(value) {
 const WORKER_STATES = new Set(['ready', 'starting', 'pulling', 'no-key', 'no-docker', 'failed']);
 const CHECK_STATES = new Set(['pending', 'running', 'pass', 'warn', 'wait', 'fail']);
 const text = (value, max) => (typeof value === 'string' ? value.slice(0, max) : null);
+const count = number => (Number.isInteger(number) && number >= 0 ? number : 0);
+const isRecord = value => Boolean(value) && typeof value === 'object';
 
 /**
  * The computer's `hello` worker: its benchmark worker's health (runner/worker.mjs) as {state, message, platform, concurrency, progress, checks, log}, each
@@ -59,14 +61,13 @@ const text = (value, max) => (typeof value === 'string' ? value.slice(0, max) : 
  */
 function workerState(value) {
   if (!WORKER_STATES.has(value?.state)) return null;
-  const count = number => (Number.isInteger(number) && number >= 0 ? number : 0);
   return {
     state: value.state,
     message: text(value.message, 1000),
     platform: text(value.platform, 20),
-    concurrency: value.concurrency && typeof value.concurrency === 'object'
+    concurrency: isRecord(value.concurrency)
       ? {setting: count(value.concurrency.setting) || 1, cpus: count(value.concurrency.cpus) || null, effective: count(value.concurrency.effective) || null} : null,
-    progress: value.progress && typeof value.progress === 'object' ? {done: count(value.progress.done), total: count(value.progress.total)} : null,
+    progress: isRecord(value.progress) ? {done: count(value.progress.done), total: count(value.progress.total)} : null,
     checks: (Array.isArray(value.checks) ? value.checks : []).slice(0, 20)
       .filter(check => typeof check?.id === 'string' && CHECK_STATES.has(check.state))
       .map(check => ({id: check.id.slice(0, 40), label: text(check.label, 100), state: check.state, message: text(check.message, 1000), fix: text(check.fix, 1000)})),

@@ -11,7 +11,7 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import Any
 
-from nanoagent.uploaded.dialects import AssembledResponse, Dialect
+from nanoagent.uploaded.dialects import AssembledResponse
 
 COUNT_FIELDS = ("input", "output", "total", "cache_read", "cache_write", "reasoning")
 
@@ -83,32 +83,28 @@ def _build(
     return NormalizedUsage(input_, output, total, cache_read, cache_write, reasoning, supplied_total, cost, provenance, discrepancies, source_ids)
 
 
-def _chat(usage: Mapping[str, Any] | None, provenance: str, ids: tuple[str, ...]) -> NormalizedUsage:
-    return _build(
-        _count(usage, "prompt_tokens"),
-        _count(usage, "completion_tokens"),
-        _count(usage, "prompt_tokens_details", "cached_tokens"),
-        _count(usage, "prompt_tokens_details", "cache_write_tokens"),
-        _count(usage, "completion_tokens_details", "reasoning_tokens"),
-        _count(usage, "total_tokens"),
-        _cost(usage),
-        provenance,
-        ids,
-    )
+# Per dialect: the paths of input, output, cached input, cache-write input and reasoning counts.
+_OPENAI_PATHS = {
+    "chat_completions": (
+        ("prompt_tokens",),
+        ("completion_tokens",),
+        ("prompt_tokens_details", "cached_tokens"),
+        ("prompt_tokens_details", "cache_write_tokens"),
+        ("completion_tokens_details", "reasoning_tokens"),
+    ),
+    "responses": (
+        ("input_tokens",),
+        ("output_tokens",),
+        ("input_tokens_details", "cached_tokens"),
+        ("input_tokens_details", "cache_write_tokens"),
+        ("output_tokens_details", "reasoning_tokens"),
+    ),
+}
 
 
-def _responses(usage: Mapping[str, Any] | None, provenance: str, ids: tuple[str, ...]) -> NormalizedUsage:
-    return _build(
-        _count(usage, "input_tokens"),
-        _count(usage, "output_tokens"),
-        _count(usage, "input_tokens_details", "cached_tokens"),
-        _count(usage, "input_tokens_details", "cache_write_tokens"),
-        _count(usage, "output_tokens_details", "reasoning_tokens"),
-        _count(usage, "total_tokens"),
-        _cost(usage),
-        provenance,
-        ids,
-    )
+def _openai(dialect: str, usage: Mapping[str, Any] | None, provenance: str, ids: tuple[str, ...]) -> NormalizedUsage:
+    input_, output, cache_read, cache_write, reasoning = (_count(usage, *path) for path in _OPENAI_PATHS[dialect])
+    return _build(input_, output, cache_read, cache_write, reasoning, _count(usage, "total_tokens"), _cost(usage), provenance, ids)
 
 
 def _anthropic(usage: Mapping[str, Any] | None, provenance: str, ids: tuple[str, ...]) -> NormalizedUsage:
@@ -129,20 +125,15 @@ def _anthropic(usage: Mapping[str, Any] | None, provenance: str, ids: tuple[str,
     )
 
 
-_NORMALIZERS = {"chat_completions": _chat, "responses": _responses, "anthropic_messages": _anthropic}
-
-
-def usage_for(dialect: Dialect, assembled_or_body: AssembledResponse | Mapping[str, Any]) -> NormalizedUsage:
-    """Normalize the usage of an assembled response, or of a non-streaming response body."""
-    if isinstance(assembled_or_body, AssembledResponse):
-        usage = assembled_or_body.usage
-        ids = tuple(dict.fromkeys(i for i in (assembled_or_body.response_id, assembled_or_body.generation_id) if i))
-        provenance = f"{dialect}:stream" if assembled_or_body.frame_count is not None else f"{dialect}:body"
-    else:
-        usage = assembled_or_body.get("usage")
-        ids = (assembled_or_body["id"],) if assembled_or_body.get("id") else ()
-        provenance = f"{dialect}:body"
-    return _NORMALIZERS[dialect](usage, provenance if usage is not None else f"{provenance}:no_usage", ids)
+def usage_for(assembled: AssembledResponse) -> NormalizedUsage:
+    """Normalize the usage of an assembled response."""
+    dialect, usage = assembled.dialect, assembled.usage
+    ids = tuple(dict.fromkeys(i for i in (assembled.response_id, assembled.generation_id) if i))
+    provenance = f"{dialect}:stream" if assembled.frame_count is not None else f"{dialect}:body"
+    provenance = provenance if usage is not None else f"{provenance}:no_usage"
+    if dialect == "anthropic_messages":
+        return _anthropic(usage, provenance, ids)
+    return _openai(dialect, usage, provenance, ids)
 
 
 @dataclass(frozen=True)
@@ -186,32 +177,21 @@ def reconcile(provisional: NormalizedUsage, accounting: Mapping[str, Any]) -> No
     input_ = _count(accounting, "native_tokens_prompt")
     output = _count(accounting, "native_tokens_completion")
     cost = _cost(accounting, "total_cost")
-    merged = {
-        "input": provisional.input if input_ is None else input_,
-        "output": provisional.output if output is None else output,
-        "cache_read": _first(_count(accounting, "native_tokens_cached"), provisional.cache_read),
-        "cache_write": provisional.cache_write,
-        "reasoning": _first(_count(accounting, "native_tokens_reasoning"), provisional.reasoning),
-        "cost": provisional.cost_usd if cost is None else cost,
-    }
+    input_ = provisional.input if input_ is None else input_
+    output = provisional.output if output is None else output
     lookup_id = accounting.get("id")
     ids = provisional.source_ids if not lookup_id or lookup_id in provisional.source_ids else (*provisional.source_ids, lookup_id)
-    total = _sum(merged["input"], merged["output"])
+    cache_read, reasoning = _count(accounting, "native_tokens_cached"), _count(accounting, "native_tokens_reasoning")
     return replace(
         provisional,
-        input=merged["input"],
-        output=merged["output"],
-        total=total,
-        cache_read=merged["cache_read"],
-        cache_write=merged["cache_write"],
-        reasoning=merged["reasoning"],
-        cost_usd=merged["cost"],
+        input=input_,
+        output=output,
+        total=_sum(input_, output),
+        cache_read=provisional.cache_read if cache_read is None else cache_read,
+        reasoning=provisional.reasoning if reasoning is None else reasoning,
+        cost_usd=provisional.cost_usd if cost is None else cost,
         provenance="generation_lookup",
         discrepancies=(),
         source_ids=ids,
         earlier=(*provisional.earlier, replace(provisional, earlier=())),
     )
-
-
-def _first(value: int | None, fallback: int | None) -> int | None:
-    return fallback if value is None else value

@@ -9,7 +9,7 @@ describe('benchmark live stream', () => {
   it('advances its cursor with each new event and ignores a repeat', () => {
     let state = initialStream();
     for (const frame of [event(1), event(2), event(2), event(1), event(3)]) state = foldFrame(state, frame);
-    assert.deepEqual([state.cursor, state.count, state.sealed], [3, 3, false]);
+    assert.deepEqual([state.cursor, state.sealed], [3, false]);
     state = foldFrame(state, sealed(3));
     assert.deepEqual([state.sealed, state.finalCursor], [true, 3]);
   });

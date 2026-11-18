@@ -65,6 +65,20 @@ def pending_calls(records: Sequence[Mapping[str, Any]]) -> list[PendingCall]:
     return calls
 
 
+async def _generation(lookup: GenerationLookup, generation_id: str, delays_s: Sequence[float], sleep: Callable[[float], Awaitable[None]]) -> Mapping[str, Any] | None:
+    for delay in (0.0, *delays_s):
+        if delay:
+            await sleep(delay)
+        try:
+            data = await lookup.lookup(generation_id)
+        except (httpx.HTTPError, KeyError, ValueError) as error:
+            LOG.warning("generation lookup of %s failed: %r", generation_id, error)
+            continue
+        if data is not None:
+            return data
+    return None
+
+
 async def reconcile(
     client: RushWorkerClient,
     attempt_id: str,
@@ -77,16 +91,7 @@ async def reconcile(
     """Reconcile every call; returns how many were recorded. A call whose generation never appears stays as it was."""
     recorded = 0
     for call in calls:
-        data = None
-        for delay in (0.0, *delays_s):
-            if delay:
-                await sleep(delay)
-            try:
-                data = await lookup.lookup(call.generation_id)
-            except (httpx.HTTPError, KeyError, ValueError) as error:
-                LOG.warning("generation lookup of %s failed: %r", call.generation_id, error)
-            if data is not None:
-                break
+        data = await _generation(lookup, call.generation_id, delays_s, sleep)
         if data is None:
             LOG.warning("generation %s of call %s was not available; its accounting stays provisional", call.generation_id, call.call_id)
             continue

@@ -45,7 +45,7 @@ from nanoagent.uploaded.toolchains import (
     ResolveBudget,
     ToolchainError,
     ToolchainProfile,
-    _read_lockfile,
+    read_lockfile,
     read_url,
 )
 
@@ -73,13 +73,13 @@ def _mismatch(label: str, found: str, expected: str) -> ToolchainError:
     return ToolchainError("hash_mismatch", f"{label}: the registry served {found}, the lockfile pins {expected}")
 
 
-def fetch(base_url: str, path: str, label: str, *, limit: int = MAX_WHEEL_BYTES) -> bytes:
+def fetch(base_url: str, path: str, label: str) -> bytes:
     """One file of the registry: `http(s)://` base or a local directory (`file://` or a plain path)."""
     parts = urllib.parse.urlsplit(base_url)
     if parts.scheme in ("http", "https"):
         url = f"{base_url.rstrip('/')}/{urllib.parse.quote(path, safe='/@!')}"
         try:
-            data = read_url(url, 60, limit)
+            data = read_url(url, 60, MAX_WHEEL_BYTES)
         except urllib.error.HTTPError as error:
             if error.code in (404, 410):
                 raise ToolchainError("dependency_unavailable", f"{label} is not on the registry ({url})") from error
@@ -92,17 +92,17 @@ def fetch(base_url: str, path: str, label: str, *, limit: int = MAX_WHEEL_BYTES)
         if not target.is_file():
             raise ToolchainError("dependency_unavailable", f"{label} is not on the registry ({target})")
         with target.open("rb") as handle:
-            data = handle.read(limit + 1)
+            data = handle.read(MAX_WHEEL_BYTES + 1)
     else:
         raise ToolchainError("index_unavailable", f"unsupported registry URL scheme {parts.scheme!r}")
-    if len(data) > limit:
-        raise ToolchainError("dependency_too_large", f"{label} exceeds {limit} bytes")
+    if len(data) > MAX_WHEEL_BYTES:
+        raise ToolchainError("dependency_too_large", f"{label} exceeds {MAX_WHEEL_BYTES} bytes")
     return data
 
 
 def _lock_text(source_root: Path, relative: str) -> str:
     try:
-        return _read_lockfile(source_root, relative).decode("utf-8")
+        return read_lockfile(source_root, relative).decode("utf-8")
     except UnicodeDecodeError as error:
         raise ToolchainError("invalid_lockfile", f"{relative} is not UTF-8") from error
 
@@ -122,7 +122,7 @@ def _write(destination: Path, relative: str, data: bytes) -> int:
     return len(data)
 
 
-def _safe_members(archive: tarfile.TarFile, label: str, strip: bool) -> list[tuple[tarfile.TarInfo, PurePosixPath]]:
+def _safe_members(archive: tarfile.TarFile, label: str) -> list[tuple[tarfile.TarInfo, PurePosixPath]]:
     """The regular files and directories of a tarball, as paths relative to its single top directory."""
     found: list[tuple[tarfile.TarInfo, PurePosixPath]] = []
     total = 0
@@ -133,8 +133,7 @@ def _safe_members(archive: tarfile.TarFile, label: str, strip: bool) -> list[tup
         parts = path.parts
         if path.is_absolute() or ".." in parts or "" in parts:
             raise ToolchainError("invalid_dependency", f"{label}: {member.name!r} escapes the package")
-        if strip:
-            parts = parts[1:]
+        parts = parts[1:]
         if not parts:
             continue
         total += member.size
@@ -150,7 +149,7 @@ def _extract_tarball(data: bytes, destination: Path, label: str) -> tuple[dict[s
     written = 0
     try:
         with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
-            members = _safe_members(archive, label, strip=True)
+            members = _safe_members(archive, label)
             for member, path in members:
                 target = destination / path
                 if member.isdir():
@@ -350,7 +349,7 @@ def _npm_allows(values: object, current: str) -> bool:
     return f"!{current}" not in values and (not allowed or current in allowed)
 
 
-def plan_npm(source_root: Path, lockfiles: tuple[str, ...]) -> list[Artifact]:
+def plan_npm(source_root: Path, lockfiles: tuple[str, ...], machine: str = platform.machine().lower()) -> list[Artifact]:
     try:
         document = json.loads(_lock_text(source_root, "package-lock.json"))
     except json.JSONDecodeError as error:
@@ -358,7 +357,6 @@ def plan_npm(source_root: Path, lockfiles: tuple[str, ...]) -> list[Artifact]:
     packages = document.get("packages") if isinstance(document, dict) else None
     if not isinstance(packages, dict) or document.get("lockfileVersion") not in (2, 3):
         raise ToolchainError("invalid_lockfile", "package-lock.json must be lockfileVersion 2 or 3 with a `packages` map")
-    machine = platform.machine().lower()
     cpu = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64"}.get(machine, machine)
     artifacts: list[Artifact] = []
     for key, entry in sorted(packages.items()):

@@ -32,7 +32,6 @@ import hashlib
 import ipaddress
 import json
 import os
-import re
 import shutil
 import socket
 import tempfile
@@ -50,7 +49,8 @@ from nanoagent.plugin.egress import egress
 from nanoagent.plugin.install import INSTALL_HOSTS
 from nanoagent.uploaded.archive import ArchiveError, Extracted, extract_tar, tar_of_tree
 from nanoagent.uploaded.collector import CollectorError, CollectorHealth, ProcessEvent, ProcessEvidence, launch_argv, launched_processes
-from nanoagent.uploaded.contract import ContractError, HarnessManifest, is_canonical_relative_path, path_problem, read_result_file, validate_argv
+from nanoagent.uploaded.cpumeter import CGROUP_ROOT, CPU_SAMPLE_INTERVAL_S, CpuMeter, cgroup_directory, read_cpu_stat
+from nanoagent.uploaded.contract import ContractError, HarnessManifest, path_problem, read_result_file, validate_argv
 from nanoagent.uploaded.dockercli import CliDockerRunner, DockerResult, DockerRunner
 from nanoagent.uploaded.toolchains import HOLDER_IMAGE, DependencyClosure, ToolchainProfile
 
@@ -92,13 +92,6 @@ TAR_ENTRY_OVERHEAD = 1024
 EGRESS_PORT = 3128
 EGRESS_FORWARDER = Path(__file__).with_name("relay_forward.py").read_text(encoding="utf-8")
 PLUGIN_PREP_IMAGE = "python@sha256:cad37dd20c7cac861af9003af8796d03ea7a998ec1e3a664429740fc9d7d2691"
-CGROUP_ROOT = Path("/sys/fs/cgroup")
-CPU_SAMPLE_INTERVAL_S = 0.02
-_NETWORK_OPTIONS = (
-    # No gateway address: the host (and everything listening on it) is not reachable from the network.
-    "com.docker.network.bridge.gateway_mode_ipv4=isolated",
-    "com.docker.network.bridge.gateway_mode_ipv6=isolated",
-)
 
 
 class SandboxError(ContractError):
@@ -199,6 +192,18 @@ class WorkspaceSnapshot:
     deleted: tuple[str, ...]
     skipped: Mapping[str, str]  # links and special files, listed but never materialized
     total_bytes: int
+
+    @classmethod
+    def diff(cls, directory: Path, extracted: Extracted, initial: Mapping[str, str]) -> WorkspaceSnapshot:
+        """The snapshot of ``extracted`` against the ``initial`` path-to-sha256 map the workspace started with."""
+        files = extracted.files
+        return cls(
+            directory, files,
+            added=tuple(sorted(set(files) - set(initial))),
+            modified=tuple(sorted(p for p in files if p in initial and files[p] != initial[p])),
+            deleted=tuple(sorted(set(initial) - set(files))),
+            skipped=extracted.skipped, total_bytes=extracted.total_bytes,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -318,26 +323,68 @@ class AttemptNetwork:
 
     def connect(self, container: str, aliases: Sequence[str] = ()) -> None:
         args = ["network", "connect", *[a for alias in aliases for a in ("--alias", alias)], self.name, container]
-        _checked(self._docker.run(args), "network_failed", f"attach {container} to {self.name}")
+        checked(self._docker.run(args), "network_failed", f"attach {container} to {self.name}")
 
     def address_of(self, container: str) -> str:
         """The container's IPv4 address on this network. Guests address services by IP: Docker's embedded
         DNS is not reachable from inside a gVisor netstack sandbox."""
         template = f'{{{{(index .NetworkSettings.Networks "{self.name}").IPAddress}}}}'
-        address = _checked(self._docker.run(["inspect", "--format", template, container]), "network_failed", f"address of {container}").text()
+        address = checked(self._docker.run(["inspect", "--format", template, container]), "network_failed", f"address of {container}").text()
         if not address:
             raise SandboxError("network_failed", f"{container} has no address on {self.name}")
         return address
 
     def remove(self) -> None:
         # Fails while a container is still attached; the caller removes its containers first.
-        _checked(self._docker.run(["network", "rm", self.name]), "network_failed", f"remove network {self.name}")
+        checked(self._docker.run(["network", "rm", self.name]), "network_failed", f"remove network {self.name}")
 
 
-def _checked(result: DockerResult, code: str, what: str) -> DockerResult:
+def checked(result: DockerResult, code: str, what: str) -> DockerResult:
     if result.returncode != 0 or result.timed_out:
         raise SandboxError(code, f"{what} failed: {result.error_text() or 'docker timed out'}")
     return result
+
+
+class DockerOps:
+    """The docker calls the supervisor, its cases and the tool launcher share."""
+
+    def __init__(self, docker: DockerRunner) -> None:
+        self.docker = docker
+
+    def create_volume(self, name: str, size: int) -> str:
+        args = [
+            "volume", "create", "--driver", "local", "--opt", "type=tmpfs", "--opt", "device=tmpfs",
+            "--opt", f"o=size={size},uid={UID},gid={GID},mode=0755", name,
+        ]
+        checked(self.docker.run(args), "start_failed", f"create volume {name}")
+        return name
+
+    def remove_volume(self, name: str) -> None:
+        self.docker.run(["volume", "rm", "-f", name])
+
+    def remove_container(self, container: str) -> None:
+        self.docker.run(["rm", "-f", "-v", container])
+
+    def state(self, container: str) -> dict:
+        result = checked(self.docker.run(["inspect", "--format", "{{json .State}}", container]), "inspect_failed", "inspect container")
+        return json.loads(result.stdout)
+
+    def copy_out(self, container: str, path: str, limits: Limits, workdir: Path) -> tuple[Extracted, Path]:
+        result = checked(
+            self.docker.run(["cp", f"{container}:{path}", "-"], capture_bytes=limits.workspace_bytes + limits.workspace_files * TAR_ENTRY_OVERHEAD + (8 << 20)),
+            "snapshot_failed", f"copy {path} out",
+        )
+        if result.stdout_truncated:
+            raise SandboxError("snapshot_too_large", f"{path} exceeds the {limits.workspace_bytes} byte bound")
+        destination = workdir / f"copy-{uuid.uuid4().hex[:8]}"
+        try:
+            extracted = extract_tar(
+                result.stdout, destination, root_name=Path(path).name, max_files=limits.workspace_files, max_bytes=limits.workspace_bytes
+            )
+        except ArchiveError as error:
+            shutil.rmtree(destination, ignore_errors=True)
+            raise SandboxError(error.code, error.message) from error
+        return extracted, destination
 
 
 def _mount_volume(name: str, destination: str) -> list[str]:
@@ -350,84 +397,36 @@ def _mount_bind(source: Path, destination: str, *, readonly: bool = True) -> lis
     return ["--mount", f"type=bind,src={source},dst={destination}{',readonly' if readonly else ''}"]
 
 
+def _normalize_modes(root: Path) -> None:
+    for path in [root, *root.rglob("*")]:
+        executable = path.is_dir() or os.access(path, os.X_OK)
+        path.chmod(0o755 if executable else 0o644)
+
+
+def _never_started(state: Mapping[str, Any]) -> bool:
+    return state.get("StartedAt", "").startswith("0001")
+
+
+def _env_args(env: Mapping[str, str]) -> list[str]:
+    return [a for key, value in env.items() for a in ("-e", f"{key}={value}")]
+
+
 def _entrypoint(argv: Sequence[str]) -> tuple[list[str], list[str]]:
     # The argv is run exactly, never through a shell and never with the image's own ENTRYPOINT or CMD.
     return ["--entrypoint", argv[0]], list(argv[1:])
 
 
-def cgroup_directory(pid: int, *, proc_root: Path = Path("/proc"), cgroup_root: Path = CGROUP_ROOT) -> Path | None:
-    """The cgroup v2 directory of process ``pid``, or None when it cannot be read."""
-    try:
-        lines = (proc_root / str(pid) / "cgroup").read_text().splitlines()
-    except OSError:
-        return None
-    for line in lines:
-        hierarchy, _, rest = line.partition(":")
-        _, _, path = rest.partition(":")
-        if hierarchy == "0" and path:
-            return cgroup_root / path.lstrip("/")
-    return None
-
-
-def read_cpu_stat(directory: Path) -> tuple[int, int] | None:
-    """`(user_ns, system_ns)` from the cgroup's `cpu.stat`, or None when it is gone or unreadable."""
-    try:
-        text = (directory / "cpu.stat").read_text()
-    except OSError:
-        return None
-    fields = dict(re.findall(r"^(user_usec|system_usec) (\d+)$", text, re.MULTILINE))
-    if len(fields) != 2:
-        return None
-    return int(fields["user_usec"]) * 1000, int(fields["system_usec"]) * 1000
-
-
-class CpuMeter:
-    """The last CPU reading of one container's cgroup.
-
-    A container's cgroup is removed the moment its sandbox exits, so a sandbox that ends on its own cannot be read
-    afterwards: a thread reads it every `interval_s` until it is gone, and `stop` returns the last reading. That reading
-    trails the exit by at most one interval. A live container is read exactly with `sample`, which `stop_and_drain` calls
-    right before it stops one.
-    """
-
-    def __init__(self, directory: Path, interval_s: float = CPU_SAMPLE_INTERVAL_S) -> None:
-        self._directory = directory
-        self._interval_s = interval_s
-        self._latest: tuple[int, int] | None = None
-        self._stopped = threading.Event()
-        self._thread = threading.Thread(target=self._watch, name=f"cpu-{directory.name}", daemon=True)
-
-    def start(self) -> None:
-        self.sample()
-        self._thread.start()
-
-    def sample(self) -> tuple[int, int] | None:
-        reading = read_cpu_stat(self._directory)
-        if reading is not None:
-            self._latest = reading
-        return reading
-
-    def _watch(self) -> None:
-        while not self._stopped.wait(self._interval_s):
-            if self.sample() is None:
-                return
-
-    def stop(self) -> tuple[int, int] | None:
-        self._stopped.set()
-        if self._thread.is_alive():
-            self._thread.join()
-        return self._latest
-
-
 class ToolLauncher:
     """Runs a plugin's MCP server in the case's tool container, for a `PluginSession`."""
 
-    def __init__(self, supervisor: DockerSandboxSupervisor, name: str) -> None:
-        self._supervisor = supervisor
+    def __init__(self, cases: Mapping[str, _DockerCase], ops: DockerOps, docker_bin: str, name: str) -> None:
+        self._cases = cases
+        self._ops = ops
+        self._docker_bin = docker_bin
         self._name = name
 
     def _case(self) -> _DockerCase:
-        case = self._supervisor._tool_cases.get(self._name)
+        case = self._cases.get(self._name)
         if case is None:
             raise SandboxError("tool_unavailable", f"no case has the tool container {self._name}")
         return case
@@ -441,10 +440,8 @@ class ToolLauncher:
             inside[FIXTURES_ENV] = FIXTURES_DIR
         if case.tool_proxy is not None:
             inside |= {key: case.tool_proxy for key in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy")}
-        argv = [self._supervisor._docker_bin, "exec", "-i", f"--user={UID}:{GID}", "--workdir", PLUGIN_DIR]
-        for key, value in inside.items():
-            argv += ["-e", f"{key}={value}"]
-        yield [*argv, self._name, *manifest.command], dict(os.environ)  # the environment is the docker client's, not the plugin's
+        argv = [self._docker_bin, "exec", "-i", f"--user={UID}:{GID}", "--workdir", PLUGIN_DIR]
+        yield [*argv, *_env_args(inside), self._name, *manifest.command], dict(os.environ)  # the environment is the docker client's, not the plugin's
 
     @contextmanager
     def workspace_view(self) -> Iterator[Path]:
@@ -453,7 +450,7 @@ class ToolLauncher:
         One at a time per case: concurrent tool calls of an attempt queue, so at most one copy is ever held."""
         case = self._case()
         with case.view_lock:
-            _, directory = self._supervisor._copy_out(case.holder, "/hold/workspace", case.spec.limits, case.spec.workdir)
+            _, directory = self._ops.copy_out(case.holder, "/hold/workspace", case.spec.limits, case.spec.workdir)
             try:
                 yield directory
             finally:
@@ -476,10 +473,10 @@ def reap_leftovers(docker: DockerRunner) -> list[tuple[str, str]]:
         ("network", ["network", "ls", "--format", "{{.Name}}"], ["network", "rm"]),
         ("volume", ["volume", "ls", "--format", "{{.Name}}"], ["volume", "rm", "-f"]),
     ):
-        listed = _checked(docker.run([*list_args[:-2], "--filter", f"name={RESOURCE_PREFIX}", *list_args[-2:]], timeout_s=60), "reap_failed", f"list {kind}s")
+        listed = checked(docker.run([*list_args[:-2], "--filter", f"name={RESOURCE_PREFIX}", *list_args[-2:]], timeout_s=60), "reap_failed", f"list {kind}s")
         for name in listed.text().splitlines():
             if name.startswith(RESOURCE_PREFIX):
-                _checked(docker.run([*remove_args, name], timeout_s=120), "reap_failed", f"remove {kind} {name}")
+                checked(docker.run([*remove_args, name], timeout_s=120), "reap_failed", f"remove {kind} {name}")
                 reaped.append((kind, name))
     return reaped
 
@@ -492,6 +489,8 @@ class DockerSandboxSupervisor:
         collector: EvidenceSource,
         clock: Callable[[], float] = time.monotonic,
         wall_clock_ns: Callable[[], int] = time.time_ns,
+        sleep: Callable[[float], None] = time.sleep,
+        evidence_wait_s: float = EXEC_EVIDENCE_WAIT_S,
         runtime: str = RUNTIME,
         uv: Path | None = None,
         egress: Egress | None = None,
@@ -501,6 +500,8 @@ class DockerSandboxSupervisor:
         proc_root: Path = Path("/proc"),
     ) -> None:
         self._docker = docker or CliDockerRunner()
+        self._ops = DockerOps(self._docker)
+        self._host_user = f"{os.getuid()}:{os.getgid()}"
         self._uv = uv
         self._egress = egress
         self._docker_bin = docker_bin
@@ -511,6 +512,8 @@ class DockerSandboxSupervisor:
         self._collector = collector
         self._clock = clock
         self._wall_clock_ns = wall_clock_ns
+        self._sleep = sleep
+        self._evidence_wait_s = evidence_wait_s
         self._runtime = runtime
         self._ready = False
 
@@ -537,7 +540,7 @@ class DockerSandboxSupervisor:
         except CollectorError as error:
             raise SandboxError("collector_self_test_failed", str(error)) from error
         finally:
-            self._remove_container(container)
+            self._ops.remove_container(container)
             self._collector.discard(container)
         if not evidence.complete:
             raise SandboxError("collector_self_test_failed", f"probe evidence incomplete: {', '.join(evidence.loss_reasons)}")
@@ -549,12 +552,12 @@ class DockerSandboxSupervisor:
 
     def _pull(self, image: str) -> None:
         if self._docker.run(["image", "inspect", image]).returncode != 0:
-            _checked(self._docker.run(["pull", "--quiet", image], timeout_s=600), "image_unavailable", f"pull {image}")
+            checked(self._docker.run(["pull", "--quiet", image], timeout_s=600), "image_unavailable", f"pull {image}")
 
     def _create_probe(self, image: str, argv: tuple[str, ...]) -> str:
         entry, rest = _entrypoint(argv)
         args = ["create", f"--runtime={self._runtime}", "--network=none", "--read-only", "--cap-drop=ALL", *entry, image, *rest]
-        return _checked(self._docker.run(args), "start_failed", "create probe container").text()
+        return checked(self._docker.run(args), "start_failed", "create probe container").text()
 
     def _require_ready(self) -> None:
         if not self._ready:
@@ -568,7 +571,7 @@ class DockerSandboxSupervisor:
         name = f"rush-egress-probe-{uuid.uuid4().hex[:12]}"
         network = self._create_egress_network(name)
         try:
-            gateway = _checked(
+            gateway = checked(
                 self._docker.run(["network", "inspect", "--format", "{{(index .IPAM.Config 0).Gateway}}", name]), "egress_unverified", "inspect the probe network"
             ).text()
             with socket.socket() as listener:
@@ -596,8 +599,12 @@ class DockerSandboxSupervisor:
         name = f"rush-net-{attempt_id}"
         if internet:
             return self._create_egress_network(name)
-        args = ["network", "create", "--internal", "--driver", "bridge", *[a for o in _NETWORK_OPTIONS for a in ("--opt", o)], name]
-        _checked(self._docker.run(args), "network_failed", f"create network {name}")
+        args = [
+            "network", "create", "--internal", "--driver", "bridge",
+            # No gateway address: the host (and everything listening on it) is not reachable from the network.
+            "--opt", "com.docker.network.bridge.gateway_mode_ipv4=isolated", "--opt", "com.docker.network.bridge.gateway_mode_ipv6=isolated", name,
+        ]
+        checked(self._docker.run(args), "network_failed", f"create network {name}")
         return AttemptNetwork(self._docker, name)
 
     def _create_egress_network(self, name: str) -> AttemptNetwork:
@@ -605,18 +612,18 @@ class DockerSandboxSupervisor:
 
         Docker refuses an overlapping subnet, so a slice taken by another attempt is skipped.
         """
-        egress = self._egress
-        if egress is None:
+        subnets = self._egress
+        if subnets is None:
             raise SandboxError("network_failed", "internet access needs the supervisor to be given the egress subnet it is filtered for")
-        pool = ipaddress.ip_network(egress.subnet)
-        slices = 1 << (egress.prefix - pool.prefixlen)
+        pool = ipaddress.ip_network(subnets.subnet)
+        slices = 1 << (subnets.prefix - pool.prefixlen)
         first = int(uuid.uuid4().int % slices)
         last = ""
         for offset in range(slices):
-            subnet = ipaddress.ip_network((int(pool.network_address) + ((first + offset) % slices << (32 - egress.prefix)), egress.prefix))
+            subnet = ipaddress.ip_network((int(pool.network_address) + ((first + offset) % slices << (32 - subnets.prefix)), subnets.prefix))
             result = self._docker.run(["network", "create", "--driver", "bridge", "--subnet", str(subnet), name])
             if result.returncode == 0 and not result.timed_out:
-                return AttemptNetwork(self._docker, name, internet=True, dns=egress.dns)
+                return AttemptNetwork(self._docker, name, internet=True, dns=subnets.dns)
             last = result.error_text() or "docker timed out"
             if "overlap" not in last and "Pool" not in last:
                 break
@@ -627,11 +634,11 @@ class DockerSandboxSupervisor:
     def build(self, spec: BuildSpec) -> BuildArtifact:
         self._require_ready()
         for output in spec.manifest.build_outputs:
-            if path_problem(output) is not None or not is_canonical_relative_path(output):
+            if path_problem(output) is not None:
                 raise SandboxError("output_invalid", f"declared build output {output!r} is not a canonical relative path")
         source = self._stage_source(spec)
         suffix = f"{spec.attempt_id}-build-{uuid.uuid4().hex[:8]}"
-        out_volume = self._create_volume(f"rush-buildout-{suffix}", spec.limits.workspace_bytes)
+        out_volume = self._ops.create_volume(f"rush-buildout-{suffix}", spec.limits.workspace_bytes)
         env_file = self._write_env(spec.workdir, {**spec.profile.offline.env, "HOME": "/tmp", "TMPDIR": "/tmp"})
         entry, rest = _entrypoint(spec.manifest.build_argv)
         container = holder = ""
@@ -642,7 +649,7 @@ class DockerSandboxSupervisor:
                 *_mount_bind(source, "/src"), *_mount_bind(spec.closure.directory, spec.profile.offline.dependency_mount),
                 *_mount_volume(out_volume, "/build-out"), *entry, spec.profile.build_image, *rest,
             ]
-            container = _checked(self._docker.run(args), "build_failed", "create build container").text()
+            container = checked(self._docker.run(args), "build_failed", "create build container").text()
             self._collector.session(container)
             started = self._clock()
             result = self._docker.run(
@@ -652,24 +659,23 @@ class DockerSandboxSupervisor:
                 self._docker.run(["kill", container])
                 raise SandboxError("build_timeout", f"build exceeded {spec.limits.wall_s}s")
             duration = self._clock() - started
-            state = self._state(container)
-            if state.get("StartedAt", "").startswith("0001"):
+            state = self._ops.state(container)
+            if _never_started(state):
                 raise SandboxError("start_failed", f"build container did not start: {state.get('Error') or result.error_text()}")
             if state.get("ExitCode") != 0:
                 tail = result.stderr[-2000:].decode("utf-8", "replace")
                 raise SandboxError("build_failed", f"build exited {state.get('ExitCode')}: {tail}")
-            extracted = self._copy_out(holder, "/hold/build-out", spec.limits, spec.workdir)
+            extracted = self._ops.copy_out(holder, "/hold/build-out", spec.limits, spec.workdir)
             try:
                 return self._accept_outputs(spec, extracted, result, duration)
             finally:
                 shutil.rmtree(extracted[1], ignore_errors=True)
         finally:
             if container:
-                self._remove_container(container)
-                self._collector.discard(container)
+                self._discard(container)
             if holder:
-                self._remove_container(holder)
-            self._remove_volume(out_volume)
+                self._ops.remove_container(holder)
+            self._ops.remove_volume(out_volume)
             env_file.unlink(missing_ok=True)
 
     def _stage_source(self, spec: BuildSpec) -> Path:
@@ -681,9 +687,7 @@ class DockerSandboxSupervisor:
             if path.is_symlink():
                 raise SandboxError("output_invalid", f"source contains a link: {path.relative_to(spec.source_root)}")
         shutil.copytree(spec.source_root, staged, symlinks=False)
-        for path in [staged, *staged.rglob("*")]:
-            executable = path.is_dir() or os.access(path, os.X_OK)
-            path.chmod(0o755 if executable else 0o644)
+        _normalize_modes(staged)
         return staged
 
     def _accept_outputs(self, spec: BuildSpec, extracted: tuple[Extracted, Path], result: DockerResult, duration: float) -> BuildArtifact:
@@ -708,9 +712,7 @@ class DockerSandboxSupervisor:
                 shutil.copytree(source, target, dirs_exist_ok=True)
             else:
                 shutil.copy2(source, target)
-        for path in [artifact, *artifact.rglob("*")]:
-            executable = path.is_dir() or os.access(path, os.X_OK)
-            path.chmod(0o755 if executable else 0o644)
+        _normalize_modes(artifact)
         digest = hashlib.sha256("".join(f"{p}\0{h}\n" for p, h in sorted(accepted.items())).encode()).hexdigest()
         return BuildArtifact(artifact, spec.manifest.build_outputs, digest, result.stdout, result.stderr, duration)
 
@@ -727,7 +729,7 @@ class DockerSandboxSupervisor:
 
     def tool_launcher(self, name: str) -> ToolLauncher:
         """The launcher for the tool container ``name``; the case that names it in `CaseSpec.tool` is created later."""
-        return ToolLauncher(self, name)
+        return ToolLauncher(self._tool_cases, self._ops, self._docker_bin, name)
 
     def prepare_plugin(self, root: Path, timeout_s: float) -> None:
         """`uv sync --frozen` the unpacked plugin at ``root`` inside the pinned prep image, in a gVisor sandbox.
@@ -746,22 +748,21 @@ class DockerSandboxSupervisor:
         venv.mkdir(exist_ok=True)
         with self._egress_bridge(INSTALL_HOSTS, "prep") as (network, proxy):
             args = [
-                "run", f"--name={name}", "--rm", f"--runtime={self._runtime}", f"--network={network}", f"--user={os.getuid()}:{os.getgid()}",
+                "run", f"--name={name}", "--rm", f"--runtime={self._runtime}", f"--network={network}", f"--user={self._host_user}",
                 "--cap-drop=ALL", "--security-opt=no-new-privileges", "--log-driver=none", "--tmpfs", "/tmp:rw,nosuid,size=1g",
                 f"--cpus={limits.cpus}", f"--memory={limits.memory_bytes}", f"--memory-swap={limits.memory_bytes}", f"--pids-limit={limits.pids}",
                 "--workdir", PLUGIN_DIR, "--tmpfs", f"{PLUGIN_DIR}:rw,nosuid,size=1g,mode=1777", *_mount_bind(root, PLUGIN_SOURCE_DIR),
                 *_mount_bind(venv, f"{PLUGIN_DIR}/.venv", readonly=False), *_mount_bind(uv, UV_BIN),
-                "-e", "HOME=/tmp", "-e", "UV_CACHE_DIR=/tmp/uv-cache", "-e", "UV_LINK_MODE=copy", "-e", "UV_PYTHON_DOWNLOADS=never",
-                *[a for key in ("HTTPS_PROXY", "https_proxy") for a in ("-e", f"{key}={proxy}")],
+                *_env_args({"HOME": "/tmp", "UV_CACHE_DIR": "/tmp/uv-cache", "UV_LINK_MODE": "copy", "UV_PYTHON_DOWNLOADS": "never", "HTTPS_PROXY": proxy, "https_proxy": proxy}),
                 "--entrypoint", "sh", PLUGIN_PREP_IMAGE, "-c",
                 f'tar -C {PLUGIN_SOURCE_DIR} --exclude=./.venv -cf - . | tar -C {PLUGIN_DIR} --strip-components=1 -xf - && exec "$@"', "prep",
                 UV_BIN, "sync", "--frozen", "--no-dev", "--python", "/usr/local/bin/python", "--quiet",
             ]
             result = self._docker.run(args, timeout_s=timeout_s)
             if result.timed_out:
-                self._remove_container(name)
+                self._ops.remove_container(name)
                 raise SandboxError("plugin_prepare_failed", f"preparing {root.name} exceeded {timeout_s}s")
-            _checked(result, "plugin_prepare_failed", f"prepare plugin {root.name}")
+            checked(result, "plugin_prepare_failed", f"prepare plugin {root.name}")
 
     @contextmanager
     def _egress_bridge(self, hosts: Sequence[str], role: str) -> Iterator[tuple[str, str]]:
@@ -775,21 +776,21 @@ class DockerSandboxSupervisor:
             try:
                 args = [
                     "create", f"--name=rush-{role}-relay-{suffix}", "--runtime=runc", f"--network={network.name}", "--read-only", "--cap-drop=ALL",
-                    "--security-opt=no-new-privileges", f"--user={os.getuid()}:{os.getgid()}", "--memory=64m", "--pids-limit=64",
+                    "--security-opt=no-new-privileges", f"--user={self._host_user}", "--memory=64m", "--pids-limit=64",
                     "--log-opt=max-size=1m", *_mount_bind(proxy_socket.parent, "/sock"),
                     "--entrypoint", "python", HOLDER_IMAGE, "-c", EGRESS_FORWARDER, f"/sock/{proxy_socket.name}", str(EGRESS_PORT),
                 ]
-                relay = _checked(self._docker.run(args), "plugin_prepare_failed", "create the egress relay").text()
-                _checked(self._docker.run(["start", relay]), "plugin_prepare_failed", "start the egress relay")
-                deadline = time.monotonic() + 20
+                relay = checked(self._docker.run(args), "plugin_prepare_failed", "create the egress relay").text()
+                checked(self._docker.run(["start", relay]), "plugin_prepare_failed", "start the egress relay")
+                deadline = self._clock() + 20
                 while b"ready" not in self._docker.run(["logs", relay]).stdout:
-                    if time.monotonic() > deadline:
+                    if self._clock() > deadline:
                         raise SandboxError("plugin_prepare_failed", "the egress relay did not report ready")
-                    time.sleep(0.1)
+                    self._sleep(0.1)
                 yield network.name, f"http://{network.address_of(relay)}:{EGRESS_PORT}"
             finally:
                 if relay:
-                    self._remove_container(relay)
+                    self._ops.remove_container(relay)
                 self._docker.run(["network", "rm", network.name])
 
     def _require_uv(self) -> Path:
@@ -806,8 +807,8 @@ class DockerSandboxSupervisor:
         validate_argv(list(spec.run_argv))
         spec.workdir.mkdir(parents=True, exist_ok=True)
         suffix = f"{spec.attempt_id}-{uuid.uuid4().hex[:8]}"
-        ws_volume = self._create_volume(f"rush-ws-{suffix}", spec.limits.workspace_bytes)
-        out_volume = self._create_volume(f"rush-out-{suffix}", spec.limits.out_bytes)
+        ws_volume = self._ops.create_volume(f"rush-ws-{suffix}", spec.limits.workspace_bytes)
+        out_volume = self._ops.create_volume(f"rush-out-{suffix}", spec.limits.out_bytes)
         request = spec.workdir / "request.json"
         request.write_bytes(spec.request_json)
         request.chmod(0o644)
@@ -834,7 +835,7 @@ class DockerSandboxSupervisor:
                 *_mount_volume(out_volume, OUT_DIR), *_mount_volume(ws_volume, WORKSPACE),
                 *self._resolver(spec), *entry, spec.profile.runtime_image, *rest,
             ]
-            container = _checked(self._docker.run(args), "start_failed", "create case container").text()
+            container = checked(self._docker.run(args), "start_failed", "create case container").text()
             initial: dict[str, str] = {}
             if spec.fixtures is not None:
                 initial = self._preload(holder, spec.fixtures)
@@ -844,23 +845,24 @@ class DockerSandboxSupervisor:
                 tool_network, proxy = bridge.enter_context(self._egress_bridge(spec.tool.egress_hosts, "tool"))
             if spec.tool is not None:
                 tool_container = self._start_tool(spec, ws_volume, tool_network)
-            handle = _DockerCase(self, spec, container, holder, (ws_volume, out_volume), initial, tool_container)
-            handle.tool_proxy, handle.bridge = proxy, bridge
+            handle = _DockerCase(
+                ops=self._ops, collector=self._collector, clock=self._clock, wall_clock_ns=self._wall_clock_ns, sleep=self._sleep,
+                evidence_wait_s=self._evidence_wait_s, meter=self._meter, tool_cases=self._tool_cases, spec=spec, container=container,
+                holder=holder, volumes=(ws_volume, out_volume), initial=initial, tool_container=tool_container, tool_proxy=proxy, bridge=bridge,
+            )
             if spec.tool is not None:
                 self._tool_cases[spec.tool.name] = handle
             return handle
         except BaseException:
             if container:
-                self._remove_container(container)
-                self._collector.discard(container)
+                self._discard(container)
             if tool_container:
-                self._remove_container(tool_container)
-                self._collector.discard(tool_container)
+                self._discard(tool_container)
             bridge.close()
             if holder:
-                self._remove_container(holder)
-            self._remove_volume(ws_volume)
-            self._remove_volume(out_volume)
+                self._ops.remove_container(holder)
+            self._ops.remove_volume(ws_volume)
+            self._ops.remove_volume(out_volume)
             raise
         finally:
             env_file.unlink(missing_ok=True)
@@ -886,19 +888,23 @@ class DockerSandboxSupervisor:
             "--label", f"rush.attempt={spec.attempt_id}", "--label", "rush.role=tool", *mounts, *_mount_volume(ws_volume, WORKSPACE),
             "--entrypoint", "sleep", PLUGIN_PREP_IMAGE, "86400",  # the plugin's venv is only valid in its prep image, whatever the harness's toolchain
         ]
-        container = _checked(self._docker.run(args), "start_failed", "create tool container").text()
+        container = checked(self._docker.run(args), "start_failed", "create tool container").text()
         try:
             self._collector.session(container)
-            _checked(self._docker.run(["start", container]), "start_failed", "start tool container")
+            checked(self._docker.run(["start", container]), "start_failed", "start tool container")
         except BaseException:
-            self._remove_container(container)
-            self._collector.discard(container)
+            self._discard(container)
             raise
         return container
 
+    def _discard(self, container: str) -> None:
+        """Removes a container the collector was told about, and drops its process journal."""
+        self._ops.remove_container(container)
+        self._collector.discard(container)
+
     def _meter(self, container: str) -> CpuMeter | None:
         """A started CPU meter on the container's cgroup, or None when the cgroup cannot be located or read."""
-        pid = int(self._state(container).get("Pid") or 0)
+        pid = int(self._ops.state(container).get("Pid") or 0)
         directory = cgroup_directory(pid, proc_root=self._proc_root, cgroup_root=self._cgroup_root) if pid else None
         if directory is None or read_cpu_stat(directory) is None:
             return None
@@ -919,18 +925,18 @@ class DockerSandboxSupervisor:
             "--security-opt=no-new-privileges", "--user=65534:65534", "--memory=96m", "--pids-limit=8", "--log-driver=none",
             *mounts, "--entrypoint", "python", HOLDER_IMAGE, "-c", "import time; time.sleep(86400)",
         ]
-        holder = _checked(self._docker.run(args), "start_failed", "create volume holder").text()
+        holder = checked(self._docker.run(args), "start_failed", "create volume holder").text()
         try:
-            _checked(self._docker.run(["start", holder]), "start_failed", "start volume holder")
+            checked(self._docker.run(["start", holder]), "start_failed", "start volume holder")
         except SandboxError:
-            self._remove_container(holder)
+            self._ops.remove_container(holder)
             raise
         return holder
 
     def _preload(self, container: str, fixtures: Path) -> dict[str, str]:
         try:
             data = tar_of_tree(fixtures)
-            _checked(self._docker.run(["cp", "-", f"{container}:/hold/workspace"], stdin=data), "fixture_failed", "preload fixtures")
+            checked(self._docker.run(["cp", "-", f"{container}:/hold/workspace"], stdin=data), "fixture_failed", "preload fixtures")
             return {
                 p.relative_to(fixtures).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
                 for p in sorted(fixtures.rglob("*"))
@@ -949,20 +955,6 @@ class DockerSandboxSupervisor:
             "--tmpfs", f"/tmp:rw,noexec,nosuid,size={limits.tmp_bytes}",
         ]
 
-    def _create_volume(self, name: str, size: int) -> str:
-        args = [
-            "volume", "create", "--driver", "local", "--opt", "type=tmpfs", "--opt", "device=tmpfs",
-            "--opt", f"o=size={size},uid={UID},gid={GID},mode=0755", name,
-        ]
-        _checked(self._docker.run(args), "start_failed", f"create volume {name}")
-        return name
-
-    def _remove_volume(self, name: str) -> None:
-        self._docker.run(["volume", "rm", "-f", name])
-
-    def _remove_container(self, container: str) -> None:
-        self._docker.run(["rm", "-f", "-v", container])
-
     @staticmethod
     def _write_env(directory: Path, env: Mapping[str, str]) -> Path:
         directory.mkdir(parents=True, exist_ok=True)
@@ -974,36 +966,38 @@ class DockerSandboxSupervisor:
                 handle.write(f"{key}={value}\n")
         return Path(name)
 
-    def _state(self, container: str) -> dict:
-        result = _checked(self._docker.run(["inspect", "--format", "{{json .State}}", container]), "inspect_failed", "inspect container")
-        return json.loads(result.stdout)
-
-    def _copy_out(self, container: str, path: str, limits: Limits, workdir: Path) -> tuple[Extracted, Path]:
-        result = _checked(
-            self._docker.run(["cp", f"{container}:{path}", "-"], capture_bytes=limits.workspace_bytes + limits.workspace_files * TAR_ENTRY_OVERHEAD + (8 << 20)),
-            "snapshot_failed", f"copy {path} out",
-        )
-        if result.stdout_truncated:
-            raise SandboxError("snapshot_too_large", f"{path} exceeds the {limits.workspace_bytes} byte bound")
-        destination = workdir / f"copy-{uuid.uuid4().hex[:8]}"
-        try:
-            extracted = extract_tar(
-                result.stdout, destination, root_name=Path(path).name, max_files=limits.workspace_files, max_bytes=limits.workspace_bytes
-            )
-        except ArchiveError as error:
-            shutil.rmtree(destination, ignore_errors=True)
-            raise SandboxError(error.code, error.message) from error
-        return extracted, destination
-
 
 class _DockerCase:
     """One running case container."""
 
     def __init__(
-        self, supervisor: DockerSandboxSupervisor, spec: CaseSpec, container: str, holder: str, volumes: tuple[str, str], initial: dict[str, str],
+        self,
+        *,
+        ops: DockerOps,
+        collector: EvidenceSource,
+        clock: Callable[[], float],
+        wall_clock_ns: Callable[[], int],
+        sleep: Callable[[float], None],
+        evidence_wait_s: float,
+        meter: Callable[[str], CpuMeter | None],
+        tool_cases: dict[str, _DockerCase],
+        spec: CaseSpec,
+        container: str,
+        holder: str,
+        volumes: tuple[str, str],
+        initial: dict[str, str],
         tool_container: str,
+        tool_proxy: str | None,  # the tool container's egress proxy URL, when it has declared hosts
+        bridge: ExitStack,  # the proxy and its relay and network; closed with the case
     ) -> None:
-        self._s = supervisor
+        self._ops = ops
+        self._collector = collector
+        self._clock = clock
+        self._wall_clock_ns = wall_clock_ns
+        self._sleep = sleep
+        self._evidence_wait_s = evidence_wait_s
+        self._meter = meter
+        self._tool_cases = tool_cases
         self.holder = holder
         self.spec = spec
         self._tool = tool_container  # empty when the case has no tools
@@ -1024,8 +1018,8 @@ class _DockerCase:
         self._evidence_lock = threading.Lock()
         self.view_lock = threading.Lock()  # one workspace copy at a time (`ToolLauncher.workspace_view`)
         self._closing = threading.Event()
-        self.tool_proxy: str | None = None  # the tool container's egress proxy URL, when it has declared hosts
-        self.bridge = ExitStack()  # the proxy and its relay and network; closed with the case
+        self.tool_proxy = tool_proxy
+        self.bridge = bridge
 
     @property
     def container_id(self) -> str:
@@ -1033,31 +1027,31 @@ class _DockerCase:
 
     def launch(self) -> None:
         limits = self.spec.limits
-        self._launched_at = self._s._clock()
+        self._launched_at = self._clock()
         self._deadline = self._launched_at + limits.wall_s
         self._thread = threading.Thread(target=self._run, name=f"case-{self._container[:12]}", daemon=True)
         self._thread.start()
         # Fail fast, and closed, when the runtime cannot start the sandbox (e.g. the collector is gone).
         while True:
-            state = self._s._state(self._container)
+            state = self._ops.state(self._container)
             if state.get("Running") or not self._thread.is_alive():
                 break
-            time.sleep(0.02)
-        if not self._thread.is_alive() and state.get("StartedAt", "").startswith("0001"):
+            self._sleep(0.02)
+        if not self._thread.is_alive() and _never_started(state):
             raise SandboxError("start_failed", f"case sandbox did not start: {state.get('Error') or self._run_result.error_text()}")  # type: ignore[union-attr]
-        self._meters[self._container] = self._s._meter(self._container)
+        self._meters[self._container] = self._meter(self._container)
         if self._tool:
-            self._meters[self._tool] = self._s._meter(self._tool)
+            self._meters[self._tool] = self._meter(self._tool)
 
     def _run(self) -> None:
         limits = self.spec.limits
-        self._run_result = self._s._docker.run(
+        self._run_result = self._ops.docker.run(
             ["start", "-a", self._container], timeout_s=limits.wall_s, capture_bytes=limits.output_bytes
         )
-        self._exited_at = self._s._clock()
+        self._exited_at = self._clock()
         if self._run_result.timed_out:
             self._timed_out = True
-            self._s._docker.run(["kill", self._container])  # the whole sandbox, descendants included
+            self._ops.docker.run(["kill", self._container])  # the whole sandbox, descendants included
 
     def wait(self) -> CaseOutcome:
         if self._outcome is not None:
@@ -1067,7 +1061,7 @@ class _DockerCase:
         result = self._run_result
         assert result is not None
         try:
-            state = self._s._state(self._container)
+            state = self._ops.state(self._container)
         except SandboxError as error:
             if self._closing.is_set():  # close() removed the sandbox while this woke on its kill
                 raise SandboxError("closed", "the case was closed while it was awaited") from error
@@ -1086,7 +1080,7 @@ class _DockerCase:
 
     def exec_in_case(self, argv: Sequence[str], cwd: str, timeout_ms: int, limits: Limits) -> ExecOutcome:
         validate_argv(list(argv))
-        remaining = self._deadline - self._s._clock()
+        remaining = self._deadline - self._clock()
         if remaining <= 0:
             raise SandboxError("case_over", "the case deadline has passed")
         absolute = self._resolve_cwd(cwd)
@@ -1100,9 +1094,9 @@ class _DockerCase:
         # gVisor can complete a blocking write to the exec's output pipe only in part, and an unbuffered Python
         # (the runtime's PYTHONUNBUFFERED) drops the rest of a large write without error: an empty value turns that off for the command.
         args = ["exec", f"--user={UID}:{GID}", "--workdir", absolute, "-e", "PYTHONUNBUFFERED=", self._container, *wrapped]
-        launched, launched_wall = self._s._clock(), self._s._wall_clock_ns()
-        result = self._s._docker.run(args, timeout_s=timeout_s + EXEC_KILL_GRACE_S + 10, capture_bytes=limits.output_bytes)
-        returned, returned_wall = self._s._clock(), self._s._wall_clock_ns()
+        launched, launched_wall = self._clock(), self._wall_clock_ns()
+        result = self._ops.docker.run(args, timeout_s=timeout_s + EXEC_KILL_GRACE_S + 10, capture_bytes=limits.output_bytes)
+        returned, returned_wall = self._clock(), self._wall_clock_ns()
         # 124 (TERM) and 137 (KILL) are `timeout`'s codes, but a command can exit with them itself: it
         # timed out only when the deadline actually elapsed on the worker clock.
         deadline_elapsed = returned - launched >= timeout_s
@@ -1122,18 +1116,18 @@ class _DockerCase:
     def _signaled_by_evidence(self, launch_id: str, raw: Termination) -> Termination:
         """`timeout` reports a command killed by a signal as 128 + n, which a plain exit can also be: only the member
         process's task exit tells them apart. Without it within the wait the raw exit code stands, as for the harness."""
-        deadline = time.monotonic() + EXEC_EVIDENCE_WAIT_S
+        deadline = self._clock() + self._evidence_wait_s
         while True:
-            evidence = self._s._collector.snapshot(self._container)
+            evidence = self._collector.snapshot(self._container)
             identity = next((i for i, found in launched_processes(evidence).items() if found == launch_id), None)
             member = next((p for p in evidence.lifetimes() if p.identity == identity), None)
             if member is not None and member.exit is not None:
                 if member.exit.exit_signal is not None:
                     return Termination(TerminationKind.SIGNALED, None, member.exit.exit_signal)
                 return raw
-            if time.monotonic() >= deadline:
+            if self._clock() >= deadline:
                 return raw
-            time.sleep(0.02)
+            self._sleep(0.02)
 
     def _resolve_cwd(self, cwd: str) -> str:
         if cwd == ".":
@@ -1141,7 +1135,7 @@ class _DockerCase:
         if (problem := path_problem(cwd)) is not None:
             raise ContractError("invalid_cwd", f"cwd {cwd!r}: {problem}")
         # One bounded call in the holder, which mounts the same volume: every component of the path is checked there.
-        check = self._s._docker.run(["exec", self.holder, "python", "-c", CWD_CHECK, "/hold/workspace", cwd], timeout_s=CWD_CHECK_TIMEOUT_S, capture_bytes=4096)
+        check = self._ops.docker.run(["exec", self.holder, "python", "-c", CWD_CHECK, "/hold/workspace", cwd], timeout_s=CWD_CHECK_TIMEOUT_S, capture_bytes=4096)
         if check.timed_out or check.returncode not in (0, CWD_MISSING, CWD_LINK):
             raise SandboxError("exec_failed", f"cwd {cwd!r} could not be checked: {check.error_text()}")
         if check.returncode == CWD_MISSING:
@@ -1152,18 +1146,14 @@ class _DockerCase:
 
     def stop_and_drain(self) -> WorkspaceSnapshot:
         self._read_counters()
-        if self._tool and self._s._state(self._tool).get("Running"):
-            _checked(self._s._docker.run(["kill", self._tool]), "freeze_failed", "stop the tool container")
-        state = self._s._state(self._container)
+        if self._tool and self._ops.state(self._tool).get("Running"):
+            checked(self._ops.docker.run(["kill", self._tool]), "freeze_failed", "stop the tool container")
+        state = self._ops.state(self._container)
         if state.get("Running") and not state.get("Paused"):
-            _checked(self._s._docker.run(["pause", self._container]), "freeze_failed", "freeze the sandbox")
+            checked(self._ops.docker.run(["pause", self._container]), "freeze_failed", "freeze the sandbox")
             self._paused = True
-        extracted, directory = self._s._copy_out(self.holder, "/hold/workspace", self.spec.limits, self.spec.workdir)
-        files = extracted.files
-        added = tuple(sorted(set(files) - set(self._initial)))
-        deleted = tuple(sorted(set(self._initial) - set(files)))
-        modified = tuple(sorted(p for p in files if p in self._initial and files[p] != self._initial[p]))
-        return WorkspaceSnapshot(directory, files, added, modified, deleted, extracted.skipped, extracted.total_bytes)
+        extracted, directory = self._ops.copy_out(self.holder, "/hold/workspace", self.spec.limits, self.spec.workdir)
+        return WorkspaceSnapshot.diff(directory, extracted, self._initial)
 
     def _read_counters(self) -> None:
         """Reads every container's CPU once more while it is alive, then keeps the last reading of each.
@@ -1175,25 +1165,21 @@ class _DockerCase:
         counters: list[dict[str, Any]] = []
         for container, role in containers.items():
             meter = self._meters.get(container)
-            if meter is None:
-                counters = []
-                break
-            meter.sample()  # a live container is read exactly; an exited one's cgroup is gone and the last reading stands
-            reading = meter.stop()
+            if meter is not None:
+                meter.sample()  # a live container is read exactly; an exited one's cgroup is gone and the last reading stands
+            reading = meter.stop() if meter is not None else None
             if reading is None:
                 counters = []
                 break
             counters.append({"identity": {"role": role, "container": container}, "user_ns": reading[0], "system_ns": reading[1]})
-        for meter in self._meters.values():
-            if meter is not None:
-                meter.stop()
+        self._stop_meters()
         self._counters = counters
 
     def cpu_counters(self) -> list[dict[str, Any]]:
         return list(self._counters)
 
     def read_result(self) -> bytes:
-        extracted, directory = self._s._copy_out(self.holder, "/hold/out", self.spec.limits, self.spec.workdir)
+        extracted, directory = self._ops.copy_out(self.holder, "/hold/out", self.spec.limits, self.spec.workdir)
         try:
             # Only result.json is accepted: anything else in the directory is ignored and never read.
             if RESULT_NAME not in extracted.files:
@@ -1205,15 +1191,15 @@ class _DockerCase:
     def evidence(self) -> ProcessEvidence:
         with self._evidence_lock:  # wait() and close() both take it, from different threads
             if self._final is None:
-                self._final = self._s._collector.finish(self._container)
-                self._s._collector.discard(self._container)
+                self._final = self._collector.finish(self._container)
+                self._collector.discard(self._container)
             return self._final
 
     def abort(self) -> None:
         """Removes everything a case that never started left behind; its process evidence is not read."""
         self._stop_meters()
         self._remove_all()
-        self._s._collector.discard(self._container)
+        self._collector.discard(self._container)
 
     def _stop_meters(self) -> None:
         for meter in self._meters.values():
@@ -1221,16 +1207,16 @@ class _DockerCase:
                 meter.stop()
 
     def _remove_all(self) -> None:
-        self._s._remove_container(self._container)
+        self._ops.remove_container(self._container)
         if self._tool:
-            self._s._remove_container(self._tool)
-            self._s._collector.discard(self._tool)
+            self._ops.remove_container(self._tool)
+            self._collector.discard(self._tool)
         self.bridge.close()
         if self.spec.tool is not None:
-            self._s._tool_cases.pop(self.spec.tool.name, None)
-        self._s._remove_container(self.holder)
+            self._tool_cases.pop(self.spec.tool.name, None)
+        self._ops.remove_container(self.holder)
         for volume in self._volumes:
-            self._s._remove_volume(volume)
+            self._ops.remove_volume(volume)
 
     def close(self) -> None:
         self._closing.set()
@@ -1238,13 +1224,12 @@ class _DockerCase:
             self.abort()
             return
         if self._paused:
-            self._s._docker.run(["unpause", self._container])
-        self._s._docker.run(["kill", self._container])
+            self._ops.docker.run(["unpause", self._container])
+        self._ops.docker.run(["kill", self._container])
         if self._tool:
-            self._s._docker.run(["kill", self._tool])
+            self._ops.docker.run(["kill", self._tool])
         self._stop_meters()
-        if self._thread is not None:
-            self._thread.join(timeout=30)
+        self._thread.join(timeout=30)
         self._remove_all()
         if self._final is None:
             # The sandbox is gone, so its connection has closed: take the evidence now, while the journal
@@ -1252,4 +1237,4 @@ class _DockerCase:
             try:
                 self.evidence()
             except CollectorError:
-                self._s._collector.discard(self._container)
+                self._collector.discard(self._container)

@@ -1,6 +1,7 @@
 /** Display logic for the run cards and the run view: labels over a run summary (GET runs, GET benchmarks/{id}/results) or a run (GET runs/{id}), and what a live update may change. */
 
 import {primaryMetrics} from './metrics.js';
+import {harnessLabel, plural} from './labels.js';
 
 const EXECUTION_LABELS = {
   answered: 'Answered', refused: 'Refused', execution_failed: 'Execution failed', build_failed: 'Build failed', canceled: 'Canceled', interrupted: 'Interrupted',
@@ -41,7 +42,7 @@ export function scoreText(score) {
   if (!score) return 'Unavailable';
   if (Number.isFinite(score.value)) {
     const parts = [`${score.passed} of ${score.scored} scored passed`];
-    if (score.unscored) parts.push(`${score.unscored} unscored${score.verifier_errors ? ` (${score.verifier_errors} verifier error${score.verifier_errors === 1 ? '' : 's'})` : ''}`);
+    if (score.unscored) parts.push(`${score.unscored} unscored${score.verifier_errors ? ` (${plural(score.verifier_errors, 'verifier error')})` : ''}`);
     if (!score.complete) parts.push('provisional');
     return `${Number(score.value.toFixed(4))} (${parts.join(', ')})`;
   }
@@ -85,7 +86,7 @@ export function runSummary(run, ticked = []) {
   const {text, tone} = statusLine(run);
   const at = ticked.indexOf(run.run_id);
   return {
-    title: `${run.harness.name} v${run.harness.version}`,
+    title: harnessLabel(run.harness),
     subtitle: `${run.plugin.name ?? run.plugin.id} · ${run.benchmark.name} v${run.plugin.version}`,
     status: text, tone, model: run.model,
     tokens: metricText(run, 'total_tokens', 'tokens'),

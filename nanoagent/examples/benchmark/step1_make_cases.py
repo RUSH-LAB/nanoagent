@@ -36,6 +36,7 @@ import threading
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +45,7 @@ from openai import OpenAI
 from slimconfig import Config, Layout, Output, Run, build_output, load_output, output_schema, write_output
 
 from nanoagent.plugin.install import SYNC_TIMEOUT
-from step2_single_run import Cases, isolate, logged, pin, prepared_plugin, reference_tool, unpack
+from step2_single_run import Cases, isolate, logged, pin, plugin_folder, psql_rows, reference_tool
 
 from nanoagent.plugin import load_manifest
 from nanoagent.plugin.python import PluginPython
@@ -188,17 +189,19 @@ class Checked:
 class Spend:
     """The model's tokens and cost over every call, from every worker."""
 
-    def __init__(self) -> None:
+    def __init__(self, input_price: float, output_price: float) -> None:
+        self.input_price = input_price
+        self.output_price = output_price
         self.lock = threading.Lock()
         self.input_tokens = 0
         self.output_tokens = 0
         self.cost = 0.0
 
-    def add(self, usage: Any, config: MakeCasesConfig) -> None:
+    def add(self, usage: Any) -> None:
         with self.lock:
             self.input_tokens += usage.prompt_tokens
             self.output_tokens += usage.completion_tokens
-            self.cost += (usage.prompt_tokens * config.input_price + usage.completion_tokens * config.output_price) / 1e6
+            self.cost += (usage.prompt_tokens * self.input_price + usage.completion_tokens * self.output_price) / 1e6
 
 
 def existing_cases(folder: Path) -> dict[str, tuple[Path, Cases]]:
@@ -212,7 +215,7 @@ def existing_cases(folder: Path) -> dict[str, tuple[Path, Cases]]:
     return found
 
 
-def source_text(root: Path, config: MakeCasesConfig) -> str:
+def source_text(root: Path, file_chars: int, source_chars: int) -> str:
     """The plugin's files for the model: manifest, README and contract first, then the rest, each
     file and the whole cut to the config's lengths."""
     first = [root / "nanoagent.yaml", root / "README.md", root / "contract.py"]
@@ -233,10 +236,10 @@ def source_text(root: Path, config: MakeCasesConfig) -> str:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
-        if len(text) > config.file_chars:
-            text = text[: config.file_chars] + f"\n... ({len(text) - config.file_chars} more characters cut)"
+        if len(text) > file_chars:
+            text = text[:file_chars] + f"\n... ({len(text) - file_chars} more characters cut)"
         block = f"=== {path.relative_to(root)} ===\n{text}\n"
-        if total + len(block) > config.source_chars:
+        if total + len(block) > source_chars:
             parts.append(f"=== {path.relative_to(root)} (left out: the source budget is spent) ===\n")
             continue
         parts.append(block)
@@ -318,19 +321,42 @@ def tools_needed(manifest, task, tool: str, arguments: dict[str, Any], timeout: 
 def check_existing(config: MakeCasesConfig, python: PluginPython, cases: Cases) -> str | None:
     """Check every case to answer of one existing cases file as a new case is checked: the first verdict
     that is not None (UNCHECKABLE, or why its task needs the plugin's tools), else None."""
-    with tempfile.TemporaryDirectory(prefix="benchmark-check-") as unpacked:
-        unpack(config.database, config.psql, cases.plugin, Path(unpacked))
-        with prepared_plugin(Path(unpacked, cases.plugin), python, SYNC_TIMEOUT) as folder:
-            manifest = load_manifest(folder)
-            task = manifest.task(cases.task)
-            tool = reference_tool(task)
-            if tool is None:
-                return None
-            for arguments in cases.answer:
-                needs = tools_needed(manifest, task, tool, arguments, config.timeout)
-                if needs is not None:
-                    return needs
+    with plugin_folder(config.database, config.psql, cases.plugin, python, SYNC_TIMEOUT) as folder:
+        manifest = load_manifest(folder)
+        task = manifest.task(cases.task)
+        tool = reference_tool(task)
+        if tool is None:
             return None
+        for arguments in cases.answer:
+            needs = tools_needed(manifest, task, tool, arguments, config.timeout)
+            if needs is not None:
+                return needs
+        return None
+
+
+def opening_messages(config: MakeCasesConfig, plugin: str, manifest, task, tool: str | None, folder: Path) -> tuple[set[str], list[dict[str, str]]]:
+    if tool is None:
+        keys, pinning = {"context", "input", "answer"}, config.unpinned
+    else:
+        keys, pinning = {"context", "input"}, config.pinned_by.format(tool=tool, description=manifest.tool(tool).description)
+    messages = [
+        {"role": "system", "content": config.system_prompt.format(today=today())},
+        {
+            "role": "user",
+            "content": config.prompt.format(
+                plugin=plugin,
+                task=task.id,
+                description=task.description,
+                instructions=task.instructions,
+                input_schema=json.dumps(output_schema(task.input_type), indent=2),
+                output_schema=json.dumps(output_schema(task.output_type), indent=2),
+                runner=task.runner,
+                pinning=pinning,
+                source=source_text(folder, config.file_chars, config.source_chars),
+            ),
+        },
+    ]
+    return keys, messages
 
 
 def make_case(
@@ -339,7 +365,7 @@ def make_case(
     client: OpenAI,
     spend: Spend,
     bugs: Bugs,
-    checked: "Checked",
+    checked: Checked,
     plugin: str,
     version: str,
     task_id: str,
@@ -347,86 +373,91 @@ def make_case(
 ) -> dict[str, Any]:
     """Propose and check one task's case; write its cases file when one is kept."""
     record: dict[str, Any] = {"plugin": plugin, "task": task_id, "attempts": 0}
-    with tempfile.TemporaryDirectory(prefix="benchmark-cases-") as unpacked:
-        try:
-            unpack(config.database, config.psql, plugin, Path(unpacked))
-            with prepared_plugin(Path(unpacked, plugin), python, SYNC_TIMEOUT) as folder:
-                manifest = load_manifest(folder)
-                task = manifest.task(task_id)
-                tool = reference_tool(task)
-                if tool is None:
-                    keys, pinning = {"context", "input", "answer"}, config.unpinned
-                else:
-                    keys, pinning = {"context", "input"}, config.pinned_by.format(tool=tool, description=manifest.tool(tool).description)
-                messages = [
-                    {"role": "system", "content": config.system_prompt.format(today=today())},
-                    {
-                        "role": "user",
-                        "content": config.prompt.format(
-                            plugin=plugin,
-                            task=task.id,
-                            description=task.description,
-                            instructions=task.instructions,
-                            input_schema=json.dumps(output_schema(task.input_type), indent=2),
-                            output_schema=json.dumps(output_schema(task.output_type), indent=2),
-                            runner=task.runner,
-                            pinning=pinning,
-                            source=source_text(folder, config),
-                        ),
-                    },
-                ]
-                error = None
-                for attempt in range(1, config.attempts + 1):
-                    record["attempts"] = attempt
-                    reply = client.chat.completions.create(
-                        model=config.model,
-                        messages=messages,
-                        max_tokens=config.max_tokens,
-                        extra_body={} if config.reasoning_effort is None else {"reasoning": {"effort": config.reasoning_effort}},
+    try:
+        with plugin_folder(config.database, config.psql, plugin, python, SYNC_TIMEOUT) as folder:
+            manifest = load_manifest(folder)
+            task = manifest.task(task_id)
+            tool = reference_tool(task)
+            keys, messages = opening_messages(config, plugin, manifest, task, tool, folder)
+            error = None
+            for attempt in range(1, config.attempts + 1):
+                record["attempts"] = attempt
+                reply = client.chat.completions.create(
+                    model=config.model,
+                    messages=messages,
+                    max_tokens=config.max_tokens,
+                    extra_body={} if config.reasoning_effort is None else {"reasoning": {"effort": config.reasoning_effort}},
+                )
+                spend.add(reply.usage)
+                choice = reply.choices[0]
+                text = choice.message.content or ""
+                messages.append({"role": "assistant", "content": text})
+                try:
+                    if not text.strip():
+                        raise ValueError(f"the reply was empty (finish reason {choice.finish_reason}): think less, then reply")
+                    value = proposal(text, keys)
+                    arguments, context = value["input"], value["context"]
+                    build_output(arguments, task.input_type)
+                    if tool is None:
+                        record["check"] = check_unpinned(manifest, task, arguments, value["answer"])
+                    else:
+                        needs = tools_needed(manifest, task, tool, arguments, config.timeout)
+                        if needs == UNCHECKABLE:
+                            record["check"] = needs
+                        elif needs is not None:
+                            record["reason"] = needs
+                            break
+                except (ValueError, TypeError, RuntimeError, TimeoutError) as failure:
+                    error = f"{type(failure).__name__}: {failure}"
+                    print(f"{plugin} · {task_id}: proposal {attempt} rejected: {error[:300]}", flush=True)
+                    messages.append(
+                        {"role": "user", "content": f"That proposal was rejected:\n{error[:4000]}\n\nPropose again, the same JSON object."}
                     )
-                    spend.add(reply.usage, config)
-                    choice = reply.choices[0]
-                    text = choice.message.content or ""
-                    messages.append({"role": "assistant", "content": text})
-                    try:
-                        if not text.strip():
-                            raise ValueError(f"the reply was empty (finish reason {choice.finish_reason}): think less, then reply")
-                        value = proposal(text, keys)
-                        arguments, context = value["input"], value["context"]
-                        build_output(arguments, task.input_type)
-                        if tool is None:
-                            record["check"] = check_unpinned(manifest, task, arguments, value["answer"])
-                        else:
-                            needs = tools_needed(manifest, task, tool, arguments, config.timeout)
-                            if needs == UNCHECKABLE:
-                                record["check"] = needs
-                            elif needs is not None:
-                                record["reason"] = needs
-                                break
-                    except (ValueError, TypeError, RuntimeError, TimeoutError) as failure:
-                        error = f"{type(failure).__name__}: {failure}"
-                        print(f"{plugin} · {task_id}: proposal {attempt} rejected: {error[:300]}", flush=True)
-                        messages.append(
-                            {"role": "user", "content": f"That proposal was rejected:\n{error[:4000]}\n\nPropose again, the same JSON object."}
-                        )
-                        continue
-                    write_output(str(path), Cases(plugin=plugin, task=task.id, context=context, answer=[arguments], refuse=[]))
-                    record["file"] = str(path)
-                    checked.add(plugin, version)
-                    print(f"{plugin} · {task_id}: made {path.name} on proposal {attempt}", flush=True)
-                    return record
-                else:
-                    record["reason"] = f"no proposal of {config.attempts} was kept; the last: {error}"
-        except (subprocess.SubprocessError, RuntimeError, ValueError, OSError) as failure:
-            # The plugin could not be unpacked or readied, or its task cannot be pinned: no proposal can be checked.
-            record["reason"] = f"the plugin or its task could not be readied: {type(failure).__name__}: {failure}"
+                    continue
+                write_output(str(path), Cases(plugin=plugin, task=task.id, context=context, answer=[arguments], refuse=[]))
+                record["file"] = str(path)
+                checked.add(plugin, version)
+                print(f"{plugin} · {task_id}: made {path.name} on proposal {attempt}", flush=True)
+                return record
+            else:
+                record["reason"] = f"no proposal of {config.attempts} was kept; the last: {error}"
+    except (subprocess.SubprocessError, RuntimeError, ValueError, OSError) as failure:
+        # The plugin could not be unpacked or readied, or its task cannot be pinned: no proposal can be checked.
+        record["reason"] = f"the plugin or its task could not be readied: {type(failure).__name__}: {failure}"
     bugs.add(plugin, task_id, record["reason"])
     print(f"{plugin} · {task_id}: not made, marked as having a bug: {record['reason'][:300]}", flush=True)
     return record
 
 
 def today() -> str:
-    return subprocess.check_output(["date", "-u", "+%Y-%m-%d"], text=True).strip()
+    return datetime.now(UTC).date().isoformat()
+
+
+def check_files(
+    config: MakeCasesConfig,
+    python: PluginPython,
+    existing: dict[str, tuple[Path, Cases]],
+    versions: dict[str, str],
+    unchecked: list[str],
+    bugs: Bugs,
+    checked: Checked,
+) -> dict[str, str | None]:
+
+    def check(plugin: str) -> str | None:
+        path, cases = existing[plugin]
+        needs = check_existing(config, python, cases)
+        if needs is None or needs == UNCHECKABLE:
+            checked.add(plugin, versions[plugin])
+            print(f"{plugin} · {cases.task}: {needs or 'checked'}", flush=True)
+            return needs
+        path.unlink()
+        bugs.add(plugin, cases.task, needs)
+        print(f"{plugin} · {cases.task}: deleted {path.name}, marked: {needs[:300]}", flush=True)
+        return needs
+
+    with ThreadPoolExecutor(max_workers=config.workers) as pool:
+        verdicts = dict(zip(unchecked, pool.map(check, unchecked)))
+    return verdicts
 
 
 class CaseMaker(Run):
@@ -443,15 +474,7 @@ class CaseMaker(Run):
         config = self.config
         if "OPENROUTER_API_KEY" not in os.environ:
             raise RuntimeError("OPENROUTER_API_KEY is not set: the run script reads it from the repository's .env")
-        found = subprocess.run(
-            [config.psql, config.database, "--no-psqlrc", "-At", "-F", "\t", "-v", "ON_ERROR_STOP=1"],
-            input=PLUGINS_QUERY,
-            capture_output=True,
-            text=True,
-        )
-        if found.returncode != 0:
-            raise RuntimeError(f"psql could not read the marketplace's plugins from {config.database}: {found.stderr.strip()}")
-        rows = [line.split("\t") for line in found.stdout.splitlines() if line]
+        rows = psql_rows(config.psql, config.database, PLUGINS_QUERY, "the marketplace's plugins")
         left_out = [f"{plugin} ({tasks or 'no tasks'})" for plugin, _, task, tasks in rows if not task]
         benchmarked = [(plugin, task) for plugin, _, task, _ in rows if task]
         versions = {plugin: version for plugin, version, _, _ in rows}
@@ -467,20 +490,7 @@ class CaseMaker(Run):
         unchecked = sorted(plugin for plugin in existing if checked.plugins.get(plugin) != versions[plugin])
         print(f"{len(existing)} cases files; {len(unchecked)} to check for needing the plugin's tools", flush=True)
 
-        def check(plugin: str) -> str | None:
-            path, cases = existing[plugin]
-            needs = check_existing(config, python, cases)
-            if needs is None or needs == UNCHECKABLE:
-                checked.add(plugin, versions[plugin])
-                print(f"{plugin} · {cases.task}: {needs or 'checked'}", flush=True)
-                return needs
-            path.unlink()
-            bugs.add(plugin, cases.task, needs)
-            print(f"{plugin} · {cases.task}: deleted {path.name}, marked: {needs[:300]}", flush=True)
-            return needs
-
-        with ThreadPoolExecutor(max_workers=config.workers) as pool:
-            verdicts = dict(zip(unchecked, pool.map(check, unchecked)))
+        verdicts = check_files(config, python, existing, versions, unchecked, bugs, checked)
         uncheckable = [plugin for plugin, needs in verdicts.items() if needs == UNCHECKABLE]
         needs_tools = [plugin for plugin, needs in verdicts.items() if needs not in (None, UNCHECKABLE)]
         for plugin in needs_tools:
@@ -498,7 +508,7 @@ class CaseMaker(Run):
             flush=True,
         )
         client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ["OPENROUTER_API_KEY"], timeout=config.read_timeout, max_retries=2)
-        spend = Spend()
+        spend = Spend(config.input_price, config.output_price)
         with ThreadPoolExecutor(max_workers=config.workers) as pool:
             records = list(
                 pool.map(lambda item: make_case(config, python, client, spend, bugs, checked, item[0], versions[item[0]], item[1], paths[item]), todo)

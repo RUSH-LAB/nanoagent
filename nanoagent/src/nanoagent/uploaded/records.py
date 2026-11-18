@@ -58,17 +58,6 @@ class Record:
         except (KeyError, TypeError, ValueError) as error:
             raise RecordError(f"malformed record {raw.get('event_id') if isinstance(raw, Mapping) else raw!r}: {error!r}") from error
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "event_id": self.event_id,
-            "source": self.source,
-            "kind": self.kind,
-            "sequence": self.sequence,
-            "occurred_ns": self.occurred_ns,
-            "data": dict(self.data),
-            "payload_sha256s": list(self.payload_sha256s),
-        }
-
 
 def _plain(value: Any) -> Any:
     if isinstance(value, Mapping):

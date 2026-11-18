@@ -6,6 +6,7 @@ import {spawn, spawnSync} from 'node:child_process';
 import net from 'node:net';
 import {fileURLToPath} from 'node:url';
 import {parseEnv} from '../db/postgres.mjs';
+import {workerRunArgs} from '../../src/runner/worker.mjs';
 import {LOCAL_OWNER_URL, LOCAL_RUNTIME_URL, startLocal as startLocalDatabase} from '../db/local.mjs';
 import {pulledAt} from '../db/sync.mjs';
 
@@ -119,16 +120,14 @@ export function benchmarkWorkerBuildArgs(nanoagentRoot) {
  * credential and key are passed by name (`-e NAME`), taken from the environment of the docker process, never in a command line.
  */
 export function benchmarkWorkerArgs(apiPort) {
-  return [
-    'run', '--rm', '--init', '--privileged', '--cgroupns=private', '--name', BENCHMARK_WORKER_CONTAINER,
-    '--add-host', 'host.docker.internal:host-gateway',
-    '-v', 'rush-worker-docker:/var/lib/docker', '-v', 'rush-worker-home:/home/rush/rush-worker',
-    '-e', 'RUSH_WORKER_TOKEN', '-e', 'OPENROUTER_API_KEY',
-    BENCHMARK_WORKER_IMAGE,
-    'python', '-m', 'nanoagent.uploaded.worker',
-    'config=/opt/nanoagent/deploy/gvisor/worker.openrouter.yaml', 'home=/home/rush/rush-worker/run',
-    '--', `rush.base_url=http://host.docker.internal:${apiPort}`, 'worker_id=dev-worker',
-  ];
+  return workerRunArgs({
+    lifetime: '--rm',
+    name: BENCHMARK_WORKER_CONTAINER,
+    volumes: ['rush-worker-docker', 'rush-worker-home'],
+    image: BENCHMARK_WORKER_IMAGE,
+    baseUrl: `http://host.docker.internal:${apiPort}`,
+    workerId: 'dev-worker',
+  });
 }
 
 /** Stop the worker's container and remove it; one a crashed start left is removed too. Leases the worker held run out on their own. */

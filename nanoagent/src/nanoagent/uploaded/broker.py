@@ -2,23 +2,19 @@
 
 from __future__ import annotations
 
-import json
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Protocol
 
 import anyio
-from jsonschema import Draft202012Validator
-from jsonschema.exceptions import best_match
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from nanoagent.plugin.manifest import PluginManifest
 from nanoagent.plugin.runtime import PluginLauncher, PluginSession
-from nanoagent.uploaded.attempt import CALL_HEADER, Attempt, ServiceError, ToolPolicy, error_response, from_contract, new_call_id
-from nanoagent.uploaded.contract import _FORMATS, ContractError, decode_and_validate, validate
-from nanoagent.uploaded.evidence import json_bytes
+from nanoagent.uploaded.attempt import CALL_HEADER, Attempt, ServiceError, from_contract, new_call_id, tool_error_response
+from nanoagent.uploaded.contract import ContractError, decode_and_validate, schema_problem, validate, validator_for
 from nanoagent.uploaded.gateway import ProposalRegistry
 
 
@@ -90,16 +86,6 @@ def canonical(value: Any) -> Any:
     return value
 
 
-def _validator(schema: Mapping[str, Any]) -> Draft202012Validator:
-    Draft202012Validator.check_schema(schema)
-    return Draft202012Validator(schema, format_checker=_FORMATS)
-
-
-def _schema_problem(validator: Draft202012Validator, value: Any) -> str | None:
-    error = best_match(validator.iter_errors(value))
-    return None if error is None else "".join(f"/{part}" for part in error.absolute_path) + f": {error.message}"
-
-
 class ToolBroker:
     def __init__(self, attempt: Attempt, runner: ToolRunner, registry: ProposalRegistry, *, proposal_wait_s: float = 30.0) -> None:
         self.attempt = attempt
@@ -107,7 +93,7 @@ class ToolBroker:
         self.registry = registry
         self.proposal_wait_s = proposal_wait_s
         self._lock = WorkspaceLock()
-        self._validators = {tool.name: (_validator(tool.input_schema), _validator(tool.output_schema)) for tool in attempt.policy.tools}
+        self._validators = {tool.name: (validator_for(tool.input_schema), validator_for(tool.output_schema)) for tool in attempt.policy.tools}
 
     async def handle(self, request: Request) -> Response:
         call_id, context = new_call_id(), {"span_id": None, "tool": None, "cause": None}
@@ -126,13 +112,7 @@ class ToolBroker:
             await self.attempt.recorder.record(
                 "tool_broker", "tool.rejected", {"call_id": call_id, "code": error.code, "message": error.message, "http_status": error.status, **context}
             )
-            return self._envelope_error(error, call_id)
-
-    @staticmethod
-    def _envelope_error(error: ServiceError, call_id: str) -> Response:
-        response = error_response(error, call_id)
-        validate("ToolResult", json.loads(response.body))
-        return response
+            return tool_error_response(error, call_id)
 
     async def _verify_cause(self, call: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         """The adaptation record when the actual arguments differ from the proposal, after verifying the link."""
@@ -158,15 +138,15 @@ class ToolBroker:
 
     async def _run(self, call_id: str, call: dict[str, Any], span_id: str | None, received_ns: int) -> Response:
         name, arguments = call["name"], call["arguments"]
-        tool: ToolPolicy | None = self.attempt.policy.tool(name)
+        tool = self.attempt.policy.tool(name)
         if tool is None:
             raise ServiceError(403, "tool_not_available", f"{name!r} is not an available tool for this attempt")
         link, adaptation = await self._verify_cause(call)
         input_validator, output_validator = self._validators[name]
-        if problem := _schema_problem(input_validator, arguments):
+        if problem := schema_problem(input_validator, arguments):
             raise ServiceError(400, "invalid_arguments", f"arguments violate the input schema at {problem}")
         recorder = self.attempt.recorder
-        arguments_sha = await recorder.payload(json_bytes(arguments))
+        arguments_sha = await recorder.json_payload(arguments)
         await recorder.record(
             "tool_broker",
             "tool.invoked",
@@ -194,14 +174,14 @@ class ToolBroker:
                 failure = ServiceError(error.status, error.code, error.message)
         if scope.cancelled_caught:
             failure = ServiceError(403, "revoked", "the attempt's service admission was revoked while the tool ran")
-        if failure is None and output is not None and (problem := _schema_problem(output_validator, output)):
+        if failure is None and output is not None and (problem := schema_problem(output_validator, output)):
             failure = ServiceError(502, "invalid_output", f"tool output violates the output schema at {problem}")
         duration = self.attempt.clock_ns() - started
         if failure is not None or output is None:
             failure = failure or ServiceError(500, "tool_failed", "the tool returned nothing")
             await recorder.record("tool_broker", "tool.completed", {"call_id": call_id, "tool": name, "ok": False, "duration_ns": duration, "error": {"code": failure.code, "message": failure.message}})
-            return self._envelope_error(failure, call_id)
-        output_sha = await recorder.payload(json_bytes(output))
+            return tool_error_response(failure, call_id)
+        output_sha = await recorder.json_payload(output)
         await recorder.record("tool_broker", "tool.completed", {"call_id": call_id, "tool": name, "ok": True, "duration_ns": duration, "output_sha256": output_sha}, [output_sha])
         envelope = {"output": output}
         validate("ToolResult", envelope)
@@ -212,8 +192,7 @@ class PluginToolRunner:
     """Runs the permitted tools of one plugin through a [PluginSession] confined to the case workspace.
 
     The session starts the plugin with only the plugin's own folder, the workspace, the read-only ``fixtures`` folder if
-    given, and with only the environment
-    variables ``allowed_env`` names: no request, result or private reference files are mounted and no ambient credentials
+    given, and with only the environment variables ``allowed_env`` names: no request, result or private reference files are mounted and no ambient credentials
     pass through. With a ``launcher`` the plugin runs in the case's own tool container (see
     [nanoagent.uploaded.sandbox.ToolLauncher]) and ``workspace`` is the path both sandboxes see. Reference tools are
     refused at construction and at call time. Use it as ``async with`` in the task that serves the attempt (the

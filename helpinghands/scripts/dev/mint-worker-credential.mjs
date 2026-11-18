@@ -18,11 +18,10 @@ try {
   if (!login) throw new Error('ROOT_GITHUB_LOGIN is not set');
   const root = (await database.migrationPool.query('select id from app_user where lower(github_login) = lower($1)', [login])).rows[0];
   if (!root) throw new Error(`the local database has no user for GitHub login ${login}`);
-  const userId = root.id;
-  for (const credential of await benchmarkWorker.listCredentials(userId)) {
-    if (credential.name === NAME && !credential.revoked_at) await benchmarkWorker.revokeCredential(userId, credential.credential_id);
+  for (const credential of await benchmarkWorker.listCredentials(root.id)) {
+    if (credential.name === NAME && !credential.revoked_at) await benchmarkWorker.revokeCredential(root.id, credential.credential_id);
   }
-  process.stdout.write(`${(await benchmarkWorker.mintCredential(userId, NAME)).token}\n`);
+  process.stdout.write(`${(await benchmarkWorker.mintCredential(root.id, NAME)).token}\n`);
 } finally {
   await database.close();
 }

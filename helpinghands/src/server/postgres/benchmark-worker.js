@@ -6,7 +6,7 @@ const {overBudget} = require('../benchmark/rules');
 const {
   capabilitiesOf, exceeded, MAX_ATTEMPT_EVENTS, MAX_ATTEMPT_SPANS, MAX_ATTEMPT_LINKS, MAX_SPAN_ATTRIBUTES_BYTES, MAX_LINK_ATTRIBUTES_BYTES, SETTLE_RESERVE_FACTOR,
 } = require('../benchmark/limits');
-const {chargeAttemptStorage, chargeStorage, inTransaction} = require('./benchmark-context');
+const {SEAL, chargeAttemptStorage, chargeStorage, exists, inTransaction, jsonBytes} = require('./benchmark-context');
 const {sweepExpired} = require('./benchmark-sweep');
 
 const TODAY = "(now() at time zone 'utc')::date";
@@ -25,8 +25,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
 
   /** End `attempt`, whose lease ran out, as interrupted, keeping what it committed. */
   const interrupt = (client, attemptId) => client.query(
-    `update benchmark_attempt set state = 'final', execution_status = 'interrupted', finalized_at = now(), sealed = true,
-       final_cursor = next_cursor - 1 where attempt_id = $1`, [attemptId]);
+    `update benchmark_attempt set state = 'final', execution_status = 'interrupted', ${SEAL} where attempt_id = $1`, [attemptId]);
 
   /**
    * Run `work(client, attempt)` on the attempt `attemptId` locked, if it is leased to `fence`:
@@ -221,7 +220,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
     async admit(userId, attemptId, fence, callId, reserveUsd) {
       return fenced(userId, attemptId, fence, async (client, attempt) => {
         if (attempt.cancel_requested || attempt.canceled_at) throw new BenchmarkError(409, 'canceled', 'The run was canceled');
-        if ((await client.query('select 1 from benchmark_admission where attempt_id = $1 and call_id = $2', [attemptId, callId])).rowCount) {
+        if (await exists(client, 'select 1 from benchmark_admission where attempt_id = $1 and call_id = $2', [attemptId, callId])) {
           throw new BenchmarkError(409, 'duplicate_call', `Call ${callId} was already admitted`);
         }
         const day = (await client.query(`select ${TODAY}::text as day`)).rows[0].day;
@@ -270,7 +269,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
         if (outcome === 'settled' && costUsd > admission.reserve * SETTLE_RESERVE_FACTOR) {
           throw new BenchmarkError(400, 'cost_exceeds_reserve', `Call ${callId} cannot settle at ${costUsd} USD: it reserved ${admission.reserve} USD`);
         }
-        await chargeAttemptStorage(client, userId, attemptId, Buffer.byteLength(JSON.stringify(provenance)));
+        await chargeAttemptStorage(client, userId, attemptId, jsonBytes(provenance));
         if (outcome === 'uncertain') {
           await client.query(
             `update benchmark_admission set status = 'uncertain', provenance = $3 where attempt_id = $1 and call_id = $2`,
@@ -313,7 +312,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
              values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
             [attemptId, next, event.event_id, event.source, event.kind, event.sequence, event.occurred_ns, JSON.stringify(event.data), event.payload_sha256s, digest],
           );
-          stored += Buffer.byteLength(JSON.stringify(event.data));
+          stored += jsonBytes(event.data);
           receipts.push({event_id: event.event_id, cursor: next, duplicate: false});
           next += 1;
         }
@@ -325,7 +324,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
 
     async putPayload(userId, attemptId, fence, {sha256, data, redaction, contentType}) {
       return fenced(userId, attemptId, fence, async client => {
-        if (!(await client.query('select 1 from benchmark_payload where attempt_id = $1 and sha256 = $2', [attemptId, sha256])).rowCount) await chargeStorage(client, userId, data.length);
+        if (!(await exists(client, 'select 1 from benchmark_payload where attempt_id = $1 and sha256 = $2', [attemptId, sha256]))) await chargeStorage(client, userId, data.length);
         const inserted = await client.query(
           `insert into benchmark_payload (attempt_id, sha256, size, redaction, content_type, data) values ($1, $2, $3, $4, $5, $6)
            on conflict do nothing`, [attemptId, sha256, data.length, redaction, contentType, data],
@@ -371,7 +370,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
           [attemptId, MAX_SPAN_ATTRIBUTES_BYTES, MAX_LINK_ATTRIBUTES_BYTES],
         );
         if (grown.rowCount) throw new BenchmarkError(413, 'too_large', 'A span or link\'s merged attributes pass their byte limit');
-        await chargeAttemptStorage(client, userId, attemptId, [...spans, ...links].reduce((sum, item) => sum + Buffer.byteLength(JSON.stringify(item.attributes)), 0));
+        await chargeAttemptStorage(client, userId, attemptId, [...spans, ...links].reduce((sum, item) => sum + jsonBytes(item.attributes), 0));
         return {spans: spans.length, links: links.length};
       });
     },
@@ -406,10 +405,10 @@ function createPostgresBenchmarkWorker({pool, config}) {
     /** Late accounting for a call, a new `version` of its record; allowed on a sealed attempt. */
     async putAccounting(userId, attemptId, callId, version, record) {
       return system(async client => {
-        if (!(await client.query('select 1 from benchmark_attempt a join benchmark_run r on r.run_id = a.run_id where a.attempt_id = $1 and r.user_id = $2', [attemptId, userId])).rowCount) {
+        if (!(await exists(client, 'select 1 from benchmark_attempt a join benchmark_run r on r.run_id = a.run_id where a.attempt_id = $1 and r.user_id = $2', [attemptId, userId]))) {
           throw new BenchmarkError(404, 'unknown_attempt', 'No such attempt');
         }
-        if (!(await client.query('select 1 from benchmark_admission where attempt_id = $1 and call_id = $2', [attemptId, callId])).rowCount) {
+        if (!(await exists(client, 'select 1 from benchmark_admission where attempt_id = $1 and call_id = $2', [attemptId, callId]))) {
           throw new BenchmarkError(404, 'unknown_call', `Call ${callId} was never admitted`);
         }
         const inserted = await client.query(
@@ -417,7 +416,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
           [attemptId, callId, version, JSON.stringify(record)],
         );
         if (inserted.rowCount) {
-          await chargeAttemptStorage(client, userId, attemptId, Buffer.byteLength(JSON.stringify(record)));
+          await chargeAttemptStorage(client, userId, attemptId, jsonBytes(record));
           return {call_id: callId, version, created: true};
         }
         const existing = (await client.query('select record from benchmark_accounting where attempt_id = $1 and call_id = $2 and version = $3', [attemptId, callId, version])).rows[0];

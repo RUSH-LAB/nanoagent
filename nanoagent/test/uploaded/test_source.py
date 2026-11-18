@@ -206,7 +206,7 @@ def test_extract_enforces_limits_on_actual_bytes(tmp_path: Path) -> None:
 
 def test_extract_detects_a_size_that_disagrees_with_the_header(tmp_path: Path) -> None:
     archive = inspect_zip(build({"a.txt": b"abc"}), LIMITS)
-    entries = tuple(type(entry)(entry.path, entry.member, entry.size + 1, entry.is_directory) if entry.path == "a.txt" else entry for entry in archive.entries)
+    entries = tuple(type(entry)(entry.path, entry.size + 1, entry.is_directory) if entry.path == "a.txt" else entry for entry in archive.entries)
     dest = tmp_path / "o"
     dest.mkdir()
     with pytest.raises(SourceError) as raised:

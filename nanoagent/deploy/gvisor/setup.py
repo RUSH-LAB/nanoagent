@@ -25,8 +25,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-RUNTIME = os.environ.get("RUSH_RUNTIME_NAME", "runsc-rush")
-SOCKET = os.environ.get("RUSH_SECCHECK_SOCKET", "/run/rush-gvisor/seccheck.sock")
 CONFIG_DIR = Path("/etc/rush-gvisor")
 POD_INIT = CONFIG_DIR / "pod-init.json"
 DAEMON_JSON = Path("/etc/docker/daemon.json")
@@ -61,7 +59,7 @@ POINTS = [
 ]
 
 
-def pod_init() -> dict:
+def pod_init(socket: str) -> dict:
     return {
         "trace_session": {
             "name": "Default",
@@ -69,7 +67,7 @@ def pod_init() -> dict:
             "sinks": [
                 {
                     "name": "remote",
-                    "config": {"endpoint": SOCKET, "retries": 8},
+                    "config": {"endpoint": socket, "retries": 8},
                     "ignore_setup_error": False,
                 }
             ],
@@ -88,6 +86,8 @@ def write_if_changed(path: Path, text: str) -> bool:
 def main() -> None:
     if os.geteuid() != 0:
         sys.exit("setup.py must run as root (sudo)")
+    runtime = os.environ.get("RUSH_RUNTIME_NAME", "runsc-rush")
+    socket = os.environ.get("RUSH_SECCHECK_SOCKET", "/run/rush-gvisor/seccheck.sock")
     user = os.environ.get("RUSH_WORKER_USER") or os.environ.get("SUDO_USER")
     if not user:
         sys.exit("set RUSH_WORKER_USER to the user the NanoAgent worker runs as")
@@ -96,7 +96,7 @@ def main() -> None:
         sys.exit("runsc not found on PATH; install gVisor or set RUSH_RUNSC_PATH")
     info = pwd.getpwnam(user)
 
-    sock_dir = Path(SOCKET).parent
+    sock_dir = Path(socket).parent
     sock_dir.mkdir(parents=True, exist_ok=True)
     os.chown(sock_dir, info.pw_uid, info.pw_gid)
     sock_dir.chmod(0o750)
@@ -104,7 +104,7 @@ def main() -> None:
     group = grp.getgrgid(info.pw_gid).gr_name
     write_if_changed(Path("/etc/tmpfiles.d/rush-gvisor.conf"), f"d {sock_dir} 0750 {user} {group} -\n")
 
-    write_if_changed(POD_INIT, json.dumps(pod_init(), indent=2) + "\n")
+    write_if_changed(POD_INIT, json.dumps(pod_init(socket), indent=2) + "\n")
     POD_INIT.chmod(0o644)
 
     entry = {
@@ -113,14 +113,14 @@ def main() -> None:
     }
     daemon = json.loads(DAEMON_JSON.read_text()) if DAEMON_JSON.exists() else {}
     runtimes = daemon.setdefault("runtimes", {})
-    changed = runtimes.get(RUNTIME) != entry
-    runtimes[RUNTIME] = entry
+    changed = runtimes.get(runtime) != entry
+    runtimes[runtime] = entry
     if changed:
         write_if_changed(DAEMON_JSON, json.dumps(daemon, indent=2) + "\n")
         # Without systemd (the worker image) nothing is running yet: the caller starts dockerd afterwards.
         if Path("/run/systemd/system").exists():
             subprocess.run(["systemctl", "restart", "docker"], check=True)
-    print(f"runtime {RUNTIME}: {'registered' if changed else 'already registered'}; socket {SOCKET}")
+    print(f"runtime {runtime}: {'registered' if changed else 'already registered'}; socket {socket}")
 
 
 if __name__ == "__main__":

@@ -262,6 +262,10 @@ function supervisor() {
   const listeners = new Set();
   const workerListeners = new Set();
   let next = 0;
+  const subscribe = set => listener => {
+    set.add(listener);
+    return () => set.delete(listener);
+  };
   readline.createInterface({input: process.stdin}).on('line', line => {
     const {id, error, keys, worker} = JSON.parse(line);
     if (keys) return listeners.forEach(listener => listener(keys));
@@ -277,14 +281,8 @@ function supervisor() {
       waiting.set(next, {resolve, reject});
       say({event: 'keys', id: next, changes});
     }),
-    onKeys(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    onWorker(listener) {
-      workerListeners.add(listener);
-      return () => workerListeners.delete(listener);
-    },
+    onKeys: subscribe(listeners),
+    onWorker: subscribe(workerListeners),
     onWorkerAction: (action, value) => say({event: 'worker', action, value}),
   };
 }

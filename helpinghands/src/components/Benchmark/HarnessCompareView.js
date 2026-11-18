@@ -1,28 +1,21 @@
 import React, {useEffect, useState} from 'react';
 import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
 import {benchmarkApi} from './api';
+import {harnessLabel} from './labels';
 import {comparisonRows, comparisonTotals, comparableScore, harnessesOf} from './harnessComparison';
 import {POLICY_LABELS, personLabel, scoreText} from './runs';
 import {primaryMetrics} from './metrics';
 import ChoiceList from './ChoiceList';
+import {mapPool} from './pool';
 import useLoad from './useLoad';
 import styles from './styles.module.css';
 
-const label = item => `${item.harness.name} v${item.harness.version}`;
+const label = item => harnessLabel(item.harness);
 
 async function loadResults() {
   const [benchmarks, account, ownRuns] = await Promise.all([benchmarkApi.allBenchmarks(), benchmarkApi.account(), benchmarkApi.allRuns()]);
   // A bounded pool avoids flooding the server when the marketplace has many benchmarks.
-  const results = new Array(benchmarks.length);
-  let next = 0;
-  async function load() {
-    while (next < benchmarks.length) {
-      const index = next++;
-      const benchmark = benchmarks[index];
-      results[index] = {benchmark, runs: await benchmarkApi.allBenchmarkResults(benchmark.benchmark_id)};
-    }
-  }
-  await Promise.all(Array.from({length: Math.min(6, benchmarks.length)}, load));
+  const results = await mapPool(benchmarks, 6, async benchmark => ({benchmark, runs: await benchmarkApi.allBenchmarkResults(benchmark.benchmark_id)}));
   return {results, userId: account.userId, ownRunIds: new Set(ownRuns.map(run => run.run_id))};
 }
 
@@ -80,7 +73,7 @@ export default function HarnessCompare({go}) {
     <p className={styles.fieldHint}>Compare results on the same published benchmarks. Missing results are skipped, not scored.</p>
     {!harnesses.length && <p className={styles.emptyState}>No harness runs yet. Run a harness to start comparing.</p>}
     <div className={styles.harnessPicker}>
-      {[[left, setLeft, 'First harness'], [right, setRight, 'Second harness']].map(([value, set, title]) => <ChoiceList key={title} label={title} searchPlaceholder={`Search ${title.toLowerCase()} choices`} options={harnesses.map(item => ({value: item.key, label: `${item.harness.name} v${item.harness.version}`, detail: `${personLabel(item.user)} · ${POLICY_LABELS[item.policy]}`}))} value={value} onChange={next => {set(next); setChoices({});}} />)}
+      {[[left, setLeft, 'First harness'], [right, setRight, 'Second harness']].map(([value, set, title]) => <ChoiceList key={title} label={title} searchPlaceholder={`Search ${title.toLowerCase()} choices`} options={harnesses.map(item => ({value: item.key, label: label(item), detail: `${personLabel(item.user)} · ${POLICY_LABELS[item.policy]}`}))} value={value} onChange={next => {set(next); setChoices({});}} />)}
     </div>
     {a && b && left === right && <p className={styles.warn}>Choose two different harness versions or modes.</p>}
     {a && b && left !== right && <>

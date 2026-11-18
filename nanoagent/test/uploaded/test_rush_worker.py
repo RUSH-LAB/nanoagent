@@ -431,18 +431,17 @@ async def test_a_record_whose_data_is_over_the_event_limit_is_committed_as_a_stu
     assert sha in event["payload_sha256s"] and json.loads(payloads[sha])["argv"] == argv
 
 
-async def test_events_past_the_budget_are_dropped_and_counted_but_the_worker_records_still_commit(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_events_past_the_budget_are_dropped_and_counted_but_the_worker_records_still_commit() -> None:
     from nanoagent.uploaded import records as rec
     from nanoagent.uploaded.rush_worker import Emitter
 
-    monkeypatch.setattr("nanoagent.uploaded.rush_worker.EVENT_BUDGET", 3)
     sent: list[dict[str, Any]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         sent.extend(json.loads(request.content)["events"])
         return httpx.Response(200, json={"receipts": [], "high_water_cursor": len(sent)})
 
-    journal = RushJournal(client_for(handler), Lease("a", 1))
+    journal = RushJournal(client_for(handler), Lease("a", 1), event_budget=3)
     for sequence in range(1, 6):
         await journal.append(EvidenceEvent(f"harness-{sequence:06d}", "harness", "k", sequence, sequence, {}))
     # The gateway's records of an admitted (paid) call always get through; a refused call is the harness's to multiply.

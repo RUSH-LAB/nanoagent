@@ -49,11 +49,6 @@ class _Item:
     joined: bool = True
 
 
-def _first(n: Normalized, kind: str) -> R.Record | None:
-    found = n.worker.get(kind)
-    return found[0] if found else None
-
-
 def _cpu(n: Normalized) -> tuple[tuple[CpuCounter, ...], bool]:
     counters = [
         CpuCounter(json.dumps(p.get("identity"), sort_keys=True), int(p.get("user_ns", 0)), int(p.get("system_ns", 0)))
@@ -97,10 +92,9 @@ def _calls(n: Normalized, payloads: Mapping[str, bytes], issues: list[Issue]) ->
 
 
 class _Graph:
-    def __init__(self, calls: Sequence[UpstreamCall]) -> None:
+    def __init__(self) -> None:
         self.activities: list[Activity] = []
         self.edges: list[Edge] = []
-        self._calls = {c.call_id: c for c in calls}
         self._n = 0
 
     def node(self, prefix: str, start: int, end: int) -> str:
@@ -158,7 +152,7 @@ def build_timing(
     harness_refs_ok: bool,
 ) -> tuple[CaseTiming | None, str | None, list[Issue]]:
     issues: list[Issue] = []
-    launched, quiesced = _first(n, R.CASE_LAUNCHED), _first(n, R.CASE_QUIESCED)
+    launched, quiesced = n.first(R.CASE_LAUNCHED), n.first(R.CASE_QUIESCED)
     if launched is None or quiesced is None:
         return None, "case launch or quiescence was not recorded", issues
     start, end = int(launched.data["launch_ns"]), int(quiesced.data["quiesced_ns"])
@@ -177,8 +171,7 @@ def build_timing(
     assert root is not None
 
     def interval(span: HarnessSpan) -> tuple[int, int]:
-        s = min(max(span.start_ns, start), end)
-        return s, max(s, min(span.end_ns if span.end_ns is not None else end, end))
+        return _clip(span.start_ns, span.end_ns if span.end_ns is not None else end, start, end)
 
     def branch_of(span_id: str | None) -> str:
         while span_id in spans:
@@ -187,13 +180,14 @@ def build_timing(
             span_id = spans[span_id].parent_id
         return root.span_id
 
-    graph = _Graph(calls)
+    graph = _Graph()
     call_ids = {c.call_id for c in calls}
     items: dict[str, list[_Item]] = {}
     placed_under: set[str] = set()
 
     def put(span_id: str | None, entry: str, s: int, e: int) -> None:
-        placed_under.add(span_id) if span_id in spans else None
+        if span_id in spans:
+            placed_under.add(span_id)
         items.setdefault(branch_of(span_id), []).append(_Item(entry, entry, min(max(s, start), end), min(max(e, start), end)))
 
     for c in calls:
@@ -230,9 +224,10 @@ def build_timing(
     for span in n.harness_spans:
         if span.kind == "subagent":
             children.setdefault(branch_of(span.parent_id), []).append(span)
+    parent_ids = {s.parent_id for s in n.harness_spans}
     for span in n.harness_spans:  # local work the harness reports and nothing observed sits under
         is_leaf = span.kind in ("tool", "memory", "operation", "decision") and span.data.get("waits_on_call") is None
-        if is_leaf and span.span_id not in placed_under and not any(o.parent_id == span.span_id for o in n.harness_spans):
+        if is_leaf and span.span_id not in placed_under and span.span_id not in parent_ids:
             s, e = interval(span)
             node = f"local:{span.span_id}"
             graph.activities.append(Activity(node, Interval(s, e)))
@@ -265,8 +260,7 @@ def build_timing(
 
     root_entry, root_exit = build(root)
     rs, re_ = extent(root)
-    entry, out = graph.branch("case", start, end, [_Item(root_entry, root_exit, rs, re_)])
-    del entry, out
+    graph.branch("case", start, end, [_Item(root_entry, root_exit, rs, re_)])
 
     node_ids = {a.activity_id for a in graph.activities} | call_ids
     for before, after, frame, lag in causal:

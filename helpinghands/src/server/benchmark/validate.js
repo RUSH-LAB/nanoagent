@@ -40,22 +40,29 @@ function printable(value, what) {
   return value;
 }
 
+/** Refuse the request with `message` unless `ok`. */
+function must(ok, message) {
+  if (!ok) throw bad('invalid_request', message);
+}
+/** Refuse `value` unless it is one of `list`: `${prefix} ${list}` is the message. */
+const oneOf = (value, list, prefix) => must(list.includes(value), `${prefix} ${list.join(', ')}`);
+
 function object(value, what) {
-  if (!isObject(value)) throw bad('invalid_request', `${what} must be an object`);
+  must(isObject(value), `${what} must be an object`);
   return value;
 }
 function string(value, what, {max = 200, optional = false} = {}) {
   if (optional && (value === undefined || value === null)) return null;
-  if (typeof value !== 'string' || !value || value.length > max) throw bad('invalid_request', `${what} must be a string of 1 to ${max} characters`);
+  must(typeof value === 'string' && value && value.length <= max, `${what} must be a string of 1 to ${max} characters`);
   return value;
 }
 function integer(value, what, {min = 0, max = Number.MAX_SAFE_INTEGER} = {}) {
-  if (!Number.isSafeInteger(value) || value < min || value > max) throw bad('invalid_request', `${what} must be an integer from ${min} to ${max}`);
+  must(Number.isSafeInteger(value) && value >= min && value <= max, `${what} must be an integer from ${min} to ${max}`);
   return value;
 }
 /** A number from `min` to `max`, USD amounts being kept within their column's range. */
 function finite(value, what, {min = 0, max = MAX_USD} = {}) {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) throw bad('invalid_request', `${what} must be a number from ${min} to ${max}`);
+  must(typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max, `${what} must be a number from ${min} to ${max}`);
   return value;
 }
 /** `value` (an object) if its JSON text is at most `max` bytes and holds no NUL character, which PostgreSQL's jsonb cannot store. */
@@ -63,38 +70,40 @@ function bounded(value, what, max) {
   const text = stringifyJson(object(value, what));
   if (Buffer.byteLength(text) > max) throw new BenchmarkError(413, 'too_large', `${what} may be ${max} bytes at most`);
   // The text spells a NUL in a string as \u0000, and a backslash that is itself escaped as \\ must not count.
-  if (/(?<!\\)(?:\\\\)*\\u0000/.test(text)) throw bad('invalid_request', `${what} may not contain the character \\u0000`);
+  must(!/(?<!\\)(?:\\\\)*\\u0000/.test(text), `${what} may not contain the character \\u0000`);
   return value;
 }
+/** `bounded` for an object a request may leave out, which is then `{}`. */
+const boundedOrEmpty = (value, what, max) => (value === undefined ? {} : bounded(value, what, max));
 function array(value, what, {max = 1000, optional = false} = {}) {
   if (optional && (value === undefined || value === null)) return [];
-  if (!Array.isArray(value) || value.length > max) throw bad('invalid_request', `${what} must be an array of at most ${max}`);
+  must(Array.isArray(value) && value.length <= max, `${what} must be an array of at most ${max}`);
   return value;
 }
 const sha256 = (value, what) => {
-  if (typeof value !== 'string' || !SHA256.test(value)) throw bad('invalid_request', `${what} must be a lowercase SHA-256 hex digest`);
+  must(typeof value === 'string' && SHA256.test(value), `${what} must be a lowercase SHA-256 hex digest`);
   return value;
 };
 /** Nanoseconds as a JSON integer within 2^53 or a decimal string. */
 function ns(value, what) {
   const parsed = nanoseconds(value);
-  if (parsed === undefined) throw bad('invalid_request', `${what} must be a decimal integer string or a safe integer`);
+  must(parsed !== undefined, `${what} must be a decimal integer string or a safe integer`);
   return parsed;
 }
 
 function boolean(value, what) {
-  if (typeof value !== 'boolean') throw bad('invalid_request', `${what} must be a boolean`);
+  must(typeof value === 'boolean', `${what} must be a boolean`);
   return value;
 }
 
 /** What a case set's task gives a harness: its kind, description, instructions, schemas and tools (the reference tool is not one). */
 function taskOf(value) {
   const task = object(value, 'task');
-  if (!TASK_KINDS.includes(task.kind)) throw bad('invalid_request', `task.kind must be one of ${TASK_KINDS.join(', ')}`);
-  if (typeof task.instructions !== 'string' || task.instructions.length > 100_000) throw bad('invalid_request', 'task.instructions must be a string of at most 100000 characters');
+  oneOf(task.kind, TASK_KINDS, 'task.kind must be one of');
+  must(typeof task.instructions === 'string' && task.instructions.length <= 100_000, 'task.instructions must be a string of at most 100000 characters');
   const names = new Set();
   const hosts = array(task.egress_hosts, 'task.egress_hosts', {max: 200}).map(host => string(host, 'an egress host', {max: 253}));
-  if (hosts.some((host, index) => index > 0 && hosts[index - 1] >= host)) throw bad('invalid_request', 'task.egress_hosts must be sorted, without repeats');
+  must(!hosts.some((host, index) => index > 0 && hosts[index - 1] >= host), 'task.egress_hosts must be sorted, without repeats');
   return {
     kind: task.kind,
     egress_hosts: hosts,
@@ -105,7 +114,7 @@ function taskOf(value) {
     tools: array(task.tools, 'task.tools', {max: 200}).map(raw => {
       const tool = object(raw, 'A task tool');
       const name = string(tool.name, 'a tool name');
-      if (names.has(name)) throw bad('invalid_request', `task.tools lists ${name} twice`);
+      must(!names.has(name), `task.tools lists ${name} twice`);
       names.add(name);
       return {
         name, description: typeof tool.description === 'string' ? tool.description : '',
@@ -124,6 +133,28 @@ const caseDigests = (c, reference) => {
   }))};
 };
 
+/** One case of a publication, with its digests, checked against `privateReferences` (its reference is the one under its id); `seen` holds the case ids before it and gains this one's. */
+function caseOf(raw, privateReferences, seen) {
+  const c = object(raw, 'A case');
+  const caseId = string(c.case_id, 'case_id');
+  must(!seen.has(caseId), `case_id ${caseId} appears twice`);
+  seen.add(caseId);
+  oneOf(c.kind, CASE_KINDS, `Case ${caseId}'s kind must be one of`);
+  printable(object(c.arguments, `Case ${caseId}'s arguments`), `Case ${caseId}'s arguments`);
+  must(Object.hasOwn(privateReferences, caseId), `private has no reference for case ${caseId}`);
+  const reference = privateReferences[caseId];
+  let expectedError = null;
+  if (c.kind === 'refuse') {
+    expectedError = string(c.expected_error, `Case ${caseId}'s expected_error`, {max: 10_000});
+    must(typeof reference === 'string', `private's reference for refusal case ${caseId} must be the pinned error string`);
+  } else {
+    must(c.expected_error === undefined || c.expected_error === null, `Case ${caseId} is an answer case and takes no expected_error`);
+    must(reference === null || isObject(reference), `private's reference for answer case ${caseId} must be an object, or null for a task judged without one`);
+  }
+  const published = {case_id: caseId, kind: c.kind, arguments: c.arguments, expected_error: expectedError};
+  return {...published, ...caseDigests(published, reference)};
+}
+
 /**
  * A benchmark publication, what POST /api/benchmark/benchmarks stores: the case set's cases with their per-case and whole digests
  * (the case set is made from them), the run configuration (model, endpoint, the effective limits, the coding template and the
@@ -132,35 +163,16 @@ const caseDigests = (c, reference) => {
 function benchmarkPublication(body) {
   object(body, 'The body');
   const name = string(body.name, 'name', {max: 128});
-  if (!BENCHMARK_NAME.test(name)) throw bad('invalid_request', 'name is lowercase letters, digits, ".", "_" and "-"');
+  must(BENCHMARK_NAME.test(name), 'name is lowercase letters, digits, ".", "_" and "-"');
   const task = taskOf(body.task);
-  if (typeof body.context !== 'string') throw bad('invalid_request', 'context must be a string');
+  must(typeof body.context === 'string', 'context must be a string');
   const caseList = array(body.cases, 'cases', {max: 5000});
-  if (!caseList.length) throw bad('invalid_request', 'A benchmark needs at least one case');
+  must(caseList.length, 'A benchmark needs at least one case');
   const privateReferences = object(body.private, 'private');
   const seen = new Set();
-  const cases = caseList.map(raw => {
-    const c = object(raw, 'A case');
-    const caseId = string(c.case_id, 'case_id');
-    if (seen.has(caseId)) throw bad('invalid_request', `case_id ${caseId} appears twice`);
-    seen.add(caseId);
-    if (!CASE_KINDS.includes(c.kind)) throw bad('invalid_request', `Case ${caseId}'s kind must be one of ${CASE_KINDS.join(', ')}`);
-    printable(object(c.arguments, `Case ${caseId}'s arguments`), `Case ${caseId}'s arguments`);
-    if (!Object.hasOwn(privateReferences, caseId)) throw bad('invalid_request', `private has no reference for case ${caseId}`);
-    const reference = privateReferences[caseId];
-    let expectedError = null;
-    if (c.kind === 'refuse') {
-      expectedError = string(c.expected_error, `Case ${caseId}'s expected_error`, {max: 10_000});
-      if (typeof reference !== 'string') throw bad('invalid_request', `private's reference for refusal case ${caseId} must be the pinned error string`);
-    } else {
-      if (c.expected_error !== undefined && c.expected_error !== null) throw bad('invalid_request', `Case ${caseId} is an answer case and takes no expected_error`);
-      if (reference !== null && !isObject(reference)) throw bad('invalid_request', `private's reference for answer case ${caseId} must be an object, or null for a task judged without one`);
-    }
-    const published = {case_id: caseId, kind: c.kind, arguments: c.arguments, expected_error: expectedError};
-    return {...published, ...caseDigests(published, reference)};
-  });
+  const cases = caseList.map(raw => caseOf(raw, privateReferences, seen));
   const extra = Object.keys(privateReferences).find(id => !seen.has(id));
-  if (extra) throw bad('invalid_request', `private has a reference for ${extra}, which is no case`);
+  must(!extra, `private has a reference for ${extra}, which is no case`);
   const pluginId = string(body.plugin_id, 'plugin_id');
   const packageSha256 = sha256(body.package_sha256, 'package_sha256');
   const taskId = string(body.task_id, 'task_id');
@@ -200,18 +212,18 @@ function benchmarkPublication(body) {
 function only(body, keys) {
   object(body, 'The body');
   const extra = Object.keys(body).find(key => !keys.includes(key));
-  if (extra) throw bad('invalid_request', `${extra} is not a field of this request; it takes ${keys.join(', ')}`);
+  must(!extra, `${extra} is not a field of this request; it takes ${keys.join(', ')}`);
 }
 
 const uuid = (value, what) => {
-  if (typeof value !== 'string' || !UUID.test(value)) throw bad('invalid_request', `${what} must be a UUID`);
+  must(typeof value === 'string' && UUID.test(value), `${what} must be a UUID`);
   return value;
 };
 
 /** A preview or run's setup, `{benchmark_id, policy}`: the benchmark fixes everything else. */
 function setupOf(body, keys) {
   only(body, keys);
-  if (!POLICIES.includes(body.policy)) throw bad('invalid_request', `policy must be one of ${POLICIES.join(', ')}`);
+  oneOf(body.policy, POLICIES, 'policy must be one of');
   return {benchmark_id: uuid(body.benchmark_id, 'benchmark_id'), policy: body.policy};
 }
 
@@ -227,12 +239,12 @@ function runBody(body) {
   return {...request, request_digest: sha256Hex(canonicalJson(request))};
 }
 
-const fenceOf = body => integer(body.fence, 'fence', {min: 1, max: MAX_INTEGER});
+const fenceOf = body => integer(object(body, 'The body').fence, 'fence', {min: 1, max: MAX_INTEGER});
 
 function eventsBody(body) {
   object(body, 'The body');
   const events = array(body.events, 'events', {max: 500});
-  if (!events.length) throw bad('invalid_request', 'Send at least one event');
+  must(events.length, 'Send at least one event');
   return {
     fence: fenceOf(body),
     events: events.map(raw => {
@@ -248,7 +260,6 @@ function eventsBody(body) {
 }
 
 function spansBody(body) {
-  object(body, 'The body');
   return {
     fence: fenceOf(body),
     spans: array(body.spans, 'spans', {optional: true, max: 2000}).map(raw => {
@@ -258,14 +269,14 @@ function spansBody(body) {
         parent: string(span.parent, 'parent', {optional: true}), scope: string(span.scope, 'scope', {optional: true, max: 500}),
         status: string(span.status, 'status', {optional: true, max: 100}), start_ns: ns(span.start_ns, 'start_ns'), end_ns: ns(span.end_ns, 'end_ns'),
         provenance: string(span.provenance, 'provenance', {optional: true, max: 100}), target: string(span.target, 'target', {optional: true, max: 2000}),
-        attributes: span.attributes === undefined ? {} : bounded(span.attributes, 'attributes', MAX_SPAN_ATTRIBUTES_BYTES),
+        attributes: boundedOrEmpty(span.attributes, 'attributes', MAX_SPAN_ATTRIBUTES_BYTES),
       };
     }),
     links: array(body.links, 'links', {optional: true, max: 4000}).map(raw => {
       const link = object(raw, 'A link');
       return {
         kind: string(link.kind, 'kind', {max: 100}), from: string(link.from, 'from'), to: string(link.to, 'to'),
-        method: string(link.method, 'method', {optional: true, max: 200}), attributes: link.attributes === undefined ? {} : bounded(link.attributes, 'attributes', MAX_LINK_ATTRIBUTES_BYTES),
+        method: string(link.method, 'method', {optional: true, max: 200}), attributes: boundedOrEmpty(link.attributes, 'attributes', MAX_LINK_ATTRIBUTES_BYTES),
       };
     }),
   };
@@ -274,14 +285,16 @@ function spansBody(body) {
 function finalizeBody(body) {
   object(body, 'The body');
   const execution = object(body.execution, 'execution');
-  if (!EXECUTION_STATUSES.includes(execution.status)) throw bad('invalid_request', `execution.status is one of ${EXECUTION_STATUSES.join(', ')}`);
+  oneOf(execution.status, EXECUTION_STATUSES, 'execution.status is one of');
   const verdict = string(body.verdict, 'verdict', {optional: true, max: 100});
-  if (verdict !== null && !VERDICTS.includes(verdict)) throw bad('invalid_request', `verdict is one of ${VERDICTS.join(', ')}`);
+  if (verdict !== null) oneOf(verdict, VERDICTS, 'verdict is one of');
   const explanation = string(body.explanation, 'explanation', {optional: true, max: 100});
-  if (explanation !== null && !EXPLANATIONS.includes(explanation)) throw bad('invalid_request', `explanation is one of ${EXPLANATIONS.join(', ')}`);
-  if (explanation !== null && verdict !== 'fail') throw bad('invalid_request', 'An explanation comes only with a fail verdict');
+  if (explanation !== null) {
+    oneOf(explanation, EXPLANATIONS, 'explanation is one of');
+    must(verdict === 'fail', 'An explanation comes only with a fail verdict');
+  }
   const verifierError = string(body.verifier_error, 'verifier_error', {optional: true, max: 4000});
-  if (verdict !== null && verifierError !== null) throw bad('invalid_request', 'Send a verdict or a verifier_error, not both');
+  must(verdict === null || verifierError === null, 'Send a verdict or a verifier_error, not both');
   if (verdict !== null && !SCORABLE.has(execution.status)) throw bad('verdict_not_allowed', `A ${execution.status} attempt carries no verdict`);
   if (verifierError !== null && execution.status !== 'answered' && execution.status !== 'refused') {
     throw bad('verdict_not_allowed', `A ${execution.status} attempt reached no verifier`);
@@ -298,13 +311,13 @@ function finalizeBody(body) {
 }
 
 const admissionBody = body => ({
-  fence: fenceOf(object(body, 'The body')), callId: string(body.call_id, 'call_id'),
+  fence: fenceOf(body), callId: string(body.call_id, 'call_id'),
   reserveUsd: finite(body.reserve_usd, 'reserve_usd'),
 });
 
 function settleBody(body) {
   object(body, 'The body');
-  if (body.outcome !== 'settled' && body.outcome !== 'uncertain') throw bad('invalid_request', 'outcome must be settled or uncertain');
+  must(body.outcome === 'settled' || body.outcome === 'uncertain', 'outcome must be settled or uncertain');
   return {
     outcome: body.outcome,
     costUsd: body.outcome === 'settled' ? finite(body.cost_usd, 'cost_usd') : null,
@@ -329,5 +342,5 @@ function claimBody(body) {
 
 module.exports = {
   benchmarkPublication, previewBody, runBody, eventsBody, spansBody, finalizeBody, admissionBody, settleBody, accountingBody,
-  claimBody, SHA256, fenceOf, object, string,
+  claimBody, SHA256, fenceOf, isObject, object, string,
 };

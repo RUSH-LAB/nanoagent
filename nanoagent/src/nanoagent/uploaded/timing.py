@@ -147,10 +147,6 @@ class TimingReport:
     estimated_ns: Metric
 
 
-def total_case_ns(timing: CaseTiming) -> int:
-    return timing.window.duration_ns
-
-
 def _clipped(interval: Interval, window: Interval) -> Interval | None:
     start, end = max(interval.start_ns, window.start_ns), min(interval.end_ns, window.end_ns)
     return Interval(start, end) if start < end else None
@@ -168,7 +164,7 @@ def no_request_ns(timing: CaseTiming) -> Metric:
         if end > start:
             covered += end - start
             reach = end
-    return total_case_ns(timing) - covered
+    return timing.window.duration_ns - covered
 
 
 def _wait_release_ns(call: UpstreamCall, wait: BranchWait) -> int | Unknown:
@@ -196,7 +192,7 @@ def _check_waits(timing: CaseTiming, method: TimingMethod) -> Unknown | None:
 
 def outside_waits_ns(timing: CaseTiming, method: TimingMethod = TimingMethod()) -> Metric:
     if not timing.calls and timing.coverage.no_model_calls:
-        return total_case_ns(timing)
+        return timing.window.duration_ns
     if not (timing.coverage.waits and timing.coverage.branches):
         return Unknown("wait or branch coverage is incomplete")
     invalid = _check_waits(timing, method)
@@ -217,7 +213,7 @@ def outside_waits_ns(timing: CaseTiming, method: TimingMethod = TimingMethod()) 
         all_blocked = bool(live) and all(any(w.interval.contains(start) for w in b.waits) for b in live)
         if all_blocked and not any(a.interval.contains(start) for a in timing.activities):
             blocked += end - start
-    return total_case_ns(timing) - blocked
+    return timing.window.duration_ns - blocked
 
 
 def local_cpu_ns(timing: CaseTiming) -> Metric:
@@ -231,25 +227,24 @@ def local_cpu_ns(timing: CaseTiming) -> Metric:
     return sum(by_process.values())
 
 
+def _modeled_ns(tokens: int, method: TimingMethod) -> int:
+    return round(tokens * NS_PER_SECOND / method.reference_tokens_per_second)
+
+
 def _modeled_call_ns(call: UpstreamCall, method: TimingMethod) -> int:
     assert call.input_tokens is not None and call.output_tokens is not None
-    return round((call.input_tokens + call.output_tokens) * NS_PER_SECOND / method.reference_tokens_per_second)
+    return _modeled_ns(call.input_tokens + call.output_tokens, method)
 
 
 def _modeled_frame_offsets(call: UpstreamCall, method: TimingMethod) -> tuple[int, ...]:
     assert call.input_tokens is not None and call.output_tokens is not None
-    input_ns = round(call.input_tokens * NS_PER_SECOND / method.reference_tokens_per_second)
-    output_ns = round(call.output_tokens * NS_PER_SECOND / method.reference_tokens_per_second)
+    input_ns, output_ns = _modeled_ns(call.input_tokens, method), _modeled_ns(call.output_tokens, method)
     total_bytes = sum(f.byte_length for f in call.frames)
     offsets, seen = [], 0
     for frame in call.frames:
         seen += frame.byte_length
         offsets.append(input_ns + round(output_ns * seen / total_bytes))
     return tuple(offsets)
-
-
-def _observed_frame_offsets(call: UpstreamCall) -> tuple[int, ...]:
-    return tuple(f.available_ns - call.interval.start_ns for f in call.frames)
 
 
 def _longest_path_ns(timing: CaseTiming, durations: dict[str, int], frame_offsets: dict[str, tuple[int, ...]]) -> Metric:
@@ -290,7 +285,7 @@ def _longest_path_ns(timing: CaseTiming, durations: dict[str, int], frame_offset
 
 def estimated_ns(timing: CaseTiming, method: TimingMethod = TimingMethod()) -> Metric:
     if not timing.calls and timing.coverage.no_model_calls:
-        return total_case_ns(timing)
+        return timing.window.duration_ns
     if not timing.coverage.dependencies:
         return Unknown("dependency evidence is incomplete")
     missing = [c.call_id for c in timing.calls if c.input_tokens is None or c.output_tokens is None]
@@ -304,12 +299,12 @@ def estimated_ns(timing: CaseTiming, method: TimingMethod = TimingMethod()) -> M
         return Unknown("activity and call ids are not unique")
     observed = {a.activity_id: a.interval.duration_ns for a in timing.activities}
     observed.update({c.call_id: c.interval.duration_ns for c in timing.calls})
-    observed_frames = {c.call_id: _observed_frame_offsets(c) for c in timing.calls if c.streamed}
+    observed_frames = {c.call_id: tuple(f.available_ns - c.interval.start_ns for f in c.frames) for c in timing.calls if c.streamed}
     reproduced = _longest_path_ns(timing, observed, observed_frames)
     if isinstance(reproduced, Unknown):
         return reproduced
-    if abs(reproduced - total_case_ns(timing)) > method.clock_tolerance_ns:
-        return Unknown(f"dependency graph reproduces {reproduced} ns, not the measured {total_case_ns(timing)} ns")
+    if abs(reproduced - timing.window.duration_ns) > method.clock_tolerance_ns:
+        return Unknown(f"dependency graph reproduces {reproduced} ns, not the measured {timing.window.duration_ns} ns")
     modeled = {a.activity_id: a.interval.duration_ns for a in timing.activities}
     modeled.update({c.call_id: _modeled_call_ns(c, method) for c in timing.calls})
     modeled_frames = {c.call_id: _modeled_frame_offsets(c, method) for c in timing.calls if c.streamed}
@@ -318,7 +313,7 @@ def estimated_ns(timing: CaseTiming, method: TimingMethod = TimingMethod()) -> M
 
 def analyze(timing: CaseTiming, method: TimingMethod = TimingMethod()) -> TimingReport:
     return TimingReport(
-        total_case_ns=total_case_ns(timing),
+        total_case_ns=timing.window.duration_ns,
         no_request_ns=no_request_ns(timing),
         outside_waits_ns=outside_waits_ns(timing, method),
         cpu_ns=local_cpu_ns(timing),

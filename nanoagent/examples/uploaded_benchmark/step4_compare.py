@@ -15,6 +15,7 @@ model endpoint. comparison.json holds both."""
 
 from dataclasses import dataclass, field
 from decimal import Decimal
+from enum import Enum
 from typing import Any
 
 from omegaconf import MISSING
@@ -22,7 +23,10 @@ from slimconfig import Config, Layout, Output, Run
 
 from nanoagent.uploaded.client import BenchmarkClient, ServerConfig, run_title
 
-JUMPS = ("first_difference", "none")
+
+class Jump(Enum):
+    FIRST_DIFFERENCE = "first_difference"
+    NONE = "none"
 
 
 @dataclass
@@ -37,7 +41,7 @@ class CompareConfig(Config):
     # Keep only rows that differ (or are unknown, ambiguous or one-sided).
     differences_only: bool = MISSING
     # first_difference reports the index of the earliest changed action (or group of parallel actions); none leaves it null.
-    jump: str = MISSING
+    jump: Jump = MISSING
 
 
 @dataclass
@@ -90,10 +94,6 @@ def summary(header: dict[str, Any], rows: list[dict[str, Any]], first: int | Non
     return "\n".join(lines)
 
 
-def pair(entry: dict[str, Any]) -> str:
-    return f"{entry['a']!r} -> {entry['b']!r}"
-
-
 def prompt_lines(parts: list[dict[str, Any]]) -> list[str]:
     """The added and removed lines of a prompt diff (``{type: same|removed|added, text}`` parts)."""
     marks = {"added": "+", "removed": "-"}
@@ -111,7 +111,7 @@ def side(entry: dict[str, Any]) -> str:
 def run_summary(result: dict[str, Any], a: str, b: str) -> str:
     """The run comparison's configuration and prompt differences, then how the cases line up."""
     lines = [f"compare run {a} with run {b}", "configuration differences:"]
-    lines += [f"  {item['field']}: {pair(item)}" for item in result["config"] if item["differs"]] or ["  none"]
+    lines += [f"  {item['field']}: {item['a']!r} -> {item['b']!r}" for item in result["config"] if item["differs"]] or ["  none"]
     prompt = result["prompt_diff"]
     lines.append("prompt differences:")
     lines += prompt_lines(prompt["text"]) or ["  none in the template or instructions"]
@@ -129,8 +129,6 @@ class CompareRuns(Run):
 
     def main(self) -> None:
         config = self.config
-        if config.jump not in JUMPS:
-            raise ValueError(f"jump must be one of {JUMPS}, not {config.jump!r}")
         if (config.attempt_a is None) != (config.attempt_b is None):
             raise ValueError("attempt_a and attempt_b are set together")
         with config.server.client() as client:
@@ -145,7 +143,7 @@ class CompareRuns(Run):
         config = self.config
         result = client.compare_attempts(attempt_a, attempt_b)
         rows = [row for row in result["rows"] if not config.differences_only or differs(row)]
-        first = result["first_difference"] if config.jump == "first_difference" else None
+        first = result["first_difference"] if config.jump is Jump.FIRST_DIFFERENCE else None
         print(summary(result["header"], rows, first))
         return AttemptComparison(header=result["header"], rows=rows, first_difference=first)
 

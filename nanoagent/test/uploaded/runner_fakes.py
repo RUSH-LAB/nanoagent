@@ -335,7 +335,7 @@ class FakeRelay:
         self.app: Any = None
         self.handle = FakeRelayHandle()
 
-    async def start(self, attempt_id: str, network: Any, app: Any, workdir: Path) -> FakeRelayHandle:
+    async def start(self, attempt_id: str, network: Any, app: Any) -> FakeRelayHandle:
         self.app = app
         return self.handle
 

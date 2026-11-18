@@ -13,6 +13,7 @@ import math
 import os
 import re
 import stat
+from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
@@ -90,14 +91,23 @@ _VALIDATORS = {shape: _build_validator(shape) for shape in SHAPES}
 
 def validate(shape: str, instance: Any) -> None:
     """Validate against one wire shape with format checks; raises `schema_violation`."""
-    validator = _VALIDATORS.get(shape) or _unknown_shape(shape)
-    error = best_match(validator.iter_errors(instance))
+    if shape not in _VALIDATORS:
+        raise ContractError("unknown_shape", f"{shape!r} is not one of {SHAPES}")
+    error = best_match(_VALIDATORS[shape].iter_errors(instance))
     if error is not None:
         raise ContractError("schema_violation", f"{shape}{_pointer(error)}: {error.message}")
 
 
-def _unknown_shape(shape: str) -> Draft202012Validator:
-    raise ContractError("unknown_shape", f"{shape!r} is not one of {SHAPES}")
+def validator_for(schema: Mapping[str, Any]) -> Draft202012Validator:
+    """A validator for a task's own schema, with the same enforced format checks as the wire shapes."""
+    Draft202012Validator.check_schema(schema)
+    return Draft202012Validator(schema, format_checker=_FORMATS)
+
+
+def schema_problem(validator: Draft202012Validator, value: Any) -> str | None:
+    """`/pointer: message` for the best-matching violation of ``value``, else None."""
+    error = best_match(validator.iter_errors(value))
+    return None if error is None else f"{_pointer(error)}: {error.message}"
 
 
 def _pointer(error: ValidationError) -> str:
@@ -279,8 +289,7 @@ def validate_result(raw: bytes, output_schema: dict[str, Any], max_bytes: int = 
         raise ResultError("invalid_result", error.message) from error
     if result["status"] == "refused":
         return Refused(result["reason"])
-    Draft202012Validator.check_schema(output_schema)
-    error = best_match(Draft202012Validator(output_schema, format_checker=_FORMATS).iter_errors(result["answer"]))
+    error = best_match(validator_for(output_schema).iter_errors(result["answer"]))
     if error is not None:
         raise ResultError("invalid_result", f"answer{_pointer(error)} violates the output schema: {error.message}")
     return Answered(result["answer"])
@@ -338,8 +347,8 @@ def _content_matches(message: Any, role: str, part_type: str, prompt: str, *, si
     if not isinstance(message, dict) or message.get("role") != role:
         return False
     content = message.get("content")
-    if content == prompt:
-        return isinstance(content, str)
+    if isinstance(content, str):
+        return content == prompt
     if not isinstance(content, list):
         return False
     if single:
@@ -347,21 +356,24 @@ def _content_matches(message: Any, role: str, part_type: str, prompt: str, *, si
     return any(_is_text_part(part, part_type, prompt) for part in content)
 
 
+def _any_message(messages: Any, role: str, prompt: str) -> bool:
+    return isinstance(messages, list) and any(_content_matches(message, role, "text", prompt, single=False) for message in messages)
+
+
+def _any_input_message(items: Any, role: str, prompt: str) -> bool:
+    return isinstance(items, list) and any(
+        isinstance(item, dict) and item.get("type", "message") == "message" and _content_matches(item, role, "input_text", prompt, single=True)
+        for item in items
+    )
+
+
 def _user_matches(dialect: str, body: dict[str, Any], prompt: str) -> bool:
     match dialect:
         case "responses":
             items = body.get("input")
-            if isinstance(items, str):
-                return items == prompt
-            if not isinstance(items, list):
-                return False
-            return any(
-                isinstance(item, dict) and item.get("type", "message") == "message" and _content_matches(item, "user", "input_text", prompt, single=True)
-                for item in items
-            )
+            return items == prompt if isinstance(items, str) else _any_input_message(items, "user", prompt)
         case "chat_completions" | "anthropic_messages":
-            messages = body.get("messages")
-            return isinstance(messages, list) and any(_content_matches(m, "user", "text", prompt, single=False) for m in messages)
+            return _any_message(body.get("messages"), "user", prompt)
         case _:
             raise ContractError("unknown_dialect", f"{dialect!r} is not one of {DIALECTS}")
 
@@ -370,20 +382,13 @@ def _system_matches(dialect: str, body: dict[str, Any], prompt: str) -> bool:
     match dialect:
         case "responses":
             # `instructions`, or a system message item of `input` (a string `input` is a user turn).
-            if body.get("instructions") == prompt:
-                return True
-            items = body.get("input")
-            return isinstance(items, list) and any(
-                isinstance(item, dict) and item.get("type", "message") == "message" and _content_matches(item, "system", "input_text", prompt, single=True)
-                for item in items
-            )
+            return body.get("instructions") == prompt or _any_input_message(body.get("input"), "system", prompt)
         case "chat_completions":
-            messages = body.get("messages")
-            return isinstance(messages, list) and any(_content_matches(m, "system", "text", prompt, single=False) for m in messages)
+            return _any_message(body.get("messages"), "system", prompt)
         case "anthropic_messages":
             system = body.get("system")
-            if system == prompt:
-                return isinstance(system, str)
+            if isinstance(system, str):
+                return system == prompt
             return isinstance(system, list) and any(_is_text_part(part, "text", prompt) for part in system)
         case _:
             raise ContractError("unknown_dialect", f"{dialect!r} is not one of {DIALECTS}")

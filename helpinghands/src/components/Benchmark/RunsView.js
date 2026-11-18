@@ -1,13 +1,13 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useState} from 'react';
 import clsx from 'clsx';
 import {toast} from '@site/src/components/Toast/toast';
 import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
 import {clientPlatform} from '@site/src/platform/client';
 import {benchmarkApi} from './api';
+import {plural} from './labels';
 import {POLICY_LABELS, attemptStatus, attemptsOf, explanationText, liveAttempts, personLabel, runIsActive, runPairProblem, scoreText, toggleRun, verdictText} from './runs';
 import {LIMIT_LABELS} from './publish';
-import {followStream} from './sse';
-import useLoad, {usePoll} from './useLoad';
+import useLoad, {useLiveReload, usePoll} from './useLoad';
 import Metrics from './MetricsPanel';
 import RunSummaryCard from './RunSummaryCard';
 import PrepareHarness from './PrepareHarness';
@@ -56,24 +56,7 @@ export function RunView({runId, go}) {
   const [busy, setBusy] = useState(false);
   usePoll(reload, 4000, run ? runIsActive(run) : true);
 
-  const live = run ? liveAttempts(run).join(',') : '';
-  const soon = useRef(null);
-  const reloadSoon = useCallback(() => {
-    if (soon.current) return;
-    soon.current = setTimeout(() => { soon.current = null; reload(); }, 1000);
-  }, [reload]);
-  useEffect(() => {
-    if (!live) return undefined;
-    const controller = new AbortController();
-    for (const attemptId of live.split(',')) {
-      followStream({attemptId, open: benchmarkApi.openStream, read: benchmarkApi.readStream, signal: controller.signal, onFrame: reloadSoon}).then(() => {
-        if (!controller.signal.aborted) reloadSoon();
-      });
-    }
-    return () => controller.abort();
-  }, [live, reloadSoon]);
-  // Cleared and forgotten: a hidden section (Shell's <Activity>) keeps its refs, and a stale one would stop every reload after.
-  useEffect(() => () => { clearTimeout(soon.current); soon.current = null; }, []);
+  useLiveReload(run ? liveAttempts(run) : [], reload);
 
   if (error && !run) return <p className={styles.error}>{error}</p>;
   if (!run) return <LoadingSkeleton shape="block" height={160} />;
@@ -95,7 +78,7 @@ export function RunView({runId, go}) {
           <dt>Case set</dt><dd>{caseSet.name} by {personLabel(caseSet.publisher)} · digest <code>{caseSet.digest.slice(0, 12)}</code></dd>
           <dt>Participant policy</dt><dd>{POLICY_LABELS[run.policy] ?? run.policy}</dd>
           <dt>Prompt</dt><dd>{run.prompt.source}{run.prompt.source === 'custom' && <span className={styles.badge}>edited</span>}</dd>
-          <dt>Cases</dt><dd>{run.cases.length} case{run.cases.length === 1 ? '' : 's'} in this run</dd>
+          <dt>Cases</dt><dd>{plural(run.cases.length, 'case')} in this run</dd>
           <dt>Internet access</dt><dd>{run.limits.internet_access ? 'on' : 'off'}{run.unverified_egress && <span className={clsx(styles.badge, styles.unverified)} title="Model calls that bypass the gateway cannot be detected">unverified egress</span>}</dd>
           <dt>Egress hosts</dt><dd>{run.egress_hosts === null ? 'Not applicable (coding policy)' : run.egress_hosts.length ? run.egress_hosts.join(', ') : 'None'}</dd>
           <dt>Score</dt><dd><strong>{scoreText(run.score)}</strong></dd>

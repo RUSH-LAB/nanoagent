@@ -42,6 +42,10 @@ class Normalized:
     sequence_gaps: dict[str, list[int]] = field(default_factory=dict)
     harness_rejected: bool = False
 
+    def first(self, kind: str) -> Record | None:
+        found = self.worker.get(kind)
+        return found[0] if found else None
+
 
 def load_json(payloads: Mapping[str, bytes], sha: str | None) -> Any | None:
     if sha is None or sha not in payloads:
@@ -94,7 +98,6 @@ def _attempt(started: Record | None, issues: list[Issue]) -> AttemptInfo:
         attempt_id=d.get("attempt_id"),
         worker_id=d.get("worker_id"),
         endpoint_label=endpoint.get("label"),
-        endpoint_mode=endpoint.get("mode"),
         model=d.get("model"),
         dialects=tuple(d.get("dialects") or ()),
         prompt_sha256=d.get("prompt_sha256"),
@@ -127,11 +130,32 @@ def parse_records(raw: Sequence[Mapping[str, Any] | Record]) -> tuple[list[Recor
 def _gaps(records: Sequence[Record]) -> dict[str, list[int]]:
     gaps: dict[str, list[int]] = {}
     for source in EVENT_SOURCES:
-        seen = sorted({r.sequence for r in records if r.source == source})
-        missing = [n for n in range(1, (seen[-1] if seen else 0) + 1) if n not in set(seen)]
+        seen = {r.sequence for r in records if r.source == source}
+        missing = sorted(set(range(1, max(seen, default=0) + 1)) - seen)
         if missing:
             gaps[source] = missing
     return gaps
+
+
+def _by_id(records: Sequence[Record], source: str, id_key: str, prefix: str) -> dict[str, dict[str, Record]]:
+    """A source's records grouped by ``data[id_key]``, each group keyed by the record kind without ``prefix``."""
+    grouped: dict[str, dict[str, Record]] = {}
+    for r in records:
+        if r.source == source and id_key in r.data:
+            grouped.setdefault(r.data[id_key], {})[r.kind.removeprefix(prefix)] = r
+    return grouped
+
+
+def _rejection(n: Normalized, source: str, rejected: Record, evidence: tuple[str, ...]) -> dict[str, Any]:
+    """Records the rejection and returns its ``{code, message, http_status}`` as the rejected item carries it."""
+    d = rejected.data
+    n.rejections.append(Rejection(source, rejected.kind, d.get("code", ""), d.get("message", ""), evidence))
+    return {"code": d.get("code"), "message": d.get("message"), "http_status": d.get("http_status")}
+
+
+def _start_ns(completed: Record | None, c: Mapping[str, Any], fallback: Record | None) -> int | None:
+    end = completed.occurred_ns if completed else None
+    return end - c["duration_ns"] if end is not None and "duration_ns" in c else (fallback.occurred_ns if fallback else None)
 
 
 def normalize(records: list[Record], payloads: Mapping[str, bytes], issues: list[Issue]) -> Normalized:
@@ -150,24 +174,16 @@ def normalize(records: list[Record], payloads: Mapping[str, bytes], issues: list
 
 
 def _model_calls(n: Normalized) -> None:
-    by_call: dict[str, dict[str, Record]] = {}
-    for r in n.records:
-        if r.source != R.GATEWAY or "call_id" not in r.data:
-            continue
-        by_call.setdefault(r.data["call_id"], {})[r.kind.removeprefix("model_call.")] = r
-    for call_id, parts in by_call.items():
+    for call_id, parts in _by_id(n.records, R.GATEWAY, "call_id", "model_call.").items():
         admitted, dispatched, response, rejected = (parts.get(k) for k in ("admitted", "dispatched", "response", "rejected"))
         evidence = tuple(r.event_id for r in (admitted, dispatched, response, rejected) if r)
         if rejected is not None and admitted is None:
             d = rejected.data
-            n.rejections.append(Rejection(R.GATEWAY, rejected.kind, d.get("code", ""), d.get("message", ""), evidence))
-            n.model_calls.append(_rejected_call(call_id, d, evidence))
+            n.model_calls.append(_rejected_call(call_id, d, _rejection(n, R.GATEWAY, rejected, evidence), evidence))
             continue
         a, resp = (admitted.data if admitted else {}), (response.data if response else {})
         proposals = _proposals(resp)
-        usage = _usage(resp.get("usage")) if response else None
-        if response is not None and usage is None:
-            usage = UNKNOWN_USAGE
+        usage = (_usage(resp.get("usage")) or UNKNOWN_USAGE) if response else None
         if response is None:
             n.issues.append(Issue("model_call_without_response", f"model call {call_id} was admitted but has no response record", evidence, "error"))
         d_ns = dispatched.data if dispatched else {}
@@ -187,7 +203,6 @@ def _model_calls(n: Normalized) -> None:
                 http_status=resp.get("http_status"),
                 maybe_reached=resp.get("maybe_reached_upstream"),
                 usage=usage,
-                usage_error=resp.get("usage_error"),
                 proposals=proposals,
                 submitted_sha256=a.get("submitted_request_sha256"),
                 effective_sha256=a.get("effective_request_sha256") or d_ns.get("effective_request_sha256"),
@@ -207,11 +222,11 @@ def _model_calls(n: Normalized) -> None:
     n.model_calls.sort(key=lambda c: (c.ordinal if c.ordinal is not None else 1 << 60, c.admitted_ns or 0))
 
 
-def _rejected_call(call_id: str, d: Mapping[str, Any], evidence: tuple[str, ...]) -> ModelCall:
+def _rejected_call(call_id: str, d: Mapping[str, Any], rejected: dict[str, Any], evidence: tuple[str, ...]) -> ModelCall:
     return ModelCall(
-        call_id, d.get("dialect"), d.get("span_id"), None, False, None, None, None, None, None, None, d.get("http_status"), False, None, None, (),
+        call_id, d.get("dialect"), d.get("span_id"), None, False, None, None, None, None, None, None, d.get("http_status"), False, None, (),
         d.get("submitted_request_sha256"), None, None, None, None, None, None, None, None, None, None,
-        {"code": d.get("code"), "message": d.get("message"), "http_status": d.get("http_status")}, evidence,
+        rejected, evidence,
     )  # fmt: skip
 
 
@@ -230,24 +245,19 @@ def _proposals(resp: Mapping[str, Any]) -> tuple[Proposal, ...]:
 
 
 def _tools(n: Normalized) -> None:
-    by_call: dict[str, dict[str, Record]] = {}
-    for r in n.records:
-        if r.source == R.TOOL_BROKER and "call_id" in r.data:
-            by_call.setdefault(r.data["call_id"], {})[r.kind.removeprefix("tool.")] = r
-    for call_id, parts in by_call.items():
+    for call_id, parts in _by_id(n.records, R.TOOL_BROKER, "call_id", "tool.").items():
         invoked, completed, rejected = parts.get("invoked"), parts.get("completed"), parts.get("rejected")
         evidence = tuple(r.event_id for r in (invoked, completed, rejected) if r)
         if rejected is not None:
             d = rejected.data
-            n.rejections.append(Rejection(R.TOOL_BROKER, rejected.kind, d.get("code", ""), d.get("message", ""), evidence))
             n.tools.append(
                 ToolInvocation(call_id, d.get("tool"), None, d.get("span_id"), d.get("cause"), False, None, None, None, rejected.occurred_ns, rejected.occurred_ns, None, None,
-                               {"code": d.get("code"), "message": d.get("message"), "http_status": d.get("http_status")}, evidence)
+                               _rejection(n, R.TOOL_BROKER, rejected, evidence), evidence)
             )  # fmt: skip
             continue
         i, c = (invoked.data if invoked else {}), (completed.data if completed else {})
         end = completed.occurred_ns if completed else None
-        start = end - c["duration_ns"] if end is not None and "duration_ns" in c else (invoked.occurred_ns if invoked else None)
+        start = _start_ns(completed, c, invoked)
         if "received_ns" in i:
             start = min(start, i["received_ns"]) if start is not None else i["received_ns"]  # the call began when the broker received it
         if completed is None:
@@ -261,24 +271,19 @@ def _tools(n: Normalized) -> None:
 
 
 def _commands(n: Normalized, payloads: Mapping[str, bytes]) -> None:
-    by_req: dict[str, dict[str, Record]] = {}
-    for r in n.records:
-        if r.source == R.EXEC and "request_id" in r.data:
-            by_req.setdefault(r.data["request_id"], {})[r.kind.removeprefix("exec.")] = r
-    for request_id, parts in by_req.items():
+    for request_id, parts in _by_id(n.records, R.EXEC, "request_id", "exec.").items():
         started, completed, rejected = parts.get("started"), parts.get("completed"), parts.get("rejected")
         evidence = tuple(r.event_id for r in (started, completed, rejected) if r)
         if rejected is not None and started is None:
             d = rejected.data
-            n.rejections.append(Rejection(R.EXEC, rejected.kind, d.get("code", ""), d.get("message", ""), evidence))
             n.commands.append(Command(request_id, None, d.get("span_id"), None, None, rejected.occurred_ns, rejected.occurred_ns, None, None, None, None, False, False, None,
-                                      {"code": d.get("code"), "message": d.get("message"), "http_status": d.get("http_status")}, evidence))  # fmt: skip
+                                      _rejection(n, R.EXEC, rejected, evidence), evidence))  # fmt: skip
             continue
         s, c = (started.data if started else {}), (completed.data if completed else {})
         command = load_json(payloads, s.get("command_sha256"))
         argv = tuple(command["argv"]) if isinstance(command, dict) and "argv" in command else None
         end = completed.occurred_ns if completed else None
-        start = end - c["duration_ns"] if end is not None and "duration_ns" in c else (started.occurred_ns if started else None)
+        start = _start_ns(completed, c, started)
         if completed is None:
             n.issues.append(Issue("command_without_completion", f"command {request_id} has no completion record", evidence, "error"))
         n.commands.append(
@@ -292,7 +297,6 @@ def _commands(n: Normalized, payloads: Mapping[str, bytes]) -> None:
 
 def _processes(n: Normalized) -> None:
     info: dict[tuple[int, int], dict[str, Any]] = {}
-    order: list[tuple[int, int]] = []
     for r in n.records:
         if r.source != R.PROCESS:
             continue
@@ -303,8 +307,6 @@ def _processes(n: Normalized) -> None:
             n.issues.append(Issue("malformed_process_record", f"{r.kind} lacks tgid/start_time", (r.event_id,), "error"))
             continue
         rec = info.setdefault(ident, {"evidence": []})
-        if ident not in order:
-            order.append(ident)
         rec["evidence"].append(r.event_id)
         t = d.get("time_ns", r.occurred_ns)
         if r.kind == R.PROCESS_CLONE:
@@ -317,17 +319,15 @@ def _processes(n: Normalized) -> None:
                 rec["launch_id"] = d["launch_id"]
         elif r.kind == R.PROCESS_EXIT:
             rec["end"], rec["exit_code"], rec["signal"] = t, d.get("exit_code"), d.get("signal")
-    for ident in order:
-        p = info[ident]
+    for ident, p in info.items():
         n.processes.append(
             ProcessInfo(ident, p.get("parent"), p.get("argv"), p.get("cwd"), p.get("launch_id"), p.get("start"), p.get("end"), p.get("exit_code"), p.get("signal"), tuple(p["evidence"]))
         )
 
 
 def _harness(n: Normalized, payloads: Mapping[str, bytes]) -> None:
-    starts: dict[str, dict[str, Any]] = {}
+    starts: dict[str, tuple[Record, dict[str, Any]]] = {}
     ends: dict[str, tuple[Record, dict[str, Any]]] = {}
-    order: list[str] = []
     for r in n.records:
         if r.source == R.HARNESS and r.kind == "harness.rejected":
             d = r.data
@@ -345,13 +345,10 @@ def _harness(n: Normalized, payloads: Mapping[str, bytes]) -> None:
             if span_id in starts:
                 n.issues.append(Issue("duplicate_harness_start", f"span {span_id} started twice", (r.event_id,)))
                 continue
-            starts[span_id] = {"record": r, "event": event}
-            order.append(span_id)
+            starts[span_id] = (r, event)
         elif event.get("event") == "span.end":
             ends.setdefault(span_id, (r, event))
-    for span_id in order:
-        s = starts[span_id]
-        r, e = s["record"], s["event"]
+    for span_id, (r, e) in starts.items():
         end = ends.get(span_id)
         evidence = (r.event_id, *((end[0].event_id,) if end else ()))
         n.harness_spans.append(

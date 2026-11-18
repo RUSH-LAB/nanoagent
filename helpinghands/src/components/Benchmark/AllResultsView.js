@@ -1,6 +1,7 @@
 import React, {useState} from 'react';
 import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
 import {benchmarkApi} from './api';
+import {plural} from './labels';
 import {benchmarkCard} from './newRun';
 import {benchmarksOf, pluginsOf, resultSections, versionsOf} from './results';
 import useLoad, {usePoll} from './useLoad';
@@ -53,8 +54,8 @@ export default function AllResults() {
     <div className={styles.newRun}>
       <section className={styles.section}>
         <h3 className={styles.sectionHeading}>Choose a benchmark</h3>
-        <ChoiceList label="Plugin" options={pluginsOf(all).map(item => ({value: item.id, label: item.name, detail: `${item.id} · ${item.count} benchmark${item.count === 1 ? '' : 's'}`}))} value={pluginId} onChange={value => { setPluginId(value); setVersion(''); setBenchmarkId(''); }} searchPlaceholder="Search plugins" />
-        {pluginId && <ChoiceList label="Plugin version" options={versionsOf(all, pluginId).map(item => ({value: item.version, label: `v${item.version}`, detail: `${item.count} benchmark${item.count === 1 ? '' : 's'}`}))} value={version} onChange={value => { setVersion(value); setBenchmarkId(''); }} />}
+        <ChoiceList label="Plugin" options={pluginsOf(all).map(item => ({value: item.id, label: item.name, detail: `${item.id} · ${plural(item.count, 'benchmark')}`}))} value={pluginId} onChange={value => { setPluginId(value); setVersion(''); setBenchmarkId(''); }} searchPlaceholder="Search plugins" />
+        {pluginId && <ChoiceList label="Plugin version" options={versionsOf(all, pluginId).map(item => ({value: item.version, label: `v${item.version}`, detail: plural(item.count, 'benchmark')}))} value={version} onChange={value => { setVersion(value); setBenchmarkId(''); }} />}
         {version && <ChoiceList label="Benchmark" options={offered.map(item => {
           const card = benchmarkCard(item);
           return {value: item.benchmark_id, label: card.name, detail: `${card.task} · by ${card.creator} · ${card.runs} · ${card.runners}`};

@@ -228,7 +228,7 @@ def follow(client: BenchmarkClient, run_id: str, poll_seconds: float, timeout: f
         time.sleep(poll_seconds)
 
 
-def report(action: str, run: dict[str, Any], **extra: Any) -> RunReport:
+def report(action: str, run: dict[str, Any], replayed: bool | None, queued_attempts: list[str]) -> RunReport:
     attempts = [
         AttemptLine(
             case_id=case["case_id"],
@@ -250,7 +250,7 @@ def report(action: str, run: dict[str, Any], **extra: Any) -> RunReport:
         action=action,
         run_id=run["run_id"],
         status=run["status"],
-        replayed=extra.get("replayed"),
+        replayed=replayed,
         model=run["model"],
         endpoint_profile=run["endpoint_profile"],
         preview_id=run["preview_id"],
@@ -264,13 +264,7 @@ def report(action: str, run: dict[str, Any], **extra: Any) -> RunReport:
         metrics=run["metrics"],
         score=run["score"],
         attempts=attempts,
-        queued_attempts=extra.get("queued_attempts", []),
-    )
-
-
-def stale_message(error: StalePreview) -> str:
-    return (
-        f"the preview is stale: {', '.join(error.stale)} changed\n{format_setup(error.current)}\nrun the step again to preview it afresh"
+        queued_attempts=queued_attempts,
     )
 
 
@@ -285,7 +279,7 @@ def case_set_of(benchmark: dict[str, Any]) -> BenchmarkCaseSet:
     )
 
 
-def submit(client: BenchmarkClient, config: SubmitConfig, layout: RunLayout) -> tuple[dict[str, Any], dict[str, Any]]:
+def submit(client: BenchmarkClient, config: SubmitConfig, layout: RunLayout) -> tuple[dict[str, Any], bool]:
     if config.idempotency_key is None or config.plugin is None or config.plugin_version is None or config.benchmark is None:
         raise ValueError("submit needs `plugin`, `plugin_version`, `benchmark` and `idempotency_key`")
     if (config.source is None) == (config.reference is None):
@@ -310,27 +304,30 @@ def submit(client: BenchmarkClient, config: SubmitConfig, layout: RunLayout) -> 
             idempotency_key=config.idempotency_key,
         )
     except StalePreview as error:
-        raise RuntimeError(stale_message(error)) from error
+        raise RuntimeError(
+            f"the preview is stale: {', '.join(error.stale)} changed\n{format_setup(error.current)}\nrun the step again to preview it afresh"
+        ) from error
     print(f"{'replayed' if submission.replayed else 'queued'} run {submission.run['run_id']}")
-    return submission.run, {"replayed": submission.replayed}
+    return submission.run, submission.replayed
 
 
-def act(client: BenchmarkClient, config: SubmitConfig, layout: RunLayout) -> tuple[dict[str, Any], dict[str, Any]]:
+def act(client: BenchmarkClient, config: SubmitConfig, layout: RunLayout) -> tuple[dict[str, Any], bool | None, list[str]]:
     if config.action is Action.SUBMIT:
-        return submit(client, config, layout)
+        run, replayed = submit(client, config, layout)
+        return run, replayed, []
     if config.run_id is None:
         raise ValueError(f"{config.action.value} needs `run_id`")
-    extra: dict[str, Any] = {}
+    queued: list[str] = []
     match config.action:
         case Action.RERUN:
             if config.case_id is None:
                 raise ValueError("rerun needs `case_id`")
-            extra["queued_attempts"] = [client.rerun(config.run_id, config.case_id)["attempt_id"]]
+            queued.append(client.rerun(config.run_id, config.case_id)["attempt_id"])
         case Action.CANCEL:
             print(client.cancel(config.run_id))
     run = client.run(config.run_id)
     layout.case_set = case_set_of(client.benchmark(run["benchmark"]["benchmark_id"]))
-    return run, extra
+    return run, None, queued
 
 
 class SubmitRun(Run):
@@ -340,11 +337,11 @@ class SubmitRun(Run):
     def main(self) -> None:
         config = self.config
         with config.server.client() as client:
-            run, extra = act(client, config, self.layout)
+            run, replayed, queued = act(client, config, self.layout)
             if config.follow:
                 run = follow(client, run["run_id"], config.poll_seconds, config.follow_timeout)
         print(format_summary(run))
-        self.layout.run = report(config.action.value, run, **extra)
+        self.layout.run = report(config.action.value, run, replayed, queued)
 
 
 if __name__ == "__main__":

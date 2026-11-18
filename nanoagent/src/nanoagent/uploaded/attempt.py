@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import re
 import time
 import uuid
@@ -19,7 +20,7 @@ import anyio
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from nanoagent.uploaded.contract import DIALECTS, ContractError
+from nanoagent.uploaded.contract import DIALECTS, ContractError, validate
 from nanoagent.uploaded.evidence import Recorder
 
 SPAN_HEADER = "x-rush-span-id"
@@ -52,6 +53,13 @@ def error_response(error: ServiceError, call_id: str | None = None, *, anthropic
         detail["type"] = error.code
         payload["type"] = "error"
     return JSONResponse(payload, status_code=error.status, headers={CALL_HEADER: call_id} if call_id else None)
+
+
+def tool_error_response(error: ServiceError, call_id: str) -> JSONResponse:
+    """The error as a `ToolResult` envelope, checked against the contract before it is sent."""
+    response = error_response(error, call_id)
+    validate("ToolResult", json.loads(response.body))
+    return response
 
 
 def new_call_id() -> str:
@@ -111,23 +119,28 @@ class AttemptPolicy:
 class Attempt:
     """The per-attempt context: authentication, the revoked flag and the in-flight work revocation stops."""
 
-    def __init__(self, policy: AttemptPolicy, recorder: Recorder, workspace: Path, clock_ns: Callable[[], int] = time.monotonic_ns) -> None:
+    def __init__(
+        self,
+        policy: AttemptPolicy,
+        recorder: Recorder,
+        workspace: Path,
+        clock_ns: Callable[[], int] = time.monotonic_ns,
+        # The lease's local fence, given by the runner: True once the lease's known expiry passed without a renewal.
+        lease_lapsed: Callable[[], bool] = lambda: False,
+    ) -> None:
         self.policy = policy
         self.recorder = recorder
         self.workspace = workspace
         self.clock_ns = clock_ns
         self.revoked = False
-        # Set by the runner to the lease's local fence: True once the lease's known expiry passed without a renewal.
-        self.lease_lapsed: Callable[[], bool] = lambda: False
+        self.lease_lapsed = lease_lapsed
         self._token_digest = hashlib.sha256(policy.token.encode()).digest()
         self._scopes: set[anyio.CancelScope] = set()
 
     def authenticate(self, request: Request) -> bool:
         """Constant-time check of the attempt token in `Authorization: Bearer` or `x-api-key`."""
-        offered = [request.headers.get("x-api-key")]
-        authorization = request.headers.get("authorization", "")
-        scheme, _, credential = authorization.partition(" ")
-        offered.append(credential.strip() if scheme.lower() == "bearer" else None)
+        scheme, _, credential = request.headers.get("authorization", "").partition(" ")
+        offered = [request.headers.get("x-api-key"), credential.strip() if scheme.lower() == "bearer" else None]
         # Both candidates are always compared so the outcome does not depend on which header carried the token.
         matches = [hmac.compare_digest(hashlib.sha256(value.encode()).digest(), self._token_digest) for value in offered if value is not None]
         return any(matches)
