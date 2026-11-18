@@ -73,11 +73,6 @@ os.chdir(workspace)
 if command is not None:
     os.execvpe("bash", ["bash", "-c", command], env)
 
-print(
-    "Run any CLI agent here (claude, codex, pi, hermes, dsh)\r\nModels and tracing are set up.\r\n",
-    end="",
-    flush=True,
-)
 staged = TERMINAL_ENV.with_suffix(".tmp")
 staged.write_text(json.dumps(env), encoding="utf-8")
 staged.rename(TERMINAL_ENV)  # whole: another terminal reads it the moment it appears

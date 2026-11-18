@@ -8,3 +8,12 @@ rush() {
   RUSH_LAST="$(HISTTIMEFORMAT= history | sed 's/^ *[0-9]*\*\{0,1\} *//' | sed '$d' | grep -v '^rush\( \|$\)' | tail -n 1)" \
     python /harness/rush.py "$@"
 }
+# The banner at the top of every terminal (each is a bash on this rc), and again when the member clears it: `clear` or Ctrl-L.
+rush_banner() {
+  printf '%s\n' 'Run any CLI agent here (claude, codex, pi, hermes, dsh)' 'Models and tracing are set up.'
+}
+clear() {
+  command clear "$@" && rush_banner
+}
+bind -x '"\C-l": clear'
+rush_banner
