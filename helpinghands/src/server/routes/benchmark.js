@@ -18,6 +18,7 @@ const {REFERENCE_HARNESSES, checkReference, referenceHarnessOf, referencePolicy,
 const {previewBody, runBody, benchmarkPublication, importBody, publicationFrame, SHA256, object, string} = require('../benchmark/validate');
 const {checkTaskAgainstEntry} = require('../benchmark/entry-check');
 const {leaderboard} = require('../benchmark/leaderboard');
+const {CLI_PATTERNS, terminalSession} = require('../benchmark/terminal-sessions');
 const {listen, wake} = require('../benchmark/wake');
 const {MAX_SOURCE_BYTES} = require('../benchmark/limits');
 
@@ -33,11 +34,11 @@ const PAGE = 1000;
 
 const ROUTE = new RegExp([
   '^/api/benchmark/(?:',
-  '(defaults|benchmarks|benchmarks/pinned|sessions|previews|sources|runs|compare|compare/attempts|worker-credentials|leaderboard|imports)',
+  '(defaults|benchmarks|benchmarks/pinned|sessions|previews|sources|runs|compare|compare/attempts|worker-credentials|leaderboard|terminal-sessions|imports)',
   '|worker-credentials/([^/]+)',
   '|benchmarks/([^/]+)(?:/(results))?',
   '|runs/([^/]+)(?:/(cancel)|/cases/([^/]+)/(rerun))?',
-  '|attempts/([^/]+)(?:/(events|stream|terminal-link|spans|accounting)|/payloads/([^/]+))?',
+  '|attempts/([^/]+)(?:/(events|stream|terminal-link|spans|accounting|recording)|/payloads/([^/]+))?',
   '|sources/references/([^/]+)(?:/(computer))?',
   ')$',
 ].join(''));
@@ -273,6 +274,17 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       const pluginId = string(url.searchParams.get('plugin_id'), 'plugin_id');
       return json(res, 200, leaderboard(await repository.leaderboard(context, pluginId), context.userId));
     }
+    // A plugin page's Dashboard: the member's own Harness tab sessions on the plugin, by harness, beside their chats.
+    if (top === 'terminal-sessions') {
+      if (req.method !== 'GET') return wrongMethod();
+      read();
+      const pluginId = string(url.searchParams.get('plugin_id'), 'plugin_id');
+      const rows = await repository.terminalRows(context, {pluginId, patterns: CLI_PATTERNS});
+      return json(res, 200, {sessions: rows.map(row => {
+        const {calls, commands, ...session} = terminalSession(row);
+        return session;
+      })});
+    }
     // A run of a reference harness made outside RUSH (examples/benchmark in the NanoAgent project), kept as the member's scored run, on
     // the package of its plugin version as published: its task must be that version's.
     if (top === 'imports') {
@@ -390,6 +402,16 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
         kind: url.searchParams.get('kind'), status: url.searchParams.get('status'), q: url.searchParams.get('q'), limit: limitOf(url, 1000, 5000),
       });
       return found ? json(res, 200, found) : notFound('attempt');
+    }
+    // One of the member's Harness tab sessions, to replay: what each terminal wrote, its model calls, its commands and its figures.
+    if (attemptPart === 'recording') {
+      const [row] = await repository.terminalRows(context, {attemptId});
+      if (!row) return notFound('session');
+      const transcripts = await repository.terminalTranscripts(context, attemptId);
+      return json(res, 200, {
+        session: terminalSession(row),
+        terminals: transcripts.map(({terminal, data}) => ({terminal, data: data.toString('base64')})),
+      });
     }
     if (attemptPart === 'accounting') {
       const found = await repository.accounting(context, attemptId);

@@ -95,6 +95,8 @@ describe('nanoagent.ui/v1 requests', () => {
       ['harness.close', {runId: 'harness-1', terminal: 0}],
       ['leaderboard', {}],
       ['leaderboard.trace', {attemptId: SESSION}],
+      ['recording', {attemptId: SESSION}],
+      ['recording.payload', {attemptId: SESSION, sha256: 'a'.repeat(64)}],
     ];
     for (const [method, params] of valid) assert.equal(invalidRequest({method, params}), null, method);
     const invalid = [
@@ -127,6 +129,8 @@ describe('nanoagent.ui/v1 requests', () => {
       ['harness.open', {runId: 'harness-1', terminal: 32, rows: 40, cols: 120}],
       ['harness.close', {runId: 'harness-1', terminal: -1}],
       ['leaderboard.trace', {attemptId: 'not-an-id'}],
+      ['recording', {}],
+      ['recording.payload', {attemptId: SESSION, sha256: 'not-a-sha'}],
     ];
     for (const [method, params] of invalid) assert.equal(typeof invalidRequest({method, params}), 'string', method);
   });
@@ -350,16 +354,20 @@ describe('the bridge host', () => {
   it('lists, starts and reads sessions through the sessions routes', async () => {
     const {posted, calls, send} = await hostWith((path, init = {}) => {
       if (path === SESSIONS && !init.method) return Response.json({sessions: [{id: SESSION}]});
+      if (path.startsWith('/api/benchmark/terminal-sessions')) return Response.json({sessions: [{id: 'a1', harness: 'Codex'}]});
       return Response.json({session: sessionWith()});
     });
     send('l', 'sessions.list');
+    await until(() => posted.length === 1);
     send('g', 'session.get', {id: SESSION});
     send('n', 'session.start');
     await until(() => posted.length === 3);
     const byId = Object.fromEntries(messages(posted).map(message => [message.id, message.result ?? message.error]));
-    assert.deepEqual(byId, {l: {sessions: [{id: SESSION}]}, g: {session: sessionWith()}, n: {session: sessionWith()}});
+    assert.deepEqual(byId, {
+      l: {sessions: [{id: SESSION}], terminals: [{id: 'a1', harness: 'Codex'}]}, g: {session: sessionWith()}, n: {session: sessionWith()},
+    });
     assert.deepEqual(calls.map(({path, init}) => [path, init?.method ?? 'GET']), [
-      [SESSIONS, 'GET'], [`${SESSIONS}/${SESSION}`, 'GET'], [SESSIONS, 'POST'],
+      [SESSIONS, 'GET'], ['/api/benchmark/terminal-sessions?plugin_id=arxiv-source', 'GET'], [`${SESSIONS}/${SESSION}`, 'GET'], [SESSIONS, 'POST'],
     ]);
   });
 
@@ -380,6 +388,16 @@ describe('the bridge host', () => {
       '/api/benchmark/leaderboard?plugin_id=arxiv-source',
       `/api/benchmark/attempts/${SESSION}/events?limit=1000&after=0`, `/api/benchmark/attempts/${SESSION}/events?limit=1000&after=1`,
     ]);
+  });
+
+  it('reads a Harness session\'s recording and a model call\'s request from the attempt\'s routes', async () => {
+    const {posted, calls, send} = await hostWith(path => (path.includes('/payloads/') ? new Response('{"messages":[]}') : Response.json({session: {id: SESSION}, terminals: []})));
+    send('r', 'recording', {attemptId: SESSION});
+    send('p', 'recording.payload', {attemptId: SESSION, sha256: 'a'.repeat(64)});
+    await until(() => posted.length === 2);
+    const byId = Object.fromEntries(messages(posted).map(message => [message.id, message.result]));
+    assert.deepEqual(byId, {r: {session: {id: SESSION}, terminals: []}, p: {text: '{"messages":[]}'}});
+    assert.deepEqual(calls.map(({path}) => path), [`/api/benchmark/attempts/${SESSION}/recording`, `/api/benchmark/attempts/${SESSION}/payloads/${'a'.repeat(64)}`]);
   });
 
   it('archives and restores a session through its route', async () => {

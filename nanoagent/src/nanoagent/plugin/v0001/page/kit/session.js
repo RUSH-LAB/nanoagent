@@ -7,6 +7,7 @@
 import { onSessionRequest, request } from "./bridge.js";
 import { formatDuration, h, icon, plural } from "./dom.js";
 import { statItems, statusPill } from "./display.js";
+import { recording } from "./recording.js";
 
 let current = null;
 // Starts the page's session on the host, if it has not started yet.
@@ -93,6 +94,10 @@ const when = (at) => {
   return `${date.toLocaleDateString(undefined, { year, month: "short", day: "numeric" })}, ${date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
 };
 const titled = (session) => session.title || "Untitled session";
+// The harness of the chats, the dashboard's first chip.
+const RUSH = "RUSH";
+// How many sessions a harness's usage is over, above it.
+const counted = (count) => h("p", { class: "muted small-text", text: plural(count, "session") });
 
 /** "4.3k" with "4,321" for its title: a count of tokens. */
 const tokens = (count) => [thousands(Math.round(count)), Math.round(count).toLocaleString()];
@@ -108,17 +113,20 @@ const FIGURES = [
 ];
 
 /**
- * The usage of every message in `sessions`, as the dashboard shows it: a column per figure
- * (FIGURES), its Total over its Average per message. A Total that messages recorded before RUSH
- * counted its figure lack says so in its title.
+ * One harness's usage, as the dashboard shows it: a column per figure (FIGURES), its Total over
+ * its Average, from `usages` (each a session's, every figure `{sum, count}`) averaged per `unit`:
+ * RUSH's chats count their messages, a Harness session counts itself. A Total that not every one of
+ * the `units` counted says so in its title.
  */
-function sessionsUsage(sessions) {
-  const runs = sessions.reduce((sum, one) => sum + one.runs, 0);
+function harnessUsage(usages, units, unit) {
   const figures = FIGURES.map(([, key, format]) => {
-    const sum = sessions.reduce((total, one) => total + one.usage[key].sum, 0);
-    const count = sessions.reduce((total, one) => total + one.usage[key].count, 0);
+    const sum = usages.reduce((total, usage) => total + usage[key].sum, 0);
+    const count = usages.reduce((total, usage) => total + usage[key].count, 0);
     const total = count ? format(sum) : ["—"];
-    if (count && count < runs) total[1] = `For ${count.toLocaleString()} of ${plural(runs, "message")}: those sent before RUSH counted it lack it`;
+    if (count && count < units) {
+      const why = unit === "message" ? "those sent before RUSH counted it lack it" : "the others did not record it";
+      total[1] = `For ${count.toLocaleString()} of ${plural(units, unit)}: ${why}`;
+    }
     return { total, average: count ? format(sum / count) : ["—"] };
   });
   const row = (head, title, cells) => h("tr", {}, h("th", { scope: "row", text: head, title }), cells.map(([text, cellTitle]) => h("td", { text, title: cellTitle })));
@@ -128,9 +136,9 @@ function sessionsUsage(sessions) {
     h(
       "table",
       {},
-      h("caption", { class: "visually-hidden", text: "Usage: in all, and on average per message" }),
+      h("caption", { class: "visually-hidden", text: `Usage: in all, and on average per ${unit}` }),
       h("thead", {}, h("tr", {}, h("td"), FIGURES.map(([label]) => h("th", { scope: "col", text: label })))),
-      h("tbody", {}, row("Total", undefined, figures.map((figure) => figure.total)), row("Average", "Per message", figures.map((figure) => figure.average))),
+      h("tbody", {}, row("Total", undefined, figures.map((figure) => figure.total)), row("Average", `Per ${unit}`, figures.map((figure) => figure.average))),
     ),
   );
 }
@@ -142,10 +150,12 @@ function emptyText(archived, closed) {
 }
 
 /**
- * The dashboard: the person's sessions with this plugin, newest first, and what they cost in
- * all; from here they start a new session or resume one, and archive a
- * session. Archived sessions leave the list for its Archived view, where they can be opened or
- * restored; chatting in one again restores it.
+ * The dashboard, by harness: chips name every harness the person used on this plugin, RUSH (their
+ * chats) first and chosen at first, and the one chosen shows its usage and its sessions, newest
+ * first. From RUSH's they start a new session or resume one, and archive a session; archived
+ * sessions leave the list for its Archived view, where they can be opened or restored; chatting in
+ * one again restores it. Another harness's are the person's Harness tab sessions (a free-form
+ * Terminal one under each agent that worked in it), each opened as its read-only recording.
  * @param {object} options
  * @param {(session: object|null) => void} options.onOpen With what `session.resume` answered,
  *   or null for a new session.
@@ -160,7 +170,9 @@ export function dashboard({ onOpen, closed = false }) {
   const heading = h("h2", { text: "Sessions" });
   const newButton = h("button", { type: "button", class: "button small", hidden: closed, onclick: () => onOpen(null) }, icon("plus", { size: 16 }), "New session");
   const viewButton = h("button", { type: "button", class: "button small ghost", hidden: true });
+  const chips = h("div", { class: "harness-chips", role: "group", "aria-label": "Harness" });
   let archivedView = false;
+  let chosen = RUSH;
   viewButton.addEventListener("click", () => {
     archivedView = !archivedView;
     refresh();
@@ -207,22 +219,63 @@ export function dashboard({ onOpen, closed = false }) {
     return h("li", { class: "session-row" }, h("div", { class: "session-line" }, open, spent, archiving));
   }
 
+  // A Harness session, with what the chosen harness's calls in it cost and took; opening it shows its recording under it.
+  function terminalRow(session) {
+    const { usage } = session.harnesses.find((one) => one.harness === chosen);
+    const open = h(
+      "button",
+      { type: "button", class: "session-open", title: "Show this session's recording", "aria-expanded": "false" },
+      h("span", { class: "session-title", text: session.title }),
+      h("span", { class: "session-meta" }, session.running ? statusPill("Running", "info") : null, when(session.updatedAt)),
+    );
+    const took = usage.durationS.count ? formatSeconds(usage.durationS.sum) : "—";
+    const spent = h("span", { class: "session-cost", title: "Cost / End-to-End Latency", text: `${usage.cost.count ? formatCost(usage.cost.sum) : "—"} / ${took}` });
+    const item = h("li", { class: "session-row" }, h("div", { class: "session-line" }, open, spent));
+    let shown = null;
+    open.addEventListener("click", () => {
+      if (shown) shown.remove();
+      shown = shown ? null : item.appendChild(recording(session.id));
+      open.setAttribute("aria-expanded", String(Boolean(shown)));
+    });
+    return item;
+  }
+
   async function refresh() {
     status.textContent = "";
     let all;
+    let terminals;
     try {
-      ({ sessions: all } = await request("sessions.list"));
+      ({ sessions: all, terminals } = await request("sessions.list"));
     } catch (problem) {
       status.textContent = problem.message;
       return;
     }
+    const used = [RUSH, ...new Set(terminals.flatMap((one) => one.harnesses.map(({ harness }) => harness)).sort())];
+    if (!used.includes(chosen)) chosen = RUSH;
     const archived = all.filter((one) => one.archivedAt);
-    if (!archived.length) archivedView = false;
-    const sessions = archivedView ? archived : all.filter((one) => !one.archivedAt);
-    heading.textContent = archivedView ? "Archived sessions" : "Sessions";
-    viewButton.hidden = !archived.length;
+    if (!archived.length || chosen !== RUSH) archivedView = false;
+    chips.hidden = used.length < 2 || archivedView;
+    chips.replaceChildren(...used.map((harness) => h("button", {
+      type: "button", class: "harness-chip", text: harness, "aria-pressed": String(harness === chosen),
+      onclick: () => {
+        chosen = harness;
+        refresh();
+      },
+    })));
+    newButton.hidden = closed || chosen !== RUSH;
+    viewButton.hidden = !archived.length || chosen !== RUSH;
     viewButton.textContent = archivedView ? "Back to sessions" : `Archived (${archived.length})`;
-    stats.replaceChildren(...(sessions.some((one) => one.runs) && !archivedView ? [sessionsUsage(sessions)] : []));
+    heading.textContent = archivedView ? "Archived sessions" : "Sessions";
+    if (chosen !== RUSH) {
+      const mine = terminals.filter((one) => one.harnesses.some(({ harness }) => harness === chosen));
+      const usages = mine.map((one) => one.harnesses.find(({ harness }) => harness === chosen).usage);
+      stats.replaceChildren(counted(mine.length), harnessUsage(usages, mine.length, "session"));
+      list.replaceChildren(...[...mine].sort((x, y) => new Date(y.updatedAt) - new Date(x.updatedAt)).map(terminalRow));
+      return;
+    }
+    const sessions = archivedView ? archived : all.filter((one) => !one.archivedAt);
+    const runs = sessions.reduce((sum, one) => sum + one.runs, 0);
+    stats.replaceChildren(...(runs && !archivedView ? [counted(sessions.length), harnessUsage(sessions.map((one) => one.usage), runs, "message")] : []));
     const newest = [...sessions].sort((x, y) => new Date(y.updatedAt) - new Date(x.updatedAt));
     list.replaceChildren(
       ...(newest.length
@@ -236,6 +289,7 @@ export function dashboard({ onOpen, closed = false }) {
     { class: "dashboard" },
     h("header", { class: "dashboard-head" }, heading, h("div", { class: "dashboard-actions" }, viewButton, newButton)),
     status,
+    chips,
     stats,
     list,
   );

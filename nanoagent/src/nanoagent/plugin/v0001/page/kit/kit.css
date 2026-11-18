@@ -344,6 +344,18 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .session-meta > .pill { padding-block: 0; font-size: 11px; }
 .session-cost { min-width: 5.5em; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; }
 .session-empty { padding: 14px; color: var(--muted); font-size: 13px; }
+/* The dashboard's harness filter: one chip pressed at a time. */
+.harness-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.harness-chips[hidden] { display: none; }
+.harness-chip { appearance: none; padding: 3px 11px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted); font: inherit; font-size: 12.5px; cursor: pointer; }
+.harness-chip:hover { color: var(--text); }
+.harness-chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.harness-chip:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+/* A Harness session's recording, under its row. */
+.recording { display: grid; gap: 10px; padding: 4px 14px 14px; min-width: 0; }
+.recording h4 { margin: 4px 0 0; font-size: 13px; }
+.recording-terminals { display: grid; gap: 4px; min-width: 0; }
+.recording-terminal { overflow-x: auto; }
 
 /* Chat */
 

@@ -655,6 +655,38 @@ function createPostgresBenchmark({pool}) {
       return member(context, async client => (await client.query('select * from benchmark_leaderboard($1)', [pluginId])).rows);
     },
 
+    /**
+     * The caller's own Harness tab sessions (runs with `session`), newest first, each attempt with its model calls (the gateway's
+     * spans), the processes the process record shows whose argv matches one of `patterns` (all of them with null), and each call's
+     * settled cost (null while it is not): of plugin `pluginId`, or only attempt `attemptId`.
+     */
+    async terminalRows(context, {pluginId = null, attemptId = null, patterns = null}) {
+      await sweep();
+      return member(context, async client => (await client.query(
+        `select a.attempt_id, a.state, a.finalized_at, (a.metrics->>'elapsed_ms')::float8 as elapsed_ms, r.harness_name, r.task_id, r.created_at,
+           coalesce((select json_agg(json_build_object('call_id', s.attributes->>'call_id', 'status', s.status, 'model', s.target,
+               'start_ns', s.start_ns::text, 'end_ns', s.end_ns::text, 'usage', s.attributes->'usage',
+               'request_sha256', s.attributes->>'submitted_request_sha256', 'response_sha256', s.attributes->>'response_sha256') order by s.start_ns)
+              from benchmark_span s where s.attempt_id = a.attempt_id and s.kind = 'model_call'), '[]') as calls,
+           coalesce((select json_agg(json_build_object('argv', s.attributes->'argv', 'start_ns', s.start_ns::text, 'end_ns', s.end_ns::text,
+               'exit_code', s.attributes->'exit_code') order by s.start_ns nulls first)
+              from benchmark_span s where s.attempt_id = a.attempt_id and s.kind = 'process'
+               and ($3::text[] is null or (s.attributes->'argv')::text ilike any($3))), '[]') as processes,
+           coalesce((select json_object_agg(d.call_id, d.cost_usd::float8) from benchmark_admission d
+              where d.attempt_id = a.attempt_id and d.status = 'settled'), '{}') as costs
+           from benchmark_run r join benchmark_attempt a on a.run_id = r.run_id
+          where r.session and ($1::text is null or r.plugin_id = $1) and ($2::uuid is null or a.attempt_id = $2)
+          order by r.created_at desc, a.attempt_no desc`, [pluginId, attemptId, patterns],
+      )).rows);
+    },
+    /** Everything each terminal of attempt `attemptId` wrote, by terminal: `[{terminal, data}]`, data a Buffer. */
+    async terminalTranscripts(context, attemptId) {
+      return member(context, async client => (await client.query(
+        `select terminal, string_agg(data, ''::bytea order by byte_offset) as data from benchmark_terminal
+          where attempt_id = $1 group by terminal order by terminal`, [attemptId],
+      )).rows);
+    },
+
     /** Published plugin version `version` of `pluginId`: `{entry, sha256}`, or null. */
     async marketVersion(context, pluginId, version) {
       return member(context, async client => (await client.query(

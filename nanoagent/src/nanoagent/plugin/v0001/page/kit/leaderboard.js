@@ -43,7 +43,7 @@ const verdictPill = (verdict) => (verdict === "pass" ? statusPill("Right", "ok")
 export const correctText = ({ passed, scored }) => `${Math.round((passed / scored) * 100)}% (${passed}/${scored})`;
 
 /** A label over a text or JSON value, cut to SHORT characters with a button that shows the rest; nothing for an empty one. */
-function block(label, value) {
+export function block(label, value) {
   if (value === null || value === undefined || value === "") return null;
   const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
   const pre = h("pre", { class: "leaderboard-text", text: text.length > SHORT ? `${text.slice(0, SHORT)}…` : text });

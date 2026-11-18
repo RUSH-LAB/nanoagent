@@ -72,6 +72,10 @@ const PARAMS = {
     : 'harness.close needs a runId and a terminal (0 to 31)'),
   'leaderboard': () => null,
   'leaderboard.trace': ({attemptId}) => (UUID.test(attemptId ?? '') ? null : 'leaderboard.trace needs an attempt id'),
+  'recording': ({attemptId}) => (UUID.test(attemptId ?? '') ? null : 'recording needs an attempt id'),
+  'recording.payload': ({attemptId, sha256}) => (UUID.test(attemptId ?? '') && /^[0-9a-f]{64}$/.test(sha256 ?? '')
+    ? null
+    : 'recording.payload needs an attempt id and a sha256'),
   'plugin.version': ({version}) => (version === null || (typeof version === 'string' && version)
     ? null
     : 'plugin.version needs version, a published version or null'),
