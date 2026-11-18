@@ -212,6 +212,9 @@ async def session_case_set(model: DecisionModel, manifest, sha256: str, task_id:
     except KeyError as error:
         raise PreparationError(f"{manifest.id} has an unknown task: {error.args[0]}") from error
     system = f"You turn a request to the {manifest.name} plugin into the input of its task: {task.description}.\n{task.instructions}"
-    answer = await model.answer([{"role": "system", "content": system}, {"role": "user", "content": text}], name=task.id, schema=task.input)
+    try:
+        answer = await model.answer([{"role": "system", "content": system}, {"role": "user", "content": text}], name=task.id, schema=task.input)
+    except ValueError as error:  # the backend's refusal of an answer cut off, not JSON or not an object
+        raise PreparationError(f"the model could not make task {task.id}'s input from the request: {error}") from error
     cases = CaseSet(plugin=manifest.id, task=task.id, context=text, answer=[answer.value], refuse=[])
     return await asyncio.to_thread(derive_case_set, SESSION, cases, manifest, sha256, timeout)

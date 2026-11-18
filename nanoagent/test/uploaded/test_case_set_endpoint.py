@@ -30,11 +30,13 @@ class InputModel:
     """The plugin model of a Harness tab session: answers every request with ``value``, keeping what it was asked."""
 
     def __init__(self) -> None:
-        self.value: dict[str, Any] = {"value": "hi"}
+        self.value: dict[str, Any] | None = {"value": "hi"}
         self.asked: list[tuple[list[dict[str, Any]], str, dict[str, Any]]] = []
 
     async def answer(self, messages: list[dict[str, Any]], *, name: str, schema: dict[str, Any]) -> Answer:
         self.asked.append((messages, name, schema))
+        if self.value is None:
+            raise ValueError(f"the answer to {name!r} was cut off at the token limit")
         return Answer(dict(self.value))
 
 
@@ -148,3 +150,6 @@ def test_a_session_input_that_breaks_the_task_input_and_an_unknown_task_are_refu
     reply = session(client, task="nope")
     assert reply.status_code == 422 and "unknown task" in reply.json()["error"]
     assert session(client, text=" ").status_code == 400
+    client.model.value = None
+    reply = session(client)
+    assert reply.status_code == 422 and "could not make task echo's input from the request: the answer to 'echo' was cut off" in reply.json()["error"]
