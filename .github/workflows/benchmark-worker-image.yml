@@ -5,7 +5,8 @@ name: Benchmark worker image
 # the tested digests into one multi-arch tag.
 on:
   push:
-    branches: [production]
+    # worker-image-first-publish: a one-off branch that publishes PR #29's head before this workflow is on production.
+    branches: [production, worker-image-first-publish]
     paths:
       - '.github/workflows/benchmark-worker-image.yml'
       - 'nanoagent/**'
