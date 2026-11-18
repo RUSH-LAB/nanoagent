@@ -8,14 +8,18 @@ test("PI runner validates server-owned options", async () => {
     provider: "openrouter",
     model: "model",
     apiKeyEnv: undefined,
+    baseUrl: undefined,
     thinkingLevel: "off",
     systemPrompt: "You are a helpful assistant.",
     awsRegion: undefined,
     awsProfile: undefined,
     temperature: undefined,
     maxTokens: undefined,
+    tools: undefined,
   });
   assert.throws(() => parseOptions({provider: "openrouter"}), /model.*required/);
+  assert.equal(parseOptions({provider: "openrouter", model: "m", tools: "coding"}).tools, "coding");
+  assert.throws(() => parseOptions({provider: "openrouter", model: "m", tools: "all"}), /tools/);
 });
 
 test("PI runner takes a run's temperature and output limit", async () => {
@@ -25,6 +29,13 @@ test("PI runner takes a run's temperature and output limit", async () => {
   assert.equal(options.maxTokens, 512);
   assert.throws(() => parseOptions({provider: "openrouter", model: "m", temperature: 3}), /temperature/);
   assert.throws(() => parseOptions({provider: "openrouter", model: "m", max_tokens: 0}), /max_tokens/);
+});
+
+test("PI runner takes the provider's endpoint in place of the catalog's", async () => {
+  const {parseOptions} = await import("../dist/index.js");
+  const options = parseOptions({provider: "openrouter", model: "m", base_url: "http://127.0.0.1:8080/api/v1"});
+  assert.equal(options.baseUrl, "http://127.0.0.1:8080/api/v1");
+  assert.throws(() => parseOptions({provider: "openrouter", model: "m", base_url: ""}), /base_url/);
 });
 
 test("PI catalog lists providers with their credentials, and models with their prices", () => {
@@ -91,4 +102,18 @@ test("PI runner speaks the JSONL protocol on configuration errors", () => {
   assert.equal(event.type, "error");
   assert.equal(event.code, "pi_error");
   assert.match(event.error, /model not found/);
+  // The release of PI the bundle holds, as the package it bundles says.
+  assert.equal(event.version, require("../node_modules/@earendil-works/pi-coding-agent/package.json").version);
+});
+
+test("PI profile counts no model call for a failed attempt but keeps its time", async () => {
+  const {Profiler} = await import("../dist/index.js");
+  const profiler = new Profiler();
+  profiler.modelStart();
+  profiler.modelEnd({}, "500 provider error");
+  const profile = profiler.finish();
+  assert.equal(profile.steps.length, 1);
+  assert.deepEqual(profile.steps[0].model_calls, []);
+  assert.equal(profile.steps[0].model_s, profile.model_s);
+  assert.ok(profile.model_s >= 0);
 });

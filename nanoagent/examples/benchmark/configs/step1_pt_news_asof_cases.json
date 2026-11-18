@@ -1,0 +1,128 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "pt-news-asof",
+  "task": "screen-news",
+  "context": "The articles in the input are the complete frozen news snapshot; screen them as of the inclusive cutoff. Keep an article only if its published_at is within [cutoff - lookback_hours, cutoff] and its available_at is at or before cutoff; any article whose available_at is after cutoff is future leakage and must be excluded even if its publication time is in range. Relevance is exact case-sensitive ticker matching: the article's symbols list must contain at least one of the query symbols. Then collapse syndication duplicates: for each canonical_id that has at least one qualifying article, keep the qualifying article with the earliest available_at, breaking ties by id in lexicographic order. Return the kept article ids sorted by available_at, then id. Timestamps are canonical UTC in YYYY-MM-DDTHH:MM:SSZ.",
+  "answer": [
+    {
+      "articles": [
+        {
+          "id": "a1",
+          "canonical_id": "g1",
+          "symbols": [
+            "AAPL"
+          ],
+          "published_at": "2026-10-29T16:00:00Z",
+          "available_at": "2026-10-29T16:00:00Z"
+        },
+        {
+          "id": "a2",
+          "canonical_id": "g1",
+          "symbols": [
+            "AAPL"
+          ],
+          "published_at": "2026-10-29T16:00:00Z",
+          "available_at": "2026-10-29T16:05:00Z"
+        },
+        {
+          "id": "b1",
+          "canonical_id": "g2",
+          "symbols": [
+            "MSFT"
+          ],
+          "published_at": "2026-10-29T15:59:59Z",
+          "available_at": "2026-10-29T16:00:00Z"
+        },
+        {
+          "id": "b2",
+          "canonical_id": "g2",
+          "symbols": [
+            "MSFT"
+          ],
+          "published_at": "2026-10-29T16:30:00Z",
+          "available_at": "2026-10-29T16:35:00Z"
+        },
+        {
+          "id": "c1",
+          "canonical_id": "g3",
+          "symbols": [
+            "TSLA"
+          ],
+          "published_at": "2026-10-30T10:00:00Z",
+          "available_at": "2026-10-30T10:00:00Z"
+        },
+        {
+          "id": "d1",
+          "canonical_id": "g4",
+          "symbols": [
+            "AAPL",
+            "MSFT"
+          ],
+          "published_at": "2026-10-30T15:00:00Z",
+          "available_at": "2026-10-30T15:01:00Z"
+        },
+        {
+          "id": "d2",
+          "canonical_id": "g4",
+          "symbols": [
+            "MSFT"
+          ],
+          "published_at": "2026-10-30T15:00:00Z",
+          "available_at": "2026-10-30T15:00:30Z"
+        },
+        {
+          "id": "e1",
+          "canonical_id": "g5",
+          "symbols": [
+            "AAPL"
+          ],
+          "published_at": "2026-10-30T16:00:00Z",
+          "available_at": "2026-10-30T16:00:00Z"
+        },
+        {
+          "id": "f1",
+          "canonical_id": "g6",
+          "symbols": [
+            "AAPL"
+          ],
+          "published_at": "2026-10-30T16:00:01Z",
+          "available_at": "2026-10-30T16:00:01Z"
+        },
+        {
+          "id": "late1",
+          "canonical_id": "g7",
+          "symbols": [
+            "AAPL"
+          ],
+          "published_at": "2026-10-30T10:00:00Z",
+          "available_at": "2026-10-30T16:00:01Z"
+        },
+        {
+          "id": "h1",
+          "canonical_id": "g8",
+          "symbols": [
+            "MSFT"
+          ],
+          "published_at": "2026-10-30T12:00:00Z",
+          "available_at": "2026-10-30T12:00:00Z"
+        },
+        {
+          "id": "h2",
+          "canonical_id": "g8",
+          "symbols": [
+            "MSFT"
+          ],
+          "published_at": "2026-10-30T12:00:00Z",
+          "available_at": "2026-10-30T12:00:00Z"
+        }
+      ],
+      "symbols": [
+        "AAPL",
+        "MSFT"
+      ],
+      "cutoff": "2026-10-30T16:00:00Z",
+      "lookback_hours": 24
+    }
+  ],
+  "refuse": []
+}

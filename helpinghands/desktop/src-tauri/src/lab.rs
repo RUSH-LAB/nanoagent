@@ -208,7 +208,8 @@ impl Lab {
                 }
                 let spawned = fs::OpenOptions::new().create(true).append(true).open(&log).and_then(|out| {
                     let err = out.try_clone()?;
-                    lab.node().stdin(Stdio::null()).stdout(out).stderr(err).spawn()
+                    // Its stdin is how `end` asks it to stop where there are no signals (Windows): lab.mjs stops when it closes.
+                    lab.node().env("LAB_STOP_ON_STDIN_CLOSE", "1").stdin(Stdio::piped()).stdout(out).stderr(err).spawn()
                 });
                 let message = match spawned {
                     Ok(child) => {
@@ -316,7 +317,8 @@ fn remove_launch_agent(app: &AppHandle, config: &Config) -> Result<(), String> {
 
 
 /// Stop lab.mjs: SIGTERM so it stops every connection cleanly, SIGKILL after STOP_TIMEOUT. Windows
-/// has no signals, so there lab.mjs is killed with every service it started.
+/// has no signals, so there its stdin is closed for the same, and it is killed with every service it
+/// started after STOP_TIMEOUT.
 fn end(mut child: Child) {
     #[cfg(unix)]
     {
@@ -329,6 +331,11 @@ fn end(mut child: Child) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
+        drop(child.stdin.take());
+        let deadline = Instant::now() + STOP_TIMEOUT;
+        while Instant::now() < deadline && child.try_wait().ok().flatten().is_none() {
+            thread::sleep(Duration::from_millis(100));
+        }
         let _ = Command::new("taskkill").args(["/PID", &child.id().to_string(), "/T", "/F"]).creation_flags(0x0800_0000).output();
     }
     let _ = child.kill();

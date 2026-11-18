@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from omegaconf import MISSING
 
 from nanoagent.runtime.config import AgentDefinitionConfig
+from nanoagent.uploaded.case_sets import SessionsConfig
 
 
 @dataclass
@@ -57,6 +58,8 @@ class WebConfig(AgentDefinitionConfig):
     # its settings beyond the limits above: for a NanoAgent its member runs for themselves (RUSH
     # Lab), whose keys and spending are theirs. Loopback hosts only.
     run_models: bool = MISSING
+    # How every Harness tab session runs.
+    sessions: SessionsConfig = field(default_factory=SessionsConfig)
 
     def __post_init__(self) -> None:
         for name in ("port", "max_concurrency", "max_request_bytes", "max_file_bytes", "max_output_chars"):

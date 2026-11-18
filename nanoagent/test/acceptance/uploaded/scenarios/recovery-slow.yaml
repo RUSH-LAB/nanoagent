@@ -1,0 +1,13 @@
+_ > mockllm.engine.Scenario:
+name: recovery-slow
+case: slow-writer-01
+# The second request is accepted upstream and answered only after 40 s: the worker is killed while it waits, after
+# upstream acceptance and before the response is recorded.
+turns:
+  - ttfb: 0.1
+    text: "First."
+    usage: {prompt: 100, completion: 5}
+  - ttfb: 40.0
+    text: "Too late."
+    usage: {prompt: 100, completion: 5}
+expect: {correct: false}

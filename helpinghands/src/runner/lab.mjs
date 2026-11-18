@@ -31,6 +31,10 @@
  * relay has a request of RUSH's going, a held run included: the app updates itself only while it
  * is not (desktop/src-tauri/src/update.rs). SIGTERM stops every connection, cleanly.
  *
+ * Each connection also runs the member's benchmark worker (worker.mjs), NanoAgent's own process, its checks starting
+ * with the connection: its state goes to the relay, so to RUSH and the Benchmark screens, its log is logs/worker.log, and a
+ * change of the OpenRouter key in the settings restarts it (applyKeys). It is stopped when the connection ends.
+ *
  * At each start it writes the app's command (config.command, rushlab; rushlab-dev in RUSH Lab Dev)
  * into ~/.local/bin/ for the build it runs (installCommand), which the member runs in whatever
  * terminal they use: `<command> new <id>` makes a plugin there for their AI CLI to design with
@@ -48,6 +52,7 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import {fileURLToPath} from 'node:url';
+import {benchmarkWorker} from './worker.mjs';
 
 const NANOAGENT_TIMEOUT_MS = 60_000;
 const STOP_TIMEOUT_MS = 10_000;
@@ -258,6 +263,28 @@ function readSettings(file) {
   } catch (error) {
     throw new Error(`${file}: ${error.message}`);
   }
+}
+
+/** The runner concurrency kept in `file` (the attempts the member lets their worker run at once): 1 until they set it; a file that holds none throws. */
+export function readConcurrency(file) {
+  if (!fs.existsSync(file)) return 1;
+  let concurrency;
+  try {
+    ({concurrency} = JSON.parse(fs.readFileSync(file, 'utf8')));
+  } catch (error) {
+    throw new Error(`${file}: ${error.message}`);
+  }
+  if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
+    throw new Error(`${file} holds no runner concurrency (a whole number of at least 1); set it again in RUSH Lab`);
+  }
+  return concurrency;
+}
+
+/** Keep the runner concurrency `value` (a whole number of at least 1) in `file`. */
+export function writeConcurrency(file, value) {
+  if (!Number.isSafeInteger(value) || value < 1) throw new Error('Runner concurrency must be a whole number of at least 1');
+  fs.mkdirSync(path.dirname(file), {recursive: true});
+  fs.writeFileSync(file, `${JSON.stringify({concurrency: value})}\n`);
 }
 
 /** Each provider's key in `settings`, set or not, and how it begins and ends: never its value. */
@@ -578,6 +605,41 @@ async function main() {
     }
   }
 
+  /** The connection's worker (worker.mjs): started with the connection, its state told to its relay. */
+  function startWorker(connection, logs) {
+    const {id, folder, settingsFile} = connection;
+    // The member's session token, null until they have signed in (no file yet); a file that is not credentials throws.
+    const readSession = () => {
+      const file = path.join(folder, 'runner-credentials.json');
+      if (!fs.existsSync(file)) return null;
+      try {
+        return JSON.parse(fs.readFileSync(file, 'utf8')).token ?? null;
+      } catch (error) {
+        throw new Error(`${file}: ${error.message}`);
+      }
+    };
+    connection.worker = benchmarkWorker({
+      site: connection.site,
+      device: os.hostname(),
+      product: config.product_name,
+      logFile: path.join(logs, 'worker.log'),
+      readKey: () => readSettings(settingsFile).OPENROUTER_API_KEY,
+      readConcurrency: () => readConcurrency(path.join(folder, 'worker.json')),
+      writeConcurrency: value => writeConcurrency(path.join(folder, 'worker.json'), value),
+      readSession,
+      python: venvPython(nanoagent),
+      nanoagent,
+      folder,
+      system,
+      report: snapshot => {
+        connection.workerState = snapshot;
+        tellRelay(connection, {worker: snapshot});
+      },
+      log: message => log(`Benchmark worker: ${message}`, id),
+    });
+    connection.worker.start().catch(error => log(`Benchmark worker: ${error.message}`, id));
+  }
+
   /** Stop everything and exit with `code`, once. */
   async function shutdown(code, message) {
     if (stopping) return;
@@ -591,6 +653,8 @@ async function main() {
 
   process.on('SIGTERM', () => shutdown(0, 'Stopping (SIGTERM).'));
   process.on('SIGINT', () => shutdown(0, 'Stopping (SIGINT).'));
+  // The desktop app has no signal to send on Windows: it closes lab.mjs's stdin instead (lab.rs end).
+  if (process.env.LAB_STOP_ON_STDIN_CLOSE) process.stdin.on('end', () => shutdown(0, 'Stopping (stdin closed).')).resume();
   try {
     await prepare();
   } catch (error) {
@@ -641,14 +705,20 @@ async function main() {
     }
   }
 
-  /** Start the connections that are new, written again, or due to start again after failing; stop the removed ones. */
-  async function watch() {
+  /** The connections on this computer: id to what its `installed` file says. */
+  function installedConnections() {
     const present = new Map();
     for (const id of fs.readdirSync(connectionsFolder)) {
       const folder = path.join(connectionsFolder, id);
       const installed = path.join(folder, 'installed');
       if (fs.existsSync(installed)) present.set(id, fs.readFileSync(installed, 'utf8'));
     }
+    return present;
+  }
+
+  /** Start the connections that are new, written again, or due to start again after failing; stop the removed ones. */
+  async function watch() {
+    const present = installedConnections();
     for (const [id, connection] of connections) {
       if (present.has(id)) continue;
       connections.delete(id);
@@ -677,7 +747,7 @@ async function main() {
     connection.state = 'stopped';
     connection.relayStdin = null;
     connection.token = null;
-    await stopServices(connection.services);
+    await Promise.all([stopServices(connection.services), connection.worker?.stop()]);
     countRequests(connection, 0);
   }
 
@@ -705,7 +775,7 @@ async function main() {
     log(replaced ? 'Another computer took this member\'s runs; stopping until connected again.' : `${message}\nStarting again in ${RESTART_MS / 1000}s.`, connection.id);
     connection.relayStdin = null;
     connection.token = null;
-    await stopServices(connection.services);
+    await Promise.all([stopServices(connection.services), connection.worker?.stop()]);
     countRequests(connection, 0);
   }
 
@@ -719,6 +789,7 @@ async function main() {
       const settingsFile = path.join(folder, 'settings.env');
       const settings = readSettings(settingsFile);
       Object.assign(connection, {site, login: member.login, settingsFile, port: await freePort()});
+      startWorker(connection, logs);
       log(`Starting NanoAgent for @${member.login} on ${site}…`, id);
       connection.stage = 'nanoagent';
       setupStage(connection.stage);
@@ -746,6 +817,7 @@ async function main() {
       connection.relayStdin = relay.child.stdin;
       // Writing to a relay that has just exited fails; its exit is what ends the connection.
       connection.relayStdin.on('error', () => {});
+      if (connection.workerState) tellRelay(connection, {worker: connection.workerState});
       followRelay(connection, relay);
       connection.state = 'running';
       // From here, either service exiting stops the other; a relay that ends cleanly was replaced by another computer.
@@ -772,6 +844,8 @@ async function main() {
       throw new Error('changes must be {NAME: key or null}');
     }
     writeKeys(connection.settingsFile, changes);
+    // An OpenRouter key added, changed or removed starts, restarts or stops the worker, without waiting for NanoAgent.
+    connection.worker?.keysChanged().catch(error => log(`Benchmark worker: ${error.message}`, connection.id));
     if (!connection.token) throw new Error('NanoAgent is not running');
     const answer = await nanoagentRequest(connection.port, 'PUT', '/v1/keys', connection.token, JSON.stringify({changes}));
     if (!answer) throw new Error('NanoAgent did not answer');
@@ -809,6 +883,12 @@ async function main() {
         openPage(keyless ? `${site.replace(/\/$/, '')}/settings#ai` : site);
       } else if (event.event === 'disconnected') {
         log(`Disconnected from ${site}: ${event.reason}`, id);
+      } else if (event.event === 'worker' && event.action === 'concurrency') {
+        // Runner concurrency on the Benchmark worker panel's advanced settings.
+        connection.worker?.setConcurrency(event.value).catch(error => log(`Benchmark worker: ${error.message}`, id));
+      } else if (event.event === 'worker' && ['recheck', 'restart'].includes(event.action)) {
+        // Re-check and Restart on the Benchmark worker panel.
+        connection.worker?.[event.action]().catch(error => log(`Benchmark worker: ${error.message}`, id));
       } else if (event.event === 'keys') {
         applyKeys(connection, event.changes).then(
           () => tellRelay(connection, {id: event.id, error: null}),
@@ -860,25 +940,32 @@ export function pathAdvice(shell, windows) {
   return `add this line to ${file}: export PATH="$HOME/.local/bin:$PATH"`;
 }
 
+
 /**
- * The PATH the member's terminal has: on macOS their login `shell`'s once their startup files have
- * run, as this app's own is launchd's; on Windows this process's, as Explorer gives every program.
+ * The variables `names` the member's terminal has that are set: on macOS their login `shell`'s once their startup files have
+ * run, as this app's own are launchd's; on Windows this process's, as Explorer gives every program. PATH must be among them.
  */
-function memberPath(shell) {
-  if (WINDOWS) return Promise.resolve(process.env.PATH ?? '');
+export function shellVars(shell, names) {
+  const pick = values => Object.fromEntries(names.filter(name => values[name]).map(name => [name, values[name]]));
+  if (WINDOWS) return Promise.resolve(pick(process.env));
   return new Promise((resolve, reject) => {
-    const child = spawn(shell, ['-ilc', 'printf "\\n%s%s" RUSH_LAB_PATH= "$PATH"'], {stdio: ['ignore', 'pipe', 'ignore'], timeout: 15_000});
+    const child = spawn(shell, ['-ilc', `printf "\\nRUSH_LAB_VARS"; printf "\\n%s=%s" ${names.map(name => `${name} "$${name}"`).join(' ')}`], {stdio: ['ignore', 'pipe', 'ignore'], timeout: 15_000});
     let out = '';
     child.stdout.on('data', chunk => { out += chunk; });
     child.once('error', reject);
     child.once('close', (code, signal) => {
       // Its startup files may print anything before it.
-      const at = out.lastIndexOf('RUSH_LAB_PATH=');
-      if (at < 0) reject(new Error(`${shell} printed no PATH (${describeExit({code, signal})})`));
-      else resolve(out.slice(at + 'RUSH_LAB_PATH='.length));
+      const marker = '\nRUSH_LAB_VARS\n';
+      const at = out.lastIndexOf(marker);
+      const lines = at < 0 ? [] : out.slice(at + marker.length).split('\n');
+      const values = Object.fromEntries(lines.map(line => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]));
+      if (!values.PATH) reject(new Error(`${shell} printed no PATH (${describeExit({code, signal})})`));
+      else resolve(pick(values));
     });
   });
 }
+
+const memberPath = async shell => (await shellVars(shell, ['PATH'])).PATH;
 
 /**
  * Write the app's command for the build at `root` (commandLauncher), and log whether the member's

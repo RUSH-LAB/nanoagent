@@ -1,0 +1,14 @@
+_ > step5_results.ResultsConfig:
+
+server > nanoagent.uploaded.client.ServerConfig:
+  base_url: ${oc.env:RUSH_BASE_URL,http://127.0.0.1:3000}
+  workspace_id: ${oc.env:RUSH_WORKSPACE_ID}
+  token_env: RUSH_SESSION_TOKEN
+# mine: your own runs in the workspace. all: every member's runs of one benchmark.
+scope: mine
+# scope all: the benchmark, by plugin, plugin version and name (step 1's).
+plugin: acceptance-probe
+plugin_version: 0.1.0
+benchmark: acceptance-probe
+# The most rows to read (1 to 200).
+limit: 200

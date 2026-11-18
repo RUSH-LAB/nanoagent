@@ -12,6 +12,11 @@ export const PROTOCOL = 'nanoagent.ui/v1';
 const PROMPT_LIMIT = 50_000;
 export const HISTORY_LIMIT = 24;
 export const MESSAGE_LIMIT = 10_000;
+// What one harness.input may carry: a paste into the terminal (RUSH takes 128 KiB of bytes; a character is up to 3 of them).
+const TYPED_LIMIT = 40_000;
+// What a Harness tab session may run: a reference harness (server/benchmark/harness.js REFERENCE_HARNESSES) or one the member saved
+// from a Terminal session, each named as the harness contract names a harness; RUSH says which names it knows.
+const HARNESS_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const isObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -44,6 +49,17 @@ const PARAMS = {
   'session.archive': ({id, archived}) => (SESSION_ID.test(id ?? '') && typeof archived === 'boolean'
     ? null
     : 'session.archive needs a session id and archived, true or false'),
+  'harness.run': ({harness, task, text}) => (HARNESS_NAME.test(harness ?? '') && typeof task === 'string' && task
+    && typeof text === 'string' && text.trim() && text.length <= PROMPT_LIMIT
+    ? null
+    : `harness.run needs a harness name, a task id and text of 1 to ${PROMPT_LIMIT} characters`),
+  'harness.cancel': ({runId}) => (typeof runId === 'string' && runId ? null : 'harness.cancel needs a runId'),
+  'harness.input': ({runId, data}) => (typeof runId === 'string' && runId && typeof data === 'string' && data && data.length <= TYPED_LIMIT
+    ? null
+    : `harness.input needs a runId and data, what was typed, of 1 to ${TYPED_LIMIT} characters`),
+  'harness.resize': ({runId, rows, cols}) => (typeof runId === 'string' && runId && [rows, cols].every(n => Number.isInteger(n) && n >= 1 && n <= 1000)
+    ? null
+    : 'harness.resize needs a runId and the terminal\'s rows and cols, each 1 to 1000'),
   'plugin.version': ({version}) => (version === null || (typeof version === 'string' && version)
     ? null
     : 'plugin.version needs version, a published version or null'),

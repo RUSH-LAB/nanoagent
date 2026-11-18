@@ -1,0 +1,12 @@
+protocol: rush.harness.v1
+name: hermes
+version: "1"
+dialects: [chat_completions]
+toolchain: python-3
+lockfiles: [requirements.txt]
+# requirements.txt: `uv pip compile requirements.in --generate-hashes --python-platform aarch64-unknown-linux-gnu --python-version 3.12 -o requirements.txt`.
+build:
+  argv: [sh, -c, "python -m pip install --quiet --no-index --find-links /deps --require-hashes --target /build-out/site -r requirements.txt && cp main.py /build-out/main.py"]
+  outputs: [main.py, site]
+run:
+  argv: [python, /harness/main.py]

@@ -1,0 +1,12 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "bill-split",
+  "task": "split-bill",
+  "context": "Split the dinner bill for the bundled receipt dinner-4.json. Its data is: people Kai, Lena, Mo, Noor; lines: Curry 16.00 x 1, food, shared by Kai; Birthday cake 8.00 x 1, food, shared by Kai, Lena and Mo; Beer 6.00 x 2, alcohol, shared by Mo; Noodles 14.00 x 1, food, shared by Lena. Food tax is 7.5 percent, alcohol tax is 10 percent, tip is 15 percent. There is one coupon: an amount coupon of 6.00 dollars off Curry and Noodles together, capped at what they cost together and spread over those items in proportion to their cost. Lena is treated. Work in exact arithmetic and round only at the end. A line's cost is price times qty, split equally only among its shared_by. Tax is per line on its cost after the coupon. Tip is per line on its cost before the coupon and before tax, at 15 percent. Each person owes their share of every line they share: after-coupon cost plus tax plus tip, divided among the line's shared_by. Lena is treated: she owes 0.00, and the exact amount she would have owed is split equally among everyone else at the table, including Noor, who ate nothing. The total is the exact sum of everyone's amounts, rounded half up to the cent once. To get shares, cut each person's exact amount down to the cent; distribute the cents still missing from the total one each to the people with the largest cut-off remainders, ties going to the name first in A to Z order. Submit a share for all four people with names exactly as written; order does not matter, and amounts are dollars with two decimals such as 25.23 or 0.00.",
+  "answer": [
+    {
+      "receipt": "dinner-4.json"
+    }
+  ],
+  "refuse": []
+}

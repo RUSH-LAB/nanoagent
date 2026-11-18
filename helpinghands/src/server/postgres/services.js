@@ -9,6 +9,8 @@ const {createPostgresLab} = require('./lab');
 const {createPostgresSessions} = require('./sessions');
 const {createPostgresUserPlugins} = require('./user-plugins');
 const {createPostgresSubmissions} = require('./submissions');
+const {createPostgresBenchmark} = require('./benchmark');
+const {createPostgresBenchmarkWorker} = require('./benchmark-worker');
 const {createObjectDeletionQueue} = require('../object-deletions');
 const {auth, tenancy, workspaceProvisioning} = require('../auth');
 const {createPostgresFs, createPublicFsReader} = require('../fs/store');
@@ -18,6 +20,15 @@ const {createCrdt} = require('../fs/crdt');
 const {createFsHub} = require('../fs/events');
 const {createFsRecords} = require('../fs/records');
 const {createFsChat} = require('../fs/chat');
+const {positiveSetting} = require('../benchmark/limits');
+
+// Spend caps in USD per UTC day, and lease timing, for the benchmark worker API (docs/contracts/rush-benchmark-api.md).
+const benchmarkConfig = Object.freeze({
+  leaseSeconds: positiveSetting('BENCHMARK_LEASE_SECONDS', 60),
+  uncertainDeadlineSeconds: positiveSetting('BENCHMARK_UNCERTAIN_DEADLINE_SECONDS', 3600),
+  memberBudgetUsd: positiveSetting('BENCHMARK_MEMBER_BUDGET_USD', 25),
+  workspaceBudgetUsd: positiveSetting('BENCHMARK_WORKSPACE_BUDGET_USD', 100),
+});
 
 if (!database.pool) throw new Error('PostgreSQL services require DATABASE_URL');
 
@@ -57,5 +68,7 @@ module.exports = Object.freeze({
   sessions: createPostgresSessions({pool: database.pool, fs}),
   userPlugins: createPostgresUserPlugins({pool: database.pool}),
   submissions: createPostgresSubmissions({pool: database.pool}),
+  benchmark: createPostgresBenchmark({pool: database.pool}),
+  benchmarkWorker: createPostgresBenchmarkWorker({pool: database.pool, config: benchmarkConfig}),
   objectDeletions: createObjectDeletionQueue({pool: database.pool}),
 });

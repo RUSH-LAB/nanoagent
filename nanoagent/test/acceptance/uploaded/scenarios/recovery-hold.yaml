@@ -1,0 +1,13 @@
+_ > mockllm.engine.Scenario:
+name: recovery-hold
+case: slow-writer-01
+# The prompt-carrying request, then a model stream that keeps going for a minute while a tool and a command run.
+turns:
+  - ttfb: 0.1
+    text: "First."
+    usage: {prompt: 100, completion: 5}
+  - ttfb: 0.2
+    stream: {chunks: 90, gap: 1.0}
+    text: "Streaming for a long time without ever finishing early enough to matter."
+    usage: {prompt: 100, completion: 5}
+expect: {correct: false}

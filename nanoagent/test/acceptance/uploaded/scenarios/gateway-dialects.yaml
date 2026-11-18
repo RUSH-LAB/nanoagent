@@ -1,0 +1,48 @@
+_ > mockllm.engine.Scenario:
+name: gateway-dialects
+# Each dialect gets two parallel proposals streamed in six fragments, the follow-up turn that carries both tool results, and one
+# non-streamed reply. Usage differs per call so a swapped or double-counted field shows in the reconciliation.
+turns:
+  - ttfb: 0.1
+    stream: {chunks: 6, gap: 0.02}
+    text: "Two calls."
+    act:
+      - {call: {name: write_note, arguments: {name: note.txt, text: hello gateway}}}
+      - {call: {name: inspect_sandbox, arguments: {}}}
+    usage: {prompt: 1100, cached: 100, completion: 20, reasoning: 0, cache_write: 0}
+  - ttfb: 0.1
+    stream: {chunks: 3, gap: 0.02}
+    text: "Both results received."
+    usage: {prompt: 1200, cached: 1100, completion: 10, reasoning: 0, cache_write: 0}
+  - ttfb: 0.1
+    text: "Plain."
+    usage: {prompt: 1300, cached: 0, completion: 5, reasoning: 0, cache_write: 0}
+  - ttfb: 0.1
+    stream: {chunks: 6, gap: 0.02}
+    text: "Two calls."
+    act:
+      - {call: {name: write_note, arguments: {name: responses.txt, text: from responses}}}
+      - {call: {name: inspect_sandbox, arguments: {}}}
+    usage: {prompt: 2100, cached: 200, completion: 21, reasoning: 3, cache_write: 50}
+  - ttfb: 0.1
+    stream: {chunks: 3, gap: 0.02}
+    text: "Both results received."
+    usage: {prompt: 2200, cached: 2100, completion: 11, reasoning: 0, cache_write: 0}
+  - ttfb: 0.1
+    text: "Plain."
+    usage: {prompt: 2300, cached: 0, completion: 6, reasoning: 0, cache_write: 10}
+  - ttfb: 0.1
+    stream: {chunks: 6, gap: 0.02}
+    text: "Two calls."
+    act:
+      - {call: {name: write_note, arguments: {name: anthropic.txt, text: from anthropic}}}
+      - {call: {name: inspect_sandbox, arguments: {}}}
+    usage: {prompt: 3100, cached: 300, completion: 22, reasoning: 6, cache_write: 100}
+  - ttfb: 0.1
+    stream: {chunks: 3, gap: 0.02}
+    text: "Both results received."
+    usage: {prompt: 3200, cached: 3100, completion: 12, reasoning: 0, cache_write: 0}
+  - ttfb: 0.1
+    text: "Plain."
+    usage: {prompt: 3300, cached: 0, completion: 7, reasoning: 0, cache_write: 20}
+expect: {correct: true}

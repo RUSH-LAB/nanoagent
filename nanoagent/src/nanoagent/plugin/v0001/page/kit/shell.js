@@ -1,10 +1,12 @@
 // The page frame: `mountApp` (run by kit/boot.js) connects to the host and shows the tabs every
-// plugin has: its Dashboard, and its Session, a chat with the plugin's agent in which each task
-// the agent runs shows its result, drawn by kit/result.js or the plugin's renderer.
+// plugin has: its Dashboard; its Session, a chat with the plugin's agent in which each task
+// the agent runs shows its result, drawn by kit/result.js or the plugin's renderer; and its
+// Harness, the person's own terminal in the plugin's task, where they run any agent (kit/harness.js).
 
 import { hasHost, on, request } from "./bridge.js";
 import { chatPanel } from "./chat.js";
 import { applyTheme, h, humanize, icon } from "./dom.js";
+import { harnessPage } from "./harness.js";
 import { resultCard, resultsPane } from "./result.js";
 import { currentSession, dashboard, enterSession } from "./session.js";
 
@@ -129,14 +131,14 @@ function withTimeout(promise, ms, message) {
 }
 
 /**
- * The tabs over every plugin's page: its Dashboard, and its Session, the session open in it or,
- * with none open, a new one.
- * @returns {{element: HTMLElement, select: (tab: "dashboard"|"session") => void, reveal: (tab: string, shown: boolean) => void, onPick: (tab: string) => void}}
+ * The tabs over every plugin's page: its Dashboard; its Session, the session open in it or,
+ * with none open, a new one; and its Harness.
+ * @returns {{element: HTMLElement, select: (tab: "dashboard"|"session"|"harness") => void, reveal: (tab: string, shown: boolean) => void, onPick: (tab: string) => void}}
  */
 function frameTabs() {
   const tabs = {};
   const bar = h("nav", { class: "kit-tabs", role: "tablist", "aria-label": "Plugin" });
-  for (const [id, label] of [["dashboard", "Dashboard"], ["session", "Session"]]) {
+  for (const [id, label] of [["dashboard", "Dashboard"], ["session", "Session"], ["harness", "Harness"]]) {
     tabs[id] = h("button", { type: "button", class: "kit-tab", role: "tab", "aria-selected": "false", text: label, onclick: () => frame.onPick(id) });
     bar.append(tabs[id]);
   }
@@ -195,6 +197,7 @@ export async function mountApp(renderers) {
   const board = dashboard({ onOpen: (opened) => openSession(opened), closed });
   const home = homePage(plugin, board.element);
   const page = h("div", { class: "kit-session", hidden: true });
+  const harness = h("div", { class: "kit-harness", hidden: true }, closed ? null : harnessPage(plugin));
   let open = false;
   let tab = null;
   // The session shown, null on the Dashboard or in a new session not started yet.
@@ -204,6 +207,7 @@ export async function mountApp(renderers) {
     tabs.select(tab);
     home.hidden = tab !== "dashboard";
     page.hidden = tab !== "session";
+    harness.hidden = tab !== "harness";
     tellShown();
   }
   tabs.onPick = (tab) => {
@@ -239,9 +243,10 @@ export async function mountApp(renderers) {
     show("session");
   }
 
-  // With no new session to start, Session shows only once one is opened.
+  // With no new session to start, Session shows only once one is opened, and Harness, which runs, not at all.
   tabs.reveal("session", !closed);
+  tabs.reveal("harness", !closed);
   board.refresh();
   if (!(described.session && (await board.resume(described.session)))) show("dashboard");
-  root.replaceChildren(tabs.element, home, page);
+  root.replaceChildren(tabs.element, home, page, harness);
 }

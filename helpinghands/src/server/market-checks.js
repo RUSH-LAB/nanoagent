@@ -19,9 +19,13 @@ async function checkUpload({ai, market}, userId, entry) {
   return checked.error ? checked : {value: entry};
 }
 
-/** Every upload at its latest version, each as checkUpload has it: `{value}` or `{error, status}`. */
-async function checkedUploads(deps, userId) {
-  const checked = await Promise.all((await deps.market.list(userId)).map(entry => checkUpload(deps, userId, entry)));
+/**
+ * Every upload at its latest version, or only those named in `ids` when given, each as checkUpload
+ * has it: `{value}` or `{error, status}`.
+ */
+async function checkedUploads(deps, userId, ids = null) {
+  const uploads = (await deps.market.list(userId)).filter(entry => !ids || ids.has(entry.id));
+  const checked = await Promise.all(uploads.map(entry => checkUpload(deps, userId, entry)));
   return checked.find(result => result.error) ?? {value: checked.map(result => result.value)};
 }
 

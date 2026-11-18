@@ -39,6 +39,7 @@ const org = contextualOrg(postgresServices?.org ?? require('./org'));
 // RUSH's own NanoAgent: the marketplace's plugin packages only. Every run, install and
 // plugin page is on the member's own computer (server/runner.js).
 const ai = require('./ai');
+const {createBenchmarkService} = require('./benchmark/service');
 const {createGithub} = require('./github');
 // Every assistant call is checked against its workspace's budget and charged to it.
 const aiMeter = createAiMeter(tenancy);
@@ -209,9 +210,9 @@ const crypto = require('crypto');
 // Send a JSON response with the standard header set. For a GET that returns 200
 // this also computes an ETag and short-circuits to a 304 on a matching
 // if-none-match. Pass opts.cacheControl to override the default 'no-cache' on
-// that GET-200 ETag branch; all other responses are unaffected.
+// that GET-200 ETag branch; all other responses are unaffected. Pass opts.stringify to write the body with another serializer.
 function json(res, status, data, opts) {
-  const body = JSON.stringify(data);
+  const body = (opts?.stringify ?? JSON.stringify)(data);
   const headers = {
     'Content-Type': 'application/json',
     ...corsHeaders(res.req),
@@ -387,6 +388,15 @@ const rateLimitSweepTimer = tenancy ? setInterval(() => {
   tenancy.sweepRateLimits().catch(error => console.error('[rate-limit] Sweep failed:', error.message));
 }, 10 * 60_000) : null;
 rateLimitSweepTimer?.unref?.();
+
+// A stalled attempt is interrupted, and an overdue reservation settled, within a sweep interval of its deadline
+// even when no worker polls and no member reads (BENCHMARK_SWEEP_SECONDS, default 15).
+const benchmarkSweepSeconds = Number(process.env.BENCHMARK_SWEEP_SECONDS || 15);
+if (!(benchmarkSweepSeconds > 0)) throw new Error('BENCHMARK_SWEEP_SECONDS must be a positive number');
+const benchmarkSweepTimer = postgresServices ? setInterval(() => {
+  postgresServices.benchmarkWorker.sweep().catch(error => console.error('[benchmark] Sweep failed:', error.message));
+}, benchmarkSweepSeconds * 1000) : null;
+benchmarkSweepTimer?.unref?.();
 
 let objectCleanupRunning = false;
 async function cleanPendingObjects() {
@@ -597,6 +607,13 @@ const ctx = {
   submissions: postgresServices?.submissions ?? null,
   // Plugin sessions and what their runs cost; PostgreSQL only.
   sessions: postgresServices?.sessions ?? null,
+  // Uploaded harness benchmarks (routes/benchmark.js, routes/benchmark-worker.js); PostgreSQL only. The
+  // worker API takes the worker credentials members mint.
+  benchmark: postgresServices ? {
+    repository: postgresServices.benchmark,
+    worker: postgresServices.benchmarkWorker,
+    service: createBenchmarkService({repository: postgresServices.benchmark}),
+  } : null,
   // The plugins each member installed from the marketplace, run from NanoAgent's installs; PostgreSQL only.
   workspaceApps: postgresServices
     ? createWorkspaceApps({ai, market: postgresServices.market, plugins: postgresServices.userPlugins})
@@ -647,6 +664,8 @@ const routeModules = [
   require('./routes/apps'),
   require('./routes/market'),
   require('./routes/lab'),
+  require('./routes/benchmark'),
+  require('./routes/benchmark-worker'),
   require('./routes/submissions'),
   // Plugin endpoints run after the core ones. A plugin extends the site; it
   // does not get to shadow the routes the site is made of. Each is wrapped so

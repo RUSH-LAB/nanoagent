@@ -7,8 +7,8 @@ made once with :func:`configure`, with the Python plugins run on (nanoagent.plug
 - ``none``: the process runs as itself, with the environment it is given. For running your own
   plugins on your own machine.
 - ``bwrap``: the process runs in new namespaces (``bwrap --unshare-all``) with an empty
-  environment but the one it is given. It sees the system's programs, the Python plugins run on
-  and NanoAgent's helpers (nanoagent.helpers) read-only, the plugin's own folder read-only, and
+  environment but the one it is given. It sees the system's programs, uv and git, the Python
+  plugins run on and NanoAgent's helpers (nanoagent.helpers) read-only, the plugin's own folder read-only, and
   only the folders it is given to write; ``/tmp`` is its own. Its only network is the egress proxy
   (``nanoagent.plugin.egress``), which reaches the hosts the plugin declared, over HTTPS. :func:`check` proves all of that on this
   machine before a host serves anything.
@@ -66,6 +66,8 @@ MACOS_SERVICES = (
     "com.apple.SystemConfiguration.configd",
 )
 CHECK_TIMEOUT = 30.0
+# bwrap's /tmp is memory: unsized it is half of the RAM.
+BWRAP_TMP_BYTES = 4 << 30
 
 _kind = "none"
 _python: PluginPython | None = None
@@ -108,12 +110,24 @@ def _bwrap(
     writable: Sequence[Path],
     socket: Path,
 ) -> list[str]:
+    # uv and the git it builds a git source (slimconfig) with, wherever they are installed (setup-uv
+    # puts uv under /opt/hostedtoolcache, a user's under ~/.local/bin). Only the two binaries are
+    # bound (under /nanoagent-bin), plus the directory git runs its helpers from: never a parent
+    # directory, which can be the member's home.
+    binaries = {name: Path(found).resolve() for name in ("uv", "git") if (found := shutil.which(name))}
+    git_exec = (
+        subprocess.run([binaries["git"], "--exec-path"], capture_output=True, text=True, check=True).stdout.strip() if "git" in binaries else None
+    )
     args = ["bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--clearenv"]
-    args += ["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]
+    args += ["--proc", "/proc", "--dev", "/dev", "--size", str(BWRAP_TMP_BYTES), "--tmpfs", "/tmp"]
     for path in SYSTEM:
         args += ["--ro-bind-try", path, path]
     for path in _runtime():
         args += ["--ro-bind", str(path), str(path)]
+    for name, binary in binaries.items():
+        args += ["--ro-bind", str(binary), f"/nanoagent-bin/{name}"]
+    if git_exec:
+        args += ["--ro-bind-try", git_exec, git_exec]
     for path in [root, *readable]:
         args += ["--ro-bind", str(path), str(path)]
     for path in writable:
@@ -121,7 +135,8 @@ def _bwrap(
     args += ["--bind", str(socket), "/run/nanoagent/egress.sock"]
     proxy = f"http://127.0.0.1:{PROXY_PORT}"
     inside = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "PATH": "/nanoagent-bin:/usr/local/bin:/usr/bin:/bin",
+        **({"GIT_EXEC_PATH": git_exec} if git_exec else {}),
         "HOME": "/tmp",
         "HTTPS_PROXY": proxy,
         "https_proxy": proxy,
@@ -139,6 +154,13 @@ def _bwrap(
     return [*args, "--chdir", str(root), "--", *bridge, *argv]
 
 
+def _refuse_home(folders: Sequence[Path]) -> None:
+    """A folder of the tools a container reads (its git's whole tree, as MinGit needs) must not be the member's home or hold it."""
+    home = Path.home().resolve()
+    if exposed := [folder for folder in folders if home.is_relative_to(folder)]:
+        raise RuntimeError(f"the sandbox would let a plugin read your home folder through {exposed[0]}: install uv and git outside {home}")
+
+
 def _quoted(path: Path | str) -> str:
     return '"' + str(path).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
@@ -153,13 +175,15 @@ def _seatbelt(
     port: int,
 ) -> tuple[list[str], dict[str, str]]:
     # uv, the git it builds a git source (slimconfig) with, and the Python plugins run on, which a
-    # plugin's environment is built from. Git runs the helpers in its <root>/libexec/git-core, so
-    # the sandbox reads all of <root>: the git the app bundles, as a Mac may have no other.
+    # plugin's environment is built from. Git runs its helpers from its exec path (the git the app
+    # bundles keeps them in <root>/libexec/git-core, as a Mac may have no other git). Only the two
+    # binaries and that folder are readable: never a parent folder, which can be the member's home.
     git = shutil.which("git")
-    tools = [Path(found).resolve().parent for found in [shutil.which("uv"), git] if found]
-    tools.append(_plugin_python().executable.parent)
-    git_roots = [Path(git).resolve().parents[1]] if git else []
-    reads = [*MACOS_SYSTEM, *_runtime(), *tools, *git_roots, root, *readable, *writable, home]
+    binaries = [Path(found).resolve() for found in [shutil.which("uv"), git] if found]
+    git_exec = [Path(subprocess.run([git, "--exec-path"], capture_output=True, text=True, check=True).stdout.strip())] if git else []
+    python = _plugin_python().executable.parent
+    tools = [*(binary.parent for binary in binaries), python]
+    reads = [*MACOS_SYSTEM, *_runtime(), python, *git_exec, root, *readable, *writable, home]
     profile = "\n".join(
         [
             "(version 1)",
@@ -170,7 +194,9 @@ def _seatbelt(
             "(deny process-info*)",
             "(allow process-info* (target self))",
             "(allow file-read-metadata)",
-            '(allow file-read* (literal "/") ' + " ".join(f"(subpath {_quoted(path)})" for path in reads) + ")",
+            '(allow file-read* (literal "/") '
+            + " ".join([*(f"(subpath {_quoted(path)})" for path in reads), *(f"(literal {_quoted(path)})" for path in binaries)])
+            + ")",
             '(allow file-write* (literal "/dev/null") ' + " ".join(f"(subpath {_quoted(path)})" for path in [*writable, home]) + ")",
             '(allow sysctl-read (sysctl-name-prefix "hw.") (sysctl-name-prefix "machdep.") (sysctl-name-prefix "kern.os") '
             + " ".join(f'(sysctl-name "{name}")' for name in MACOS_SYSCTLS)
@@ -236,6 +262,7 @@ def _appcontainer(
     tools = [Path(found).resolve().parent for found in [shutil.which("uv"), git] if found]
     tools.append(_plugin_python().executable.parent)
     git_roots = [Path(git).resolve().parents[1]] if git else []
+    _refuse_home([*tools, *git_roots])
     granted: list[Path] = []
     try:
         with TemporaryDirectory(prefix="nanoagent-sandbox-", dir=appcontainer.homes()) as folder, egress_pipe(hosts, sid) as pipe:

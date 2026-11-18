@@ -78,7 +78,7 @@ function stageNanoAgent(out, uv) {
   for (const file of ['index.js', 'models.js']) {
     copy(path.join(runner, 'dist', file), path.join(out, 'js', 'pi-runner', 'dist', file));
   }
-  for (const file of ['deploy/railway/nanoagent.yaml', 'deploy/railway/profiles']) {
+  for (const file of ['deploy/railway/nanoagent.yaml', 'deploy/railway/profiles', 'deploy/worker/worker.openrouter.yaml']) {
     copy(path.join(nanoagentRoot, file), path.join(out, file));
   }
 }

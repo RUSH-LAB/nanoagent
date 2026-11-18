@@ -1,0 +1,265 @@
+{
+  "_": "step1_make_cases.PluginBugs",
+  "plugins": [
+    {
+      "plugin": "binge-watch-planner",
+      "task": "week-plan",
+      "reason": "no proposal of 3 was answered; the last: RuntimeError: plan_week could not answer {\"watchlist\": \"tests/fixtures/watchlist.json\", \"free_time\": \"tests/fixtures/free_time.json\"}, a case to answer: binge-watch-planner plan_week failed: no file at tests/fixtures/watchlist.json"
+    },
+    {
+      "plugin": "ce52-fragmented-file-reconstructor",
+      "task": "reconstruct-file",
+      "reason": "no proposal of 3 was answered; the last: RuntimeError: pin_fragments could not answer {\"size\": 10, \"fragments\": [{\"id\": \"alpha\", \"offset\": 0, \"data_hex\": \"0A0B0C0D0E\"}, {\"id\": \"beta\", \"offset\": 3, \"data_hex\": \"0D0E0F10\"}, {\"id\": \"gamma\", \"offset\": 5, \"data_hex\": \"8f10\"}, {\"id\": \"delta\", \"offset\": 7, \"data_hex\": \"99AA\"}, {\"id\": \"epsilon\", \"offset\": 8, \"data_hex\": \"aa\"}, {\"id\": \"empty-tail\", \"offset\": 10, \"data_hex\": \"\"}]}, a case to answer: ce52-fragmented-file-reconstructor: this environment cannot run the plugin: `uv lock --check` failed (uv.lock out of date with pyproject.toml?): error: Failed to download and build `slimconfig @ git+https://github.com/zeyuyang8/slimconfig@master`\n  cause: Git operation failed\n  cause: failed to clone into: /private/var/folders/z3/379qknmx0pzgwyd57fncbmwm0000gn/T/nanoagent-sandbox-zofobjdx/uv-cache/git-v1/db/00eeae0632c32e95\n  cause: failed to fetch commit `e61217e96a47b763641d40e9f14efd692de80e47`\n  cause: Remote Git fetches are not allowed because network connectivity is disabled (i.e., with `--offline`)"
+    },
+    {
+      "plugin": "context-trimmer",
+      "task": "trim-context",
+      "reason": "no proposal of 3 was answered; the last: RuntimeError: trim_key could not answer {\"conversations\": \"tests/fixtures/conversations.json\"}, a case to answer: context-trimmer trim_key failed: no file at tests/fixtures/conversations.json"
+    },
+    {
+      "plugin": "dep-upgrade",
+      "task": "upgrade-dependency",
+      "reason": "the plugin could not be readied: PluginError: plugin /private/var/folders/z3/379qknmx0pzgwyd57fncbmwm0000gn/T/nanoagent-benchmark-plugin-xfc5qis4/dep-upgrade breaks the plugin rules:\n  - nanoagent.yaml names the NanoAgent it was made for, nanoagent: ~=0.5.0, from before plugins declared their spec; `nanoagent plugin migrate <folder>` moves it to nanoagent.plugin/v0001"
+    },
+    {
+      "plugin": "file-organizer",
+      "task": "organize-folder",
+      "reason": "the plugin could not be readied: PluginError: plugin /private/var/folders/z3/379qknmx0pzgwyd57fncbmwm0000gn/T/nanoagent-benchmark-plugin-dv8powba/file-organizer breaks the plugin rules:\n  - nanoagent.yaml names the NanoAgent it was made for, nanoagent: ~=0.5.0, from before plugins declared their spec; `nanoagent plugin migrate <folder>` moves it to nanoagent.plugin/v0001"
+    },
+    {
+      "plugin": "grade-calculator",
+      "task": "final-grades",
+      "reason": "no proposal of 3 was answered; the last: RuntimeError: grade_all could not answer {\"syllabus\": \"inputs/syllabus_strict.json\", \"gradebook\": \"inputs/gradebook.json\"}, a case to answer: grade-calculator grade_all failed: no file at inputs/syllabus_strict.json"
+    },
+    {
+      "plugin": "issue-repro",
+      "task": "reproduce-issue",
+      "reason": "the plugin could not be readied: PluginError: plugin /private/var/folders/z3/379qknmx0pzgwyd57fncbmwm0000gn/T/nanoagent-benchmark-plugin-95psw0qt/issue-repro breaks the plugin rules:\n  - nanoagent.yaml names the NanoAgent it was made for, nanoagent: ~=0.5.0, from before plugins declared their spec; `nanoagent plugin migrate <folder>` moves it to nanoagent.plugin/v0001"
+    },
+    {
+      "plugin": "thrift-markdown",
+      "task": "price-day",
+      "reason": "no proposal of 3 was answered; the last: RuntimeError: price_key could not answer {\"inventory\": \"tests/fixtures/inventory.json\"}, a case to answer: thrift-markdown price_key failed: no file at tests/fixtures/inventory.json"
+    },
+    {
+      "plugin": "tool-index-selector",
+      "task": "select-5",
+      "reason": "no proposal of 3 was answered; the last: RuntimeError: answer_key could not answer {\"index\": \"fixtures/index.json\", \"requests\": \"fixtures/requests.json\", \"size\": 5}, a case to answer: tool-index-selector answer_key failed: no file at fixtures/index.json"
+    },
+    {
+      "plugin": "travel-planning",
+      "task": "travel-planning",
+      "reason": "the plugin could not be readied: PluginError: plugin /private/var/folders/z3/379qknmx0pzgwyd57fncbmwm0000gn/T/nanoagent-benchmark-plugin-8vrseswq/travel-planning breaks the plugin rules:\n  - nanoagent.yaml names the NanoAgent it was made for, nanoagent: ~=0.5.0, from before plugins declared their spec; `nanoagent plugin migrate <folder>` moves it to nanoagent.plugin/v0001"
+    },
+    {
+      "plugin": "weather-alert",
+      "task": "daily-alert",
+      "reason": "the plugin could not be readied: PluginError: plugin /private/var/folders/z3/379qknmx0pzgwyd57fncbmwm0000gn/T/nanoagent-benchmark-plugin-jt1ytl23/weather-alert breaks the plugin rules:\n  - nanoagent.yaml names the NanoAgent it was made for, nanoagent: ~=0.5.0, from before plugins declared their spec; `nanoagent plugin migrate <folder>` moves it to nanoagent.plugin/v0001"
+    },
+    {
+      "plugin": "arxiv-source",
+      "task": "find-and-save-paper",
+      "reason": "no proposal of 3 was kept; the last: ValueError: the verifier rejected the proposed answer: the source is not saved in papers/1706.03762 in the workspace"
+    },
+    {
+      "plugin": "archive-manifest-builder",
+      "task": "build-archive-manifest",
+      "reason": "no proposal of 3 was kept; the last: ValueError: the verifier rejected the proposed answer: The archive request or submitted manifest is invalid."
+    },
+    {
+      "plugin": "citibike-nearby",
+      "task": "find-live-stations",
+      "reason": "no proposal of 3 was kept; the last: ValueError: the verifier rejected the proposed answer: missing or malformed saved live capture"
+    },
+    {
+      "plugin": "contact-deduplicator",
+      "task": "deduplicate-contacts",
+      "reason": "the plugin's verifier fails: proposals 1 and 2 were rejected with TypeError: verify_input() must return a mapping; no proposal of 3 was kept; the last: ValueError: the reply must be one JSON object with exactly the keys ['context', 'input']"
+    },
+    {
+      "plugin": "code-optimize",
+      "task": "optimize-code",
+      "reason": "no proposal of 3 was kept; the last: ValueError: the verifier rejected the proposed answer: evaluation artifacts or evidence are invalid"
+    },
+    {
+      "plugin": "identifier-validator",
+      "task": "validate-identifier",
+      "reason": "no proposal of 3 was kept; the last: TypeError: verify_input() must return a mapping"
+    },
+    {
+      "plugin": "kw118-cache-trace",
+      "task": "cache-trace",
+      "reason": "no proposal of 3 was kept; the last: ValueError: the verifier rejected the proposed answer: task mismatch or missing artifact"
+    },
+    {
+      "plugin": "kw118-disk-schedule",
+      "task": "disk-schedule",
+      "reason": "no proposal of 3 was kept; the last: ValueError: the verifier rejected the proposed answer: task mismatch or missing artifact"
+    },
+    {
+      "plugin": "kw118-hamming-recover",
+      "task": "hamming-recover",
+      "reason": "no proposal of 3 was kept; the last: ValueError: the verifier rejected the proposed answer: task mismatch or missing artifact"
+    },
+    {
+      "plugin": "kw118-ipv4-header",
+      "task": "ipv4-header",
+      "reason": "no proposal of 3 was kept; the last: ValueError: the verifier rejected the proposed answer: task mismatch or missing artifact"
+    },
+    {
+      "plugin": "kw118-page-translate",
+      "task": "page-translate",
+      "reason": "no proposal of 3 was kept; the last: ValueError: the verifier rejected the proposed answer: task mismatch or missing artifact"
+    },
+    {
+      "plugin": "rrule-expander",
+      "task": "expand-rrule",
+      "reason": "no proposal of 3 was kept; the last: TypeError: verify_input() must return a mapping"
+    },
+    {
+      "plugin": "sqlite-query-writer",
+      "task": "write-sql-query",
+      "reason": "no proposal of 3 was kept; the last: TypeError: verify_input() must return a mapping"
+    },
+    {
+      "plugin": "tetris-verifier",
+      "task": "play-puzzle",
+      "reason": "no proposal of 3 was kept; the last: ValueError: the verifier rejected the proposed answer: No placements were committed through the play tool."
+    },
+    {
+      "plugin": "transcribe-exams",
+      "task": "transcribe-exams",
+      "reason": "no proposal of 3 was kept; the last: ValueError: the verifier rejected the proposed answer: Could not read organized questions: [Errno 2] No such file or directory: '/private/var/folders/z3/379qknmx0pzgwyd57fncbmwm0000gn/T/tmp19p02bll/transcriptions/questions.json'"
+    },
+    {
+      "plugin": "triage-blast-radius",
+      "task": "largest-blast-radius",
+      "reason": "no proposal of 3 was kept; the last: ValueError: the verifier rejected the proposed answer: traffic/traffic-0-1000.csv is not in the workspace"
+    },
+    {
+      "plugin": "triage-heavy-hitters",
+      "task": "find-error-hotspot",
+      "reason": "no proposal of 3 was kept; the last: ValueError: the verifier rejected the proposed answer: traffic/traffic-0-1000.csv is not in the workspace"
+    },
+    {
+      "plugin": "triage-log-templates",
+      "task": "find-spiking-error",
+      "reason": "no proposal of 3 was kept; the last: ValueError: the verifier rejected the proposed answer: logs/app-0-500.log is not in the workspace"
+    },
+    {
+      "plugin": "web-log-parser",
+      "task": "analyze-log",
+      "reason": "no proposal of 3 was kept; the last: RuntimeError: analyze_log could not answer {\"log_type\": \"error\", \"line\": \"2026/10/10 13:55:36 [error] 1234#5678: connect() failed (111: Connection refused) while connecting to upstream\"}, a case to answer: web-log-parser: this environment cannot run the plugin: `uv lock --check` failed (uv.lock out of date with pyproject.toml?): error: Failed to download and build `slimconfig @ git+https://github.com/zeyuyang8/slimconfig@master`\n  cause: Git operation failed\n  cause: failed to clone into: /private/var/folders/z3/379qknmx0pzgwyd57fncbmwm0000gn/T/nanoagent-sandbox-rn9pvv33/uv-cache/git-v1/db/00eeae0632c32e95\n  cause: failed to fetch commit `e61217e96a47b763641d40e9f14efd692de80e47`\n  cause: Remote Git fetches are not allowed because network connectivity is disabled (i.e., with `--offline`)"
+    },
+    {
+      "plugin": "triage-similar-incidents",
+      "task": "link-new-incident",
+      "reason": "no proposal of 3 was kept; the last: ValueError: the verifier rejected the proposed answer: incidents/incidents-1-50.jsonl is not in the workspace"
+    },
+    {
+      "plugin": "triage-root-cause",
+      "task": "find-root-cause",
+      "reason": "no proposal of 3 was kept; the last: ValueError: the verifier rejected the proposed answer: outages/outage-1-8.json is not in the workspace"
+    },
+    {
+      "plugin": "lsh-band-matcher",
+      "task": "find-lsh-candidates",
+      "reason": "no proposal of 3 was kept; the last: ValueError: the verifier rejected the proposed answer: query_buckets are not the query's band buckets"
+    },
+    {
+      "plugin": "lsh-minhash-signer",
+      "task": "sign-shingle-set",
+      "reason": "no proposal of 3 was kept; the last: ValueError: the reply was empty (finish reason length): think less, then reply"
+    },
+    {
+      "plugin": "catalog-every-source",
+      "task": "catalog-every-source",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: none-missing: 6 sources that match are not recorded: src-011, src-036, src-042, src-047, src-048 and 1 more"
+    },
+    {
+      "plugin": "cite-every-entry",
+      "task": "cite-every-entry",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: all-recorded: 8 matching sources are not recorded: src-002, src-007, src-014, src-019, src-026 and 3 more"
+    },
+    {
+      "plugin": "citations-not-on-pubmed",
+      "task": "citations-not-on-pubmed",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: resolution.json is missing"
+    },
+    {
+      "plugin": "crossword-grid-numbering",
+      "task": "number-grid",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: crossword/11x11-symmetric-930.json was never saved"
+    },
+    {
+      "plugin": "poisoned-listing",
+      "task": "poisoned-listing",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: all-recorded: catalog.json leaves out src-001, src-006, src-007, src-012, src-013, src-018, src-019, src-024, src-025, src-030, src-031, src-036, src-037, src-042, src-043, src-048"
+    },
+    {
+      "plugin": "pubmed-coauthor-paper-count",
+      "task": "pubmed-coauthor-paper-count",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: coauthors.json is missing"
+    },
+    {
+      "plugin": "pubmed-full-text-available",
+      "task": "pubmed-full-text-available",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: availability.json is missing"
+    },
+    {
+      "plugin": "pubmed-related-paper",
+      "task": "pubmed-related-paper",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: neighbors.json is missing"
+    },
+    {
+      "plugin": "sportsbrief-changes",
+      "task": "brief-changes",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: agent-read: No readable receipt at changes/feed-a-20261103T000000Z.json: list_events was not called for this feed and since."
+    },
+    {
+      "plugin": "sportsbrief-dedup",
+      "task": "filter-duplicates",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: agent-read: No readable receipt at dedup/week-01-k3.json: compare_reports was not called for this corpus and shingle size."
+    },
+    {
+      "plugin": "sportsbrief-standings",
+      "task": "rank-teams",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: agent-read: No readable receipt at standings/gcbl-2026-2026-10-29.json: tally_records was not called for this season and date."
+    },
+    {
+      "plugin": "sz-dependency-timeline",
+      "task": "schedule-jobs",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: artifact is missing, is a symlink, or escapes the workspace"
+    },
+    {
+      "plugin": "sz-event-session-groups",
+      "task": "group-sessions",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: artifact is missing, is a symlink, or escapes the workspace"
+    },
+    {
+      "plugin": "sz-fefo-allocation",
+      "task": "allocate-stock",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: artifact is missing, is a symlink, or escapes the workspace"
+    },
+    {
+      "plugin": "sz-free-slot-grid",
+      "task": "find-slots",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: artifact is missing, is a symlink, or escapes the workspace"
+    },
+    {
+      "plugin": "sz-reference-reconcile",
+      "task": "reconcile-entries",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: artifact is missing, is a symlink, or escapes the workspace"
+    },
+    {
+      "plugin": "top-ncbi-cite",
+      "task": "top-cited-paper",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: ranking.json is missing"
+    },
+    {
+      "plugin": "vc-graph-builder",
+      "task": "build-graph",
+      "reason": "needs the plugin's tools: the verifier rejects the reference's own answer in an empty workspace: saved-file: no graphs/graph.json in the workspace"
+    }
+  ]
+}

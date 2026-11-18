@@ -1,0 +1,12 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "etf-finder",
+  "task": "find-etfs",
+  "context": "Use the frozen ETF-holdings snapshot built from SEC Form N-PORT 2026q3 (report dates 2026-05-31 to 2026-07-31): it covers 280 large US-listed equity ETFs and the 3654 SEC-registered stocks they hold, and each weight is the stock's share of the ETF's net assets in percent, summed over the ETF's lots of that stock and rounded to 4 decimals, half up. The search universe is only those stocks. Resolve the query by search rank: an exact ticker, then an exact company name (ignoring trailing Inc, Corp, Co, Holdings and similar suffixes), then a company name that starts with the query's words, then one that contains them as a run of words; ties are broken alphabetically by stock ticker, and at most 5 candidates are returned. Whichever stock is the first candidate is the stock the answer names, so copy its ticker and SEC company name exactly as the search gives them. Then take every ETF in the snapshot that holds that stock, rank the ETFs by weight descending (ties by ETF ticker alphabetically), and list the top 20, or all of them when fewer than 20 hold the stock. Each listed ETF needs its ticker, its full name, and its weight_pct copied character for character with exactly 4 decimals, in that ranked order: never re-sort, round, drop, or add an entry. Report query exactly as given, found true, the stock object, as_of exactly \"SEC N-PORT 2026q3: each ETF's latest report, 2026-05-31 to 2026-07-31\", and the ranked ETF list. If the query matched no stock, report found false with stock null, as_of \"\" and etfs [].",
+  "answer": [
+    {
+      "query": "Alphabet"
+    }
+  ],
+  "refuse": []
+}

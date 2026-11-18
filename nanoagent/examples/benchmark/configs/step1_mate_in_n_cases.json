@@ -1,0 +1,21 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "mate-in-n",
+  "task": "solve-mate",
+  "context": "The input is a chess position in FEN and the number of moves mate_in (1 or 2) in which the side to move can force checkmate however the opponent defends. puzzle_id is always \"custom\": the position is the one given in fen, whichever side is to move.\nFind the key, the first move of the side to move that forces mate within mate_in moves, and one main line that ends in checkmate: the key, then the opponent's reply and the next move of the side to move as needed, ending with the mating move. Moves are in UCI notation (from square, to square and a promotion letter q, r, b or n if any, e.g. e2e4, e7e8q). puzzle_id in the answer is the input's.\nThe key must force mate within mate_in moves against every defence, and the main line must be legal.",
+  "answer": [
+    {"puzzle_id": "custom", "fen": "6k1/5ppp/8/8/8/8/8/R5K1 w - - 0 1", "mate_in": 1},
+    {"puzzle_id": "custom", "fen": "7k/5Q2/6K1/8/8/8/8/8 w - - 0 1", "mate_in": 1},
+    {"puzzle_id": "custom", "fen": "rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq - 0 2", "mate_in": 1},
+    {"puzzle_id": "custom", "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4", "mate_in": 1},
+    {"puzzle_id": "custom", "fen": "6rk/6pp/8/6N1/8/8/8/6K1 w - - 0 1", "mate_in": 1},
+    {"puzzle_id": "custom", "fen": "3k4/8/3K4/8/8/8/8/7R w - - 0 1", "mate_in": 1},
+    {"puzzle_id": "custom", "fen": "7k/8/5K2/8/8/8/8/6Q1 w - - 0 1", "mate_in": 1},
+    {"puzzle_id": "custom", "fen": "k7/2K5/8/8/8/8/8/1R6 w - - 0 1", "mate_in": 1},
+    {"puzzle_id": "custom", "fen": "5k2/8/5K2/8/8/8/8/7R w - - 0 1", "mate_in": 1},
+    {"puzzle_id": "custom", "fen": "k7/8/1K6/8/8/8/8/7R w - - 0 1", "mate_in": 1},
+    {"puzzle_id": "custom", "fen": "7k/8/8/8/8/8/R7/1R4K1 w - - 0 1", "mate_in": 2},
+    {"puzzle_id": "custom", "fen": "7k/8/6K1/8/8/8/8/6R1 w - - 0 1", "mate_in": 2}
+  ],
+  "refuse": []
+}

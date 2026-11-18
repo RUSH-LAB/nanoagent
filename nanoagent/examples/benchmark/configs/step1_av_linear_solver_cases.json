@@ -1,0 +1,12 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "av-linear-solver",
+  "task": "solve-system",
+  "context": "The system to solve is the 4-equation, 4-unknown system Ax = b with coefficient matrix A = [[2, -1, 0, 3], [1, 4, -2, 0], [0, 3, 5, -1], [-2, 1, 1, 4]] and right-hand side b = [7, -3, 10, 5]. Solve it exactly over the rationals: report the status as 'unique', 'none', or 'infinite'; give x1..x4 as exact integers or fractions such as -7/3 (never decimals) when the solution is unique, any one exact solution when there are infinitely many, and an empty list when there is none. The verifier decides the status by the ranks of A and of the augmented matrix [A|b] using exact Gauss-Jordan elimination over fractions; a unique solution must match its exact values, and a proposed solution of an infinite system must satisfy Ax = b exactly. Set gave_up to false when you believe your answer is right.",
+  "answer": [
+    {
+      "puzzle_id": "lin-04"
+    }
+  ],
+  "refuse": []
+}

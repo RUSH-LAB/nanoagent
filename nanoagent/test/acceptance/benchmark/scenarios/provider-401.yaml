@@ -1,0 +1,8 @@
+_ > mockllm.engine.Scenario:
+name: provider-401
+case: acceptance-probe-01
+# 401 on every request, as a bad key answers: the run records the error. Request counts are not pinned on error paths.
+turns:
+  - status: 401
+    repeat: 0
+expect: {correct: false}

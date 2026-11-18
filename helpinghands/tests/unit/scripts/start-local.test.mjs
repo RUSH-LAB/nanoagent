@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  benchmarkWorkerCommand,
+  benchmarkWorkerUnavailable,
   environmentFor,
   nanoagentPluginsFrom,
   nanoagentProjectFrom,
@@ -26,6 +28,21 @@ describe('local process supervisor configuration', () => {
     assert.equal(env.EDITOR_PORT, '4101');
     assert.equal(env.MOCHI_LOCAL_SITE, '1');
     assert.equal(env.LAB_UPLOAD_TOKEN, 'local-site');
+  });
+
+  it('runs the OpenRouter benchmark worker with the checkout\'s Python against this API, its credential and key never on the command line', () => {
+    const [program, args] = benchmarkWorkerCommand('/src/nanoagent', 4101, 'darwin');
+    assert.equal(program, '/src/nanoagent/.venv/bin/python');
+    assert.deepEqual(args.slice(0, 4), ['-I', '-m', 'nanoagent.uploaded.worker', 'config=deploy/worker/worker.openrouter.yaml']);
+    assert.ok(args.includes('rush.base_url=http://127.0.0.1:4101') && args.includes('worker_id=dev-worker'));
+    assert.ok(args.includes('scratch="/src/nanoagent/var/dev-worker/scratch"'));
+    assert.ok(!args.some(arg => /rwk_|sk-or/.test(arg)));
+    assert.equal(benchmarkWorkerCommand('C:\\n', 4101, 'win32')[0].endsWith('python.exe'), true);
+  });
+
+  it('says why the benchmark worker cannot start: no OpenRouter key', () => {
+    assert.match(benchmarkWorkerUnavailable({OPENROUTER_API_KEY: ' '}), /OPENROUTER_API_KEY is not in \.env or the shell/);
+    assert.equal(benchmarkWorkerUnavailable({OPENROUTER_API_KEY: 'sk-or'}), null);
   });
 
   it('refuses any other database URL, in .env or the shell', () => {

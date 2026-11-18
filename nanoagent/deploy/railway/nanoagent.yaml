@@ -66,3 +66,10 @@ heartbeat_seconds: 10.0
 include_reasoning: false
 # Runs choose among the profiles above, within the limits above (RUSH Lab sets true).
 run_models: false
+# How every Harness tab session runs.
+sessions > nanoagent.uploaded.case_sets.SessionsConfig:
+  max_model_calls: 200
+  wall_time_ms: 3600000
+  build_output_bytes: 3221225472
+  build_wall_ms: 1800000
+  fill_max_tokens: 16384

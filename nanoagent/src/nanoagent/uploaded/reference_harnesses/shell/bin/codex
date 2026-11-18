@@ -1,0 +1,33 @@
+#!/bin/sh
+# Codex on RUSH's gateway (its Responses dialect), configured as the codex reference harness runs it: a provider keyed by the
+# attempt token, the session's model, the VM its sandbox, the workspace trusted, no web search, plugins or multi-agent tools, and
+# its thread tools left out (the gateway refuses their `namespace` tool) by a switched-off MCP server holding their name.
+home="$RUSH_WORKSPACE/.rush/codex"  # not under /tmp, where Codex refuses to put its helper binaries
+if [ ! -d "$home" ]; then
+  mkdir -p "$home"
+  cat > "$home/config.toml" <<EOF
+model = "$RUSH_MODEL"
+model_provider = "rush"
+sandbox_mode = "danger-full-access"
+web_search = "disabled"
+
+[features]
+plugins = false
+multi_agent = false
+
+[model_providers.rush]
+name = "rush"
+base_url = "$OPENAI_BASE_URL"
+env_key = "RUSH_ATTEMPT_TOKEN"
+wire_api = "responses"
+
+[projects."$RUSH_WORKSPACE"]
+trust_level = "trusted"
+
+[mcp_servers.codex_tui]
+command = "true"
+enabled = false
+EOF
+fi
+install="$(python /harness/rush.py cli codex)" || exit 1  # installed the first time it is typed (rush.py cli)
+CODEX_HOME="$home" exec node "$install"/node_modules/@openai/codex/bin/codex.js "$@"

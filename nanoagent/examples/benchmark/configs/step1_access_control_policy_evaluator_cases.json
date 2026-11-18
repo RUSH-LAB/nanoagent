@@ -1,0 +1,179 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "access-control-policy-evaluator",
+  "task": "evaluate-access",
+  "context": "Evaluate the access-control policy supplied as the input; all policy data is inline and no other data source is needed. IDs are case-sensitive and compared exactly; sorting is lexicographic code-point order without normalization. A group's effective members are its direct member_users plus all members of its member_groups transitively, computed as the least fixed point: group cycles are legal, but cycles alone create no members. A rule applies to its own resource and, if propagate=true, also to every descendant for which every edge on the path from the rule's resource to that descendant has inherit=true; an inherit=false resource blocks rules from ancestors while its own propagating rules still flow to inheriting children. Permissions never flow upward or sideways. Any matching deny overrides every matching allow, including a local user allow against an inherited group deny; otherwise any matching allow grants access; otherwise access is denied by default. Output memberships with exactly one row per user sorted by user_id and with group_ids sorted and deduplicated. Output decisions for every (user, resource, action) triple sorted lexicographically by (user_id, resource_id, action), including denied rows, with allow_rule_ids and deny_rule_ids listing every matching rule ID sorted and deduplicated even when overridden; reason=explicit-deny and allowed=false if any deny matches, reason=allow and allowed=true if any allow matches and no deny matches, otherwise reason=default-deny and allowed=false with both rule lists empty.",
+  "answer": [
+    {
+      "users": [
+        "alice",
+        "bob",
+        "eve"
+      ],
+      "actions": [
+        "read",
+        "write"
+      ],
+      "groups": [
+        {
+          "group_id": "eng",
+          "member_users": [
+            "alice"
+          ],
+          "member_groups": [
+            "ops"
+          ]
+        },
+        {
+          "group_id": "interns",
+          "member_users": [],
+          "member_groups": [
+            "ops"
+          ]
+        },
+        {
+          "group_id": "ops",
+          "member_users": [
+            "bob"
+          ],
+          "member_groups": [
+            "eng"
+          ]
+        },
+        {
+          "group_id": "staff",
+          "member_users": [
+            "eve"
+          ],
+          "member_groups": [
+            "eng"
+          ]
+        }
+      ],
+      "resources": [
+        {
+          "resource_id": "root",
+          "parent_id": null,
+          "inherit": true
+        },
+        {
+          "resource_id": "docs",
+          "parent_id": "root",
+          "inherit": true
+        },
+        {
+          "resource_id": "secret",
+          "parent_id": "docs",
+          "inherit": false
+        },
+        {
+          "resource_id": "archive",
+          "parent_id": "secret",
+          "inherit": true
+        }
+      ],
+      "rules": [
+        {
+          "rule_id": "archive-deny",
+          "principal_type": "user",
+          "principal_id": "eve",
+          "resource_id": "archive",
+          "actions": [
+            "read"
+          ],
+          "effect": "deny",
+          "propagate": false
+        },
+        {
+          "rule_id": "archive-write",
+          "principal_type": "user",
+          "principal_id": "bob",
+          "resource_id": "archive",
+          "actions": [
+            "write"
+          ],
+          "effect": "allow",
+          "propagate": false
+        },
+        {
+          "rule_id": "base-read",
+          "principal_type": "group",
+          "principal_id": "staff",
+          "resource_id": "root",
+          "actions": [
+            "read"
+          ],
+          "effect": "allow",
+          "propagate": true
+        },
+        {
+          "rule_id": "block-write",
+          "principal_type": "group",
+          "principal_id": "eng",
+          "resource_id": "root",
+          "actions": [
+            "write"
+          ],
+          "effect": "deny",
+          "propagate": true
+        },
+        {
+          "rule_id": "doc-read-deny",
+          "principal_type": "user",
+          "principal_id": "eve",
+          "resource_id": "docs",
+          "actions": [
+            "read"
+          ],
+          "effect": "deny",
+          "propagate": false
+        },
+        {
+          "rule_id": "doc-write",
+          "principal_type": "user",
+          "principal_id": "alice",
+          "resource_id": "docs",
+          "actions": [
+            "write"
+          ],
+          "effect": "allow",
+          "propagate": false
+        },
+        {
+          "rule_id": "root-read-deny",
+          "principal_type": "user",
+          "principal_id": "bob",
+          "resource_id": "root",
+          "actions": [
+            "read"
+          ],
+          "effect": "deny",
+          "propagate": false
+        },
+        {
+          "rule_id": "secret-read",
+          "principal_type": "group",
+          "principal_id": "staff",
+          "resource_id": "secret",
+          "actions": [
+            "read"
+          ],
+          "effect": "allow",
+          "propagate": true
+        },
+        {
+          "rule_id": "secret-write-deny",
+          "principal_type": "group",
+          "principal_id": "interns",
+          "resource_id": "secret",
+          "actions": [
+            "write"
+          ],
+          "effect": "deny",
+          "propagate": true
+        }
+      ]
+    }
+  ],
+  "refuse": []
+}

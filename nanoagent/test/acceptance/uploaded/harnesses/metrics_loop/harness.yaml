@@ -1,0 +1,11 @@
+protocol: rush.harness.v1
+name: metrics-loop
+version: "1"
+dialects: [chat_completions, responses, anthropic_messages]
+toolchain: python-3
+lockfiles: []
+build:
+  argv: [sh, -c, "cp main.py script.json /build-out/"]
+  outputs: [main.py, script.json]
+run:
+  argv: [python, /harness/main.py]

@@ -1,0 +1,8 @@
+_ > mockllm.engine.Scenario:
+name: provider-error
+case: acceptance-probe-01
+# 400 on every request: the run records the error. Request counts are not pinned on error paths.
+turns:
+  - status: 400
+    repeat: 0
+expect: {correct: false}

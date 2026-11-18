@@ -1,4 +1,5 @@
 import {readEvents, SSE_CONTENT_TYPE} from '../../utils/eventStream.js';
+import {awaitWorker, followHarness, harnessInput} from './harness.js';
 import {
   chatEvent, failure, invalidRequest, promptHistory, reply, requestFrom, runEvent, themeEvent,
 } from './protocol.js';
@@ -26,6 +27,11 @@ import {
  * the run starts over (`chat.restart`), as following replays it from its first
  * event, or, when it ended meanwhile, given the turn the session kept
  * (`chat.turn`). Only `cancel` stops one.
+ *
+ * The Harness tab's session (`harness.run`) is a benchmark run of one case, the page's request to one of the plugin's tasks
+ * worked by a reference harness on the member's own worker, on a terminal the member works in: the page hears the terminal's
+ * output as it comes and the outcome (./harness.js), through `harness.done`, and sends what is typed (`harness.input`) and the
+ * terminal's size (`harness.resize`); `harness.cancel` cancels the run, as the frame going away does.
  */
 // As long as the member's computer holds a run for RUSH to take up again (runner/protocol.js HOLD_MS).
 const RECONNECT_MS = 10 * 60_000;
@@ -39,8 +45,11 @@ const sleep = (ms, signal) => new Promise(resolve => {
   }, {once: true});
 });
 
-export function createBridgeHost({frameWindow, plugin, workspaceId, theme, request, onVersion, shown, onShown}) {
+export function createBridgeHost({frameWindow, plugin, workspaceId, theme, request, onVersion, shown, onShown, pause = sleep}) {
   const runs = new Map(); // runId -> {controller, session}, the controller of its stream now
+  // runId -> {controller, run, attempt, sending}: a Harness tab session's stream, its benchmark run's and attempt's ids, and its input
+  // in flight, which goes to the terminal in order.
+  const harnessRuns = new Map();
   // Each session's conversation, by id: a run left going in one session keeps its turn there.
   const turns = new Map();
   let session = null;
@@ -198,6 +207,58 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     post(runEvent('chat.done', runId, {}));
   }
 
+  async function harnessRun({harness, task, text}) {
+    runCount += 1;
+    const runId = `harness-${runCount}`;
+    const controller = new AbortController();
+    // `run` and `attempt` once RUSH has queued the session, which waits for the member's worker to be ready.
+    let queued;
+    const entry = {controller, run: null, attempt: null, queued: new Promise(resolve => (queued = resolve)), sending: Promise.resolve()};
+    harnessRuns.set(runId, entry);
+    const emit = (event, data) => post(runEvent(event, runId, data));
+    const follow = async () => {
+      try {
+        await awaitWorker({request, emit, signal: controller.signal, sleep: ms => pause(ms, controller.signal)});
+        if (controller.signal.aborted) return;
+        const response = await request('/api/benchmark/sessions', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({plugin_id: plugin.id, task_id: task, harness, text, interactive: true}),
+        });
+        if (!response.ok) throw await failed(response, 'Could not start the harness');
+        const {run} = await response.json();
+        Object.assign(entry, {run: run.run_id, attempt: run.cases[0].attempts[0].attempt_id});
+        // Stopped while RUSH was queuing it: the session it queued ends too.
+        if (controller.signal.aborted) {
+          await cancelHarness(entry);
+          return;
+        }
+        queued();
+        await followHarness({attemptId: entry.attempt, request, read: readEvents, emit, signal: controller.signal});
+      } catch (error) {
+        if (!controller.signal.aborted) emit('harness.error', {message: error.message});
+      } finally {
+        harnessRuns.delete(runId);
+        emit('harness.done', {});
+      }
+    };
+    return {result: {runId}, after: follow};
+  }
+
+  /** Send a Harness tab session's terminal `input`, after what was sent before it and once RUSH has queued the session. */
+  function toTerminal(runId, input) {
+    const run = harnessRuns.get(runId);
+    if (!run) throw new Error(`No harness run ${runId} is in progress`);
+    run.sending = run.sending.catch(() => {}).then(() => run.queued).then(() => harnessInput({attemptId: run.attempt, request, input}));
+    return run.sending.then(() => ({result: {}}));
+  }
+  /** End a Harness tab session: its run, or, before RUSH has queued it, the wait for the worker. */
+  const cancelHarness = async run => {
+    if (!run.run) return run.controller.abort();
+    const response = await request(`/api/benchmark/runs/${run.run}/cancel`, {method: 'POST'});
+    if (!response.ok) throw await failed(response, 'Could not cancel the harness');
+  };
+
   const methods = {
     'describe': async () => ({result: {plugin, workspace: {id: workspaceId}, theme: currentTheme, session: shown()}}),
     prompt,
@@ -210,6 +271,15 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
       run.controller.abort();
       return {result: {}};
     },
+    'harness.run': harnessRun,
+    'harness.cancel': async ({runId}) => {
+      const run = harnessRuns.get(runId);
+      if (!run) throw new Error(`No harness run ${runId} is in progress`);
+      await cancelHarness(run);
+      return {result: {}};
+    },
+    'harness.input': async ({runId, data}) => toTerminal(runId, {data}),
+    'harness.resize': async ({runId, rows, cols}) => toTerminal(runId, {rows, cols}),
     'sessions.list': async () => {
       const response = await request(sessionsPath);
       if (!response.ok) throw await failed(response, 'Could not list the sessions');
@@ -266,9 +336,10 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
       currentTheme = theme;
       post(themeEvent(theme));
     },
-    /** Stop following every run; the frame is going away, and the runs go on. */
+    /** Stop following every run; the frame is going away, and the runs go on but a Harness tab session's, which lives only while its page is open. */
     close() {
-      for (const run of runs.values()) run.controller.abort();
+      for (const run of harnessRuns.values()) cancelHarness(run).catch(() => {});
+      for (const run of [...runs.values(), ...harnessRuns.values()]) run.controller.abort();
     },
   };
 }

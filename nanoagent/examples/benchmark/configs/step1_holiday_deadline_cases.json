@@ -1,0 +1,15 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "holiday-deadline",
+  "task": "find-deadline",
+  "context": "Use Nager.Date's public holidays API (https://date.nager.at/api/v3/PublicHolidays/{year}/{country}) for Australia (country code AU) for 2025 and 2026; fetch both years because the count crosses New Year. Each returned holiday has a date (YYYY-MM-DD), a name, a boolean global (nationwide), a counties list (the regions where it applies; for AU these are state codes such as NSW), and a types list. The task's region is AU-NSW, so a holiday applies exactly when its types include Public AND (global is true OR its counties include NSW). A holiday whose types are only Bank, Optional, School, Authorities or Observance does not apply. If the same date appears in more than one entry, it applies if any entry for it applies. Count business days starting the day after the start date (2025-12-24 itself never counts): a business day is Monday-Friday that is not an applying holiday; Saturdays and Sundays never count, and a holiday on a weekend changes nothing. The deadline is the date of the 5th business day, written YYYY-MM-DD. skipped_holidays must list the dates of the applying holidays that fell on a weekday strictly after the start and on or before the deadline, oldest first ([] when none). Use the Nager.Date lists as the authority for which dates are holidays and their types.",
+  "answer": [
+    {
+      "country": "AU",
+      "region": "AU-NSW",
+      "start": "2025-12-24",
+      "business_days": 5
+    }
+  ],
+  "refuse": []
+}

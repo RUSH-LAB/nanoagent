@@ -1,0 +1,12 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "av-mystery-cipher",
+  "task": "crack-message",
+  "context": "The puzzle's data is fixed and self-contained, and the encoded message is small enough to write out in full. For puzzle cipher-01 the ciphertext is: \"Zrc mhpxcv ncrwvx zrc usraal ohu hell ah zhll uevhlaocpu, hvx cjcpy qapvwvm zrc srwlxpcv saevzcx rao qhvy nccu ocpc jwuwzwvm zrcq nchapc zrc hwpuz ncll phvm.\" The original plaintext is one sentence of ordinary English prose with standard capitalization, spaces, one comma and one final period; it contains no digits. Encoding changed only letters, preserving each letter's case (uppercase letters map to uppercase), and left spaces, the comma and the period unchanged; those non-letter characters do not advance the shifting. The cipher is one of the classical letter ciphers in the task's method enum: affine (each plaintext letter x maps to (a*x+b) mod 26 for some a coprime to 26 and some b), a general letter-for-letter substitution, Vigenere (shift amounts repeat a short keyword), or progressive shift (the shift starts at some value and increases by a fixed step each letter, cycling every 26). To submit, give the method as one of the enum values (for an affine cipher the verifier also accepts 'substitution') and the recovered plaintext exactly, preserving every letter, space, comma and period in its original case; the answer is judged only by exact match of method and characters.",
+  "answer": [
+    {
+      "puzzle_id": "cipher-01"
+    }
+  ],
+  "refuse": []
+}

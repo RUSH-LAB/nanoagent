@@ -38,7 +38,7 @@ def to_atif(
     *,
     session_id: str,
     harness: str,
-    harness_version: str,
+    harness_version: str | None,
     model: str,
 ) -> dict[str, Any]:
     steps: list[dict[str, Any]] = []
@@ -95,7 +95,8 @@ def to_atif(
     return {
         "schema_version": ATIF_VERSION,
         "session_id": session_id,
-        "agent": {"name": harness, "version": harness_version, "model_name": model},
+        # A run that failed before its harness reported a version has none to record.
+        "agent": {"name": harness, **({"version": harness_version} if harness_version is not None else {}), "model_name": model},
         "steps": steps,
         "final_metrics": {
             "total_prompt_tokens": prompt,

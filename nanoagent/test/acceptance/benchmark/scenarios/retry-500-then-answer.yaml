@@ -1,0 +1,19 @@
+_ > mockllm.engine.Scenario:
+name: retry-500-then-answer
+case: acceptance-probe-01
+# An injected 500 on the first request; the client retries and the next turn answers.
+turns:
+  - status: 500
+  - ttfb: 0.4
+    stream: {chunks: 4, gap: 0.1}
+    text: "Answering."
+    act: {answer: {digest: "@reference"}}
+    usage: {prompt: 900, cached: 0, completion: 40, reasoning: 0, cache_write: 0}
+  # NanoAgent calls its model once more after `submit`; this closing turn ends its loop.
+  - ttfb: 0.3
+    stream: {chunks: 2, gap: 0.05}
+    text: "Submitted."
+    usage: {prompt: 1500, cached: 0, completion: 10, reasoning: 0, cache_write: 0}
+na:
+  pi: "pi-ai does not retry a 500: the run ends in the provider error at once (observed: result error RunnerError 500, one request)"
+expect: {correct: true}

@@ -1,0 +1,9 @@
+{
+  "name": "rush-harness-dsh",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.2.2-rc.1"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "houston-concerts",
+  "task": "find-concerts",
+  "context": "The data is a frozen snapshot of Houston, TX concerts, built once from SeatGeek's Platform API (/2/events with venue.city=Houston, venue.state=TX, taxonomies.name=concert) and Last.fm's artist.getInfo (exact artist name, no autocorrect, stats.listeners). It covers Houston local dates 2026-11-02 through 2026-12-02 inclusive (30 days). Each show records a headliner (the SeatGeek primary performer, else the first named), a Houston local date YYYY-MM-DD, a start time HH:MM or empty when unannounced, a venue, and an event id. Every headliner has a Last.fm listener count (all-time unique listeners). For a query range, both endpoints inclusive, the answer lists one row per distinct artist who headlines a show in the range: their listener count, and the date and venue of their first show in the range (earliest date; if several shows that day, earliest start time, with an unannounced time counting as last; if still tied, lowest event id). Rows are sorted by listener count descending, ties alphabetically by artist name, and only the top 20 are listed; total_artists is the number of distinct artists in the range before that cut. If no show falls in the range, concerts is []. The query for this case is start_date 2026-11-02, end_date 2026-11-05; both lie inside the snapshot window. Return the query result unchanged, with the same start_date, end_date, window, total_artists and concerts rows in the same order.",
+  "answer": [
+    {
+      "start_date": "2026-11-02",
+      "end_date": "2026-11-05"
+    }
+  ],
+  "refuse": []
+}

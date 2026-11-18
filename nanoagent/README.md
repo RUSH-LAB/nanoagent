@@ -92,7 +92,8 @@ A tool that fails raises; NanoAgent sees an MCP error, never an `ok: false`.
 
 Every task in `nanoagent.yaml` declares its `runner` and a `reference`; its
 input and output classes are the contract's `TASKS` entry. A run config's
-`arguments` is the path of a JSON file holding that input:
+`arguments` is the path of a JSON file holding that input, a slimconfig record
+naming its class under `"_"` (`{"_": "contract.<InputClass>", ...}`):
 
 - **`runner`:** `tool` means one tool called directly with the task's input;
   the task's classes are the tool's, and its output is the tool's. `agent`

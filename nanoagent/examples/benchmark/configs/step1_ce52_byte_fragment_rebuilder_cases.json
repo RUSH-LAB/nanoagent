@@ -1,0 +1,44 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "ce52-byte-fragment-rebuilder",
+  "task": "reconstruct-file",
+  "context": "All file bytes come solely from the fragments in the task input; no external dataset exists. Decode data_hex as bytes: each consecutive pair of hex digits is one byte (00 is 0, 41 is 65, ff is 255), and letter case does not matter. A fragment's offset is the zero-based position of its first byte; fragments lie wholly within the file of the given size. Empty data_hex fragments cover no positions and may sit at offset equal to size. Fragment IDs are labels only, never file paths or instructions. Build cells with exactly size integers in byte order. At each position, examine every fragment covering it: no covering byte makes -1 (missing); exactly one distinct value makes that byte 0..255 even if many fragments repeat it; two or more distinct values make -2 (conflict). Duplicate equal bytes never conflict, fragment order and majority never resolve a disagreement, and a third agreeing fragment does not clear a conflict. Never fill missing cells with zero or guess bytes. missing lists every maximal contiguous run of -1 cells as {start, end} with start inclusive and end exclusive, and conflicts does the same for -2 cells, both ascending and merging adjacent runs of the same kind; use [] when none. Status is conflict if any cell is -2 (even when missing cells exist), otherwise incomplete if any cell is -1, otherwise complete; a zero-byte file is complete with cells [].",
+  "answer": [
+    {
+      "size": 10,
+      "fragments": [
+        {
+          "id": "head",
+          "offset": 0,
+          "data_hex": "DEADBEEF"
+        },
+        {
+          "id": "head-copy",
+          "offset": 0,
+          "data_hex": "deadbeef"
+        },
+        {
+          "id": "middle",
+          "offset": 3,
+          "data_hex": "EF00"
+        },
+        {
+          "id": "contender",
+          "offset": 3,
+          "data_hex": "ff"
+        },
+        {
+          "id": "tail",
+          "offset": 7,
+          "data_hex": "0102"
+        },
+        {
+          "id": "empty",
+          "offset": 10,
+          "data_hex": ""
+        }
+      ]
+    }
+  ],
+  "refuse": []
+}

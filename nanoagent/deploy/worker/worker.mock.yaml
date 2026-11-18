@@ -1,0 +1,49 @@
+# The acceptance worker: inference goes to the scripted OpenRouter mock on this host, with a synthetic credential.
+#   export RUSH_WORKER_TOKEN=...  OPENROUTER_API_KEY=... (a synthetic key)
+#   .venv/bin/python -m nanoagent.uploaded.worker config=deploy/worker/worker.mock.yaml home=<run folder> -- scratch=<folder>
+_ > nanoagent.uploaded.worker.WorkerConfig:
+
+worker_id: acceptance-worker-1
+scratch: ???
+
+rush > nanoagent.uploaded.worker.RushConfig:
+  base_url: http://127.0.0.1:3000
+  token_env: RUSH_WORKER_TOKEN
+
+openrouter > nanoagent.uploaded.worker.OpenRouterConfig:
+  label: mock
+  mode: mock
+  upstream_base_url: http://127.0.0.1:8080/api/v1
+  mock_hosts: [127.0.0.1]
+
+# USD per token; the acceptance mock reports its own usage.
+prices > dict[nanoagent.uploaded.worker.Model, nanoagent.uploaded.worker.Price]:
+  test/model:
+    input: 0.000001
+    output: 0.000004
+
+timing > nanoagent.uploaded.worker.TimingConfig:
+  reference_tokens_per_second: 100
+  clock_tolerance_ns: 1000000
+
+sandbox > nanoagent.uploaded.worker.SandboxConfig:
+  cpus: 1.0
+  memory_bytes: 1073741824
+  pids: 256
+  workspace_bytes: 268435456
+  # /tmp holds the Go build cache (the standard library is compiled into it).
+  tmp_bytes: 402653184
+  build_wall_s: 600
+
+# The acceptance runs several attempts at once: the worker's own concurrency (a run has none) is what bounds them.
+limits > nanoagent.uploaded.worker.LimitsConfig:
+  concurrency: 4
+
+# Acceptance fixtures stage the locked wheels from a folder; point this at it.
+dependencies > nanoagent.uploaded.worker.DependenciesConfig:
+  index_urls:
+    javascript-22: https://registry.npmjs.org
+
+poll > nanoagent.uploaded.worker.PollConfig:
+  idle_s: 0.5
+  renew_interval_s: 15

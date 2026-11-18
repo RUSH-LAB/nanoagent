@@ -261,6 +261,32 @@ async function main() {
         const viewed = await gateway.viewPackage(offered.sha256, ok(await gateway.packageFile(PLUGIN)));
         if (viewed.status !== 404) assert.deepEqual(ok(viewed).view, {sha256: offered.sha256, uiVersion: installed.uiVersion});
       },
+      async benchmarkCaseSet() {
+        // One case of the installed plugin's task, pinned by its reference tool (word-check's input); production's, which has
+        // no such route, 404.
+        const body = {name: 'contract-set', cases: {plugin: PLUGIN, task: 'check-words', context: 'Check the raw words.',
+          answer: [{reference: 'apple Pear', raw: 'apple pear'}], refuse: []}};
+        const derived = await gateway.benchmarkCaseSet(offered.sha256, JSON.stringify(body));
+        if (derived.status === 404) return;
+        const publication = JSON.parse(ok(derived));
+        assert.equal(publication.package_sha256, offered.sha256);
+        assert.deepEqual(publication.cases.map(item => item.case_id), [`${PLUGIN}-01`]);
+      },
+      async benchmarkReferenceHarness() {
+        // A reference harness's ZIP; production's, which has no such route, 404.
+        const built = await gateway.benchmarkReferenceHarness('pi');
+        if (built.status === 404) return;
+        assert.deepEqual([...ok(built).subarray(0, 4)], [0x50, 0x4b, 0x03, 0x04]);
+      },
+      async benchmarkCompare() {
+        // Two attempts with nothing recorded compare with no rows; production's, which has no such route, 404.
+        const empty = {records: [], payloads: {}, redactions: {}};
+        const compared = await gateway.benchmarkCompare({a: empty, b: empty});
+        if (compared.status === 404) return;
+        const view = ok(compared);
+        assert.deepEqual(view.rows, []);
+        assert.equal(view.first_difference, null);
+      },
     };
 
     assert.deepEqual(

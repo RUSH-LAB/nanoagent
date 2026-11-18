@@ -1,0 +1,102 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "pt-policy-revision",
+  "task": "revise-policy",
+  "context": "Revise a signal-confidence threshold from frozen forecast feedback. A feedback row counts as mature calibration evidence only if its split is 'calibration' and its resolved_at timestamp is on or before the cutoff timestamp (both are UTC; the cutoff is inclusive). Ignore holdout rows and rows that resolve after the cutoff. For a candidate threshold t, each mature row contributes 1 to the cost if its strength is below t; otherwise it contributes 3 if correct is false and 0 if correct is true. The total cost for t is the sum over all mature rows. Choose the candidate with the smallest total cost; if several candidates tie, choose the one with the smallest absolute difference from current_threshold, and if still tied, the smallest threshold. Threshold 101 always abstains, so every mature row has strength below 101 and contributes 1. The output must contain chosen_threshold, losses (one entry per candidate in ascending threshold order, with its total cost), and evidence_ids (the ids of the mature calibration rows, sorted lexicographically). The input includes some holdout and future rows that must not affect the result. All data needed is in the input; no external calls are required.",
+  "answer": [
+    {
+      "feedback": [
+        {
+          "id": "a1",
+          "strength": 10,
+          "correct": true,
+          "decided_at": "2026-09-01T00:00:00Z",
+          "resolved_at": "2026-09-02T00:00:00Z",
+          "split": "calibration"
+        },
+        {
+          "id": "b2",
+          "strength": 20,
+          "correct": false,
+          "decided_at": "2026-09-02T00:00:00Z",
+          "resolved_at": "2026-09-03T00:00:00Z",
+          "split": "calibration"
+        },
+        {
+          "id": "c3",
+          "strength": 50,
+          "correct": false,
+          "decided_at": "2026-09-03T00:00:00Z",
+          "resolved_at": "2026-09-04T00:00:00Z",
+          "split": "calibration"
+        },
+        {
+          "id": "d4",
+          "strength": 55,
+          "correct": true,
+          "decided_at": "2026-09-04T00:00:00Z",
+          "resolved_at": "2026-09-05T00:00:00Z",
+          "split": "calibration"
+        },
+        {
+          "id": "e5",
+          "strength": 58,
+          "correct": true,
+          "decided_at": "2026-09-05T00:00:00Z",
+          "resolved_at": "2026-09-06T00:00:00Z",
+          "split": "calibration"
+        },
+        {
+          "id": "f6",
+          "strength": 62,
+          "correct": true,
+          "decided_at": "2026-09-06T00:00:00Z",
+          "resolved_at": "2026-09-07T00:00:00Z",
+          "split": "calibration"
+        },
+        {
+          "id": "g7",
+          "strength": 85,
+          "correct": false,
+          "decided_at": "2026-09-07T00:00:00Z",
+          "resolved_at": "2026-09-08T00:00:00Z",
+          "split": "calibration"
+        },
+        {
+          "id": "h8",
+          "strength": 90,
+          "correct": true,
+          "decided_at": "2026-09-08T00:00:00Z",
+          "resolved_at": "2026-09-09T00:00:00Z",
+          "split": "calibration"
+        },
+        {
+          "id": "i9",
+          "strength": 5,
+          "correct": true,
+          "decided_at": "2026-09-09T00:00:00Z",
+          "resolved_at": "2026-09-10T00:00:00Z",
+          "split": "holdout"
+        },
+        {
+          "id": "j10",
+          "strength": 95,
+          "correct": false,
+          "decided_at": "2026-09-30T00:00:00Z",
+          "resolved_at": "2026-10-05T00:00:00Z",
+          "split": "calibration"
+        }
+      ],
+      "cutoff": "2026-10-01T00:00:00Z",
+      "candidates": [
+        0,
+        40,
+        70,
+        100,
+        101
+      ],
+      "current_threshold": 70
+    }
+  ],
+  "refuse": []
+}

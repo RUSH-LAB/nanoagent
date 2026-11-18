@@ -1,0 +1,11 @@
+protocol: rush.harness.v1
+name: python-local
+version: "1"
+dialects: [chat_completions]
+toolchain: python-3
+lockfiles: []
+build:
+  argv: [sh, -c, "cp main.py /build-out/main.py"]
+  outputs: [main.py]
+run:
+  argv: [python, /harness/main.py]

@@ -1,0 +1,17 @@
+_ > mockllm.engine.Scenario:
+name: malformed-answer
+case: acceptance-probe-01
+turns:
+  - ttfb: 0.4
+    stream: {chunks: 4, gap: 0.1}
+    text: "Answering."
+    act: malformed
+    usage: {prompt: 900, cached: 0, completion: 40, reasoning: 0, cache_write: 0}
+  # NanoAgent calls its model once more after `submit`; this closing turn ends its loop.
+  - ttfb: 0.3
+    stream: {chunks: 2, gap: 0.05}
+    text: "Submitted."
+    usage: {prompt: 1500, cached: 0, completion: 10, reasoning: 0, cache_write: 0}
+na:
+  nanoagent: "submit rejects a schema-invalid body as a tool error, so no invalid output ever reaches the verdict; the run ends as a refusal (see the report)"
+expect: {correct: false, verdict_contains: "invalid answer"}

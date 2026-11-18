@@ -463,6 +463,19 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     return json(res, 200, ctx.runners.status(req.auth?.userId));
   }
 
+  // ── Re-check, restart or set the concurrency of the benchmark worker RUSH Lab runs on the member's computer ──
+  if (req.method === 'POST' && pathname === '/api/runner/worker') {
+    if (!await rateLimit(`runner-worker:${req.caller}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    let body;
+    try {
+      body = await ctx.readBody(req);
+    } catch {
+      return json(res, 400, {error: 'Request body must be JSON, within the size limit'});
+    }
+    const result = ctx.runners.workerAction(req.auth?.userId, body?.action, body?.value);
+    return result.error ? json(res, result.status, {error: result.error}) : json(res, 200, result.value);
+  }
+
   // ── What the OpenRouter key on the member's computer has spent, as OpenRouter says ──
   // `you`: what the member has spent, on every key RUSH gave them when the key is RUSH's (its
   // workspace), else on this key; `total`: what everyone has spent against the cap, the
