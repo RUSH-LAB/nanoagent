@@ -285,11 +285,11 @@ describe('the worker\'s wait for work and for a session\'s case', () => {
     const started = Date.now();
     setTimeout(() => { queued = {kind: 'attempt', attempt_id: ATTEMPT}; wake('claim:u'); }, 50);
     const {status, payload} = await call({claim: async () => queued}, {
-      method: 'POST', path: '/api/benchmark-worker/claim', body: {worker_id: 'w', endpoint_profile: {label: 'l', mode: 'm'}, capabilities: CAPS, wait_s: 5},
+      method: 'POST', path: '/api/benchmark-worker/claim', body: {worker_id: 'w', endpoint_profile: {label: 'l', mode: 'm'}, capabilities: CAPS, interactive: false, wait_s: 5},
     });
     assert.deepEqual([status, payload.attempt_id], [200, ATTEMPT]);
     assert.ok(Date.now() - started < 1000);
-    const idle = await call({claim: async () => null}, {method: 'POST', path: '/api/benchmark-worker/claim', body: {worker_id: 'w', endpoint_profile: {label: 'l', mode: 'm'}, capabilities: CAPS}});
+    const idle = await call({claim: async () => null}, {method: 'POST', path: '/api/benchmark-worker/claim', body: {worker_id: 'w', endpoint_profile: {label: 'l', mode: 'm'}, capabilities: CAPS, interactive: false}});
     assert.equal(idle.res.written.status, 204); // no wait_s: answered at once
   });
 

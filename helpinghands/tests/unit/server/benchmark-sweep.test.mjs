@@ -53,7 +53,7 @@ describe('benchmark expiry sweep', () => {
 
   test('a claim sweeps before it leases anything', async () => {
     const pool = recordingPool();
-    assert.equal(await createPostgresBenchmarkWorker({pool, config}).claim('u', 'w', 'mock', {...DEFAULT_LIMITS, models: ['vendor/model']}), null);
+    assert.equal(await createPostgresBenchmarkWorker({pool, config}).claim('u', 'w', 'mock', {...DEFAULT_LIMITS, models: ['vendor/model']}, false), null);
     const sql = pool.transactions[0];
     const lastSweep = sql.findLastIndex(statement => statement.includes('skip locked') && statement.startsWith('update'));
     const firstSelect = sql.findIndex(statement => statement.startsWith('select r.run_id, r.limits from benchmark_run'));

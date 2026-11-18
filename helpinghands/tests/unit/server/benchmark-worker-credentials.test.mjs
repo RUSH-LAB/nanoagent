@@ -65,10 +65,10 @@ describe('benchmark worker credentials', () => {
 
   test('a claim leases only the credential\'s member\'s runs and keeps capabilities per member and label', async () => {
     const pool = recordingPool();
-    await createPostgresBenchmarkWorker({pool, config}).claim('user-a', 'w', 'mock', {...DEFAULT_LIMITS, models: ['vendor/model']});
+    await createPostgresBenchmarkWorker({pool, config}).claim('user-a', 'w', 'mock', {...DEFAULT_LIMITS, models: ['vendor/model']}, true);
     const select = pool.statements.find(s => s.text.startsWith('select r.run_id, r.limits from benchmark_run'));
-    assert.match(select.text, /r\.user_id = \$1 and r\.endpoint_label = \$2/);
-    assert.deepEqual(select.params, ['user-a', 'mock']);
+    assert.match(select.text, /r\.user_id = \$1 and r\.endpoint_label = \$2 and r\.interactive = \$3/);
+    assert.deepEqual(select.params, ['user-a', 'mock', true]);
     const advertise = pool.statements.find(s => s.text.startsWith('insert into benchmark_worker_capability'));
     assert.match(advertise.text, /on conflict \(user_id, endpoint_label\)/);
     assert.deepEqual(advertise.params.slice(0, 3), ['user-a', 'mock', 'w']);

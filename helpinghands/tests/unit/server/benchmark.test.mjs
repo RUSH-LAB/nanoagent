@@ -152,7 +152,8 @@ describe('benchmark limits', () => {
     const {pids, ...missing} = {...DEFAULT_LIMITS, models: ['vendor/model']};
     assert.throws(() => capabilitiesOf(missing), {code: 'invalid_request', message: /pids/});
     assert.throws(() => claimBody({worker_id: 'w', endpoint_profile: {mode: 'm', label: 'l'}}), {code: 'invalid_request'});
-    assert.equal(claimBody({worker_id: 'w', endpoint_profile: {mode: 'm', label: 'l'}, capabilities: {...DEFAULT_LIMITS, models: ['vendor/model']}}).label, 'l');
+    assert.equal(claimBody({worker_id: 'w', endpoint_profile: {mode: 'm', label: 'l'}, capabilities: {...DEFAULT_LIMITS, models: ['vendor/model']}, interactive: false}).label, 'l');
+    assert.throws(() => claimBody({worker_id: 'w', endpoint_profile: {mode: 'm', label: 'l'}, capabilities: {...DEFAULT_LIMITS, models: ['vendor/model']}}), {code: 'invalid_request'});
   });
 
   it('wants the models a worker prices, as a non-empty list of names', () => {

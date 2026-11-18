@@ -53,7 +53,7 @@ describe('the worker credential and claim', () => {
 
   test('a claim sees only runs of workspaces the member is in, locks a run with skip locked, and reads as the member', async () => {
     const pool = recordingPool({'select r.run_id, r.limits': [{run_id: 'r', limits: {...DEFAULT_LIMITS}}]});
-    await createPostgresBenchmarkWorker({pool, config}).claim('u', 'w', 'mock', {...DEFAULT_LIMITS, models: ['m']});
+    await createPostgresBenchmarkWorker({pool, config}).claim('u', 'w', 'mock', {...DEFAULT_LIMITS, models: ['m']}, false);
     assert.match(pool.statements.find(s => s.text.startsWith('select r.run_id, r.limits')).text, /from workspace_member m where m\.workspace_id = r\.workspace_id and m\.user_id = r\.user_id/);
     assert.match(pool.statements.find(s => s.text.startsWith('select * from benchmark_run where run_id')).text, /for update skip locked$/);
     assert.ok(pool.statements.some(s => s.text.includes("set_config('app.user_id', 'u'") && s.text.includes("set_config('app.benchmark_system', 'on'")));

@@ -596,6 +596,37 @@ async def test_the_worker_runs_at_most_its_advertised_concurrency_of_attempts_at
     assert all(claim["concurrency"] == 2 for claim in rig.rush.claims)
 
 
+async def test_a_scored_run_runs_beside_an_open_terminal_in_the_slot_kept_for_it(tmp_path: Path) -> None:
+    from nanoagent.uploaded import worker
+
+    rig = Rig(tmp_path)
+    rig.runner.config = replace(rig.runner.config, capabilities={**fx.CAPABILITIES, "concurrency": 1})
+    terminal = fx.job_body(attempt_id="11111111-1111-4111-8111-111111111111")
+    terminal["run"]["interactive"] = True
+    rig.rush.jobs = [fx.parse_job(terminal), fx.parse_job(fx.job_body(attempt_id="21111111-1111-4111-8111-111111111111"))]
+    scored_while_open: list[bool] = []
+    open_terminal = anyio.Event()
+
+    async def run(job: Any) -> Any:
+        if job.run["interactive"]:  # the member works at the terminal until the scored run has run
+            open_terminal.set()
+            with anyio.fail_after(5):
+                while not scored_while_open:
+                    await anyio.sleep(0.01)
+        else:
+            await open_terminal.wait()
+            scored_while_open.append(True)
+        return await original(job)
+
+    original = rig.runner.run
+    rig.runner.run = run  # type: ignore[method-assign]
+    stub = type("Config", (), {"poll": worker.PollConfig(idle_s=0.01)})()
+    with pytest.raises(BaseExceptionGroup):
+        async with anyio.create_task_group() as background:
+            await worker.poll(stub, rig.runner.config, rig.rush, rig.runner, None, background)  # type: ignore[arg-type]
+    assert scored_while_open == [True]
+
+
 async def test_an_error_escaping_one_attempt_leaves_the_worker_running_the_others(tmp_path: Path) -> None:
     from nanoagent.uploaded import worker
 

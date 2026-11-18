@@ -43,7 +43,7 @@ LIMITS = {
     "build_memory_mb": 3072, "build_output_bytes": 1 << 30, "build_files": 100000, "build_tmp_bytes": 512 << 20,
 }
 # What the test worker advertises: at least every default limit, internet access included.
-CAPABILITIES = {**LIMITS, "wall_time_ms": 600000, "internet_access": True, "concurrency": 4}
+CAPABILITIES = {**LIMITS, "wall_time_ms": 600000, "internet_access": True, "concurrency": 4, "interactive_slots": 1}
 WAIT_TOOL = {"name": "wait", "description": "wait a while", "input_schema": {"type": "object"}, "output_schema": {"type": "object"}, "writes": False}
 
 
@@ -145,12 +145,17 @@ class FakeRush:
         await anyio.sleep(0.05)  # nobody types: RUSH answers [] after holding the request
         return []
 
-    async def claim(self, worker_id: str, label: str, mode: str, capabilities: Any, wait_s: float) -> Any:
+    async def claim(self, worker_id: str, label: str, mode: str, capabilities: Any, wait_s: float, *, interactive: bool) -> Any:
         self.claims.append(capabilities)
         if not self.jobs:
             await anyio.sleep(0.5)  # the attempts claimed so far run concurrently: let them finish before the poll loop is ended
             raise StopPolling
-        return self.jobs.pop(0)
+        mine = [job for job in self.jobs if bool(job.run.get("interactive")) is interactive]
+        if not mine:  # the worker's other slots claim the rest
+            await anyio.sleep(0.05)
+            return None
+        self.jobs.remove(mine[0])
+        return mine[0]
 
     async def renew(self, attempt_id: str, fence: int) -> float:
         self.renew_attempts += 1

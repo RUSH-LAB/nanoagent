@@ -78,7 +78,7 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
     }
     if (claim) {
       wanted('POST');
-      const {workerId, label, capabilities, waitMs} = v.claimBody(await body());
+      const {workerId, label, capabilities, interactive, waitMs} = v.claimBody(await body());
       // With nothing to lease, a claim waits up to `wait_s` for the member's work to be queued (a wake-up, not a poll), and never
       // leases to a worker that has gone.
       let closed = false;
@@ -86,7 +86,7 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
       for (const until = Date.now() + waitMs; ;) {
         const queued = listen(`claim:${userId}`);
         try {
-          const job = await worker.claim(userId, workerId, label, capabilities);
+          const job = await worker.claim(userId, workerId, label, capabilities, interactive);
           if (job) return json(res, 200, job);
           if (closed || Date.now() >= until) {
             res.writeHead(204);

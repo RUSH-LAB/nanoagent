@@ -45,6 +45,9 @@ LOG = logging.getLogger(__name__)
 
 # The one place the worker's OpenRouter key comes from: the worker's environment, set by RUSH Lab from the member's settings.
 OPENROUTER_KEY_ENV = "OPENROUTER_API_KEY"
+# The slots kept for a session someone works at (a Terminal), apart from `concurrency`: RUSH ends a member's other interactive
+# sessions when they open one, and a scored run (`rush score`, the one-shot `nanoagent harness`, a benchmark) runs beside it.
+INTERACTIVE_SLOTS = 1
 
 
 class WorkerConfigError(ValueError):
@@ -127,7 +130,7 @@ class LimitsConfig(Config):
     max_model_calls: int = 500
     max_output_tokens_per_call: int = 65_536
     max_cost_usd: float = 10.0
-    # How many attempts the worker runs at once, at most the machine's CPUs.
+    # How many attempts the worker runs at once, at most the machine's CPUs, beside its one interactive session (INTERACTIVE_SLOTS).
     concurrency: int = 1
     # The advertised cpus and memory are the machine's; these only lower them.
     max_cpus: float | None = None
@@ -240,7 +243,7 @@ def runner_config(config: WorkerConfig, env: dict[str, str], machine: Machine) -
         limits=Limits(box.cpus, box.memory_bytes, box.pids, box.workspace_bytes, box.out_bytes, box.tmp_bytes, box.output_bytes, workspace_files=box.workspace_files),
         capabilities={
             "wall_time_ms": maxima.wall_time_ms, "max_model_calls": maxima.max_model_calls, "max_output_tokens_per_call": maxima.max_output_tokens_per_call,
-            "max_cost_usd": maxima.max_cost_usd, "concurrency": min(maxima.concurrency, machine.cpus), "cpus": cpus, "memory_mb": memory_mb, "pids": box.pids,
+            "max_cost_usd": maxima.max_cost_usd, "concurrency": min(maxima.concurrency, machine.cpus), "interactive_slots": INTERACTIVE_SLOTS, "cpus": cpus, "memory_mb": memory_mb, "pids": box.pids,
             "workspace_bytes": box.workspace_bytes, "workspace_files": box.workspace_files, "tmp_bytes": box.tmp_bytes,
             "build_wall_ms": int(box.build_wall_s * 1000), "build_memory_mb": min(box.build_memory_bytes >> 20, memory_mb), "build_output_bytes": box.build_output_bytes,
             "build_files": box.build_files, "build_tmp_bytes": box.build_tmp_bytes,
@@ -316,12 +319,12 @@ async def serve(config: WorkerConfig, env: dict[str, str] | None = None) -> None
 
 
 async def poll(config: WorkerConfig, settings: RunnerConfig, worker: RushWorkerClient, runner: AttemptRunner, lookup: HttpxGenerationLookup, background: anyio.abc.TaskGroup) -> None:
-    """Claim and run attempts, up to the advertised `concurrency` at once; a claimed attempt keeps the slot it was claimed in."""
+    """Claim and run attempts, up to the advertised `concurrency` at once, and beside them up to `interactive_slots` sessions someone
+    works at, each kind claimed in its own slots; a claimed attempt keeps the slot it was claimed in."""
     outage: float | None = None  # the current wait while RUSH is unreachable; None when it is reachable
     reached = False  # whether RUSH has answered a claim since startup or the last outage: the "claiming from" line is logged once per True
-    slots = anyio.Semaphore(settings.capabilities["concurrency"])
 
-    async def attempt(job: AttemptJob) -> None:
+    async def attempt(job: AttemptJob, slots: anyio.Semaphore) -> None:
         try:
             result = await runner.run(job)
             LOG.info("attempt %s: %s %s", job.attempt_id, result.outcome, result.execution)
@@ -338,32 +341,40 @@ async def poll(config: WorkerConfig, settings: RunnerConfig, worker: RushWorkerC
         except Exception:  # its accounting stays provisional, as for a generation that never appears
             LOG.exception("attempt %s: reconciling its accounting failed", attempt_id)
 
-    while True:
-        await slots.acquire()
-        try:
-            job = await worker.claim(settings.worker_id, settings.endpoint.label, settings.endpoint.mode, settings.capabilities, config.poll.wait_s)
-        except RushUnavailable as error:
-            slots.release()
-            reached = False
-            if outage is None:
-                LOG.warning("RUSH is unreachable, retrying until it returns: %s", error)  # once per outage, not per retry
-                outage = config.poll.idle_s
-            await anyio.sleep(outage)
-            outage = min(outage * 2, config.poll.max_outage_s)
-            continue
-        except BaseException:
-            slots.release()
-            raise
-        if outage is not None:
-            LOG.info("RUSH is reachable again")
-            outage = None
-        if not reached:
-            LOG.info("claiming from RUSH: %s", settings.endpoint.label)  # the first answer, 204 or a job: RUSH Lab's health check reads it
-            reached = True
-        if job is None:  # RUSH held the claim its wait_s and nothing was queued: claim again
-            slots.release()
-            continue
-        background.start_soon(attempt, job)
+    async def claiming(slots: anyio.Semaphore, interactive: bool) -> None:
+        nonlocal outage, reached
+        while True:
+            await slots.acquire()
+            try:
+                job = await worker.claim(
+                    settings.worker_id, settings.endpoint.label, settings.endpoint.mode, settings.capabilities, config.poll.wait_s, interactive=interactive
+                )
+            except RushUnavailable as error:
+                slots.release()
+                reached = False
+                if outage is None:
+                    LOG.warning("RUSH is unreachable, retrying until it returns: %s", error)  # once per outage, not per retry
+                    outage = config.poll.idle_s
+                await anyio.sleep(outage)
+                outage = min(outage * 2, config.poll.max_outage_s)
+                continue
+            except BaseException:
+                slots.release()
+                raise
+            if outage is not None:
+                LOG.info("RUSH is reachable again")
+                outage = None
+            if not reached:
+                LOG.info("claiming from RUSH: %s", settings.endpoint.label)  # the first answer, 204 or a job: RUSH Lab's health check reads it
+                reached = True
+            if job is None:  # RUSH held the claim its wait_s and nothing was queued: claim again
+                slots.release()
+                continue
+            background.start_soon(attempt, job, slots)
+
+    async with anyio.create_task_group() as loops:
+        loops.start_soon(claiming, anyio.Semaphore(settings.capabilities["concurrency"]), False)
+        loops.start_soon(claiming, anyio.Semaphore(settings.capabilities["interactive_slots"]), True)
 
 
 class WorkerRun(Run):

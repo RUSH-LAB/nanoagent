@@ -95,7 +95,7 @@ class WorkerApi:
         return self.http.request(method, f"/api/benchmark-worker{path}", **kwargs)
 
     def claim(self, label: str) -> dict[str, Any] | None:
-        response = self.request("POST", "/claim", json={"worker_id": "hand-worker", "endpoint_profile": {"label": label, "mode": "mock"}, "capabilities": CAPABILITIES})
+        response = self.request("POST", "/claim", json={"worker_id": "hand-worker", "endpoint_profile": {"label": label, "mode": "mock"}, "capabilities": CAPABILITIES, "interactive": False})
         assert response.status_code in (200, 204), response.text
         return None if response.status_code == 204 else response.json()
 

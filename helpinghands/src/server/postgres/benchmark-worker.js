@@ -60,15 +60,16 @@ function createPostgresBenchmarkWorker({pool, config}) {
 
   /**
    * Lease the next queued attempt a worker with `capabilities` can run: the oldest run's, among the member's own runs for `label` whose limits
-   * those capabilities cover. A run has no concurrency of its own: the worker's slots bound what it runs at once.
+   * those capabilities cover, and an `interactive` session's (one someone works at) or not as asked. A run has no concurrency of its own:
+   * the worker's slots bound what it runs at once, one of them kept for the member's interactive session so their scored runs run beside it.
    */
-  async function claimAttempt(client, userId, workerId, label, capabilities) {
+  async function claimAttempt(client, userId, workerId, label, capabilities, interactive) {
     const runs = (await client.query(
       `select r.run_id, r.limits from benchmark_run r
-        where r.canceled_at is null and r.user_id = $1 and r.endpoint_label = $2
+        where r.canceled_at is null and r.user_id = $1 and r.endpoint_label = $2 and r.interactive = $3
           and exists (select 1 from workspace_member m where m.workspace_id = r.workspace_id and m.user_id = r.user_id)
           and exists (select 1 from benchmark_attempt a where a.run_id = r.run_id and a.state = 'queued')
-        order by r.created_at, r.run_id limit 200`, [userId, label],
+        order by r.created_at, r.run_id limit 200`, [userId, label, interactive],
     )).rows;
     for (const candidate of runs) {
       if (exceeded(candidate.limits, capabilities).length) continue;
@@ -158,7 +159,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
      * Expire stale leases and overdue reservations (see `sweep`), keep `capabilities` as what member `userId`'s worker can do for `label`,
      * then lease the next of that member's own attempts for `label` within them: a job, or null.
      */
-    async claim(userId, workerId, label, capabilities) {
+    async claim(userId, workerId, label, capabilities, interactive) {
       // As the member too, so the workspace_member policy shows the member's own memberships to the claim.
       return inTransaction(pool, {system: true, userId}, async client => {
         await sweepExpired(client);
@@ -167,7 +168,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
            on conflict (user_id, endpoint_label) do update set worker_id = excluded.worker_id, capabilities = excluded.capabilities, updated_at = now()`,
           [userId, label, workerId, JSON.stringify(capabilitiesOf(capabilities))],
         );
-        return claimAttempt(client, userId, workerId, label, capabilities);
+        return claimAttempt(client, userId, workerId, label, capabilities, interactive);
       });
     },
 

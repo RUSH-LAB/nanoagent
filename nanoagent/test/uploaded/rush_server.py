@@ -149,7 +149,7 @@ class RushServer:
             "memory_mb": 1024, "pids": 256, "workspace_bytes": 268_435_456, "workspace_files": 20_000, "tmp_bytes": 67_108_864, "build_wall_ms": 600_000,
             "build_memory_mb": 3072, "build_output_bytes": 1 << 30, "build_files": 100_000, "build_tmp_bytes": 512 << 20, "internet_access": internet_access, "models": list(models),
         }  # fmt: skip
-        body = {"worker_id": "smoke", "endpoint_profile": {"label": label, "mode": "mock"}, "capabilities": capabilities}
+        body = {"worker_id": "smoke", "endpoint_profile": {"label": label, "mode": "mock"}, "capabilities": capabilities, "interactive": False}
         httpx.post(f"{self.base_url}/api/benchmark-worker/claim", json=body, headers={"authorization": f"Bearer {credential or self.worker_token}"}).raise_for_status()
 
     def seed_plugin(self, package: bytes) -> dict[str, Any]:

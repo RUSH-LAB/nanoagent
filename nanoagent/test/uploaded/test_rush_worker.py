@@ -61,8 +61,10 @@ async def test_claim_sends_the_profile_and_maps_204_to_none() -> None:
         return httpx.Response(204)
 
     capabilities = {"wall_time_ms": 1000, "memory_mb": 512, "internet_access": True}
-    assert await client_for(handler).claim("w", "mock", "mock", capabilities, 20) is None
-    assert json.loads(seen[0].content) == {"worker_id": "w", "endpoint_profile": {"label": "mock", "mode": "mock"}, "capabilities": capabilities, "wait_s": 20}
+    assert await client_for(handler).claim("w", "mock", "mock", capabilities, 20, interactive=True) is None
+    assert json.loads(seen[0].content) == {
+        "worker_id": "w", "endpoint_profile": {"label": "mock", "mode": "mock"}, "capabilities": capabilities, "interactive": True, "wait_s": 20,
+    }  # fmt: skip
     assert seen[0].headers["authorization"] == "Bearer tok"
 
 
@@ -271,7 +273,7 @@ def test_capabilities_come_from_the_machine_and_concurrency_defaults_low(tmp_pat
     from nanoagent.uploaded.worker import runner_config
 
     caps = runner_config(_config(tmp_path), {"OPENROUTER_API_KEY": "k"}, MACHINE).capabilities
-    assert (caps["cpus"], caps["memory_mb"], caps["concurrency"]) == (8, 16384, 1)
+    assert (caps["cpus"], caps["memory_mb"], caps["concurrency"], caps["interactive_slots"]) == (8, 16384, 1, 1)
 
 
 def test_configured_maxima_only_lower_what_the_machine_has(tmp_path: Path) -> None:
@@ -361,7 +363,7 @@ async def test_losing_rush_is_waited_out_with_one_outage_log_and_one_recovery_lo
     class Rush:
         calls = 0
 
-        async def claim(self, *_: Any) -> None:
+        async def claim(self, *_: Any, interactive: bool) -> None:
             self.calls += 1
             if self.calls <= 5:
                 raise RushUnavailable("down")
@@ -417,7 +419,7 @@ async def test_claiming_from_rush_is_logged_once_at_startup_not_per_poll(tmp_pat
     class Rush:
         calls = 0
 
-        async def claim(self, *_: Any) -> None:
+        async def claim(self, *_: Any, interactive: bool) -> None:
             self.calls += 1
             if self.calls <= 3:
                 return None  # 204 each time

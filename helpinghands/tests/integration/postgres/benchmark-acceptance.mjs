@@ -250,7 +250,7 @@ try {
   check('a suspended member\'s credential is refused until the member is reinstated', [beforeSuspension, whileSuspended, (await worker('claim', {method: 'POST', token: suspended.token, body: {}})).status].join() === '400,401,400');
 
   // ── Worker capabilities ──
-  const claim = async (id = 'w1', {label = LABEL, capabilities = CAPS, body = {}, token} = {}) => worker('claim', {method: 'POST', token, body: {worker_id: id, endpoint_profile: {label, mode: 'mock'}, capabilities, ...body}});
+  const claim = async (id = 'w1', {label = LABEL, capabilities = CAPS, body = {}, token} = {}) => worker('claim', {method: 'POST', token, body: {worker_id: id, endpoint_profile: {label, mode: 'mock'}, capabilities, interactive: false, ...body}});
 
   // ── Benchmark publishing ──
   const pluginId = pluginIds[0];

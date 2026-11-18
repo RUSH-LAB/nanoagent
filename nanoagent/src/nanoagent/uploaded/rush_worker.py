@@ -222,11 +222,15 @@ class RushWorkerClient:
 
     # -- leases ------------------------------------------------------------------------------------------------
 
-    async def claim(self, worker_id: str, label: str, mode: str, capabilities: Mapping[str, Any], wait_s: float) -> AttemptJob | None:
+    async def claim(self, worker_id: str, label: str, mode: str, capabilities: Mapping[str, Any], wait_s: float, *, interactive: bool) -> AttemptJob | None:
         """Claim an attempt; ``capabilities`` is the worker's maximum for each numeric limit and its ``internet_access`` support,
-        which the server stores for the endpoint label and matches the run's limits against. With none queued, RUSH holds the
+        which the server stores for the endpoint label and matches the run's limits against. ``interactive`` claims only a session
+        someone works at (the worker's slot kept for the Terminal), or only the other attempts. With none queued, RUSH holds the
         claim up to ``wait_s`` and answers as soon as one is."""
-        body = {"worker_id": worker_id, "endpoint_profile": {"label": label, "mode": mode}, "capabilities": dict(capabilities), "wait_s": wait_s}
+        body = {
+            "worker_id": worker_id, "endpoint_profile": {"label": label, "mode": mode}, "capabilities": dict(capabilities), "interactive": interactive,
+            "wait_s": wait_s,
+        }  # fmt: skip
         response = await self._send("POST", "/claim", content=json_bytes(body), headers={"Content-Type": "application/json"})
         return None if response.status_code == 204 else parse_job(response.json())
 

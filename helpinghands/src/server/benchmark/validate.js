@@ -356,6 +356,8 @@ function claimBody(body) {
   return {
     workerId: string(body.worker_id, 'worker_id', {max: 200}), label: string(profile.label, 'endpoint_profile.label', {max: 100}),
     capabilities: capabilitiesOf(body.capabilities),
+    // Whether the claim is the worker's slot kept for an interactive session (the Terminal) or one of its run slots, which take the rest.
+    interactive: boolean(body.interactive, 'interactive'),
     // How long a claim with nothing to lease waits for work to be queued: none unless the worker asks.
     waitMs: body.wait_s === undefined ? 0 : Math.round(finite(body.wait_s, 'wait_s', {min: 0, max: MAX_CLAIM_WAIT_S}) * 1000),
   };
