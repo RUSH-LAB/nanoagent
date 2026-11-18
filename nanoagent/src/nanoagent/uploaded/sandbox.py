@@ -453,6 +453,11 @@ def _traced(session: str, argv: Sequence[str]) -> tuple[str, list[str]]:
     return STRACE_BIN, [*STRACE_FLAGS, "-o", f"{TRACE_DIR}/{session}/t", f"--user={CASE_USER}", "--", *argv]
 
 
+async def _gathered(coroutines: Sequence[Coroutine[Any, Any, T]]) -> list[Any]:
+    """Each coroutine's result, or what it raised, run side by side."""
+    return list(await asyncio.gather(*coroutines, return_exceptions=True))
+
+
 class ToolLauncher:
     """Runs a plugin's MCP server in the case's tool VM, for a `PluginSession`."""
 
@@ -839,7 +844,7 @@ class MicrosandboxSupervisor:
         tool: Sandbox | None = None
         try:
             name = f"rush-case-{suffix}"
-            case = self._loop.run(self._create(
+            creating = [self._create(
                 name, spec.profile.runtime_image, spec.limits, _network(spec.network.ports, internet=spec.network.internet),
                 {
                     WORKSPACE: _bind(workspace, readonly=False, quota=spec.limits.workspace_bytes), OUT_DIR: _bind(out, readonly=False, quota=spec.limits.out_bytes),
@@ -848,13 +853,19 @@ class MicrosandboxSupervisor:
                 },
                 patches=[PatchConfig(kind=PatchKind.FILE, path=REQUEST_PATH, content=spec.request_json, mode=0o444)],
                 labels={"rush.attempt": spec.attempt_id},
-            ))
+            )]
             if spec.tool is not None:
                 ports: list[int] = []
                 if spec.tool.egress_hosts:
                     port = bridge.enter_context(egress_port(spec.tool.egress_hosts))
                     ports, proxy = [port], f"http://{GUEST_HOST}:{port}"
-                tool = self._loop.run(self._start_tool(spec, workspace, tools, ports))
+                creating.append(self._start_tool(spec, workspace, tools, ports))
+            # The case VM and the tool VM boot side by side; one that fails takes the other down with it.
+            booted = self._loop.run(_gathered(creating))
+            case, tool = booted[0], booted[1] if len(booted) > 1 else None
+            failed = [result for result in booted if isinstance(result, BaseException)]
+            if failed:
+                raise failed[0]
             handle = _Case(self, spec, name, case, tool, workspace, out, initial)
             handle.tool_proxy, handle.bridge = proxy, bridge
             if spec.tool is not None:
@@ -862,7 +873,7 @@ class MicrosandboxSupervisor:
             return handle
         except BaseException:
             for sandbox in (tool, case):
-                if sandbox is not None:
+                if sandbox is not None and not isinstance(sandbox, BaseException):
                     self._loop.run(self._destroy(sandbox))
             bridge.close()
             raise

@@ -303,6 +303,9 @@ async def serve(config: WorkerConfig, env: dict[str, str] | None = None) -> None
             await anyio.to_thread.run_sync(supervisor.verify_egress)  # internet access is only offered while this host stays unreachable
             LOG.info("egress fence verified")
         LOG.info("advertised capabilities: %s", json.dumps(settings.capabilities, sort_keys=True))
+        # A terminal session this worker leased before it restarted runs no more, and its member waits at it: RUSH ends it as interrupted.
+        for attempt_id in await worker.started(settings.worker_id):
+            LOG.info("attempt %s: an interactive session from before this start, ended as interrupted", attempt_id)
         runner = AttemptRunner(settings, supervisor=supervisor, worker=worker, relay=HostRelay(), plugins=SyncedPlugins())
         async with anyio.create_task_group() as background:
             await poll(config, settings, worker, runner, lookup, background)
@@ -366,7 +369,7 @@ class WorkerRun(Run):
     config: WorkerConfig
 
     def main(self) -> int:
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s:%(name)s:%(message)s")
         anyio.run(serve, self.config)
         return 0
 

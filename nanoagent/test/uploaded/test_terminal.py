@@ -8,6 +8,7 @@ from typing import Any
 import anyio
 import pytest
 
+from nanoagent.uploaded.rush_worker import Canceled, Lease
 from nanoagent.uploaded.terminal import Terminal
 
 
@@ -57,6 +58,18 @@ async def test_the_members_input_is_typed_at_the_case_in_order() -> None:
     ])
     case = Case()
     with anyio.move_on_after(1):
-        await Terminal(rush, "a", 3).feed(case)  # type: ignore[arg-type]
+        await Terminal(rush, "a", 3).feed(case, Lease("a", 3))  # type: ignore[arg-type]
     assert case.typed == [(None, 30, 100), (b"hi\r", None, None)]
     assert rush.reads == [0, 2]
+
+
+@pytest.mark.anyio
+async def test_a_cancel_answered_to_the_input_read_revokes_the_lease_at_once() -> None:
+    class Canceling(Rush):
+        async def terminal_input(self, attempt_id: str, fence: int, after: int) -> list[dict[str, Any]]:
+            raise Canceled(409, "canceled", "The run was canceled")
+
+    lease = Lease("a", 3)
+    with anyio.fail_after(1):
+        await Terminal(Canceling([]), "a", 3).feed(Case(), lease)  # type: ignore[arg-type]
+    assert lease.revoked.is_set() and lease.reason == "canceled"

@@ -14,7 +14,7 @@ from typing import Any
 
 import anyio
 
-from nanoagent.uploaded.rush_worker import RushWorkerClient
+from nanoagent.uploaded.rush_worker import Canceled, Lease, LeaseLost, RushWorkerClient, Sealed
 
 SEND_S = 0.05
 MAX_SEND_BYTES = 256 * 1024  # one request's bytes at most
@@ -64,11 +64,18 @@ class Terminal:
             await anyio.sleep(SEND_S)
             await self.flush()
 
-    async def feed(self, case: Any) -> None:
-        """Types what the member sends at ``case``'s terminal (a `CaseHandle`), in order, until cancelled."""
+    async def feed(self, case: Any, lease: Lease) -> None:
+        """Types what the member sends at ``case``'s terminal (a `CaseHandle`), in order, until cancelled. RUSH answers this read
+        as soon as the session is canceled (the member opened another) or its lease lost, which fails ``lease`` at once, so the
+        case is killed in well under a second rather than at the next renewal."""
         after = 0
         while True:
-            for item in await self._worker.terminal_input(self._attempt_id, self._fence, after):
+            try:
+                inputs = await self._worker.terminal_input(self._attempt_id, self._fence, after)
+            except (Canceled, LeaseLost, Sealed) as error:
+                lease.fail(error)
+                return
+            for item in inputs:
                 data = None if item["data"] is None else base64.b64decode(item["data"])
                 await anyio.to_thread.run_sync(case.terminal_input, data, item["rows"], item["cols"])
                 after = item["seq"]

@@ -78,6 +78,7 @@ from nanoagent.uploaded.sandbox import (
     AttemptNetwork,
     BuildArtifact,
     CLIS_DIR,
+    PLUGIN_PREP_IMAGE,
     BuildSpec,
     CaseHandle,
     CaseSpec,
@@ -103,6 +104,8 @@ MISSING_ANSWER = "wrote no answer.json"  # read_answer's failure for an absent f
 SNAPSHOT_EVENT_DIFF_BYTES = 128 * 1024  # of the diff a snapshot.taken event carries; the snapshot payload has all of it
 BUILDS = "builds"  # under the scratch folder: each source's built harness, kept for the next attempt of it
 CLIS_FOLDER = "clis"  # under the scratch folder: the terminal's CLI installs (nanoagent.uploaded.clis), mounted into every case
+PLUGINS = "plugins"  # under the scratch folder: each plugin package a tooled attempt ran, unpacked with its environment synced
+PREPARED = "prepared"  # beside a kept plugin's folder: written last, once its environment is synced
 BUILT = "built.json"  # beside a kept build's harness/: its outputs and digest, written last
 
 
@@ -126,6 +129,9 @@ class Plugins(Protocol):
     def load(self, data: bytes, sha256: str, plugin_id: str, folder: Path) -> PluginManifest:
         """Unpack and verify a plugin package (blocking)."""
 
+    def unpacked(self, root: Path) -> PluginManifest:
+        """The manifest of a plugin unpacked earlier at ``root``."""
+
     def tool_runner(self, manifest: PluginManifest, workspace: Path, permitted: tuple[str, ...], launcher: ToolLauncher) -> Any:
         """A `ToolRunner` for the permitted tools that is also an async context manager: the plugin's session opens on entry.
 
@@ -141,6 +147,9 @@ class SyncedPlugins:
 
     def load(self, data: bytes, sha256: str, plugin_id: str, folder: Path) -> PluginManifest:
         return load_manifest(unpack_package(data, sha256, plugin_id, folder))
+
+    def unpacked(self, root: Path) -> PluginManifest:
+        return load_manifest(root)
 
     def tool_runner(self, manifest: PluginManifest, workspace: Path, permitted: tuple[str, ...], launcher: ToolLauncher) -> PluginToolRunner:
         return PluginToolRunner(manifest, workspace, permitted, launcher=launcher)
@@ -481,9 +490,9 @@ class AttemptRunner:
             return await self._finalize(job, journal, "build_failed", error.code)
         if (ended := await self._ended(job, lease, journal)) is not None:  # the build is a thread nothing can interrupt, so a cancel is seen after it
             return ended
-        manifest = await in_thread(self.plugins.load, package, job.plugin["sha256"], job.plugin["id"], work / "plugin")
-        if tools:
-            await in_thread(self.supervisor.prepare_plugin, manifest.root, cfg.plugin_sync_timeout_s)
+        LOG.info("attempt %s: harness built", job.attempt_id)  # with the worker log's times, these lines show where a session's start goes
+        manifest = await in_thread(self._plugin, job, package, work, bool(tools))
+        LOG.info("attempt %s: plugin ready", job.attempt_id)
         if (ended := await self._ended(job, lease, journal)) is not None:
             return ended
         if pending is not None:  # the harness reads its case as it starts
@@ -526,6 +535,31 @@ class AttemptRunner:
             built = json.loads((kept / BUILT).read_text())
             return BuildArtifact(kept / "harness", tuple(built["outputs"]), built["digest"], b"", b"", 0.0)
         return self._keep(self._build_now(job, archive, profile, work), kept)
+
+    def _plugin(self, job: AttemptJob, package: bytes, work: Path, tooled: bool) -> PluginManifest:
+        """The attempt's plugin. Without tools it is unpacked into the attempt's folder. With them it is the one an earlier attempt
+        unpacked and synced (`prepare_plugin`) of the same package, prep image and architecture, kept under the scratch folder's
+        plugins/ (read-only to every tool VM, so one serves all), or unpacked and synced now and kept there: a session's tools start
+        without a `uv sync` once its plugin has run here."""
+        sha256, plugin_id = job.plugin["sha256"], job.plugin["id"]
+        if not tooled:
+            return self.plugins.load(package, sha256, plugin_id, work / "plugin")
+        kept = self.config.scratch / PLUGINS / hashlib.sha256(f"{sha256}\0{PLUGIN_PREP_IMAGE}\0{platform.machine()}".encode()).hexdigest()[:32]
+        if not (kept / PREPARED).is_file():
+            staging = kept.parent / f".{kept.name}-{uuid.uuid4().hex[:8]}"
+            staging.mkdir(parents=True)
+            try:
+                manifest = self.plugins.load(package, sha256, plugin_id, staging)
+                self.supervisor.prepare_plugin(manifest.root, self.config.plugin_sync_timeout_s)
+                (staging / PREPARED).write_text(plugin_id)
+                staging.rename(kept)
+            except OSError:
+                if not (kept / PREPARED).is_file():
+                    raise
+                # an attempt beside this one kept the same plugin first: theirs serves
+            finally:
+                shutil.rmtree(staging, ignore_errors=True)
+        return self.plugins.unpacked(kept / plugin_id)
 
     @staticmethod
     def _keep(artifact: BuildArtifact, kept: Path) -> BuildArtifact:
@@ -650,11 +684,14 @@ class AttemptRunner:
         )
         offset = self.wall_clock_ns() - self.clock_ns()
         handle = await in_thread(self.supervisor.create_case, spec)
+        LOG.info("attempt %s: case VMs up", job.attempt_id)
         stack.push_async_callback(shielded, lambda: in_thread(handle.close))
         stack.push_async_callback(shielded, lambda: self._revoke(services))  # a fault after this leaves no in-flight call or tool behind
         if tools:
             await stack.enter_async_context(runner)  # the plugin is up before the harness can call it
+        LOG.info("attempt %s: plugin tools up", job.attempt_id)
         await in_thread(handle.launch)
+        LOG.info("attempt %s: harness launched", job.attempt_id)
         commands.handle = handle
         await emit.emit(rec.CaseLaunched(handle.container_id, self.clock_ns(), list(run_argv)))
 
@@ -763,7 +800,7 @@ class AttemptRunner:
             group.start_soon(waiter)
             group.start_soon(terminal.pump)
             if interactive:
-                group.start_soon(terminal.feed, handle)
+                group.start_soon(terminal.feed, handle, lease)
             await first_of(done, lease.revoked)
             if not done.is_set():
                 await self._revoke(services)

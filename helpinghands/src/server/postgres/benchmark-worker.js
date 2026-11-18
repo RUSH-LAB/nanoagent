@@ -172,6 +172,20 @@ function createPostgresBenchmarkWorker({pool, config}) {
     },
 
     /**
+     * Member `userId`'s worker `workerId` has just started, so nothing it leased before runs any more: its leased interactive attempts,
+     * whose member waits at their terminal, end now as interrupted, keeping what they committed; a benchmark attempt's lease runs out
+     * as before. The attempts ended.
+     */
+    async started(userId, workerId) {
+      return system(async client => (await client.query(
+        `update benchmark_attempt a set state = 'final', execution_status = 'interrupted', finalized_at = now(), sealed = true,
+           final_cursor = a.next_cursor - 1
+          from benchmark_run r where r.run_id = a.run_id and r.user_id = $1 and r.interactive and a.state = 'leased' and a.worker_id = $2
+          returning a.attempt_id`, [userId, workerId],
+      )).rows.map(row => row.attempt_id));
+    },
+
+    /**
      * Mint a credential named `name` for member `userId`'s worker: `{credential_id, name, token, created_at}`. The token is shown only
      * here; what is kept is its SHA-256 (the token is 256 random bits, so a fast hash is enough).
      */
@@ -390,9 +404,13 @@ function createPostgresBenchmarkWorker({pool, config}) {
 
     /** What the member sent the attempt's terminal after `after`, in order: `[{seq, data, rows, cols}]`, `data` base64 or null. */
     async terminalInput(userId, attemptId, fence, after) {
-      return fenced(userId, attemptId, fence, async client => (await client.query(
-        'select seq, data, rows, cols from benchmark_terminal_input where attempt_id = $1 and seq > $2 order by seq limit 500', [attemptId, after],
-      )).rows.map(row => ({seq: Number(row.seq), data: row.data === null ? null : row.data.toString('base64'), rows: row.rows, cols: row.cols})));
+      return fenced(userId, attemptId, fence, async (client, attempt) => {
+        // A session canceled (its member opened another) hears so on the read it polls, so its worker frees the slot at once.
+        if (attempt.cancel_requested || attempt.canceled_at) throw new BenchmarkError(409, 'canceled', 'The run was canceled');
+        return (await client.query(
+          'select seq, data, rows, cols from benchmark_terminal_input where attempt_id = $1 and seq > $2 order by seq limit 500', [attemptId, after],
+        )).rows.map(row => ({seq: Number(row.seq), data: row.data === null ? null : row.data.toString('base64'), rows: row.rows, cols: row.cols}));
+      });
     },
 
     async putPayload(userId, attemptId, fence, {sha256, data, redaction, contentType}) {

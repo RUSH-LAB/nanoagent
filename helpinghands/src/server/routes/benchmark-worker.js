@@ -27,7 +27,7 @@ const REDACTIONS = ['none', 'redacted', 'truncated'];
 
 const ROUTE = new RegExp([
   '^/api/benchmark-worker/(?:',
-  '(claim)',
+  '(claim|started)',
   '|attempts/([^/]+)/(renew|source|package|case|admissions|events|terminal|terminal-input|harness|spans|finalize|accounting)',
   '|attempts/([^/]+)/admissions/([^/]+)/(settle)',
   '|attempts/([^/]+)/payloads/([^/]+)',
@@ -69,6 +69,11 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
       if (id !== undefined && !UUID.test(id)) throw new BenchmarkError(404, 'unknown_attempt', 'No such attempt');
     };
 
+    // A worker that has just started: what it leased before runs no more.
+    if (claim === 'started') {
+      wanted('POST');
+      return json(res, 200, {interrupted: await worker.started(userId, v.string(v.object(await body(), 'The body').worker_id, 'worker_id', {max: 200}))});
+    }
     if (claim) {
       wanted('POST');
       const {workerId, label, capabilities, waitMs} = v.claimBody(await body());

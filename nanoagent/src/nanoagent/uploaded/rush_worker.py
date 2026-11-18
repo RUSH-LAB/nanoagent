@@ -230,6 +230,11 @@ class RushWorkerClient:
         response = await self._send("POST", "/claim", content=json_bytes(body), headers={"Content-Type": "application/json"})
         return None if response.status_code == 204 else parse_job(response.json())
 
+    async def started(self, worker_id: str) -> list[str]:
+        """Tell RUSH this worker has just started, so the interactive attempts it leased before end as interrupted rather than
+        hold its slots; returns their ids. A benchmark attempt's lease runs out as before."""
+        return list((await self._json("POST", "/started", {"worker_id": worker_id}))["interrupted"])
+
     async def renew(self, attempt_id: str, fence: int) -> float:
         """Renew the lease; returns how many seconds it now lasts, counted from this request."""
         return float((await self._json("POST", f"/attempts/{attempt_id}/renew", {"fence": fence}))["lease_seconds"])

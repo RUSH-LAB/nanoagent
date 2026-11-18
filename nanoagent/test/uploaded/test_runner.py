@@ -328,6 +328,17 @@ async def test_a_tool_suite_prepares_the_plugin_and_runs_it_in_a_tool_container_
     assert rig.supervisor.case.launched
 
 
+async def test_a_plugin_synced_once_serves_the_next_tooled_attempt_without_another_sync(tmp_path: Path) -> None:
+    for name in ("first", "second"):
+        (tmp_path / name).mkdir()
+    first, second = Rig(tmp_path / "first"), Rig(tmp_path / "second")
+    second.runner.config = first.runner.config  # the same scratch folder, as one worker's attempts share
+    for rig in (first, second):
+        await rig.run(fx.parse_job(fx.job_body(tools=[fx.WAIT_TOOL])))
+        assert rig.supervisor.case.launched
+    assert (len(first.supervisor.prepared), len(second.supervisor.prepared)) == (1, 0)
+
+
 async def test_a_tool_container_launch_failure_ends_only_that_attempt_and_leaves_nothing_behind(tmp_path: Path) -> None:
     rig = Rig(tmp_path, case_error=SandboxError("start_failed", "create tool container: injected"))
     result = await rig.run(fx.parse_job(fx.job_body(tools=[fx.WAIT_TOOL])))

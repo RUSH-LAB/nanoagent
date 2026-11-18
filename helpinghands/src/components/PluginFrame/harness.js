@@ -11,6 +11,19 @@ import {workerNotice} from './worker.js';
 
 const BASE = '/api/benchmark';
 const RETRY_MS = 1500;
+// A terminal with no output this long after it opened says what it waits on, from the attempt's state and the worker's.
+const SILENT_MS = 4000;
+
+/** What a session whose terminal has written nothing waits on, from its `attempt` and the worker's `status` (GET /api/runner/status). */
+export function waitingText(attempt, status) {
+  if (attempt.state === 'final') {
+    return `The session ended: ${attemptStatus(attempt)}${attempt.execution?.reason ? ` (${attempt.execution.reason})` : ''}.`;
+  }
+  if (attempt.state === 'leased') return 'This computer\'s worker has the session and is starting its terminal…';
+  const notice = workerNotice(status);
+  if (notice && notice.tone !== 'ok') return notice.text;
+  return 'Waiting for this computer\'s worker to start this session…';
+}
 
 /** The outcome the page shows of the sealed `attempt`, with what its model calls cost (`accounting`'s totals). */
 export function harnessOutcome(attempt, accounting) {
@@ -83,6 +96,24 @@ export async function followHarness({attemptId, request, read, emit, signal, sle
   };
   let offset = 0;
   let sealed = false;
+  // Never a silent black screen: until the first byte, the terminal itself says what it waits on, each time that changes.
+  (async () => {
+    let said = null;
+    await sleep(SILENT_MS);
+    while (!offset && !sealed && !signal.aborted) {
+      let text;
+      try {
+        const [{attempt}, status] = await Promise.all([json(`${BASE}/attempts/${attemptId}`), json('/api/runner/status')]);
+        text = waitingText(attempt, status);
+      } catch (error) {
+        text = error.message;
+      }
+      if (offset || sealed || signal.aborted) return;
+      if (text !== said) emit('harness.output', {data: typedBase64(`\x1b[2m[RUSH] ${text}\x1b[0m\r\n`)});
+      said = text;
+      await sleep(RETRY_MS);
+    }
+  })();
   while (!sealed && !signal.aborted) {
     let failed = false;
     try {

@@ -66,6 +66,17 @@ async def test_claim_sends_the_profile_and_maps_204_to_none() -> None:
     assert seen[0].headers["authorization"] == "Bearer tok"
 
 
+async def test_started_names_the_worker_and_returns_the_sessions_rush_interrupted() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"interrupted": ["a1"]})
+
+    assert await client_for(handler).started("w") == ["a1"]
+    assert (seen[0].method, seen[0].url.path, json.loads(seen[0].content)) == ("POST", "/api/benchmark-worker/started", {"worker_id": "w"})
+
+
 async def test_a_pending_case_is_read_with_the_fence_until_pinned_and_its_failure_raised() -> None:
     from nanoagent.uploaded.rush_worker import CaseFailed
 

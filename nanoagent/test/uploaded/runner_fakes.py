@@ -402,6 +402,9 @@ class FakePlugins:
     def load(self, data: bytes, sha256: str, plugin_id: str, folder: Path) -> Any:
         return self.manifest
 
+    def unpacked(self, root: Path) -> Any:
+        return self.manifest
+
     def tool_runner(self, manifest: Any, workspace: Path, permitted: tuple[str, ...], launcher: Any) -> FakeTools:
         return FakeTools()
 

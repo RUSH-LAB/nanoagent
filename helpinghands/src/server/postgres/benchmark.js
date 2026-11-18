@@ -40,6 +40,23 @@ function runSummary(row) {
 /** A case's rendered prompt as the API shows it. */
 const promptView = row => ({system: row.prompt_system, user: row.prompt_user, sha256: row.prompt_sha256});
 
+/**
+ * Cancel member `userId`'s unfinished interactive session runs, as `cancel` does one run: a queued attempt ends canceled, a leased
+ * one is told to stop. `client` acts as the system.
+ */
+async function endInteractiveSessions(client, userId) {
+  const runs = (await client.query(
+    `select run_id from benchmark_run r where r.user_id = $1 and r.interactive and r.canceled_at is null
+       and exists (select 1 from benchmark_attempt a where a.run_id = r.run_id and a.state <> 'final') order by run_id for update`, [userId],
+  )).rows.map(row => row.run_id);
+  if (!runs.length) return;
+  await client.query('update benchmark_run set canceled_at = now() where run_id = any($1)', [runs]);
+  await client.query(
+    `update benchmark_attempt set state = 'final', execution_status = 'canceled', finalized_at = now(), sealed = true,
+       final_cursor = next_cursor - 1 where run_id = any($1) and state = 'queued'`, [runs]);
+  await client.query("update benchmark_attempt set cancel_requested = true where run_id = any($1) and state = 'leased'", [runs]);
+}
+
 function runStatus(run, attempts) {
   if (run.canceled_at) return 'canceled';
   const current = [...latestByCase(attempts).values()];
@@ -339,7 +356,7 @@ function createPostgresBenchmark({pool}) {
      * (`resolve` in benchmark/plan.js), `benchmark` the benchmark it was resolved against and `harness` the source's manifest identity;
      * `session` marks a Harness tab or `nanoagent harness` run, never a benchmark result, and `interactive` one whose member works at its
      * terminal; `free` a free-form Terminal session, with no case and one attempt of none. A session's one attempt is `attempt_id`
-     * in the answer. A concurrent submission under the same key gets the first one's run: `{run_id, replayed}`.
+     * in the answer; an `interactive` one ends the member's other unfinished interactive sessions first. A concurrent submission under the same key gets the first one's run: `{run_id, replayed}`.
      */
     async createRun(context, request, resolved, benchmark, harness, {session = false, interactive = false, free = false} = {}) {
       const {plan, cases} = resolved;
@@ -352,6 +369,8 @@ function createPostgresBenchmark({pool}) {
         if (!(await client.query('select 1 from benchmark_package where sha256 = $1', [benchmark.plugin.sha256])).rowCount) {
           throw new BenchmarkError(409, 'package_unavailable', `${benchmark.plugin.id} ${benchmark.plugin.version} is no longer published, so its benchmark cannot be run`);
         }
+        // One terminal session per member: a new one ends their other unfinished ones (any plugin, any workspace), so it never waits behind them.
+        if (interactive) await endInteractiveSessions(client, context.userId);
         const runId = crypto.randomUUID();
         const inserted = (await client.query(
           `insert into benchmark_run (run_id, workspace_id, user_id, idempotency_key, request_digest, preview_id, source_sha256,
@@ -446,7 +465,7 @@ function createPostgresBenchmark({pool}) {
       return member(context, async client => {
         const row = (await client.query(
           `select a.*, c.kind, c.content_digest, c.prompt_system, c.prompt_user, c.prompt_sha256
-             from benchmark_attempt a join benchmark_run_case c on c.run_id = a.run_id and c.case_id = a.case_id
+             from benchmark_attempt a left join benchmark_run_case c on c.run_id = a.run_id and c.case_id = a.case_id
             where a.attempt_id = $1`, [attemptId],
         )).rows[0];
         return row ? {...attemptView(row), kind: row.kind, content_digest: row.content_digest, prompt: promptView(row)} : null;
