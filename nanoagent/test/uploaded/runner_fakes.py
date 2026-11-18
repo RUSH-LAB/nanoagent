@@ -99,7 +99,8 @@ class FakeRush:
     """The worker API: records everything, and loses the lease, cancels or seals on cue."""
 
     def __init__(self, source: bytes | None = None) -> None:
-        self.screen = b""  # what the harness wrote to its terminal
+        self.screen = b""  # what the harness wrote to its terminal (0)
+        self.closed_terminals: list[int] = []
         self.source_bytes = source if source is not None else source_zip()
         self.events: list[dict[str, Any]] = []
         self.event_ids: set[str] = set()
@@ -190,10 +191,14 @@ class FakeRush:
         self._fenced()
         self.payloads[sha256] = data
 
-    async def terminal(self, attempt_id: str, fence: int, offset: int, data: bytes) -> None:
+    async def terminal(self, attempt_id: str, fence: int, terminal: int, offset: int, data: bytes) -> None:
         self._fenced()
-        assert offset == len(self.screen)
+        assert terminal == 0 and offset == len(self.screen)
         self.screen += data
+
+    async def terminal_closed(self, attempt_id: str, fence: int, terminal: int) -> None:
+        self._fenced()
+        self.closed_terminals.append(terminal)
 
     async def spans(self, attempt_id: str, body: dict[str, Any]) -> None:
         self._fenced()
@@ -291,6 +296,9 @@ class FakeCase:
 
     def cpu_counters(self) -> list[dict[str, Any]]:
         return list(self.script.cpu)
+
+    def ended_terminals(self) -> frozenset[int]:
+        return frozenset()
 
     def wait(self) -> CaseOutcome:
         if self.script.block:

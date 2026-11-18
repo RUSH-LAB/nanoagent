@@ -288,8 +288,18 @@ class CaseHandle(Protocol):
         """Hand a warm terminal (launched with a request of ``{"wait_go": true}``) the session's request and token: the shell starts."""
         ...
 
-    def terminal_input(self, data: bytes | None, rows: int | None = None, cols: int | None = None) -> None:
-        """Types ``data`` at the harness's terminal, or resizes it to ``rows`` by ``cols``."""
+    def open_terminal(self, terminal: int, rows: int, cols: int, on_output: Callable[[bytes], None]) -> None:
+        """Opens terminal ``terminal`` (1, 2, ...) of a free-form session, ``rows`` by ``cols``: the harness's ``run.argv`` again, on a
+        PTY of its own in the same VM and workspace, with ``RUSH_TERMINAL`` its id, each chunk it writes handed to ``on_output``."""
+
+    def terminal_input(self, terminal: int, data: bytes | None, rows: int | None = None, cols: int | None = None) -> None:
+        """Types ``data`` at terminal ``terminal`` (0 the harness's), or resizes it to ``rows`` by ``cols``."""
+
+    def close_terminal(self, terminal: int) -> None:
+        """Closes terminal ``terminal``: every process of it is killed."""
+
+    def ended_terminals(self) -> frozenset[int]:
+        """The terminals that ran and ended: 0 once the harness exited."""
 
     def stop_and_drain(self) -> WorkspaceSnapshot:
         """Reads the CPU counters, kills the tool VM, freezes the harness VM, then snapshots the workspace and diffs it
@@ -429,6 +439,12 @@ async def _kill_case_processes(sandbox: Sandbox) -> None:
     """SIGKILL every process of the case user. Run as that user, `kill -1` reaches all of them but itself, and never the
     root tracer, which then records each exit."""
     await sandbox.exec("sh", ["-c", "kill -KILL -1"], user=CASE_USER, timeout=30)
+
+
+async def _kill_terminal(sandbox: Sandbox, terminal: int) -> None:
+    """SIGKILL every process of the case user whose environment has ``RUSH_TERMINAL`` of ``terminal``: what that terminal runs."""
+    script = f'for d in /proc/[0-9]*; do tr "\\0" "\\n" < "$d/environ" 2>/dev/null | grep -qx RUSH_TERMINAL={terminal} && kill -KILL "${{d#/proc/}}"; done; true'
+    await sandbox.exec("sh", ["-c", script], user=CASE_USER, timeout=30)
 
 
 async def _oom_kills(sandbox: Sandbox) -> int:
@@ -972,8 +988,11 @@ class _Case:
         self._out = out
         self._initial = initial
         self._future: Any = None
-        self._pty: ExecHandle | None = None  # the harness's command and its terminal's input, once it runs
-        self._keys: ExecSink | None = None
+        self._env: dict[str, str] = {}  # the harness's environment, which every terminal starts with
+        self._ptys: dict[int, ExecHandle] = {}  # each terminal's command (0 the harness's), once it runs
+        self._keys: dict[int, ExecSink] = {}  # and its input
+        self._terminals: dict[int, Any] = {}  # each further terminal's run (a future of a `_Run`), by id
+        self._terminals_lock = threading.Lock()
         self._outcome: CaseOutcome | None = None
         self._launched_at = 0.0
         self._deadline = 0.0
@@ -1000,8 +1019,9 @@ class _Case:
         env = {
             "RUSH_REQUEST": REQUEST_PATH, "RUSH_RESULT": f"{OUT_DIR}/{RESULT_NAME}", "RUSH_WORKSPACE": WORKSPACE,
             "RUSH_ATTEMPT_TOKEN": self.spec.attempt_token, "HOME": "/tmp", "TMPDIR": "/tmp", "TERM": "xterm-256color",
-            **self.spec.profile.runtime_env,
+            "RUSH_TERMINAL": "0", **self.spec.profile.runtime_env,
         }
+        self._env = env
         self._oom_before = self._run(self._prepare_trace())
         started = threading.Event()
         # The harness runs on a PTY, as in a person's terminal: what is typed at it reaches it there (`terminal_input`).
@@ -1011,7 +1031,7 @@ class _Case:
         self._future = self._s._loop.submit(_run(
             self._sandbox, cmd, args, user="root", cwd=WORKSPACE, env=env, timeout_s=limits.wall_s, capture_bytes=limits.output_bytes,
             rlimits=[Rlimit(RlimitResource.NPROC, limits.pids, limits.pids)], on_timeout=lambda: _kill_case_processes(self._sandbox),
-            started=started, tty=True, on_output=self.spec.on_output, on_exec=self._attach,
+            started=started, tty=True, on_output=self.spec.on_output, on_exec=lambda handle: self._attach(0, handle),
         ))
         while not started.wait(0.02):
             if self._future.done():
@@ -1024,21 +1044,70 @@ class _Case:
         staged.write_text(json.dumps({"token": token}))
         staged.rename(self._out / "go.json")  # whole, after the request: the shell reads it the moment it appears
 
-    def _attach(self, handle: ExecHandle) -> None:
-        self._pty = handle
-        self._keys = handle.take_stdin()
+    def _attach(self, terminal: int, handle: ExecHandle) -> None:
+        self._ptys[terminal] = handle
+        self._keys[terminal] = handle.take_stdin()
 
-    def terminal_input(self, data: bytes | None, rows: int | None = None, cols: int | None = None) -> None:
-        """Types ``data`` at the harness's terminal, or resizes it to ``rows`` by ``cols``. Once the harness has exited there is no
-        one to type to, and it is dropped."""
-        assert self._pty is not None and self._keys is not None
-        if self._future.done():
+    def _run_of(self, terminal: int) -> Any:
+        return self._future if terminal == 0 else self._terminals[terminal]
+
+    def open_terminal(self, terminal: int, rows: int, cols: int, on_output: Callable[[bytes], None]) -> None:
+        """Opens terminal ``terminal``, which runs to the case's deadline. Once every terminal has ended the session is ending, and
+        none opens."""
+        assert terminal > 0 and self._future is not None
+        with self._terminals_lock:
+            assert terminal not in self._terminals
+            if all(run.done() for run in [self._future, *self._terminals.values()]):
+                return
+            started = threading.Event()
+            session = f"terminal-{terminal}"
+            self._run(self._sandbox.exec("mkdir", ["-p", "-m", "0755", f"{TRACE_DIR}/{session}"], user="root", timeout=30))
+            cmd, args = _traced(session, self.spec.run_argv)
+            limits = self.spec.limits
+            self._terminals[terminal] = self._s._loop.submit(_run(
+                self._sandbox, cmd, args, user="root", cwd=WORKSPACE, env={**self._env, "RUSH_TERMINAL": str(terminal)},
+                timeout_s=max(self._deadline - self._s._clock(), 0), capture_bytes=limits.output_bytes,
+                rlimits=[Rlimit(RlimitResource.NPROC, limits.pids, limits.pids)], on_timeout=lambda: _kill_case_processes(self._sandbox),
+                started=started, tty=True, on_output=on_output, on_exec=lambda handle: self._attach(terminal, handle),
+            ))
+        while not started.wait(0.02):
+            if self._terminals[terminal].done():
+                self._terminals[terminal].result()  # raises the start failure
+                return  # it ended as it started
+        self.terminal_input(terminal, None, rows, cols)
+
+    def terminal_input(self, terminal: int, data: bytes | None, rows: int | None = None, cols: int | None = None) -> None:
+        """Types ``data`` at terminal ``terminal``, or resizes it to ``rows`` by ``cols``. Once it has ended there is no one to type to,
+        and it is dropped, as it is for a terminal the session ended before it opened."""
+        if terminal != 0 and terminal not in self._terminals:
             return
+        run = self._run_of(terminal)
+        if run.done():
+            return
+        pty, keys = self._ptys[terminal], self._keys[terminal]
         try:
-            self._run(_call(lambda: self._keys.write(data) if data is not None else self._pty.resize(rows, cols)))
+            self._run(_call(lambda: keys.write(data) if data is not None else pty.resize(rows, cols)))
         except microsandbox.MicrosandboxError:
-            if not self._future.done():
+            if not run.done():
                 raise
+
+    def close_terminal(self, terminal: int) -> None:
+        """Kills every case process of terminal ``terminal``: each one that has its ``RUSH_TERMINAL`` (a process that changed it
+        ends with the case). The tracer, root's, records their exits and ends with them."""
+        if terminal != 0 and terminal not in self._terminals:
+            return
+        if not self._run_of(terminal).done():
+            self._run(_kill_terminal(self._sandbox, terminal))
+
+    def ended_terminals(self) -> frozenset[int]:
+        with self._terminals_lock:
+            runs = {0: self._future, **self._terminals}
+        return frozenset(terminal for terminal, run in runs.items() if run is not None and run.done())
+
+    def _further(self) -> list[Any]:
+        """The runs of the terminals the member opened, so far."""
+        with self._terminals_lock:
+            return list(self._terminals.values())
 
     async def _prepare_trace(self) -> int:
         await self._sandbox.exec("mkdir", ["-p", "-m", "0755", f"{TRACE_DIR}/harness"], user="root", timeout=30)
@@ -1050,6 +1119,11 @@ class _Case:
         assert self._future is not None
         try:
             run: _Run = self._future.result()
+            # A free-form session ends when its last terminal does: the harness's, or one the member opened.
+            while pending := [future for future in self._further() if not future.done()]:
+                for future in pending:
+                    future.exception()  # waits; a terminal that failed ends only itself
+            timed_out = run.timed_out or any(future.exception() is None and future.result().timed_out for future in self._further())
         except BaseException as error:
             if self._closing.is_set():  # close() removed the VM while this waited on it
                 raise SandboxError("closed", "the case was closed while it was awaited") from error
@@ -1059,7 +1133,7 @@ class _Case:
         evidence = self.evidence(tracer_ok=run.code is not None)
         root = evidence.root()
         root_exit = root.exit if root is not None else None
-        termination = termination_from_root_exit(root_exit, run.code if run.code is not None else -1, oom_killed=oom, timed_out=run.timed_out)
+        termination = termination_from_root_exit(root_exit, run.code if run.code is not None else -1, oom_killed=oom, timed_out=timed_out)
         if root_exit is None:
             self._final = replace(evidence, complete=False, loss_reasons=(*evidence.loss_reasons, "root_exit_missing"))
         self._outcome = CaseOutcome(termination, self._launched_at, exited_at, run.stdout, run.stderr, run.stdout_truncated, run.stderr_truncated)
@@ -1174,23 +1248,29 @@ class _Case:
                     self._run(_call(self._sandbox.resume))
                     self._paused = False
                 harness = TraceSession(self._run(_read_session(self._sandbox, f"{TRACE_DIR}/harness")), WORKSPACE, False, tracer_ok)
-                self._final = parse_trace(self.container_id, [harness, *self._sessions.values()])
+                # Each further terminal is traced from its own root, beside the harness's, as a managed command is.
+                terminals = [
+                    TraceSession(self._run(_read_session(self._sandbox, f"{TRACE_DIR}/terminal-{terminal}")), WORKSPACE, True, run.done() and run.exception() is None)
+                    for terminal, run in sorted(self._terminals.items())
+                ]
+                self._final = parse_trace(self.container_id, [harness, *terminals, *self._sessions.values()])
             return self._final
 
     def close(self) -> None:
         if self._closing.is_set():
             return
         self._closing.set()
-        if self._future is not None and not self._future.done():
+        if self._future is not None and not all(future.done() for future in [self._future, *self._further()]):
             # Still running: end every case process, so the tracer records their exits, then keep what it wrote.
             if self._paused:
                 self._run(_call(self._sandbox.resume))
                 self._paused = False
             self._run(_kill_case_processes(self._sandbox))
-            try:
-                self._future.result(timeout=DRAIN_S + 5)
-            except Exception:
-                pass
+            for future in [self._future, *self._further()]:
+                try:
+                    future.result(timeout=DRAIN_S + 5)
+                except Exception:
+                    pass
         if self._future is not None:
             try:
                 self.evidence(tracer_ok=self._future.done() and self._future.exception() is None)

@@ -546,32 +546,41 @@ function createPostgresBenchmark({pool}) {
       });
     },
     /**
-     * What the attempt's harness wrote to its terminal from byte `start`, at most MAX_TERMINAL_PAGE_BYTES of it (always one chunk),
-     * and whether the attempt is sealed: `{chunks: [{offset, data}], sealed}`, null for an attempt the caller cannot see.
+     * What terminal `terminal` of the attempt wrote from byte `start`, at most MAX_TERMINAL_PAGE_BYTES of it (always one chunk), whether
+     * that terminal ended and whether the attempt is sealed: `{chunks: [{offset, data}], closed, sealed}`, null for an attempt the caller
+     * cannot see.
      */
-    async terminal(context, attemptId, start) {
+    async terminal(context, attemptId, terminal, start) {
       return member(context, async client => {
-        const attempt = (await client.query('select sealed from benchmark_attempt where attempt_id = $1', [attemptId])).rows[0];
+        const attempt = (await client.query(
+          `select sealed, exists (select 1 from benchmark_terminal_closed c where c.attempt_id = a.attempt_id and c.terminal = $2) as closed
+             from benchmark_attempt a where attempt_id = $1`, [attemptId, terminal],
+        )).rows[0];
         if (!attempt) return null;
         const rows = (await client.query(
           `select byte_offset, data from (
              select byte_offset, data, sum(octet_length(data)) over (order by byte_offset) - octet_length(data) as before_bytes
-               from benchmark_terminal where attempt_id = $1 and byte_offset >= $2 order by byte_offset) page
-            where before_bytes < $3 order by byte_offset`, [attemptId, start, MAX_TERMINAL_PAGE_BYTES],
+               from benchmark_terminal where attempt_id = $1 and terminal = $2 and byte_offset >= $3 order by byte_offset) page
+            where before_bytes < $4 order by byte_offset`, [attemptId, terminal, start, MAX_TERMINAL_PAGE_BYTES],
         )).rows;
-        return {chunks: rows.map(row => ({offset: Number(row.byte_offset), data: row.data})), sealed: attempt.sealed};
+        return {chunks: rows.map(row => ({offset: Number(row.byte_offset), data: row.data})), closed: attempt.closed, sealed: attempt.sealed};
       });
     },
-    /** Send `input` (`{data}` keystrokes, or `{rows, cols}`) to the terminal of the caller's running session attempt; false when there is none. */
-    async terminalInput(context, attemptId, {data = null, rows = null, cols = null}) {
+    /**
+     * Send `input` (`{terminal}` and `{data}` keystrokes, `{rows, cols}` or `{close: true}`) to a terminal of the caller's running
+     * session attempt; false when there is none. Only a free-form Terminal session (an attempt of no case) opens more than terminal 0.
+     */
+    async terminalInput(context, attemptId, {terminal, data = null, rows = null, cols = null, close = false}) {
       return member(context, async client => {
         const open = (await client.query(
-          'select 1 from benchmark_attempt a join benchmark_run r on r.run_id = a.run_id where a.attempt_id = $1 and r.interactive and not a.sealed', [attemptId],
+          `select 1 from benchmark_attempt a join benchmark_run r on r.run_id = a.run_id
+            where a.attempt_id = $1 and r.interactive and not a.sealed and ($2 = 0 or a.case_id is null)`, [attemptId, terminal],
         )).rowCount;
         if (!open) return false;
         await client.query(
-          `insert into benchmark_terminal_input (attempt_id, seq, data, rows, cols)
-           select $1, coalesce(max(seq), 0) + 1, $2, $3, $4 from benchmark_terminal_input where attempt_id = $1`, [attemptId, data, rows, cols],
+          `insert into benchmark_terminal_input (attempt_id, seq, terminal, data, rows, cols, close)
+           select $1, coalesce(max(seq), 0) + 1, $2, $3, $4, $5, $6 from benchmark_terminal_input where attempt_id = $1`,
+          [attemptId, terminal, data, rows, cols, close],
         );
         return true;
       });

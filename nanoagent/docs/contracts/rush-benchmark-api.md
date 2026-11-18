@@ -284,13 +284,13 @@ data: <the event object above>
 
 When the attempt is sealed and every event up to its final cursor was sent: `event: sealed` with `data: {"final_cursor": N}`, then the stream ends. `: heartbeat` comments arrive while idle. A sealed attempt streams what remains, then `sealed`. `404` for an attempt the caller cannot see.
 
-## `GET /attempts/{attempt_id}/terminal?from=<byte>`
+## `GET /attempts/{attempt_id}/terminal?terminal=<id>&from=<byte>`
 
-Server-sent events: what the attempt's harness wrote to its terminal from byte `from` (default 0), in order, each chunk `event: output` with `data: {"offset": N, "data": "<base64>"}`, then `event: sealed` once the attempt is sealed and every chunk was sent. A reconnect resumes from the byte it reached. An attempt keeps 4 MiB of it at most. `404` for an attempt the caller cannot see.
+Server-sent events: what terminal `terminal` of the attempt wrote from byte `from` (default 0), in order, each chunk `event: output` with `data: {"offset": N, "data": "<base64>"}`; `event: closed` once that terminal ended and every chunk was sent; then `event: sealed` once the attempt is sealed. Terminal `0` is the harness's; a free-form session's member opens more (`1` to `31`, `POST /attempts/{id}/terminal`), all in its one VM. A reconnect resumes from the byte it reached. An attempt's terminals keep 4 MiB at most together. `400` without a terminal id from 0 to 31, `404` for an attempt the caller cannot see.
 
 ## `POST /attempts/{attempt_id}/terminal`
 
-What the member sends the terminal of their own running Harness tab session: `{"data": "<base64>"}`, keystrokes, or `{"rows": R, "cols": C}`, its new size (1 to 1000 each). `200 {"sent": true}`; `409 session_ended` when the attempt is not a running session's.
+What the member sends terminal `terminal` (0 to 31) of their own running Harness tab session: `{"terminal", "data": "<base64>"}`, keystrokes; `{"terminal", "rows": R, "cols": C}`, its new size (1 to 1000 each), which opens a terminal not yet open at that size; or `{"terminal", "close": true}`, which closes it (every process of it is killed). Only a free-form session opens terminals past 0. `200 {"sent": true}`; `409 session_ended` when the attempt is not a running session's, or it names a terminal past 0 of a session that is not free-form.
 
 ## `GET /attempts/{attempt_id}/spans?kind=&status=&q=&limit=`
 
@@ -507,7 +507,7 @@ Raw bytes. Headers: `X-Rush-Fence`, `X-Rush-Redaction: none|redacted|truncated` 
 
 ## `POST /attempts/{id}/terminal`
 
-`{"fence": N, "offset": <byte>, "data": "<base64>"}`: what the harness wrote to its terminal from byte `offset`, at most 256 KiB a request. `offset` is the bytes held so far: `200 {"next_offset"}`; a retried offset with the same bytes is kept once, other bytes `409 conflicting_duplicate`, a later offset `409 terminal_gap`, past 4 MiB `413 too_large`.
+`{"fence": N, "terminal": T, "offset": <byte>, "data": "<base64>"}`: what terminal `T` (0 the harness's, to 31) wrote from byte `offset`, at most 256 KiB a request. `offset` is the bytes that terminal holds so far: `200 {"next_offset"}`; a retried offset with the same bytes is kept once, other bytes `409 conflicting_duplicate`, a later offset `409 terminal_gap`, past 4 MiB for the attempt's terminals together `413 too_large`. `{"fence": N, "terminal": T, "closed": true}`, after its last output: terminal `T` ended, `200 {"closed": true}` (a retry is kept once).
 
 ## `GET /attempts/{id}/case`
 
@@ -515,7 +515,7 @@ Header `X-Rush-Fence`. The case of a job claimed with `case_pending`: `200 {"cas
 
 ## `GET /attempts/{id}/terminal-input?after=<seq>`
 
-Header `X-Rush-Fence`. What the member sent a session's terminal after `after`: `200 {"inputs": [{"seq", "data": "<base64>|null", "rows", "cols"}]}`, keystrokes or a resize, in order. RUSH holds the request up to 15 s for some to come, then answers `[]`.
+Header `X-Rush-Fence`. What the member sent a session's terminals after `after`: `200 {"inputs": [{"seq", "terminal", "data": "<base64>|null", "rows", "cols", "close"}]}`, keystrokes, a resize (which opens a terminal not yet open) or a close, in order. RUSH holds the request up to 15 s for some to come, then answers `[]`.
 
 ## `POST /attempts/{id}/harness`
 

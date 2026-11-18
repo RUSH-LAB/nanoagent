@@ -135,12 +135,13 @@ def find_plugin(rush: httpx.Client, plugin: str, workspace: str | None) -> tuple
 
 
 def follow(rush: httpx.Client, prefix: str, attempt_id: str, write) -> bytes:
-    """The attempt's terminal output, each chunk given to ``write`` as it comes, until the attempt is sealed: all of it."""
+    """The attempt's terminal output (its first, the harness's), each chunk given to ``write`` as it comes, until the attempt is sealed:
+    all of it."""
     seen = bytearray()
     sealed = False
     while not sealed:
         try:
-            with rush.stream("GET", f"{prefix}/benchmark/attempts/{attempt_id}/terminal", params={"from": len(seen)},
+            with rush.stream("GET", f"{prefix}/benchmark/attempts/{attempt_id}/terminal", params={"terminal": 0, "from": len(seen)},
                              headers={"Accept": "text/event-stream"}, timeout=httpx.Timeout(30.0, read=None)) as response:  # fmt: skip
                 if response.status_code == 404:
                     raise SystemExit("harness: the session's attempt is gone")
@@ -177,7 +178,7 @@ class Keyboard:
 
     def _size(self, *_: Any) -> None:
         size = shutil.get_terminal_size()
-        self._sends.put({"rows": size.lines, "cols": size.columns})
+        self._sends.put({"terminal": 0, "rows": size.lines, "cols": size.columns})
 
     def _read(self) -> None:
         while not self._done.is_set():
@@ -185,7 +186,7 @@ class Keyboard:
                 data = os.read(self._fd, 4096)
                 if not data:
                     return
-                self._sends.put({"data": base64.b64encode(data).decode("ascii")})
+                self._sends.put({"terminal": 0, "data": base64.b64encode(data).decode("ascii")})
 
     def _send(self) -> None:
         while (body := self._sends.get()) is not None:

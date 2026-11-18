@@ -1,5 +1,5 @@
 import {readEvents, SSE_CONTENT_TYPE} from '../../utils/eventStream.js';
-import {awaitWorker, followHarness, harnessInput} from './harness.js';
+import {awaitWorker, followHarness, followTerminal, harnessInput} from './harness.js';
 import {
   chatEvent, failure, invalidRequest, promptHistory, reply, requestFrom, runEvent, themeEvent,
 } from './protocol.js';
@@ -32,7 +32,8 @@ import {
  * worked by a reference harness on the member's own worker, or of the free-form Terminal (`shell`, no request and no case), on a
  * terminal the member works in: the page hears the terminal's
  * output as it comes and the outcome (./harness.js), through `harness.done`, and sends what is typed (`harness.input`) and the
- * terminal's size (`harness.resize`); `harness.cancel` cancels the run, as the frame going away does.
+ * terminal's size (`harness.resize`), each to one of its terminals (0 the first); `harness.open` opens another in a free-form
+ * session, `harness.close` closes one, and `harness.cancel` cancels the run, as the frame going away does.
  *
  * The Leaderboard tab reads the harnesses ranked on the plugin, whatever task (`leaderboard`), and the trace of one of the member's
  * own runs on it (`leaderboard.trace`, its attempt's events).
@@ -217,7 +218,7 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     const controller = new AbortController();
     // `run` and `attempt` once RUSH has queued the session, which waits for the member's worker to be ready.
     let queued;
-    const entry = {controller, run: null, attempt: null, queued: new Promise(resolve => (queued = resolve)), sending: Promise.resolve()};
+    const entry = {controller, run: null, attempt: null, queued: new Promise(resolve => (queued = resolve)), sending: Promise.resolve(), opened: []};
     harnessRuns.set(runId, entry);
     const emit = (event, data) => post(runEvent(event, runId, data));
     const follow = async () => {
@@ -238,7 +239,7 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
           return;
         }
         queued();
-        await followHarness({attemptId: entry.attempt, request, read: readEvents, emit, signal: controller.signal});
+        await followHarness({attemptId: entry.attempt, request, read: readEvents, emit, signal: controller.signal, opened: entry.opened});
       } catch (error) {
         if (!controller.signal.aborted) emit('harness.error', {message: error.message});
       } finally {
@@ -282,8 +283,17 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
       await cancelHarness(run);
       return {result: {}};
     },
-    'harness.input': async ({runId, data}) => toTerminal(runId, {data}),
-    'harness.resize': async ({runId, rows, cols}) => toTerminal(runId, {rows, cols}),
+    'harness.input': async ({runId, terminal, data}) => toTerminal(runId, {terminal, data}),
+    'harness.resize': async ({runId, terminal, rows, cols}) => toTerminal(runId, {terminal, rows, cols}),
+    // Another terminal of the session, `rows` by `cols`: its output is followed from when RUSH has queued the session, and its first size opens it.
+    'harness.open': async ({runId, terminal, rows, cols}) => {
+      const run = harnessRuns.get(runId);
+      if (!run) throw new Error(`No harness run ${runId} is in progress`);
+      const emit = (event, data) => post(runEvent(event, runId, data));
+      run.opened.push(run.queued.then(() => followTerminal({attemptId: run.attempt, terminal, request, read: readEvents, emit, signal: run.controller.signal})));
+      return toTerminal(runId, {terminal, rows, cols});
+    },
+    'harness.close': async ({runId, terminal}) => toTerminal(runId, {terminal, close: true}),
     'leaderboard': async () => {
       const response = await request(`/api/benchmark/leaderboard?${new URLSearchParams({plugin_id: plugin.id})}`);
       if (!response.ok) throw await failed(response, 'Could not read the leaderboard');

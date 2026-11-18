@@ -228,7 +228,7 @@
         "exec_url": {"type": "string", "format": "uri"},
         "events_url": {"type": "string", "format": "uri"},
         "limits": {"$ref": "#/$defs/Limits"},
-        "interactive": {"type": "boolean", "description": "Whether a person is at the harness's terminal (a plugin page's Harness tab session), who types at it and ends it: the harness then runs its CLI interactively."}
+        "interactive": {"type": "boolean", "description": "Whether a person is at the harness's terminal (a plugin page's Harness tab session), who types at it and ends it: the harness then runs its CLI interactively. In a free-form session they open more terminals in the same VM, each running run.argv again with RUSH_TERMINAL its id (the harness's is 0), and the session ends with the last."}
       },
       "if": {"properties": {"free_form": {"const": true}}},
       "then": {"properties": {"case": {"type": "null"}, "prompt": {"type": "null"}}},

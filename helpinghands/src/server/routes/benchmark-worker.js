@@ -167,8 +167,9 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
         return json(res, 201, await worker.admit(userId, jobId, fence, id, reserveUsd));
       }
       if (jobPart === 'terminal') {
-        const {fence, offset, data} = v.terminalBody(input);
-        return json(res, 200, await worker.appendTerminal(userId, jobId, fence, offset, data));
+        const {fence, terminal, offset, data, closed} = v.terminalBody(input);
+        if (closed) return json(res, 200, await worker.closeTerminal(userId, jobId, fence, terminal));
+        return json(res, 200, await worker.appendTerminal(userId, jobId, fence, terminal, offset, data));
       }
       if (jobPart === 'events') {
         const {fence, events} = v.eventsBody(input);

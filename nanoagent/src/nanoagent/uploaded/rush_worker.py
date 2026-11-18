@@ -301,14 +301,20 @@ class RushWorkerClient:
             headers={FENCE_HEADER: str(fence), REDACTION_HEADER: redaction, "Content-Type": content_type},
         )
 
-    async def terminal(self, attempt_id: str, fence: int, offset: int, data: bytes) -> None:
-        """Appends ``data``, the harness's terminal output from byte ``offset``, to what RUSH shows of it (a retried
-        offset is kept once)."""
-        await self._json("POST", f"/attempts/{attempt_id}/terminal", {"fence": fence, "offset": offset, "data": base64.b64encode(data).decode("ascii")})
+    async def terminal(self, attempt_id: str, fence: int, terminal: int, offset: int, data: bytes) -> None:
+        """Appends ``data``, what terminal ``terminal`` wrote from byte ``offset``, to what RUSH shows of it (a retried offset is kept
+        once)."""
+        body = {"fence": fence, "terminal": terminal, "offset": offset, "data": base64.b64encode(data).decode("ascii")}
+        await self._json("POST", f"/attempts/{attempt_id}/terminal", body)
+
+    async def terminal_closed(self, attempt_id: str, fence: int, terminal: int) -> None:
+        """Tells RUSH that terminal ``terminal`` ended, after its last output."""
+        await self._json("POST", f"/attempts/{attempt_id}/terminal", {"fence": fence, "terminal": terminal, "closed": True})
 
     async def terminal_input(self, attempt_id: str, fence: int, after: int) -> list[Mapping[str, Any]]:
-        """What the member sent the harness's terminal after input ``after``: ``[{seq, data, rows, cols}]`` (``data`` base64 keystrokes,
-        or null for a resize to ``rows`` by ``cols``). RUSH holds the request open a while for some to come, and answers [] if none did."""
+        """What the member sent the attempt's terminals after input ``after``: ``[{seq, terminal, data, rows, cols, close}]`` (``data``
+        base64 keystrokes, or null for a resize to ``rows`` by ``cols``, which opens a terminal not yet open, or for ``close``). RUSH
+        holds the request open a while for some to come, and answers [] if none did."""
         response = await self._send("GET", f"/attempts/{attempt_id}/terminal-input", params={"after": after}, headers={FENCE_HEADER: str(fence)})
         return response.json()["inputs"]
 

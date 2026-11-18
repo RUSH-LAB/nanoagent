@@ -5,7 +5,7 @@ const {isLosslessNumber, stringifyJson} = require('./json');
 const {DEFAULT_CODING_TEMPLATE, MAX_BENCHMARK_PROMPT_CHARS, canonicalJson, normalizeInstructions, normalizeTemplate, renderCoding, renderTaskTools, sha256Hex} = require('./prompt');
 const {
   effectiveLimits, limitOverrides, capabilitiesOf, MAX_EVENT_DATA_BYTES, MAX_SPAN_ATTRIBUTES_BYTES, MAX_LINK_ATTRIBUTES_BYTES, MAX_ACCOUNTING_RECORD_BYTES,
-  MAX_RESULT_BYTES, MAX_ACCOUNTING_VERSION, MAX_USD, MAX_INTEGER, MAX_ATTEMPT_TERMINAL_BYTES, MAX_TERMINAL_CHUNK_BYTES,
+  MAX_RESULT_BYTES, MAX_ACCOUNTING_VERSION, MAX_USD, MAX_INTEGER, MAX_ATTEMPT_TERMINAL_BYTES, MAX_TERMINAL_CHUNK_BYTES, MAX_TERMINALS,
 } = require('./limits');
 const {UUID} = require('./http');
 const {nanoseconds} = require('../postgres/benchmark-context');
@@ -262,21 +262,40 @@ function eventsBody(body) {
 
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
-/** A worker's terminal output: `{fence, offset, data}`, `data` the bytes from byte `offset`, sent as base64. */
+/** Which of a session's terminals a body names: `terminal`, 0 (the first) to MAX_TERMINALS - 1. */
+const terminalOf = body => integer(body.terminal, 'terminal', {max: MAX_TERMINALS - 1});
+
+/**
+ * A worker's terminal output: `{fence, terminal, offset, data}`, `data` the bytes terminal `terminal` wrote from byte `offset`, sent as
+ * base64; or `{fence, terminal, closed: true}`, that the terminal ended, after its last output.
+ */
 function terminalBody(body) {
   object(body, 'The body');
+  const head = {fence: fenceOf(body), terminal: terminalOf(body)};
+  if (body.closed !== undefined) {
+    if (body.closed !== true) throw bad('invalid_request', 'closed is true when given');
+    return {...head, closed: true};
+  }
   const encoded = string(body.data, 'data', {max: Math.ceil(MAX_TERMINAL_CHUNK_BYTES / 3) * 4});
   if (!encoded || !BASE64.test(encoded)) throw bad('invalid_request', 'data is the bytes as non-empty base64');
-  return {fence: fenceOf(body), offset: integer(body.offset, 'offset', {min: 0, max: MAX_ATTEMPT_TERMINAL_BYTES}), data: Buffer.from(encoded, 'base64')};
+  return {...head, offset: integer(body.offset, 'offset', {min: 0, max: MAX_ATTEMPT_TERMINAL_BYTES}), data: Buffer.from(encoded, 'base64')};
 }
 
-/** What a member sends their session's terminal: `{data}`, keystrokes as base64, or `{rows, cols}`, its new size. */
+/**
+ * What a member sends one terminal of their session (`terminal`): `{data}`, keystrokes as base64; `{rows, cols}`, its new size, which
+ * opens a terminal not yet open at that size; or `{close: true}`, which closes it.
+ */
 function terminalInputBody(body) {
   object(body, 'The body');
-  if (body.data === undefined) return {rows: integer(body.rows, 'rows', {min: 1, max: 1000}), cols: integer(body.cols, 'cols', {min: 1, max: 1000})};
+  const terminal = terminalOf(body);
+  if (body.close !== undefined) {
+    if (body.close !== true) throw bad('invalid_request', 'close is true when given');
+    return {terminal, close: true};
+  }
+  if (body.data === undefined) return {terminal, rows: integer(body.rows, 'rows', {min: 1, max: 1000}), cols: integer(body.cols, 'cols', {min: 1, max: 1000})};
   const encoded = string(body.data, 'data', {max: 128 * 1024});
   if (!BASE64.test(encoded)) throw bad('invalid_request', 'data is the keystrokes as base64');
-  return {data: Buffer.from(encoded, 'base64')};
+  return {terminal, data: Buffer.from(encoded, 'base64')};
 }
 
 function spansBody(body) {

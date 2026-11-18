@@ -383,35 +383,52 @@ function createPostgresBenchmarkWorker({pool, config}) {
     },
 
     /**
-     * Append `data`, what the attempt's harness wrote to its terminal from byte `offset`: a retried offset is kept once, and the next
-     * offset is the bytes held so far. The attempt keeps MAX_ATTEMPT_TERMINAL_BYTES of it at most.
+     * Append `data`, what terminal `terminal` of the attempt wrote from byte `offset`: a retried offset is kept once, and the next offset
+     * is the bytes that terminal holds so far. The attempt's terminals keep MAX_ATTEMPT_TERMINAL_BYTES of it at most, together.
      */
-    async appendTerminal(userId, attemptId, fence, offset, data) {
+    async appendTerminal(userId, attemptId, fence, terminal, offset, data) {
       return fenced(userId, attemptId, fence, async client => {
-        const held = Number((await client.query(
-          'select coalesce(sum(octet_length(data)), 0) as held from benchmark_terminal where attempt_id = $1', [attemptId],
-        )).rows[0].held);
-        if (offset < held) {
-          const kept = (await client.query('select data from benchmark_terminal where attempt_id = $1 and byte_offset = $2', [attemptId, offset])).rows[0];
-          if (!kept || !kept.data.equals(data)) throw new BenchmarkError(409, 'conflicting_duplicate', `Terminal output at byte ${offset} was kept with different bytes`);
-          return {next_offset: held};
+        const {held, total} = (await client.query(
+          `select coalesce(sum(octet_length(data)) filter (where terminal = $2), 0) as held, coalesce(sum(octet_length(data)), 0) as total
+             from benchmark_terminal where attempt_id = $1`, [attemptId, terminal],
+        )).rows[0];
+        const kept = Number(held);
+        if (offset < kept) {
+          const row = (await client.query(
+            'select data from benchmark_terminal where attempt_id = $1 and terminal = $2 and byte_offset = $3', [attemptId, terminal, offset],
+          )).rows[0];
+          if (!row || !row.data.equals(data)) throw new BenchmarkError(409, 'conflicting_duplicate', `Terminal ${terminal}'s output at byte ${offset} was kept with different bytes`);
+          return {next_offset: kept};
         }
-        if (offset > held) throw new BenchmarkError(409, 'terminal_gap', `The terminal holds ${held} bytes; output at byte ${offset} leaves a gap`);
-        if (held + data.length > MAX_ATTEMPT_TERMINAL_BYTES) throw new BenchmarkError(413, 'too_large', `An attempt's terminal keeps ${MAX_ATTEMPT_TERMINAL_BYTES} bytes at most`);
-        await client.query('insert into benchmark_terminal (attempt_id, byte_offset, data) values ($1, $2, $3)', [attemptId, offset, data]);
+        if (offset > kept) throw new BenchmarkError(409, 'terminal_gap', `Terminal ${terminal} holds ${kept} bytes; output at byte ${offset} leaves a gap`);
+        if (Number(total) + data.length > MAX_ATTEMPT_TERMINAL_BYTES) throw new BenchmarkError(413, 'too_large', `An attempt's terminals keep ${MAX_ATTEMPT_TERMINAL_BYTES} bytes at most`);
+        await client.query('insert into benchmark_terminal (attempt_id, terminal, byte_offset, data) values ($1, $2, $3, $4)', [attemptId, terminal, offset, data]);
         await chargeAttemptStorage(client, userId, attemptId, data.length);
-        return {next_offset: held + data.length};
+        return {next_offset: kept + data.length};
       });
     },
 
-    /** What the member sent the attempt's terminal after `after`, in order: `[{seq, data, rows, cols}]`, `data` base64 or null. */
+    /** Record that terminal `terminal` of the attempt ended, after its last output; a retry is kept once. */
+    async closeTerminal(userId, attemptId, fence, terminal) {
+      return fenced(userId, attemptId, fence, async client => {
+        await client.query('insert into benchmark_terminal_closed (attempt_id, terminal) values ($1, $2) on conflict do nothing', [attemptId, terminal]);
+        return {closed: true};
+      });
+    },
+
+    /**
+     * What the member sent the attempt's terminals after `after`, in order: `[{seq, terminal, data, rows, cols, close}]`, `data` base64
+     * or null.
+     */
     async terminalInput(userId, attemptId, fence, after) {
       return fenced(userId, attemptId, fence, async (client, attempt) => {
         // A session canceled (its member opened another) hears so on the read it polls, so its worker frees the slot at once.
         if (attempt.cancel_requested || attempt.canceled_at) throw new BenchmarkError(409, 'canceled', 'The run was canceled');
         return (await client.query(
-          'select seq, data, rows, cols from benchmark_terminal_input where attempt_id = $1 and seq > $2 order by seq limit 500', [attemptId, after],
-        )).rows.map(row => ({seq: Number(row.seq), data: row.data === null ? null : row.data.toString('base64'), rows: row.rows, cols: row.cols}));
+          'select seq, terminal, data, rows, cols, close from benchmark_terminal_input where attempt_id = $1 and seq > $2 order by seq limit 500', [attemptId, after],
+        )).rows.map(row => ({
+          seq: Number(row.seq), terminal: row.terminal, data: row.data === null ? null : row.data.toString('base64'), rows: row.rows, cols: row.cols, close: row.close,
+        }));
       });
     },
 

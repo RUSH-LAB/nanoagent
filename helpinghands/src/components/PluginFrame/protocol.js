@@ -17,6 +17,9 @@ const TYPED_LIMIT = 40_000;
 // What a Harness tab session may run: a reference harness (server/benchmark/harness.js REFERENCE_HARNESSES) or one the member saved
 // from a Terminal session, each named as the harness contract names a harness; RUSH says which names it knows.
 const HARNESS_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+// A Harness tab session's terminals: 0 the first, then each one the page opens (RUSH keeps 32).
+const isTerminal = terminal => Number.isInteger(terminal) && terminal >= 0 && terminal < 32;
+const isSize = (rows, cols) => [rows, cols].every(n => Number.isInteger(n) && n >= 1 && n <= 1000);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const isObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -55,12 +58,18 @@ const PARAMS = {
     ? null
     : `harness.run needs a harness name, a task id and, but for shell, text of 1 to ${PROMPT_LIMIT} characters`),
   'harness.cancel': ({runId}) => (typeof runId === 'string' && runId ? null : 'harness.cancel needs a runId'),
-  'harness.input': ({runId, data}) => (typeof runId === 'string' && runId && typeof data === 'string' && data && data.length <= TYPED_LIMIT
+  'harness.input': ({runId, terminal, data}) => (typeof runId === 'string' && runId && isTerminal(terminal) && typeof data === 'string' && data && data.length <= TYPED_LIMIT
     ? null
-    : `harness.input needs a runId and data, what was typed, of 1 to ${TYPED_LIMIT} characters`),
-  'harness.resize': ({runId, rows, cols}) => (typeof runId === 'string' && runId && [rows, cols].every(n => Number.isInteger(n) && n >= 1 && n <= 1000)
+    : `harness.input needs a runId, a terminal (0 to 31) and data, what was typed, of 1 to ${TYPED_LIMIT} characters`),
+  'harness.resize': ({runId, terminal, rows, cols}) => (typeof runId === 'string' && runId && isTerminal(terminal) && isSize(rows, cols)
     ? null
-    : 'harness.resize needs a runId and the terminal\'s rows and cols, each 1 to 1000'),
+    : 'harness.resize needs a runId, a terminal (0 to 31) and its rows and cols, each 1 to 1000'),
+  'harness.open': ({runId, terminal, rows, cols}) => (typeof runId === 'string' && runId && isTerminal(terminal) && terminal > 0 && isSize(rows, cols)
+    ? null
+    : 'harness.open needs a runId, a new terminal (1 to 31) and its rows and cols, each 1 to 1000'),
+  'harness.close': ({runId, terminal}) => (typeof runId === 'string' && runId && isTerminal(terminal)
+    ? null
+    : 'harness.close needs a runId and a terminal (0 to 31)'),
   'leaderboard': () => null,
   'leaderboard.trace': ({attemptId}) => (UUID.test(attemptId ?? '') ? null : 'leaderboard.trace needs an attempt id'),
   'plugin.version': ({version}) => (version === null || (typeof version === 'string' && version)

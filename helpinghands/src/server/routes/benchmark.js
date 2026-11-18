@@ -19,7 +19,7 @@ const {previewBody, runBody, benchmarkPublication, importBody, publicationFrame,
 const {checkTaskAgainstEntry} = require('../benchmark/entry-check');
 const {leaderboard} = require('../benchmark/leaderboard');
 const {wake} = require('../benchmark/wake');
-const {MAX_SOURCE_BYTES} = require('../benchmark/limits');
+const {MAX_SOURCE_BYTES, MAX_TERMINALS} = require('../benchmark/limits');
 
 // The endpoint profile of the worker RUSH Lab runs (nanoagent/deploy/worker/worker.openrouter.yaml), which a Harness tab session runs on.
 const SESSION_ENDPOINT = 'openrouter';
@@ -106,25 +106,30 @@ async function stream(req, res, repository, context, attemptId, after) {
 }
 
 /**
- * Server-sent events: the attempt's terminal output from byte `start`, each chunk an `output` event (`{offset, data}`, data in
- * base64), then `sealed` once the attempt is sealed and every chunk is sent.
+ * Server-sent events: terminal `terminal`'s output from byte `start`, each chunk an `output` event (`{offset, data}`, data in base64),
+ * `closed` once the terminal ended and every chunk is sent, then `sealed` once the attempt is sealed.
  */
-async function terminalStream(req, res, repository, context, attemptId, start) {
-  if (!(await repository.terminal(context, attemptId, start))) throw new BenchmarkError(404, 'unknown_attempt', 'No such attempt');
+async function terminalStream(req, res, repository, context, attemptId, terminal, start) {
+  if (!(await repository.terminal(context, attemptId, terminal, start))) throw new BenchmarkError(404, 'unknown_attempt', 'No such attempt');
   let closed = false;
   res.on('close', () => { closed = true; });
   res.writeHead(200, {'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no'});
   req.setTimeout(0);
   let offset = start;
   let quiet = 0;
+  let ended = false;
   while (!closed) {
-    const page = await repository.terminal(context, attemptId, offset);
+    const page = await repository.terminal(context, attemptId, terminal, offset);
     if (!page) break;
     for (const chunk of page.chunks) {
       res.write(`event: output\ndata: ${JSON.stringify({offset: chunk.offset, data: chunk.data.toString('base64')})}\n\n`);
       offset = chunk.offset + chunk.data.length;
     }
     if (page.chunks.length) { quiet = 0; continue; }
+    if (page.closed && !ended) {
+      res.write('event: closed\ndata: {}\n\n');
+      ended = true;
+    }
     if (page.sealed) {
       res.write('event: sealed\ndata: {}\n\n');
       break;
@@ -403,7 +408,11 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       return await stream(req, res, repository, context, attemptId, after);
     }
     if (attemptPart === 'terminal') {
-      return await terminalStream(req, res, repository, context, attemptId, cursorOf(url.searchParams.get('from')));
+      const terminal = /^\d{1,2}$/.test(url.searchParams.get('terminal') ?? '') ? Number(url.searchParams.get('terminal')) : NaN;
+      if (!Number.isInteger(terminal) || terminal < 0 || terminal >= MAX_TERMINALS) {
+        throw new BenchmarkError(400, 'invalid_request', `terminal is the terminal's id, 0 to ${MAX_TERMINALS - 1}`);
+      }
+      return await terminalStream(req, res, repository, context, attemptId, terminal, cursorOf(url.searchParams.get('from')));
     }
     if (attemptPart === 'spans') {
       const found = await repository.spans(context, attemptId, {

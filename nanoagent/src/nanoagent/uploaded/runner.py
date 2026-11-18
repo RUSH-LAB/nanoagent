@@ -40,6 +40,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequenc
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
+from functools import partial
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -931,7 +932,7 @@ class AttemptRunner:
             clis.mkdir(parents=True, exist_ok=True)
             spec = CaseSpec(
                 job.attempt_id, profile, run_argv, artifact, json.dumps(request).encode(), token, network, work / "case", None, limits, tool_container,
-                terminal.write, clis,
+                partial(terminal.write, 0), clis,
             )
             handle = await in_thread(self.supervisor.create_case, spec)
             LOG.info("attempt %s: case VMs up", job.attempt_id)
@@ -946,7 +947,7 @@ class AttemptRunner:
             await stack.enter_async_context(runner)  # the plugin is up before the harness can call it
             LOG.info("attempt %s: plugin tools up", job.attempt_id)
         if warm is not None:  # launched already: the shell starts on its request and token
-            warm.output.forward(terminal.write)
+            warm.output.forward(partial(terminal.write, 0))
             await in_thread(handle.go, json.dumps(request).encode(), token)
             LOG.info("attempt %s: warm terminal %s handed over", job.attempt_id, handle.container_id)
         else:
@@ -963,7 +964,7 @@ class AttemptRunner:
             if lease.reason in ("lease_lost", "sealed"):
                 return AttemptResult("lease_lost")
             if outcome is not None:  # a canceled attempt has no observed exit
-                await terminal.flush()
+                await terminal.flush(handle)
                 await emit.emit(rec.CaseExited(termination_wire(outcome.termination), int(outcome.exited_at * NS)), occurred_ns=int(outcome.exited_at * NS))
             # Quiescence (no call or tool left in flight) is reached after the exit, so it is recorded after it.
             await emit.emit(rec.CaseQuiesced(self.clock_ns()))
@@ -1078,7 +1079,7 @@ class AttemptRunner:
 
         async with anyio.create_task_group() as group:
             group.start_soon(waiter)
-            group.start_soon(terminal.pump)
+            group.start_soon(terminal.pump, handle)
             if interactive:
                 group.start_soon(terminal.feed, handle, lease)
             await first_of(done, lease.revoked)

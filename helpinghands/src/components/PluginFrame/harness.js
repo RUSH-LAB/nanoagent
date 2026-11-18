@@ -3,10 +3,11 @@ import {workerNotice} from './worker.js';
 
 /**
  * A session of a plugin page's Harness tab, on the host's side: the run RUSH queued for it (POST /api/benchmark/sessions) is a
- * benchmark run of one case whose harness runs on a terminal the member works in. What the harness writes there reaches the page
- * as it comes (`harness.output`, from GET attempts/{id}/terminal), what the member types and the terminal's size go back
- * (`harnessInput`, POST attempts/{id}/terminal), and once the attempt is sealed the page gets its outcome (`harness.outcome`): the
- * verifier's verdict, tokens, time and cost.
+ * benchmark run of one case whose harness runs on terminals the member works in (0 the first; a free-form session opens more, all in
+ * its one VM). What each writes reaches the page as it comes (`harness.output`, from GET attempts/{id}/terminal), with that it ended
+ * (`harness.closed`); what the member types, each terminal's size, and opening or closing one go back (`harnessInput`, POST
+ * attempts/{id}/terminal), and once the attempt is sealed the page gets its outcome (`harness.outcome`): the verifier's verdict,
+ * tokens, time and cost.
  */
 
 const BASE = '/api/benchmark';
@@ -52,11 +53,13 @@ export function typedBase64(text) {
 }
 
 /**
- * Send the attempt's terminal `input`: `{data}`, what the member typed, or `{rows, cols}`, its new size. `request(path, init)`
- * fetches a RUSH API path.
+ * Send terminal `input.terminal` of the attempt `input`: `{data}`, what the member typed; `{rows, cols}`, its new size, which opens
+ * a terminal not yet open; or `{close: true}`. `request(path, init)` fetches a RUSH API path.
  */
 export async function harnessInput({attemptId, request, input}) {
-  const body = input.data === undefined ? {rows: input.rows, cols: input.cols} : {data: typedBase64(input.data)};
+  const {terminal} = input;
+  const body = input.close ? {terminal, close: true}
+    : input.data === undefined ? {terminal, rows: input.rows, cols: input.cols} : {terminal, data: typedBase64(input.data)};
   const response = await request(`${BASE}/attempts/${attemptId}/terminal`, {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
   });
@@ -81,19 +84,60 @@ export async function awaitWorker({request, emit, signal, sleep = ms => new Prom
   }
 }
 
+const reader = request => async path => {
+  const response = await request(path);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `Could not read ${path} (${response.status})`);
+  return data;
+};
+
 /**
- * Follow the attempt `attemptId` of a Harness tab session until it is sealed or `signal` aborts, telling the page each chunk of
- * its terminal's output (`emit('harness.output', {data})`, data in base64), then its outcome (`emit('harness.outcome', outcome)`).
- * A stream that ends or drops is opened again from the byte it reached. `request(path, init)` fetches a RUSH API path; `read(response,
- * onFrame)` reads a stream's frames.
+ * Follow terminal `terminal` of the attempt `attemptId` until the attempt is sealed or `signal` aborts, telling the page each chunk
+ * of its output (`emit('harness.output', {terminal, data})`, data in base64) and that it ended (`emit('harness.closed', {terminal})`).
+ * A stream that ends or drops is opened again from the byte it reached; `progress(offset)` hears each byte count it reaches.
+ * `request(path, init)` fetches a RUSH API path; `read(response, onFrame)` reads a stream's frames.
  */
-export async function followHarness({attemptId, request, read, emit, signal, sleep = ms => new Promise(resolve => setTimeout(resolve, ms))}) {
-  const json = async path => {
-    const response = await request(path);
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || `Could not read ${path} (${response.status})`);
-    return data;
-  };
+export async function followTerminal({attemptId, terminal, request, read, emit, signal, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), progress = () => {}}) {
+  let offset = 0;
+  let closed = false;
+  let sealed = false;
+  while (!sealed && !signal.aborted) {
+    let failed = false;
+    try {
+      const response = await request(`${BASE}/attempts/${attemptId}/terminal?terminal=${terminal}&from=${offset}`, {signal, headers: {Accept: 'text/event-stream'}});
+      if (response.status === 404) throw new Error('The session\'s attempt is gone');
+      failed = !response.ok;
+      if (response.ok) {
+        await read(response, frame => {
+          if (frame.event === 'sealed') sealed = true;
+          if (frame.event === 'closed' && !closed) {
+            closed = true;
+            emit('harness.closed', {terminal});
+          }
+          if (frame.event !== 'output' || frame.data.offset !== offset) return;
+          offset += atob(frame.data.data).length;
+          progress(offset);
+          emit('harness.output', {terminal, data: frame.data.data});
+        });
+      }
+    } catch (error) {
+      if (signal.aborted) return;
+      if (error.message === 'The session\'s attempt is gone') throw error;
+      failed = true;
+    }
+    // A stream that ended before the seal is opened again from where it reached, at once unless it failed.
+    if (failed && !signal.aborted) await sleep(RETRY_MS);
+  }
+}
+
+/**
+ * Follow the attempt `attemptId` of a Harness tab session until it is sealed or `signal` aborts: its first terminal (followTerminal)
+ * and every terminal the page opened (`opened`, the promises of their followTerminal, which the host adds to as the page opens them),
+ * then tell its outcome (`emit('harness.outcome', outcome)`). `request(path, init)` fetches a RUSH API path; `read(response, onFrame)`
+ * reads a stream's frames.
+ */
+export async function followHarness({attemptId, request, read, emit, signal, opened = [], sleep = ms => new Promise(resolve => setTimeout(resolve, ms))}) {
+  const json = reader(request);
   let offset = 0;
   let sealed = false;
   // Never a silent black screen: until the first byte, the terminal itself says what it waits on, each time that changes.
@@ -109,33 +153,18 @@ export async function followHarness({attemptId, request, read, emit, signal, sle
         text = error.message;
       }
       if (offset || sealed || signal.aborted) return;
-      if (text !== said) emit('harness.output', {data: typedBase64(`\x1b[2m[RUSH] ${text}\x1b[0m\r\n`)});
+      if (text !== said) emit('harness.output', {terminal: 0, data: typedBase64(`\x1b[2m[RUSH] ${text}\x1b[0m\r\n`)});
       said = text;
       await sleep(RETRY_MS);
     }
   })();
-  while (!sealed && !signal.aborted) {
-    let failed = false;
-    try {
-      const response = await request(`${BASE}/attempts/${attemptId}/terminal?from=${offset}`, {signal, headers: {Accept: 'text/event-stream'}});
-      if (response.status === 404) throw new Error('The session\'s attempt is gone');
-      failed = !response.ok;
-      if (response.ok) {
-        await read(response, frame => {
-          if (frame.event === 'sealed') sealed = true;
-          if (frame.event !== 'output' || frame.data.offset !== offset) return;
-          offset += atob(frame.data.data).length;
-          emit('harness.output', {data: frame.data.data});
-        });
-      }
-    } catch (error) {
-      if (signal.aborted) return;
-      if (error.message === 'The session\'s attempt is gone') throw error;
-      failed = true;
-    }
-    // A stream that ended before the seal is opened again from where it reached, at once unless it failed.
-    if (failed && !signal.aborted) await sleep(RETRY_MS);
+  await followTerminal({attemptId, terminal: 0, request, read, emit, signal, sleep, progress: reached => (offset = reached)});
+  // Every terminal's stream reaches the seal; the outcome comes after the last of their output.
+  for (let count = -1; count !== opened.length;) {
+    count = opened.length;
+    await Promise.all(opened);
   }
+  sealed = true;
   if (signal.aborted) return;
   const [{attempt}, accounting] = await Promise.all([json(`${BASE}/attempts/${attemptId}`), json(`${BASE}/attempts/${attemptId}/accounting`)]);
   emit('harness.outcome', harnessOutcome(attempt, accounting));

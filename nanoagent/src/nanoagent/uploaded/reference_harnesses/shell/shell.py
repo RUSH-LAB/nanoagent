@@ -4,6 +4,9 @@ agent there (pip and npm install into .rush/) and prompts it themselves; its mod
 
 Given a command (a harness `rush save` made), it runs that command instead, once, in the same workspace and environment, after
 putting back the files the member built (``workspace/``) and with the Python packages they installed (``packages/``).
+
+Started again for another terminal the member opens (``RUSH_TERMINAL`` 1, 2, ...), it is one more bash in the same workspace, with the
+environment the first terminal's shell set up (TERMINAL_ENV).
 """
 
 import json
@@ -17,6 +20,14 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+TERMINAL_ENV = Path("/tmp/rush-terminal-env.json")  # the first terminal's shell environment, which every other terminal starts with
+SHELL = ["bash", "--rcfile", str(HERE / "bashrc"), "-i"]
+if os.environ["RUSH_TERMINAL"] != "0":
+    while not TERMINAL_ENV.is_file():  # written as the first terminal's shell starts, which a terminal opened at once may beat
+        time.sleep(0.005)
+    env = {**json.loads(TERMINAL_ENV.read_text(encoding="utf-8")), "RUSH_TERMINAL": os.environ["RUSH_TERMINAL"]}
+    os.chdir(env["RUSH_WORKSPACE"])
+    os.execvpe("bash", SHELL, env)
 request = json.loads(Path(os.environ["RUSH_REQUEST"]).read_text(encoding="utf-8"))
 if request.get("wait_go"):
     # A warm terminal, started before any session had it: the session it is handed to writes its request and its attempt's token
@@ -72,7 +83,10 @@ print(
     end="",
     flush=True,
 )
-shell = subprocess.Popen(["bash", "--rcfile", str(HERE / "bashrc"), "-i"], env=env)
+staged = TERMINAL_ENV.with_suffix(".tmp")
+staged.write_text(json.dumps(env), encoding="utf-8")
+staged.rename(TERMINAL_ENV)  # whole: another terminal reads it the moment it appears
+shell = subprocess.Popen(SHELL, env=env)
 signal.signal(signal.SIGINT, signal.SIG_IGN)  # after the start, so the shell and what it runs keep Ctrl-C
 shell.wait()
 # The member ends the session by leaving the shell; its exit status is their last command's, not the harness's.

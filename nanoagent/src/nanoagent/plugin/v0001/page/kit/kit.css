@@ -444,10 +444,22 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .chat-page > * { min-height: 0; }
 .chat-page .chat { padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
 .chat-page .chat-log:has(> .chat-intro) { align-content: center; }
-/* The Harness tab (kit/harness.js): only the terminal, filling the tab. */
-.kit-harness > .harness-page { height: calc(100vh - var(--kit-tabs-height)); box-sizing: border-box; display: grid; grid-template-rows: minmax(0, 1fr); padding: 14px 16px; }
+/* The Harness tab (kit/harness.js): its terminals' slim tab strip, in the page's top padding, and the shown terminal filling the rest. */
+.kit-harness > .harness-page { height: calc(100vh - var(--kit-tabs-height)); box-sizing: border-box; display: grid; grid-template-rows: auto minmax(0, 1fr); padding: 0 16px 14px; }
+.harness-tabs { display: flex; align-items: center; gap: 2px; height: 30px; overflow-x: auto; scrollbar-width: none; }
+.harness-tab { flex: none; display: inline-flex; align-items: center; gap: 2px; height: 22px; padding: 0 2px 0 9px; border-radius: 6px; color: var(--muted); font-size: 12px; font-weight: 560; cursor: pointer; user-select: none; }
+.harness-tab:hover { color: var(--text); background: var(--surface-2); }
+.harness-tab[aria-selected="true"] { color: var(--text); background: var(--surface-2); box-shadow: inset 0 -2px 0 var(--accent); }
+.harness-tab-close, .harness-tab-add { appearance: none; display: inline-grid; place-items: center; border: 0; background: transparent; color: var(--muted); padding: 0; cursor: pointer; border-radius: 4px; }
+.harness-tab-close { width: 18px; height: 18px; }
+.harness-tab-add { flex: none; width: 22px; height: 22px; margin-left: 2px; }
+.harness-tab-close:hover, .harness-tab-add:hover:not(:disabled) { color: var(--text); background: var(--border); }
+.harness-tab-add:disabled { opacity: .4; cursor: default; }
+.harness-tab-close:focus-visible, .harness-tab-add:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.harness-screens { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
 /* The padding is the terminal's own, which the fit add-on measures it by. */
 .harness-terminal { min-height: 0; background: #14161b; border-radius: var(--radius-sm); overflow: hidden; }
+.harness-terminal[hidden] { display: none; }
 .harness-terminal .xterm { height: 100%; box-sizing: border-box; padding: 8px; }
 /* The Leaderboard tab (kit/leaderboard.js): the ranked harnesses, then the runs by case, a card per run side by side; RUSH's tinted with its pill. */
 .leaderboard-page { display: grid; gap: 14px; max-width: 1200px; }
