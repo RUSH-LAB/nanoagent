@@ -196,10 +196,19 @@ export async function mountApp(renderers) {
   // A version the host no longer runs (`status` "refused") keeps its sessions to read, and starts none.
   const closed = plugin.status === "refused";
   const tabs = frameTabs();
-  const board = dashboard({ onOpen: (opened) => openSession(opened), closed });
+  // A free-form Terminal session clicked on the Dashboard resumes in the Harness tab, in a new session there.
+  const terminals = closed ? null : harnessPage();
+  const board = dashboard({
+    onOpen: (opened) => openSession(opened),
+    onResume: (session) => {
+      show("harness");
+      terminals.resume(session.id);
+    },
+    closed,
+  });
   const home = homePage(plugin, board.element);
   const page = h("div", { class: "kit-session", hidden: true });
-  const harness = h("div", { class: "kit-harness", hidden: true }, closed ? null : harnessPage());
+  const harness = h("div", { class: "kit-harness", hidden: true }, closed ? null : terminals.element);
   const ranks = leaderboardPage();
   const leaderboard = h("main", { class: "page", hidden: true }, ranks.element);
   let open = false;

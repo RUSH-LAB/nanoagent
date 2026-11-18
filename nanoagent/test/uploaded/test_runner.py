@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import threading
 import time
 from dataclasses import replace
@@ -54,7 +55,7 @@ class Rig:
             "w-1", sf.make_endpoint(), {"test/model": (sf.Decimal("0.000001"), sf.Decimal("0.000004"))}, tmp_path / "scratch",
             capabilities=fx.CAPABILITIES, renew_interval_s=0.05, drain_timeout_s=3,
         )
-        (tmp_path / "scratch").mkdir()
+        (tmp_path / "scratch").mkdir(parents=True)
         self.runner = AttemptRunner(
             config, supervisor=self.supervisor, worker=self.rush, relay=self.relay, plugins=fx.FakePlugins(),  # type: ignore[arg-type]
             services_factory=services_factory, verify_task_case=verify_case, project=fx.fake_project, **({} if clock_ns is None else {"clock_ns": clock_ns}),
@@ -185,6 +186,41 @@ async def test_a_free_form_session_has_no_case_reads_no_result_and_ends_unscored
     assert request["tools"]["available"] == [] and rig.supervisor.specs[0].tool is None and rig.supervisor.prepared == []
     assert "egress_hosts" not in rig.rush.of("attempt.started")[0]
     assert rig.supervisor.probed == ["python-3"]  # the tracer proven in the toolchain's image before the build
+
+
+async def test_a_free_form_session_is_kept_to_resume_and_a_resuming_one_starts_on_its_workspace(tmp_path: Path) -> None:
+    made = {"notes.txt": b"made here", ".rush/clis/claude": b"key", ".rush/claude/.claude/projects/-rush-workspace/s.jsonl": b'{"sessionId": "s-1", "cwd": "/rush/workspace"}\n'}
+    rig = Rig(tmp_path / "first", script=fx.CaseScript(made=made))
+    await rig.run(fx.free_job(attempt_id="11111111-1111-4111-8111-000000000001"))
+    assert rig.rush.finalized[0]["resumable"] is True and rig.supervisor.case.found == {}
+
+    def later(name: str) -> Rig:  # another session on the same computer
+        rig = Rig(tmp_path / name)
+        shutil.copytree(tmp_path / "first" / "scratch" / "sessions", tmp_path / name / "scratch" / "sessions")
+        return rig
+
+    rig = later("second")
+    await rig.run(fx.free_job(attempt_id="11111111-1111-4111-8111-000000000002", resume={"attempt_id": "11111111-1111-4111-8111-000000000001", "at": "2026-11-18T22:31:00Z"}))
+    found = rig.supervisor.case.found  # the workspace as the shell started
+    assert {name: found[name] for name in made} == made
+    said = json.loads(found[".rush/resume.json"])
+    assert said["line"].startswith("Resumed your session from Nov 18") and said["line"].endswith(" · Claude Code") and said["run"] == "claude --resume s-1"
+    # A session this computer does not have says so, and the terminal starts empty.
+    rig = later("third")
+    await rig.run(fx.free_job(attempt_id="11111111-1111-4111-8111-000000000003", resume={"attempt_id": "11111111-1111-4111-8111-000000000004", "at": "2026-11-18T22:31:00Z"}))
+    found = rig.supervisor.case.found
+    assert list(found) == [".rush/resume.json"] and "it is not on this computer" in json.loads(found[".rush/resume.json"])["line"]
+
+
+async def test_a_free_form_session_its_member_left_is_kept_to_resume_and_a_scored_one_never_is(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, script=fx.CaseScript(block=True, made={"a.txt": b"a"}))
+    rig.rush.canceled = True
+    await rig.run(fx.free_job(attempt_id="11111111-1111-4111-8111-000000000005"))
+    assert rig.rush.finalized[0]["execution"]["status"] == "canceled" and rig.rush.finalized[0]["resumable"] is True
+    assert (tmp_path / "scratch" / "sessions" / "11111111-1111-4111-8111-000000000005" / "workspace" / "a.txt").read_bytes() == b"a"
+    scored = Rig(tmp_path / "scored")
+    await scored.run()
+    assert "resumable" not in scored.rush.finalized[0] and not (tmp_path / "scored" / "scratch" / "sessions").exists()
 
 
 async def test_any_other_harness_starts_only_once_its_case_is_pinned(tmp_path: Path) -> None:

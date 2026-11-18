@@ -2,8 +2,10 @@
 # Claude Code on RUSH's gateway (its Anthropic Messages dialect), as the claude-code reference harness runs it: a home whose
 # first-run questions are answered and the workspace trusted, the attempt token as its auth token (an API key would ask to be
 # approved), and the session's model for every call it makes, its smaller model's too.
-home="${TMPDIR:-/tmp}/rush-claude"
-if [ ! -d "$home" ]; then
+# Its home is in the workspace's .rush/, which is kept when the session ends, so resuming it continues its conversations
+# (nanoagent.uploaded.resume); the gateway reaches it by the environment, which each session sets anew.
+home="$RUSH_WORKSPACE/.rush/claude"
+if [ ! -f "$home/.claude.json" ]; then
   mkdir -p "$home/.claude"
   printf '{"hasCompletedOnboarding":true,"theme":"dark","bypassPermissionsModeAccepted":true,"projects":{"%s":{"hasTrustDialogAccepted":true,"hasCompletedProjectOnboarding":true}}}' "$RUSH_WORKSPACE" > "$home/.claude.json"
   printf '{"skipDangerousModePermissionPrompt":true}' > "$home/.claude/settings.json"

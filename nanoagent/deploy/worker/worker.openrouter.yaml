@@ -37,6 +37,8 @@ sandbox > nanoagent.uploaded.worker.SandboxConfig:
   # A Harness tab session's Terminal builds five CLIs (about 1.5 GiB) once; a worker keeps the build for every later session.
   build_wall_s: 1800
   build_output_bytes: 4294967296
+  # The ended Terminal sessions kept on this computer to resume them from the Dashboard, in all; the oldest go first.
+  resume_bytes: 4294967296
 
 # Internet access for harnesses, on by default for benchmarks: public addresses only, which the worker proves at startup.
 egress > nanoagent.uploaded.worker.EgressConfig:

@@ -52,13 +52,14 @@ const PARAMS = {
   'session.archive': ({id, archived}) => (UUID.test(id ?? '') && typeof archived === 'boolean'
     ? null
     : 'session.archive needs a session id and archived, true or false'),
-  // The Terminal (`shell`) is free-form, so it takes no task and no text; any other harness works the text to a task.
-  'harness.run': ({harness, task, text}) => (HARNESS_NAME.test(harness ?? '')
+  // The Terminal (`shell`) is free-form, so it takes no task and no text, and may resume an ended session (its id); any other harness
+  // works the text to a task.
+  'harness.run': ({harness, task, text, resume}) => (HARNESS_NAME.test(harness ?? '')
     && (harness === 'shell'
-      ? task === undefined && text === undefined
-      : typeof task === 'string' && task && typeof text === 'string' && text.trim() && text.length <= PROMPT_LIMIT)
+      ? task === undefined && text === undefined && (resume === undefined || UUID.test(resume ?? ''))
+      : typeof task === 'string' && task && typeof text === 'string' && text.trim() && text.length <= PROMPT_LIMIT && resume === undefined)
     ? null
-    : `harness.run needs a harness name and, but for shell, which takes neither, a task id and text of 1 to ${PROMPT_LIMIT} characters`),
+    : `harness.run needs a harness name and, but for shell, which takes neither (and may take the id of a session to resume), a task id and text of 1 to ${PROMPT_LIMIT} characters`),
   'harness.cancel': ({runId}) => (typeof runId === 'string' && runId ? null : 'harness.cancel needs a runId'),
   'harness.input': ({runId, terminal, data}) => (typeof runId === 'string' && runId && isTerminal(terminal) && typeof data === 'string' && data && data.length <= TYPED_LIMIT
     ? null

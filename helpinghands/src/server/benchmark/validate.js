@@ -326,6 +326,8 @@ function finalizeBody(body) {
   if (verifierError !== null && execution.status !== 'answered' && execution.status !== 'refused') {
     throw bad('verdict_not_allowed', `A ${execution.status} attempt reached no verifier`);
   }
+  // Whether the worker kept a free-form Terminal session on the member's computer to resume (null: it says nothing of it).
+  if (body.resumable !== undefined && typeof body.resumable !== 'boolean') throw bad('invalid_request', 'resumable must be a boolean');
   return {
     fence: fenceOf(body),
     final: {
@@ -333,6 +335,7 @@ function finalizeBody(body) {
       verdict, explanation, verifier_error: verifierError,
       coverage: bounded(body.coverage, 'coverage', MAX_RESULT_BYTES), metrics: bounded(body.metrics, 'metrics', MAX_RESULT_BYTES),
       final_cursor_expected: integer(body.final_cursor_expected, 'final_cursor_expected'),
+      resumable: body.resumable ?? null,
     },
   };
 }

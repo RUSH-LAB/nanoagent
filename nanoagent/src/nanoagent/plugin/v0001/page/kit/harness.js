@@ -38,11 +38,13 @@ const failedText = (reason) => `Couldn't start the terminal: ${reason}`;
  * member runs any agent there and prompts it themselves. As in an editor's
  * terminal panel, they open more terminals in the same VM and workspace ("+"), switch between them by their tabs and close one (×);
  * a terminal whose shell they leave (exit, Ctrl-D) closes too. The session ends with its last terminal; its time, tokens and cost
- * print there, and Enter then starts a new one.
- * @returns {HTMLElement}
+ * print there, and Enter then starts a new one. `resume(id)` starts a new one that resumes their ended session `id` (the Dashboard's):
+ * the worker puts back what it kept of it on their computer, and its first terminal says so, or says why it could not.
+ * @returns {{element: HTMLElement, resume: (id: string) => void}}
  */
 export function harnessPage() {
   let runId = null;
+  let generation = 0;  // which start() the events heard are for: a resume can start another while one is still running
   let ended = false;
   let next = 0;  // the id the next terminal opened gets
   let active = null;
@@ -136,7 +138,8 @@ export function harnessPage() {
     if (active !== null) views.get(active).fit.fit();
   }).observe(screens);
 
-  async function start() {
+  async function start(resume = null) {
+    const mine = ++generation;
     for (const id of [...views.keys()]) remove(id);
     ended = false;
     runId = null;
@@ -162,7 +165,8 @@ export function harnessPage() {
       shown().write("Press Enter to start a new one.");
     };
     try {
-      const id = await startRun("harness.run", { harness: "shell" }, (name, data) => {
+      const id = await startRun("harness.run", { harness: "shell", ...(resume ? { resume } : {}) }, (name, data) => {
+        if (mine !== generation) return;  // a session this tab has since replaced
         switch (name) {
           case "harness.preparing":  // shown only while something downloads; otherwise the terminal just opens
             if (!data.total) break;
@@ -195,17 +199,24 @@ export function harnessPage() {
         }
       });
       // A session that ended while it started (its events came with the reply) has nothing left to send to.
-      if (!ended) {
+      if (mine === generation && !ended) {
         runId = id;
         updateAdd();
         send("harness.resize", { terminal: 0, rows: first.terminal.rows, cols: first.terminal.cols }, first);
         first.terminal.focus();
       }
     } catch (problem) {
+      if (mine !== generation) return;
       fail(problem.message);
       done();
     }
   }
 
-  return h("section", { class: "harness-page", "aria-label": "Harness" }, tabs, screens);
+  /** A new session that resumes the ended session `id`, in place of any this tab has: RUSH ends that one as it starts this. */
+  function resume(id) {
+    opened = true;
+    start(id);
+  }
+
+  return { element: h("section", { class: "harness-page", "aria-label": "Harness" }, tabs, screens), resume };
 }

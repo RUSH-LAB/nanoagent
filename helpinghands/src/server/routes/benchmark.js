@@ -129,15 +129,18 @@ async function openApp(ctx, context, pluginId, computer) {
  * is free-form: an empty shell where they run any agent and prompt it themselves, the same whatever plugin's page opened it. It takes
  * no task and no text, and nothing of the plugin is opened, read or run for it: its run keeps `pluginId` only as the label of the page
  * it was opened from, runs under the Terminal's own limits (TERMINAL_LIMITS), and has no case set and no case, nothing filled, pinned
- * or scored; its one attempt records the model calls and commands. `{run, attempt_id}`.
+ * or scored; its one attempt records the model calls and commands. Given `resume`, an ended free-form session of the member's (its
+ * attempt id), it resumes that one: its run is a new session linked to it (`resumed_from`), and the worker puts back what it kept of
+ * it on the member's computer before the shell starts, or says it has nothing kept. `{run, attempt_id}`.
  */
-async function startSession(ctx, context, {pluginId, taskId, harness, interactive, text, model}) {
+async function startSession(ctx, context, {pluginId, taskId, harness, interactive, text, model, resume}) {
   const {repository, service} = ctx.benchmark;
   const free = harness === 'shell' && interactive;
   if (free && (text !== undefined || taskId !== undefined)) {
     throw new BenchmarkError(400, 'invalid_request', 'A Terminal session someone is at is free-form: it takes no task and no text');
   }
   const request = free ? null : string(text, 'text', {max: SESSION_TEXT_LIMIT});
+  const resumedFrom = resume === undefined ? null : await resumable(repository, context, free, resume);
   const harnessModel = string(model, 'model', {optional: true}) ?? aiSettings.MODEL.model;
   const reference = REFERENCE_HARNESSES.includes(harness);
   const saved = reference ? null : await repository.savedHarness(context, harness);
@@ -166,7 +169,7 @@ async function startSession(ctx, context, {pluginId, taskId, harness, interactiv
     source = await repository.saveSource(context, built.value, referenceHarnessOf(built.value, harness));
   }
   const policy = reference ? referencePolicy(harness) : 'coding';
-  const {run_id: id, attempt_id: attemptId, session} = await service.session(context, frame, source, policy, {interactive});
+  const {run_id: id, attempt_id: attemptId, session} = await service.session(context, frame, source, policy, {interactive, resumedFrom});
   wake(`claim:${context.userId}`);
   if (!free) {
     const pinning = async () => {
@@ -180,6 +183,16 @@ async function startSession(ctx, context, {pluginId, taskId, harness, interactiv
       .finally(() => wake(`case:${id}`));
   }
   return {run: await repository.run(context, id), attempt_id: attemptId};
+}
+
+/** The attempt id `resume` names, an ended free-form Terminal session of the member's that a new one (`free`) may resume. */
+async function resumable(repository, context, free, resume) {
+  if (!free) throw new BenchmarkError(400, 'invalid_request', 'Only a Terminal session someone is at resumes another');
+  const id = string(resume, 'resume');
+  const [old] = UUID.test(id) ? await repository.terminalRows(context, {attemptId: id}) : [];
+  if (!old || old.harness_name !== 'shell' || old.task_id !== null) throw new BenchmarkError(404, 'unknown_session', 'No Terminal session of yours to resume has that id');
+  if (old.state !== 'final') throw new BenchmarkError(409, 'session_running', 'That session is still running: leave its shell (exit) to end it, then resume it');
+  return id;
 }
 
 module.exports = async function benchmark(req, res, url, pathname, ctx) {
@@ -284,7 +297,7 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       const body = object(await jsonBody(req, readBody), 'The body');
       const [pluginId, harness] = ['plugin_id', 'harness'].map(name => string(body[name], name));
       if (typeof body.interactive !== 'boolean') throw new BenchmarkError(400, 'invalid_request', 'interactive must be a boolean');
-      return json(res, 201, await startSession(ctx, context, {pluginId, taskId: body.task_id, harness, interactive: body.interactive, text: body.text, model: body.model}));
+      return json(res, 201, await startSession(ctx, context, {pluginId, taskId: body.task_id, harness, interactive: body.interactive, text: body.text, model: body.model, resume: body.resume}));
     }
     // A plugin page's Leaderboard tab: the harnesses run on the plugin, whatever task, ranked from every member's scored runs.
     if (top === 'leaderboard') {

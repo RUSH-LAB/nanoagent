@@ -15,7 +15,9 @@ verifier, the services factory, the plugin loader and projection. The lifecycle 
    (`answered`, `refused`, or `execution_failed` with its exact reason), commit the collector's process evidence, run the
    plugin verifier on the frozen outcome, project the evidence, upload spans and links and finalize. A free-form Terminal
    session (``free_form``: its member runs any agent and prompts it themselves) has no case: it reads no result, runs no verifier and
-   finalizes `ended`, keeping its model calls, commands and snapshot.
+   finalizes `ended`, keeping its model calls, commands and snapshot. Its workspace, which holds the agent CLIs' state, is kept on
+   this computer to resume (nanoagent.uploaded.resume), however it ended, and a session that resumes one gets it back before its
+   shell starts.
 
 Faults of the platform itself (a sandbox that will not start, a plugin that will not install, a tool container that fails
 to launch) are logged and end only that attempt: its services are revoked, its sandbox and network removed, the process
@@ -39,6 +41,7 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
 from decimal import Decimal
 from functools import partial
 from pathlib import Path
@@ -95,6 +98,7 @@ from nanoagent.uploaded.sandbox import (
     WORKSPACE,
 )
 from nanoagent.uploaded.reference import build_reference
+from nanoagent.uploaded.resume import keep, restore
 from nanoagent.uploaded import session_result
 from nanoagent.uploaded.source import SourceLimits, extract, inspect_zip
 from nanoagent.uploaded.terminal import MAX_TERMINALS, Terminal
@@ -266,6 +270,7 @@ class RunnerConfig:
     plugin_sync_timeout_s: float = 600.0
     renew_interval_s: float = 15.0
     harness_revision: str = __version__
+    resume_bytes: int = 4 << 30  # the Terminal sessions kept on this computer to resume, in all (nanoagent.uploaded.resume)
 
 
 @dataclass(frozen=True)
@@ -968,6 +973,9 @@ class AttemptRunner:
             LOG.info("attempt %s: case VMs up", job.attempt_id)
         stack.push_async_callback(shielded, lambda: in_thread(handle.close))
         stack.push_async_callback(shielded, lambda: self._revoke(services))  # a fault after this leaves no in-flight call or tool behind
+        if job.resume is not None:  # the session it resumes, back in its workspace before the shell starts
+            said = await in_thread(restore, cfg.scratch, job.resume, handle.workspace)
+            LOG.info("attempt %s: resuming %s: %s", job.attempt_id, job.resume.attempt_id, said["line"])
         if tools:
             await stack.enter_async_context(runner)  # the plugin is up before the harness can call it
             LOG.info("attempt %s: plugin tools up", job.attempt_id)
@@ -993,9 +1001,10 @@ class AttemptRunner:
                 await emit.emit(rec.CaseExited(termination_wire(outcome.termination), int(outcome.exited_at * NS)), occurred_ns=int(outcome.exited_at * NS))
             # Quiescence (no call or tool left in flight) is reached after the exit, so it is recorded after it.
             await emit.emit(rec.CaseQuiesced(self.clock_ns()))
-            if outcome is None:
+            if outcome is None:  # canceled mid-run; a free-form session's member who left its page resumes it as one who exited
                 await in_thread(handle.close)
-                return await self._finalize(job, journal, "canceled", None, result=AttemptResult("canceled"))  # canceled mid-run
+                resumable = await self._keep_session(job, handle) if job.free_form else None
+                return await self._finalize(job, journal, "canceled", None, result=AttemptResult("canceled"), resumable=resumable)
             try:
                 snapshot = await in_thread(handle.stop_and_drain)
             except SandboxError as error:
@@ -1011,7 +1020,7 @@ class AttemptRunner:
                 await self._record_processes(emit, await in_thread(handle.evidence), lambda wall: wall - offset, commands.outcomes)
                 recorded.append(True)
                 timed_out = outcome.termination.kind is TerminationKind.TIMED_OUT  # it ran to the session's wall time
-                return await self._finalize(job, journal, "ended", "timed_out" if timed_out else None)
+                return await self._finalize(job, journal, "ended", "timed_out" if timed_out else None, resumable=await self._keep_session(job, handle))
             if snapshot is None:
                 status, case_outcome = "execution_failed", {"status": "execution_failed", "reason": "invalid_result"}
                 frozen = work / "overflow"  # the verifier gets an empty workspace: nothing was frozen
@@ -1032,6 +1041,12 @@ class AttemptRunner:
             if not recorded:
                 await self._record_fault_evidence(emit, handle, lambda wall: wall - offset, commands.outcomes)
             raise
+
+    async def _keep_session(self, job: AttemptJob, handle: CaseHandle) -> bool:
+        """Keeps the ended free-form session's workspace on this computer to resume; whether it was kept (RUSH learns only that)."""
+        kept = await in_thread(keep, self.config.scratch, job.attempt_id, handle.workspace, datetime.now(timezone.utc), self.config.resume_bytes)
+        LOG.info("attempt %s: %s", job.attempt_id, "kept to resume" if kept else "not kept to resume: larger than resume_bytes")
+        return kept
 
     async def _record_fault_evidence(self, emit: Emitter, handle: CaseHandle, to_monotonic_ns: Callable[[int], int], commands: Sequence[ExecOutcome]) -> None:
         """After a platform fault: stop the case and commit the process evidence the collector has, so the interrupted
@@ -1211,8 +1226,9 @@ class AttemptRunner:
 
     async def _finalize(
         self, job: AttemptJob, journal: RushJournal, status: str, reason: str | None, *, verdict: Mapping[str, Any] | None = None,
-        result: AttemptResult | None = None,
+        result: AttemptResult | None = None, resumable: bool | None = None,
     ) -> AttemptResult:
+        """Seals the attempt. ``resumable``, for a free-form session that ran, is whether this computer kept it to resume."""
         coverage, metrics = await self._trace(job, journal, status)
         body: dict[str, Any] = {
             "fence": job.fence,
@@ -1226,6 +1242,8 @@ class AttemptRunner:
         }
         if verdict is not None:
             body |= {key: verdict.get(key) for key in ("verdict", "explanation", "verifier_error")}
+        if resumable is not None:
+            body["resumable"] = resumable
         await self.worker.finalize(job.attempt_id, body)
         journal.close()
         return result or AttemptResult("finalized", {"status": status, "reason": reason})

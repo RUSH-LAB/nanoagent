@@ -131,6 +131,14 @@ def rush_error(response: httpx.Response) -> RushError:
 
 
 @dataclass(frozen=True)
+class ResumeOf:
+    """The Terminal session a new one resumes, as RUSH's claim names it: its attempt id and when it ended (ISO 8601)."""
+
+    attempt_id: str
+    at: str
+
+
+@dataclass(frozen=True)
 class AttemptJob:
     """One claimed attempt. ``run`` holds model, dialects, source_sha256, ``policy`` and the effective ``limits``; ``task``
     is ``{id, kind, description, instructions, plugin_name, tools}``; ``case`` is ``{case_id, kind, arguments, context,
@@ -139,7 +147,8 @@ class AttemptJob:
     ``case_pending`` is a session's case still being pinned: ``case``, ``prompt`` and ``private_reference`` are None until
     :meth:`pinned` gives them from :meth:`RushWorkerClient.case`. ``free_form`` is a Terminal session someone is at, which has no
     case at all: they run any agent and prompt it themselves, and nothing scores it. It has no task (``task`` is None) and of its
-    plugin, the page it was opened from, only ``plugin["id"]``."""
+    plugin, the page it was opened from, only ``plugin["id"]``. ``resume`` is the free-form session it resumes, kept on this computer
+    (nanoagent.uploaded.resume), or None."""
 
     attempt_id: str
     attempt_no: int
@@ -153,6 +162,7 @@ class AttemptJob:
     lease_seconds: float  # how long the claim, and each renewal, keeps the lease
     case_pending: bool = False
     free_form: bool = False
+    resume: ResumeOf | None = None
 
     def pinned(self, body: Mapping[str, Any]) -> AttemptJob:
         """This job with its case as RUSH pinned it (``GET /attempts/{id}/case``)."""
@@ -165,6 +175,7 @@ def parse_job(body: Mapping[str, Any]) -> AttemptJob:
             return AttemptJob(
                 body["attempt_id"], body["attempt_no"], body["fence"], body["run"], body["task"], body["case"], body["prompt"],
                 body["plugin"], body.get("private_reference"), float(body["lease_seconds"]), body["case_pending"], body["free_form"],
+                None if body["resume"] is None else ResumeOf(body["resume"]["attempt_id"], body["resume"]["at"]),
             )
     except KeyError as error:
         raise RushError(200, "invalid_job", f"the claimed job lacks {error.args[0]!r}", body) from error

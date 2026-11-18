@@ -81,6 +81,13 @@ describe('what the worker API stores is bounded', () => {
     rejects(() => finalizeBody({...body, coverage: big(limits.MAX_RESULT_BYTES)}));
   });
 
+  test('finalize says whether a free-form session was kept to resume, as a boolean or not at all', () => {
+    const body = {fence: 1, execution: {status: 'ended'}, coverage: {}, metrics: {}, final_cursor_expected: 0};
+    assert.equal(finalizeBody({...body, resumable: true}).final.resumable, true);
+    assert.equal(finalizeBody(body).final.resumable, null);
+    rejects(() => finalizeBody({...body, resumable: 'yes'}), 400);
+  });
+
   test('an event\'s data, a span\'s and a link\'s attributes and an accounting record each have a byte cap', () => {
     eventsBody({fence: 1, events: [event(big(1000))]});
     rejects(() => eventsBody({fence: 1, events: [event(big(limits.MAX_EVENT_DATA_BYTES))]}));

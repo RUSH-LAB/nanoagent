@@ -155,15 +155,17 @@ function emptyText(archived, closed) {
  * first. From RUSH's they start a new session or resume one, and archive a session; archived
  * sessions leave the list for its Archived view, where they can be opened or restored; chatting in
  * one again restores it. Another harness's are the person's Harness tab sessions (a free-form
- * Terminal one under each agent that worked in it), each opened as its read-only recording.
+ * Terminal one under each agent that worked in it): a free-form Terminal one resumes in the Harness tab, and any of them shows its
+ * read-only recording.
  * @param {object} options
  * @param {(session: object|null) => void} options.onOpen With what `session.resume` answered,
  *   or null for a new session.
+ * @param {(session: object) => void} options.onResume With a free-form Terminal session (`sessions.list`'s), to resume it.
  * @param {boolean} [options.closed] Whether no new session may start: the sessions are only read.
  * @returns {{element: HTMLElement, refresh: () => Promise<void>, resume: (id: string) => Promise<boolean>}}
  *   `refresh` lists the sessions again; `resume` opens session `id`, saying why not when it cannot, and whether it did.
  */
-export function dashboard({ onOpen, closed = false }) {
+export function dashboard({ onOpen, onResume, closed = false }) {
   const stats = h("div", { class: "dashboard-usage" });
   const status = h("p", { class: "error-text", role: "alert" });
   const list = h("ul", { class: "session-list" });
@@ -219,24 +221,28 @@ export function dashboard({ onOpen, closed = false }) {
     return h("li", { class: "session-row" }, h("div", { class: "session-line" }, open, spent, archiving));
   }
 
-  // A Harness session, with what the chosen harness's calls in it cost and took; opening it shows its recording under it.
+  // A Harness session, with what the chosen harness's calls in it cost and took. A free-form Terminal one opens in the Harness tab,
+  // resumed where it was left (`onResume`), and shows its recording under it with Recording; any other opens as its recording.
   function terminalRow(session) {
     const { usage } = session.harnesses.find((one) => one.harness === chosen);
+    const resumes = session.freeForm && !closed;
     const open = h(
       "button",
-      { type: "button", class: "session-open", title: "Show this session's recording", "aria-expanded": "false" },
+      { type: "button", class: "session-open", title: resumes ? "Resume this session in the Harness tab" : "Show this session's recording", ...(resumes ? {} : { "aria-expanded": "false" }) },
       h("span", { class: "session-title", text: session.title }),
       h("span", { class: "session-meta" }, session.running ? statusPill("Running", "info") : null, when(session.updatedAt)),
     );
     const took = usage.durationS.count ? formatSeconds(usage.durationS.sum) : "—";
     const spent = h("span", { class: "session-cost", title: "Cost / End-to-End Latency", text: `${usage.cost.count ? formatCost(usage.cost.sum) : "—"} / ${took}` });
-    const item = h("li", { class: "session-row" }, h("div", { class: "session-line" }, open, spent));
+    const replay = resumes ? h("button", { type: "button", class: "button small ghost", text: "Recording", title: "Show this session's recording", "aria-expanded": "false" }) : open;
+    const item = h("li", { class: "session-row" }, h("div", { class: "session-line" }, open, spent, resumes ? replay : null));
     let shown = null;
-    open.addEventListener("click", () => {
+    replay.addEventListener("click", () => {
       if (shown) shown.remove();
       shown = shown ? null : item.appendChild(recording(session.id));
-      open.setAttribute("aria-expanded", String(Boolean(shown)));
+      replay.setAttribute("aria-expanded", String(Boolean(shown)));
     });
+    if (resumes) open.addEventListener("click", () => onResume(session));
     return item;
   }
 

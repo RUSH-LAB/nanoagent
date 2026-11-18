@@ -90,6 +90,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
       // is the page it was opened from, by id alone.
       const free = attempt.case_id === null;
       const pinned = free ? {case: null} : await caseOf(client, run, attempt.case_id);
+      const resumed = run.resumed_from && (await client.query('select attempt_id, finalized_at from benchmark_attempt where attempt_id = $1', [run.resumed_from])).rows[0];
       return {
         kind: 'attempt', attempt_id: attempt.attempt_id, attempt_no: attempt.attempt_no, fence: attempt.fence, lease_expires_at: attempt.lease_expires_at,
         lease_seconds: Number(config.leaseSeconds),
@@ -108,6 +109,8 @@ function createPostgresBenchmarkWorker({pool, config}) {
           plugin_name: run.plugin_name, tools: task.tools, egress_hosts: task.egress_hosts,
         },
         free_form: free,
+        // The ended Terminal session it resumes, which the worker kept on the member's computer (or says it has not).
+        resume: resumed ? {attempt_id: resumed.attempt_id, at: resumed.finalized_at.toISOString()} : null,
         // A session's case still being pinned comes later, from GET /attempts/{id}/case.
         case_pending: !free && !pinned.case,
         ...(pinned.case ? pinned : {case_set: null, case: null, prompt: null, private_reference: null}),
@@ -507,16 +510,18 @@ function createPostgresBenchmarkWorker({pool, config}) {
         if (free ? ['answered', 'refused'].includes(body.execution.status) : body.execution.status === 'ended') {
           throw new BenchmarkError(422, 'invalid_status', free ? `A free-form session has no case to have ${body.execution.status}` : 'Only a free-form session ends with no case');
         }
+        if (!free && body.resumable !== null) throw new BenchmarkError(422, 'invalid_request', 'Only a free-form session is kept to resume');
         const highWater = Number(attempt.next_cursor) - 1;
         if (highWater !== body.final_cursor_expected) {
           throw new BenchmarkError(409, 'cursor_mismatch', `The attempt's committed events end at ${highWater}`, {high_water_cursor: highWater});
         }
         await client.query(
           `update benchmark_attempt set state = 'final', execution_status = $2, execution_reason = $3, verdict = $4, verifier_error = $5,
-             coverage = $6, metrics = $7, finalized_at = now(), sealed = true, final_cursor = $8, finalize_digest = $9, explanation = $10
+             coverage = $6, metrics = $7, finalized_at = now(), sealed = true, final_cursor = $8, finalize_digest = $9, explanation = $10,
+             resumable = $11
            where attempt_id = $1`,
           [attemptId, body.execution.status, body.execution.reason, body.verdict, body.verifier_error,
-            JSON.stringify(body.coverage), JSON.stringify(body.metrics), highWater, digest, body.explanation],
+            JSON.stringify(body.coverage), JSON.stringify(body.metrics), highWater, digest, body.explanation, body.resumable === true],
         );
         return {attempt_id: attemptId, sealed: true, final_cursor: highWater, replayed: false};
       }, {final: true});

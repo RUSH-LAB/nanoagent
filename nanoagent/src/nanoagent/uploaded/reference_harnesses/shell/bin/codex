@@ -2,10 +2,12 @@
 # Codex on RUSH's gateway (its Responses dialect), configured as the codex reference harness runs it: a provider keyed by the
 # attempt token, the session's model, the VM its sandbox, the workspace trusted, no web search, plugins or multi-agent tools, and
 # its thread tools left out (the gateway refuses their `namespace` tool) by a switched-off MCP server holding their name.
-home="$RUSH_WORKSPACE/.rush/codex"  # not under /tmp, where Codex refuses to put its helper binaries
-if [ ! -d "$home" ]; then
-  mkdir -p "$home"
-  cat > "$home/config.toml" <<EOF
+# Its home is in the workspace's .rush/, which is kept when the session ends, so resuming it continues its conversations
+# (nanoagent.uploaded.resume); its config names this session's gateway, so it is written each time.
+# Not under /tmp either, where Codex refuses to put its helper binaries.
+home="$RUSH_WORKSPACE/.rush/codex"
+mkdir -p "$home"
+cat > "$home/config.toml" <<EOF
 model = "$RUSH_MODEL"
 model_provider = "rush"
 sandbox_mode = "danger-full-access"
@@ -28,6 +30,5 @@ trust_level = "trusted"
 command = "true"
 enabled = false
 EOF
-fi
 install="$(python /harness/rush.py cli codex)" || exit 1  # installed the first time it is typed (rush.py cli)
 CODEX_HOME="$home" exec node "$install"/node_modules/@openai/codex/bin/codex.js "$@"

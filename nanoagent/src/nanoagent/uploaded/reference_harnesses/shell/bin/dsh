@@ -3,10 +3,11 @@
 # headless (it has no screen of its own: `dsh "<task>"` prints its run), with a patch over that profile routing openrouter to the
 # gateway keyed by the attempt token, the session's model (declaring the effort dsh asks for and the attempt's output cap) for
 # fresh agents, and no title call; nothing waits on an approval.
-home="${TMPDIR:-/tmp}/rush-dsh"
-if [ ! -d "$home" ]; then
-  mkdir -p "$home"
-  cat > "$home/run.patch.yml" <<EOF
+# Its home is in the workspace's .rush/, which is kept when the session ends, so resuming the session brings its runs back
+# (nanoagent.uploaded.resume); its patch names this session's gateway, so it is written each time.
+home="$RUSH_WORKSPACE/.rush/dsh"
+mkdir -p "$home"
+cat > "$home/run.patch.yml" <<EOF
 - id: session-title-llm
   disabled: true
 - id: llm-pi-ai
@@ -26,7 +27,6 @@ if [ ! -d "$home" ]; then
     model: "$RUSH_MODEL"
     reasoningEffort: "medium"
 EOF
-fi
 install="$(python /harness/rush.py cli dsh)" || exit 1  # installed the first time it is typed (rush.py cli)
 # Its version is an option of dsh itself, before the profile's.
 case "$1" in -V | --version) exec node "$install"/node_modules/@deepseek-ai/dsh/lib/bin.js "$1" ;; esac

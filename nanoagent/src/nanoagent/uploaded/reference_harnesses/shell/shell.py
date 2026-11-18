@@ -76,7 +76,15 @@ if command is not None:
 staged = TERMINAL_ENV.with_suffix(".tmp")
 staged.write_text(json.dumps(env), encoding="utf-8")
 staged.rename(TERMINAL_ENV)  # whole: another terminal reads it the moment it appears
-shell = subprocess.Popen(SHELL, env=env)
+# A session that resumes another (nanoagent.uploaded.resume): its first terminal says from when and with which agent after the
+# banner, then runs that agent's resume command or says what to type (bashrc).
+first = dict(env)
+resume = workspace / ".rush" / "resume.json"
+if resume.is_file():
+    said = json.loads(resume.read_text(encoding="utf-8"))
+    resume.unlink()
+    first |= {"RUSH_RESUME_LINE": said["line"], "RUSH_RESUME_RUN": said.get("run", ""), "RUSH_RESUME_TYPE": said.get("type", "")}
+shell = subprocess.Popen(SHELL, env=first)
 signal.signal(signal.SIGINT, signal.SIG_IGN)  # after the start, so the shell and what it runs keep Ctrl-C
 shell.wait()
 # The member ends the session by leaving the shell; its exit status is their last command's, not the harness's.

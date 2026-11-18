@@ -68,6 +68,7 @@ def job_body(policy: str = "task_tools", limits: dict[str, Any] | None = None, t
         "private_reference": {"digest": "x"},
         "free_form": False,
         "case_pending": False,
+        "resume": None,
     }
     body.update(overrides)
     return body
@@ -279,6 +280,7 @@ class CaseScript:
     workspace: dict[str, bytes] = field(default_factory=dict)  # files the harness left in the workspace, as frozen
     drain_error: Exception | None = None  # raised by stop_and_drain, e.g. a workspace over its bound
     closed_wait: bool = False  # a blocked wait() woken by close() fails as the real sandbox's does
+    made: dict[str, bytes] = field(default_factory=dict)  # files the shell makes in the case workspace as it starts
 
 
 class FakeCase:
@@ -294,11 +296,19 @@ class FakeCase:
         self.workspace = workdir / "workspace"
         self.workspace.mkdir(parents=True, exist_ok=True)
 
+    def _start(self) -> None:
+        self.found = {path.relative_to(self.workspace).as_posix(): path.read_bytes() for path in self.workspace.rglob("*") if path.is_file()}
+        for name, data in self.script.made.items():
+            (self.workspace / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.workspace / name).write_bytes(data)
+
     def launch(self) -> None:
         self.launched = True
+        self._start()
 
     def go(self, request_json: bytes, token: str) -> None:
         self.went = (json.loads(request_json), token)
+        self._start()
 
     def cpu_counters(self) -> list[dict[str, Any]]:
         return list(self.script.cpu)

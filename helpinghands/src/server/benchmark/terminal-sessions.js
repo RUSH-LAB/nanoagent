@@ -123,6 +123,10 @@ function terminalSession(row) {
     createdAt: row.created_at,
     updatedAt: row.finalized_at ?? row.created_at,
     running: !final,
+    // A free-form Terminal session resumes from the Dashboard (whether its worker kept it is checked there); `resumedFrom` is the one it resumed.
+    freeForm: shell && row.task_id === null,
+    resumable: row.resumable === true,
+    resumedFrom: row.resumed_from ?? null,
     harnesses,
     calls: calls.map(({start, ...call}) => ({...call, startS: seconds(begun, start)})),
     commands: processes.map(({argv, start, end, exitCode}) => ({argv, startS: seconds(begun, start), durationS: seconds(start, end), exitCode})),

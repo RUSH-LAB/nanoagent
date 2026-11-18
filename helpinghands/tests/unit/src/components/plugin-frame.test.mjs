@@ -89,6 +89,7 @@ describe('nanoagent.ui/v1 requests', () => {
       ['plugin.version', {version: null}],
       ['harness.run', {harness: 'claude-code', task: 'save-paper-source', text: 'hi'}],
       ['harness.run', {harness: 'shell'}],
+      ['harness.run', {harness: 'shell', resume: SESSION}],
       ['harness.cancel', {runId: 'harness-1'}],
       ['harness.input', {runId: 'harness-1', terminal: 0, data: '\x03'}],
       ['harness.resize', {runId: 'harness-1', terminal: 2, rows: 40, cols: 120}],
@@ -123,6 +124,8 @@ describe('nanoagent.ui/v1 requests', () => {
       ['harness.run', {harness: 'nanoagent', task: '', text: 'hi'}],
       ['harness.run', {harness: 'nanoagent', task: 'save-paper-source', text: ' '}],
       ['harness.run', {harness: 'shell', task: 'save-paper-source'}],
+      ['harness.run', {harness: 'shell', resume: 'not-an-id'}],
+      ['harness.run', {harness: 'claude-code', task: 'save-paper-source', text: 'hi', resume: SESSION}],
       ['harness.cancel', {}],
       ['harness.input', {runId: 'harness-1', terminal: 0, data: ''}],
       ['harness.input', {runId: 'harness-1', data: 'a'}],
@@ -540,11 +543,13 @@ describe('the bridge host', () => {
       '/api/benchmark/runs/r1/cancel': () => Response.json({}),
     };
     const {posted, calls, send} = await hostWith(path => answers[path](), {started: false});
-    send('h', 'harness.run', {harness: 'shell'});
+    send('h', 'harness.run', {harness: 'shell', resume: SESSION});  // a session the Dashboard resumes is queued as resuming it
     await until(() => messages(posted).some(message => message.event === 'harness.done'));
     assert.deepEqual(eventsOf(posted, 'harness-1'), [
       ['harness.error', {message: 'The Harness terminal runs on your computer, through RUSH Lab: open this page in the RUSH Lab app.'}], ['harness.done', {}],
     ]);
+    const queued = JSON.parse(calls.find(call => call.path === '/api/benchmark/sessions').init.body);
+    assert.deepEqual([queued.harness, queued.resume, queued.interactive], ['shell', SESSION, true]);
     assert.ok(calls.some(call => call.path === '/api/benchmark/runs/r1/cancel' && call.init.method === 'POST'));
   });
 

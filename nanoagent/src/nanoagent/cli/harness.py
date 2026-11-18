@@ -4,10 +4,13 @@ the member's own worker, and the run folder gets its result and recording.
     nanoagent harness plugin=city-weather harness=claude-code                         # interactive: the CLI's own screen here
     nanoagent harness plugin=city-weather harness=codex prompt="Which cities had …"   # one-shot, for scripts
     nanoagent harness plugin=city-weather harness=shell                               # a plain terminal: bring your own agent
+    nanoagent harness plugin=city-weather harness=shell resume=<attempt_id>           # pick up an ended one where it was left
 
 `harness=shell` is bash in the workspace with the gateway preset, a free-form session: no request and no case, nothing scored, its
 model calls and commands recorded; `rush save <name>` there makes what the member built a harness of theirs, which `harness=<name>`
-runs again, scored and recorded the same way.
+runs again, scored and recorded the same way. `resume=<attempt_id>` (a shell session's, in its result.json) starts one that resumes
+it, as clicking it on the plugin page's Dashboard does: the worker puts back its workspace and the agents' conversations, kept on this
+computer when it ended, and runs the one agent's resume command, or says why it could not.
 
 It goes through the RUSH that RUSH Lab on this computer is connected to, as the tab does (POST /api/benchmark/sessions,
 docs/contracts/rush-benchmark-api.md): RUSH queues the run at once and pins the case on the member's computer meanwhile, and RUSH
@@ -77,6 +80,8 @@ class HarnessCommandConfig(Config):
     workspace: str | None = MISSING
     # RUSH Lab's data folder, which holds its one connection; null: whichever of RUSH Lab's and RUSH Lab Dev's is signed in.
     lab: str | None = MISSING
+    # An ended shell session of yours to resume, by its attempt id; null: a new one.
+    resume: str | None = MISSING
 
 
 def app_data() -> Path:
@@ -259,6 +264,8 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("harness: without prompt= the session is interactive and needs a terminal")
     if cfg.harness == "shell" and not interactive:
         raise SystemExit("harness: the shell is a terminal you work in; drop prompt=")
+    if cfg.resume is not None and cfg.harness != "shell":
+        raise SystemExit("harness: only a shell session resumes another; resume= goes with harness=shell")
     folder, site, token = connection(find_lab(app_data()) if cfg.lab is None else Path(cfg.lab))
     with httpx.Client(base_url=site, headers={"Authorization": f"Bearer {token}", "Origin": site}, timeout=60.0) as rush:
         prefix, app = find_plugin(rush, cfg.plugin, cfg.workspace)
@@ -277,6 +284,7 @@ def main(argv: list[str] | None = None) -> int:
         home = Path(cfg.home) if cfg.home else folder / "runs" / cfg.plugin / f"{datetime.now():%Y_%m_%d_%H%M%S}_{cfg.harness}"
         print(f"{cfg.harness} · {cfg.plugin} · starting: the first session of a harness builds it", file=sys.stderr, flush=True)
         body = {"plugin_id": cfg.plugin, "harness": HARNESSES.get(cfg.harness, cfg.harness), "interactive": interactive} | ({} if free else {"task_id": task, "text": text})
+        body |= {} if cfg.resume is None else {"resume": cfg.resume}
         started = checked(rush.post(f"{prefix}/benchmark/sessions", json=body | ({} if cfg.model is None else {"model": cfg.model}),
                                     timeout=START_TIMEOUT_S))  # fmt: skip
         run, attempt_id = started["run"], started["attempt_id"]
