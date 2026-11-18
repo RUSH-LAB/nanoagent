@@ -362,7 +362,7 @@ def plan_npm(source_root: Path, lockfiles: tuple[str, ...], machine: str = platf
     for key, entry in sorted(packages.items()):
         if key == "" or entry.get("inBundle"):
             continue
-        if not _NPM_KEY.match(key):
+        if not _NPM_KEY.fullmatch(key):
             raise ToolchainError(
                 "invalid_lockfile", f"package-lock.json: {key!r} is not a node_modules path (workspaces and links are not supported)"
             )

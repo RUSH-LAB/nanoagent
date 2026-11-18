@@ -130,7 +130,7 @@ def npm_source(tmp_path: Path, packages: dict[str, dict]) -> Path:
     return source
 
 
-@pytest.mark.parametrize("key", ["node_modules/x[..", "node_modules/y[/abs/path", "node_modules/../x", "/abs/node_modules/x", "node_modules//x"])
+@pytest.mark.parametrize("key", ["node_modules/x[..", "node_modules/y[/abs/path", "node_modules/../x", "/abs/node_modules/x", "node_modules//x", "node_modules/x\n"])
 def test_npm_lock_keys_that_are_not_package_paths_are_rejected(tmp_path: Path, key: str) -> None:
     entry = {"version": "1.0.0", "resolved": "https://r.example/x/-/x-1.0.0.tgz", "integrity": "sha512-AAAA"}
     fail("invalid_lockfile", "javascript-22", npm_source(tmp_path, {key: entry}), tmp_path, ("package-lock.json",), tmp_path)
