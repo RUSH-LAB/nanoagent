@@ -1,6 +1,6 @@
-// The Leaderboard tab every plugin's page has (kit/shell.js), laid out as examples/benchmark's report: the harnesses run on one of
-// the plugin's tasks, ranked from every member's scored runs RUSH keeps (`leaderboard`) by correct rate, then average time, then
-// average cost; and under them the runs by case: the case (its input, the prompt the coding harnesses got and its reference) and one
+// The Leaderboard tab every plugin's page has (kit/shell.js), laid out as examples/benchmark's report: one board per plugin, the
+// harnesses run on any of its tasks, ranked from every member's scored runs RUSH keeps (`leaderboard`) by correct rate, then average
+// time, then average cost; and under them the runs by case: the case (its input, the prompt the coding harnesses got and its reference) and one
 // card per run with its verdict and figures. The member's own runs also show the verifier's word, the answer and the trajectory, read
 // from their trace when the case is opened (`leaderboard.trace`); other members' traces are not shared. RUSH is highlighted.
 
@@ -128,8 +128,7 @@ function caseSection(shown, status, open) {
  * The Leaderboard tab, read again each time `refresh` is called (each time the tab is shown).
  * @returns {{element: HTMLElement, refresh: () => Promise<void>}}
  */
-export function leaderboardPage(plugin) {
-  let task = plugin.tasks[0].id;
+export function leaderboardPage() {
   const status = h("p", { class: "error-text", role: "alert" });
   const casesBox = h("section", { class: "leaderboard-cases", "aria-label": "Runs by case" });
 
@@ -153,7 +152,7 @@ export function leaderboardPage(plugin) {
     status.textContent = "";
     let read;
     try {
-      read = await request("leaderboard", { task });
+      read = await request("leaderboard", {});
     } catch (problem) {
       status.textContent = problem.message;
       return;
@@ -165,18 +164,10 @@ export function leaderboardPage(plugin) {
     );
   }
 
-  // A plugin with more than one task ranks each on its own.
-  const chooser = plugin.tasks.length > 1
-    ? h("select", { class: "input", "aria-label": "Task" }, plugin.tasks.map((one) => h("option", { value: one.id, text: humanize(one.id) })))
-    : null;
-  chooser?.addEventListener("change", () => {
-    task = chooser.value;
-    refresh();
-  });
   const element = h(
     "section",
     { class: "leaderboard-page", "aria-label": "Leaderboard" },
-    h("header", { class: "dashboard-head" }, h("h2", { text: "Leaderboard" }), chooser),
+    h("header", { class: "dashboard-head" }, h("h2", { text: "Leaderboard" })),
     status,
     board.element,
     casesBox,

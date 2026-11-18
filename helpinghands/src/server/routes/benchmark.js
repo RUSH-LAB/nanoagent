@@ -297,12 +297,12 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       if (typeof body.interactive !== 'boolean') throw new BenchmarkError(400, 'invalid_request', 'interactive must be a boolean');
       return json(res, 201, await startSession(ctx, context, {pluginId, taskId, harness, interactive: body.interactive, text: body.text, model: body.model}));
     }
-    // A plugin page's Leaderboard tab: the harnesses run on one of its tasks, ranked from every member's scored runs.
+    // A plugin page's Leaderboard tab: the harnesses run on the plugin, whatever task, ranked from every member's scored runs.
     if (top === 'leaderboard') {
       if (req.method !== 'GET') return wrongMethod();
       read();
-      const [pluginId, taskId] = ['plugin_id', 'task_id'].map(name => string(url.searchParams.get(name), name));
-      return json(res, 200, leaderboard(await repository.leaderboard(context, pluginId, taskId), context.userId));
+      const pluginId = string(url.searchParams.get('plugin_id'), 'plugin_id');
+      return json(res, 200, leaderboard(await repository.leaderboard(context, pluginId), context.userId));
     }
     // A run of a reference harness made outside RUSH (examples/benchmark in the NanoAgent project), kept as the member's scored run, on
     // the package of its plugin version as published: its task must be that version's.

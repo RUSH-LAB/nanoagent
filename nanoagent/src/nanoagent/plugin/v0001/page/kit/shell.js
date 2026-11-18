@@ -2,7 +2,7 @@
 // plugin has: its Dashboard; its Session, a chat with the plugin's agent in which each task
 // the agent runs shows its result, drawn by kit/result.js or the plugin's renderer; and its
 // Harness, the person's own terminal in the plugin's task, where they run any agent (kit/harness.js); and its Leaderboard, the
-// harnesses ranked on its task from every member's scored runs (kit/leaderboard.js).
+// harnesses ranked from every member's scored runs on any of its tasks (kit/leaderboard.js).
 
 import { hasHost, on, request } from "./bridge.js";
 import { chatPanel } from "./chat.js";
@@ -200,7 +200,7 @@ export async function mountApp(renderers) {
   const home = homePage(plugin, board.element);
   const page = h("div", { class: "kit-session", hidden: true });
   const harness = h("div", { class: "kit-harness", hidden: true }, closed ? null : harnessPage(plugin));
-  const ranks = leaderboardPage(plugin);
+  const ranks = leaderboardPage();
   const leaderboard = h("main", { class: "page", hidden: true }, ranks.element);
   let open = false;
   let tab = null;

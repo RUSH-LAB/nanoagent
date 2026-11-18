@@ -34,7 +34,7 @@ import {
  * output as it comes and the outcome (./harness.js), through `harness.done`, and sends what is typed (`harness.input`) and the
  * terminal's size (`harness.resize`); `harness.cancel` cancels the run, as the frame going away does.
  *
- * The Leaderboard tab reads the harnesses ranked on one of the plugin's tasks (`leaderboard`) and the trace of one of the member's
+ * The Leaderboard tab reads the harnesses ranked on the plugin, whatever task (`leaderboard`), and the trace of one of the member's
  * own runs on it (`leaderboard.trace`, its attempt's events).
  */
 // As long as the member's computer holds a run for RUSH to take up again (runner/protocol.js HOLD_MS).
@@ -284,8 +284,8 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     },
     'harness.input': async ({runId, data}) => toTerminal(runId, {data}),
     'harness.resize': async ({runId, rows, cols}) => toTerminal(runId, {rows, cols}),
-    'leaderboard': async ({task}) => {
-      const response = await request(`/api/benchmark/leaderboard?${new URLSearchParams({plugin_id: plugin.id, task_id: task})}`);
+    'leaderboard': async () => {
+      const response = await request(`/api/benchmark/leaderboard?${new URLSearchParams({plugin_id: plugin.id})}`);
       if (!response.ok) throw await failed(response, 'Could not read the leaderboard');
       return {result: await response.json()};
     },

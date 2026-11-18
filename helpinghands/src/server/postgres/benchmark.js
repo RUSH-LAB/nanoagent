@@ -666,10 +666,10 @@ function createPostgresBenchmark({pool}) {
       )).rows.map(row => [row.attempt_id, {cost_usd: row.cost_usd, calls: row.calls, uncertain_calls: row.uncertain_calls}])));
     },
 
-    /** Every member's scored attempts on task `taskId` of plugin `pluginId` (`benchmark_leaderboard`), newest first. */
-    async leaderboard(context, pluginId, taskId) {
+    /** Every member's scored attempts on plugin `pluginId`, whatever task (`benchmark_leaderboard`), newest first. */
+    async leaderboard(context, pluginId) {
       await sweep();
-      return member(context, async client => (await client.query('select * from benchmark_leaderboard($1, $2)', [pluginId, taskId])).rows);
+      return member(context, async client => (await client.query('select * from benchmark_leaderboard($1)', [pluginId])).rows);
     },
 
     /** Published plugin version `version` of `pluginId`: `{entry, sha256}`, or null. */

@@ -12,7 +12,7 @@ const mean = values => (values.length ? values.reduce((sum, value) => sum + valu
 const ascending = (x, y) => (x === y ? 0 : x === null ? 1 : y === null ? -1 : x - y);
 
 /**
- * A plugin task's leaderboard from its scored attempts (`benchmark_leaderboard` rows), as member `viewerId` sees it.
+ * A plugin's leaderboard from its scored attempts on any of its tasks (`benchmark_leaderboard` rows), as member `viewerId` sees it.
  *
  * `harnesses`: one entry per harness, a reference harness by its name and a saved one, which only its owner runs, as "name (@owner)";
  * ranked by correct rate, then average time, then average cost.

@@ -17,7 +17,7 @@ const row = (harness, verdict, {user = 'me', elapsed = 1000, cost = 0.01, at = '
   execution_status: 'answered', execution_reason: null, elapsed_ms: elapsed, input_tokens: '10', output_tokens: '2', cost_usd: cost, created_at: at,
 });
 
-describe('a plugin task\'s leaderboard', () => {
+describe('a plugin\'s leaderboard', () => {
   it('names every reference harness', () => {
     assert.deepEqual(Object.keys(REFERENCE_LABELS).sort(), [...REFERENCE_HARNESSES].sort());
   });
@@ -71,7 +71,7 @@ function ctxFor(published = {entry: ENTRY, sha256: SHA}) {
     benchmark: {
       service: {},
       repository: {
-        leaderboard: async (context, pluginId, taskId) => { calls.push(['board', pluginId, taskId]); return [row('pi', 'pass')]; },
+        leaderboard: async (context, pluginId) => { calls.push(['board', pluginId]); return [row('pi', 'pass')]; },
         marketVersion: async (context, pluginId, version) => { calls.push(['market', pluginId, version]); return published; },
         importRun: async (context, frame, record) => { calls.push(['import', frame, record]); return {run_id: 'r1', created: calls.length < 3, filled: calls.length < 3}; },
       },
@@ -81,13 +81,13 @@ function ctxFor(published = {entry: ENTRY, sha256: SHA}) {
 }
 
 describe('GET /api/benchmark/leaderboard', () => {
-  it('ranks the harnesses of the plugin task from every member\'s scored runs, as the caller sees them', async () => {
+  it('ranks the harnesses of the plugin, whatever task, from every member\'s scored runs, as the caller sees them', async () => {
     const {ctx, calls} = ctxFor();
-    const {status, payload} = await invoke(route, {method: 'GET', path: '/api/benchmark/leaderboard', query: {plugin_id: 'p', task_id: 'sum'}, requestContext: CONTEXT, ctx});
+    const {status, payload} = await invoke(route, {method: 'GET', path: '/api/benchmark/leaderboard', query: {plugin_id: 'p'}, requestContext: CONTEXT, ctx});
     assert.equal(status, 200);
-    assert.deepEqual(calls, [['board', 'p', 'sum']]);
+    assert.deepEqual(calls, [['board', 'p']]);
     assert.deepEqual([payload.harnesses[0].harness, payload.cases[0].runs[0].attempt_id], ['Pi', 'a1']);
-    assert.equal((await invoke(route, {method: 'GET', path: '/api/benchmark/leaderboard', query: {plugin_id: 'p'}, requestContext: CONTEXT, ctx})).status, 400);
+    assert.equal((await invoke(route, {method: 'GET', path: '/api/benchmark/leaderboard', query: {}, requestContext: CONTEXT, ctx})).status, 400);
   });
 });
 

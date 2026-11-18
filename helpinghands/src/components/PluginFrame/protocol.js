@@ -61,7 +61,7 @@ const PARAMS = {
   'harness.resize': ({runId, rows, cols}) => (typeof runId === 'string' && runId && [rows, cols].every(n => Number.isInteger(n) && n >= 1 && n <= 1000)
     ? null
     : 'harness.resize needs a runId and the terminal\'s rows and cols, each 1 to 1000'),
-  'leaderboard': ({task}) => (typeof task === 'string' && task ? null : 'leaderboard needs a task id'),
+  'leaderboard': () => null,
   'leaderboard.trace': ({attemptId}) => (UUID.test(attemptId ?? '') ? null : 'leaderboard.trace needs an attempt id'),
   'plugin.version': ({version}) => (version === null || (typeof version === 'string' && version)
     ? null
