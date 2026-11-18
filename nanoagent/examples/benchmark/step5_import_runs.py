@@ -7,7 +7,9 @@ from the plugin the run used, which RUSH checks against the version it publishes
 found it right and its word, its time, tokens and cost. Each reference harness's ZIP, built by this NanoAgent, is sent first as the
 member's source of it (POST benchmark/sources/references/<name>). The runs are owned by the member signed in to RUSH Lab's connection,
 as `nanoagent harness` signs in, and go only to the RUSH `site` names, a local one: a connection to another RUSH stops the step.
-RUSH keeps a run once per plugin, task, case and harness, so the step runs again without keeping any twice."""
+RUSH keeps a run once per plugin, task, case and harness, so the step runs again without keeping any twice. A plugin the run used that
+breaks this NanoAgent's plugin rules (made under older ones) has no frame to keep its runs on: they are left out, and the plugin is
+named with the rules it breaks in imported.json."""
 
 import json
 from dataclasses import dataclass
@@ -19,7 +21,7 @@ from omegaconf import MISSING
 from slimconfig import Config, Layout, Metadata, Output, Run, load_output
 
 from nanoagent.cli.harness import app_data, checked, connection, find_lab
-from nanoagent.plugin import load_manifest
+from nanoagent.plugin import PluginError, load_manifest
 from nanoagent.uploaded.case_sets import case_set_frame
 from nanoagent.uploaded.reference import build_reference
 from step1_make_cases import PluginBugs
@@ -51,6 +53,8 @@ class Imported(Output):
     # The runs RUSH kept now, and those it had kept before.
     kept: int
     existing: int
+    # Each plugin whose runs are left out, as its copy breaks this NanoAgent's plugin rules, with the rules it breaks.
+    broken: dict[str, str]
 
 
 @dataclass
@@ -91,14 +95,20 @@ class ImportRuns(Run):
                 for harness, name in config.harnesses.items()
             }  # fmt: skip
             manifests = {}
+            broken: dict[str, str] = {}
             for path in sorted(Path(config.runs).glob("*/*/*/*/result.json")):
                 # The fields kept, read as JSON: step 2's SingleRun has changed since some batches were run.
                 result = json.loads(path.read_text(encoding="utf-8"))
                 plugin = result["plugin"]
-                if plugin in buggy:
+                if plugin in buggy or plugin in broken:
                     continue
                 if plugin not in manifests:
-                    manifests[plugin] = load_manifest(path.parent / "plugin" / plugin)
+                    try:
+                        manifests[plugin] = load_manifest(path.parent / "plugin" / plugin)
+                    except PluginError as error:
+                        broken[plugin] = str(error)
+                        print(f"left out: {error}")
+                        continue
                 manifest = manifests[plugin]
                 frame = case_set_frame(config.name, manifest, "", manifest.task(result["task"]), cases[plugin].context)
                 del frame["package_sha256"]  # RUSH pins the package of the version it publishes
@@ -120,8 +130,8 @@ class ImportRuns(Run):
                     kept += 1
                 else:
                     existing += 1
-        self.layout.imported = Imported(kept=kept, existing=existing)
-        print(f"{kept} runs kept, {existing} kept before, in {config.workspace} on {site}")
+        self.layout.imported = Imported(kept=kept, existing=existing, broken=broken)
+        print(f"{kept} runs kept, {existing} kept before, in {config.workspace} on {site}; {len(broken)} plugins left out: {', '.join(broken)}")
 
 
 if __name__ == "__main__":
