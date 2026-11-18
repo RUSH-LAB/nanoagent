@@ -53,4 +53,4 @@ function resolve({benchmark, policy, capabilities}) {
 /** The top-level parts of two plans that differ: what made a preview stale. */
 const changedParts = (a, b) => Object.keys({...a, ...b}).filter(key => canonicalJson(a[key] ?? null) !== canonicalJson(b[key] ?? null));
 
-module.exports = {checkWorkers, resolve, changedParts};
+module.exports = {checkWorkers, renderCase, resolve, changedParts};

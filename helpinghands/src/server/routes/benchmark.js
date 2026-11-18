@@ -292,7 +292,7 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       if (req.method !== 'GET') return wrongMethod();
       read();
       const [pluginId, taskId] = ['plugin_id', 'task_id'].map(name => string(url.searchParams.get(name), name));
-      return json(res, 200, {harnesses: leaderboard(await repository.leaderboard(context, pluginId, taskId), context.userId)});
+      return json(res, 200, leaderboard(await repository.leaderboard(context, pluginId, taskId), context.userId));
     }
     // A run of a reference harness made outside RUSH (examples/benchmark in the NanoAgent project), kept as the member's scored run, on
     // the package of its plugin version as published: its task must be that version's.

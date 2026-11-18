@@ -4,10 +4,12 @@ Each run folder step 3 wrote (<plugin>/<task>/<case>/<harness>, step 2's layout)
 goes to RUSH's POST benchmark/imports, in one of the member's workspaces, as the run of the reference harness RUSH builds under the
 step's harness's name (`harnesses`): its case set's frame (the plugin, its task and the case file's context, as NanoAgent reads them
 from the plugin the run used, which RUSH checks against the version it publishes), the case, how the run ended, whether the verifier
-found it right and its word, its time, tokens and cost. Each reference harness's ZIP, built by this NanoAgent, is sent first as the
+found it right and its word, its time, tokens and cost; and, kept as RUSH keeps a run's trace, the case's input, expected error and
+reference, the harness's answer and its trajectory (messages.json, the ATIF steps, long strings cut as step 4 cuts them). Each reference harness's ZIP, built by this NanoAgent, is sent first as the
 member's source of it (POST benchmark/sources/references/<name>). The runs are owned by the member signed in to RUSH Lab's connection,
 as `nanoagent harness` signs in, and go only to the RUSH `site` names, a local one: a connection to another RUSH stops the step.
-RUSH keeps a run once per plugin, task, case and harness, so the step runs again without keeping any twice. A plugin the run used that
+RUSH keeps a run once per plugin, task, case and harness, so the step runs again without keeping any twice, filling in the trace of
+a run it kept without one. A plugin the run used that
 breaks this NanoAgent's plugin rules (made under older ones) has no frame to keep its runs on: they are left out, and the plugin is
 named with the rules it breaks in imported.json."""
 
@@ -26,6 +28,7 @@ from nanoagent.uploaded.case_sets import case_set_frame
 from nanoagent.uploaded.reference import build_reference
 from step1_make_cases import PluginBugs
 from step2_single_run import Cases, Harness, logged
+from step4_report import clipped
 
 # The only RUSH the runs may go to.
 LOCAL_SITES = ("http://localhost:3000", "http://127.0.0.1:3000")
@@ -50,9 +53,10 @@ class ImportConfig(Config):
 
 @dataclass
 class Imported(Output):
-    # The runs RUSH kept now, and those it had kept before.
+    # The runs RUSH kept now, and those it had kept before, of which `filled` it had kept without their trace, filled in now.
     kept: int
     existing: int
+    filled: int
     # Each plugin whose runs are left out, as its copy breaks this NanoAgent's plugin rules, with the rules it breaks.
     broken: dict[str, str]
 
@@ -84,7 +88,7 @@ class ImportRuns(Run):
             raise SystemExit(f"import: RUSH Lab is signed in to {site}; the runs go only to a local RUSH ({', '.join(LOCAL_SITES)})")
         buggy = {bug["plugin"] for bug in load_output(config.bugs, PluginBugs).plugins}
         cases = {each.plugin: each for each in (load_output(path, Cases) for path in sorted(Path(config.cases).glob("step1_*_cases.json")))}
-        kept = existing = 0
+        kept = existing = filled = 0
         with httpx.Client(base_url=site, headers={"Authorization": f"Bearer {token}", "Origin": site}, timeout=60.0) as rush:
             workspaces = [each for each in checked(rush.get("/api/workspaces"))["workspaces"] if each["slug"] == config.workspace]
             if len(workspaces) != 1:
@@ -112,26 +116,38 @@ class ImportRuns(Run):
                 manifest = manifests[plugin]
                 frame = case_set_frame(config.name, manifest, "", manifest.task(result["task"]), cases[plugin].context)
                 del frame["package_sha256"]  # RUSH pins the package of the version it publishes
+                _, refusal = cases[plugin].case(result["case"])
+                ended = execution(result)
                 body = {
                     "frame": frame | {"model": result["model"], "endpoint_profile": config.endpoint_profile},
                     "source_sha256": sources[Harness(result["harness"])],
                     "case_id": result["case"],
                     "kind": result["expected"],
                     "started_at": load_output(path.parent / "metadata.json", Metadata).started,
-                    "execution": execution(result),
+                    "execution": ended,
                     "correct": result["correct"],
                     "verdict": result["verdict"],
                     "elapsed_ms": round(result["latency_seconds"] * 1000),
                     "input_tokens": result["input_tokens"],
                     "output_tokens": result["output_tokens"],
                     "cost_usd": result["cost"],
+                    "arguments": result["arguments"],
+                    "expected_error": None if refusal is None else refusal.reference_error,
+                    "reference": result["reference"] if refusal is None else refusal.reference_error,
+                    "answer": clipped({"answered": result["output"], "refused": result["refused"], "execution_failed": result["error"]}[ended]),
+                    "trajectory": clipped(json.loads((path.parent / "messages.json").read_text(encoding="utf-8"))["steps"]),
                 }
-                if checked(rush.post(f"{prefix}/imports", json=body))["created"]:
+                answer = checked(rush.post(f"{prefix}/imports", json=body))
+                if answer["created"]:
                     kept += 1
                 else:
                     existing += 1
-        self.layout.imported = Imported(kept=kept, existing=existing, broken=broken)
-        print(f"{kept} runs kept, {existing} kept before, in {config.workspace} on {site}; {len(broken)} plugins left out: {', '.join(broken)}")
+                    filled += answer["filled"]
+        self.layout.imported = Imported(kept=kept, existing=existing, filled=filled, broken=broken)
+        print(
+            f"{kept} runs kept, {existing} kept before ({filled} filled in with their trace), in {config.workspace} on {site};"
+            f" {len(broken)} plugins left out: {', '.join(broken)}"
+        )
 
 
 if __name__ == "__main__":

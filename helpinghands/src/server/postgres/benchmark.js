@@ -6,6 +6,7 @@ const {CAPABILITY_WINDOW_S} = require('../benchmark/limits');
 const {stringifyJson} = require('../benchmark/json');
 const {RENDERER_VERSION, canonicalJson, sha256Hex} = require('../benchmark/prompt');
 const {checkReference, referencePolicy} = require('../benchmark/harness');
+const {renderCase} = require('../benchmark/plan');
 const {latestByCase, runScore, sumMetrics} = require('../benchmark/rules');
 const {MAX_ATTEMPT_LINKS, MAX_ATTEMPTS_PER_CASE, MAX_EVENT_PAGE_BYTES, MAX_TERMINAL_PAGE_BYTES, MAX_TRACE_PAGE_BYTES} = require('../benchmark/limits');
 const {chargeStorage, inTransaction} = require('./benchmark-context');
@@ -179,6 +180,32 @@ function createPostgresBenchmark({pool}) {
      select $1, case_id, reference from benchmark_case_set_private where case_set_id = $2 and case_id = $3`,
     [runId, caseSetId, caseId],
   );
+  /**
+   * What an imported run (`importRun`) keeps besides its score, as a run made in RUSH keeps it: its case pinned (`record.case`'s
+   * arguments and digest, and the prompt RUSH renders for it under the run's policy), its private reference, and after its verdict
+   * (event 1) the harness's answer (`harness.answer`, `{answer}`) and each step of its ATIF trajectory (`trajectory.step`, the step).
+   */
+  const keepTrace = async (client, frame, record, {runId, attemptId, policy, ended}) => {
+    const c = record.case;
+    const prompt = renderCase({
+      benchmark: {task: frame.task, context: frame.context, plugin: {name: frame.plugin_name}}, policy,
+      text: policy === 'coding' ? frame.coding_template : frame.task_instructions, c,
+    });
+    await client.query(
+      `update benchmark_run_case set arguments = $3, content_digest = $4, prompt_system = $5, prompt_user = $6, prompt_sha256 = $7 where run_id = $1 and case_id = $2`,
+      [runId, c.case_id, stringifyJson(c.arguments), c.content_digest, prompt.system, prompt.user, prompt.sha256],
+    );
+    await client.query('insert into benchmark_run_private (run_id, case_id, reference) values ($1, $2, $3)', [runId, c.case_id, JSON.stringify(c.reference)]);
+    const events = [['answer', 'harness.answer', {answer: record.answer}], ...record.trajectory.map((step, index) => [`step-${index + 1}`, 'trajectory.step', step])];
+    await client.query(
+      `insert into benchmark_event (attempt_id, cursor, event_id, source, kind, sequence, data, digest, received_at)
+       select $1, 1 + t.n, t.id, 'import', t.kind, 1 + t.n, t.data, t.digest, $6
+         from unnest($2::text[], $3::text[], $4::jsonb[], $5::text[]) with ordinality as t(id, kind, data, digest, n)`,
+      [attemptId, events.map(([id]) => id), events.map(([, kind]) => kind), events.map(([, , data]) => JSON.stringify(data)),
+        events.map(([, , data]) => sha256Hex(canonicalJson(data))), ended],
+    );
+    await client.query('update benchmark_attempt set next_cursor = $2, final_cursor = $3 where attempt_id = $1', [attemptId, events.length + 2, events.length + 1]);
+  };
   const publisherOf = async (client, userId) => (await client.query('select id, display_name as name, github_login as github from app_user where id = $1', [userId])).rows[0];
 
   return Object.freeze({
@@ -657,8 +684,9 @@ function createPostgresBenchmark({pool}) {
      * `frame` is its case set but the case (`publicationFrame`, checked against its plugin version's entry), `record` the case it ran
      * (`importBody`, whose own frame is `frame` before the check), worked by the harness of the caller's source `record.source_sha256`. Like a session's, its run is of a benchmark
      * nobody publishes; its one attempt is final as the run ended, with its verdict, its time and tokens (metrics), its cost (one
-     * settled admission) and the verifier's word (its one event, the trace it keeps). `{run_id, created}`: the same plugin, task, case
-     * and harness kept again is the run kept before, and a different record under them is refused (409 idempotency_conflict).
+     * settled admission) and its trace (`keepTrace`). `{run_id, created, filled}`: the same plugin, task, case and harness kept again is
+     * the run kept before, its trace filled in (`filled`) when it was kept without one, and a different record under them is refused
+     * (409 idempotency_conflict); the trace is not part of the record compared.
      */
     async importRun(context, frame, record) {
       return memberWrite(context, async client => {
@@ -669,21 +697,26 @@ function createPostgresBenchmark({pool}) {
         if (!source) throw new BenchmarkError(404, 'unknown_source', 'Upload the source first');
         checkReference(source.harness_name);
         const key = `import:${frame.plugin_id}/${frame.task_id}/${record.case_id}/${source.harness_name}`;
-        const digest = sha256Hex(canonicalJson(record));
+        const {case: _case, answer: _answer, trajectory: _trajectory, ...scored} = record;
+        const digest = sha256Hex(canonicalJson(scored));
+        const policy = referencePolicy(source.harness_name);
+        const ended = new Date(Date.parse(record.started_at) + record.elapsed_ms).toISOString();
         const existing = (await client.query(
           'select run_id, request_digest from benchmark_run where workspace_id = $1 and user_id = $2 and idempotency_key = $3', [context.workspaceId, context.userId, key],
         )).rows[0];
         if (existing) {
           if (existing.request_digest !== digest) throw new BenchmarkError(409, 'idempotency_conflict', `${key} was kept with a different record`);
-          return {run_id: existing.run_id, created: false};
+          const kept = (await client.query(
+            `select a.attempt_id, c.prompt_sha256 from benchmark_attempt a join benchmark_run_case c using (run_id, case_id) where a.run_id = $1`, [existing.run_id],
+          )).rows[0];
+          if (kept.prompt_sha256 === null) await keepTrace(client, frame, record, {runId: existing.run_id, attemptId: kept.attempt_id, policy, ended});
+          return {run_id: existing.run_id, created: false, filled: kept.prompt_sha256 === null};
         }
         await client.query(
           'insert into benchmark_package (sha256, data) select sha256, package from market_plugin_version where plugin_id = $1 and sha256 = $2 limit 1 on conflict do nothing',
           [frame.plugin_id, frame.package_sha256],
         );
-        const policy = referencePolicy(source.harness_name);
         const [runId, attemptId] = [crypto.randomUUID(), crypto.randomUUID()];
-        const ended = new Date(Date.parse(record.started_at) + record.elapsed_ms).toISOString();
         await client.query(
           `insert into benchmark_run (run_id, workspace_id, user_id, idempotency_key, request_digest, preview_id, source_sha256,
              model, endpoint_label, dialects, policy, prompt_text, limits, selection, renderer_version,
@@ -716,7 +749,8 @@ function createPostgresBenchmark({pool}) {
            values ($1, 'import', $2, 'settled', $2, $3::timestamptz::date, $3, $4, $4)`,
           [attemptId, record.cost_usd, record.started_at, ended],
         );
-        return {run_id: runId, created: true};
+        await keepTrace(client, frame, record, {runId, attemptId, policy, ended});
+        return {run_id: runId, created: true, filled: true};
       });
     },
   });

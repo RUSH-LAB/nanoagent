@@ -290,9 +290,15 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
       return {result: await response.json()};
     },
     'leaderboard.trace': async ({attemptId}) => {
-      const response = await request(`/api/benchmark/attempts/${attemptId}/events?limit=1000`);
-      if (!response.ok) throw await failed(response, 'Could not read the run\'s trace');
-      return {result: {events: (await response.json()).events}};
+      const events = [];
+      for (let more = true; more;) {
+        const response = await request(`/api/benchmark/attempts/${attemptId}/events?limit=1000&after=${events.at(-1)?.cursor ?? 0}`);
+        if (!response.ok) throw await failed(response, 'Could not read the run\'s trace');
+        const page = await response.json();
+        events.push(...page.events);
+        more = page.has_more;
+      }
+      return {result: {events}};
     },
     'sessions.list': async () => {
       const response = await request(sessionsPath);

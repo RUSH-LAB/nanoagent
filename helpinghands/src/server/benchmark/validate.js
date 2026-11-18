@@ -127,6 +127,23 @@ const caseDigests = (c, reference) => {
   }))};
 };
 
+/** Case `c` (its id, kind, arguments and expected error) with its private reference, checked: what it publishes and the digests of what it pins. */
+function pinnedCase(c, reference) {
+  const caseId = c.case_id;
+  if (!CASE_KINDS.includes(c.kind)) throw bad('invalid_request', `Case ${caseId}'s kind must be one of ${CASE_KINDS.join(', ')}`);
+  printable(object(c.arguments, `Case ${caseId}'s arguments`), `Case ${caseId}'s arguments`);
+  let expectedError = null;
+  if (c.kind === 'refuse') {
+    expectedError = string(c.expected_error, `Case ${caseId}'s expected_error`, {max: 10_000});
+    if (typeof reference !== 'string') throw bad('invalid_request', `private's reference for refusal case ${caseId} must be the pinned error string`);
+  } else {
+    if (c.expected_error !== undefined && c.expected_error !== null) throw bad('invalid_request', `Case ${caseId} is an answer case and takes no expected_error`);
+    if (reference !== null && !isObject(reference)) throw bad('invalid_request', `private's reference for answer case ${caseId} must be an object, or null for a task judged without one`);
+  }
+  const published = {case_id: caseId, kind: c.kind, arguments: c.arguments, expected_error: expectedError};
+  return {...published, ...caseDigests(published, reference)};
+}
+
 /**
  * A benchmark publication, what POST /api/benchmark/benchmarks stores: the case set's cases with their per-case and whole digests
  * (the case set is made from them), the run configuration (model, endpoint, the effective limits, the coding template and the
@@ -144,20 +161,8 @@ function benchmarkPublication(body) {
     const caseId = string(c.case_id, 'case_id');
     if (seen.has(caseId)) throw bad('invalid_request', `case_id ${caseId} appears twice`);
     seen.add(caseId);
-    if (!CASE_KINDS.includes(c.kind)) throw bad('invalid_request', `Case ${caseId}'s kind must be one of ${CASE_KINDS.join(', ')}`);
-    printable(object(c.arguments, `Case ${caseId}'s arguments`), `Case ${caseId}'s arguments`);
     if (!Object.hasOwn(privateReferences, caseId)) throw bad('invalid_request', `private has no reference for case ${caseId}`);
-    const reference = privateReferences[caseId];
-    let expectedError = null;
-    if (c.kind === 'refuse') {
-      expectedError = string(c.expected_error, `Case ${caseId}'s expected_error`, {max: 10_000});
-      if (typeof reference !== 'string') throw bad('invalid_request', `private's reference for refusal case ${caseId} must be the pinned error string`);
-    } else {
-      if (c.expected_error !== undefined && c.expected_error !== null) throw bad('invalid_request', `Case ${caseId} is an answer case and takes no expected_error`);
-      if (reference !== null && !isObject(reference)) throw bad('invalid_request', `private's reference for answer case ${caseId} must be an object, or null for a task judged without one`);
-    }
-    const published = {case_id: caseId, kind: c.kind, arguments: c.arguments, expected_error: expectedError};
-    return {...published, ...caseDigests(published, reference)};
+    return pinnedCase({...c, case_id: caseId}, privateReferences[caseId]);
   });
   const extra = Object.keys(privateReferences).find(id => !seen.has(id));
   if (extra) throw bad('invalid_request', `private has a reference for ${extra}, which is no case`);
@@ -358,23 +363,32 @@ function claimBody(body) {
 
 // What a run kept from outside RUSH (`importBody`) may have ended as: the plugin's verifier saw each.
 const IMPORTED_STATUSES = ['answered', 'refused', 'execution_failed'];
+// The most steps an imported run's trajectory keeps.
+const MAX_IMPORTED_STEPS = 10_000;
 
 /**
  * A run of a reference harness made outside RUSH, to keep as a scored run (POST imports): its case set's frame but the package (`frame`,
  * NanoAgent's `case_set_frame` with the model and endpoint profile), the caller's source of the harness, and the one case it ran: when,
- * how it ended, whether the verifier found it right and its word, its time, tokens and cost.
+ * how it ended, whether the verifier found it right and its word, its time, tokens and cost; and what the run kept besides: `case`
+ * (`pinnedCase`, from its arguments, expected error and private reference), `answer` (what the harness gave) and `trajectory` (its ATIF steps).
  */
 function importBody(body) {
-  only(body, ['frame', 'source_sha256', 'case_id', 'kind', 'started_at', 'execution', 'correct', 'verdict', 'elapsed_ms', 'input_tokens', 'output_tokens', 'cost_usd']);
+  only(body, ['frame', 'source_sha256', 'case_id', 'kind', 'started_at', 'execution', 'correct', 'verdict', 'elapsed_ms', 'input_tokens', 'output_tokens', 'cost_usd',
+    'arguments', 'expected_error', 'reference', 'answer', 'trajectory']);
   if (!CASE_KINDS.includes(body.kind)) throw bad('invalid_request', `kind must be one of ${CASE_KINDS.join(', ')}`);
   if (!IMPORTED_STATUSES.includes(body.execution)) throw bad('invalid_request', `execution must be one of ${IMPORTED_STATUSES.join(', ')}`);
   if (typeof body.started_at !== 'string' || Number.isNaN(Date.parse(body.started_at))) throw bad('invalid_request', 'started_at must be a timestamp');
+  const missing = ['reference', 'answer'].find(name => body[name] === undefined);
+  if (missing) throw bad('invalid_request', `${missing} is required (null for none)`);
   return {
     frame: object(body.frame, 'frame'), source_sha256: sha256(body.source_sha256, 'source_sha256'), case_id: string(body.case_id, 'case_id'),
     kind: body.kind, started_at: new Date(body.started_at).toISOString(), execution: body.execution, correct: boolean(body.correct, 'correct'),
     verdict: string(body.verdict, 'verdict', {max: 100_000}), elapsed_ms: integer(body.elapsed_ms, 'elapsed_ms', {max: MAX_INTEGER}),
     input_tokens: integer(body.input_tokens, 'input_tokens', {max: MAX_INTEGER}), output_tokens: integer(body.output_tokens, 'output_tokens', {max: MAX_INTEGER}),
     cost_usd: finite(body.cost_usd, 'cost_usd'),
+    case: {...pinnedCase({case_id: body.case_id, kind: body.kind, arguments: body.arguments, expected_error: body.expected_error}, body.reference), reference: body.reference},
+    answer: body.answer,
+    trajectory: array(body.trajectory, 'trajectory', {max: MAX_IMPORTED_STEPS}).map(step => object(step, 'A trajectory step')),
   };
 }
 

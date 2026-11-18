@@ -358,17 +358,22 @@ describe('the bridge host', () => {
     ]);
   });
 
-  it('reads the leaderboard of one of the plugin\'s tasks, and the trace of one of the member\'s runs on it', async () => {
+  it('reads the leaderboard of one of the plugin\'s tasks, and the whole trace of one of the member\'s runs on it, page by page', async () => {
+    const pages = {
+      0: {events: [{cursor: 1, kind: 'verifier.verdict', data: {correct: true}}], has_more: true},
+      1: {events: [{cursor: 2, kind: 'trajectory.step', data: {step_id: 1}}], has_more: false},
+    };
     const {posted, calls, send} = await hostWith(path => (path.includes('/events')
-      ? Response.json({events: [{kind: 'verifier.verdict', data: {correct: true}}], sealed: true})
-      : Response.json({harnesses: [{rank: 1, harness: 'RUSH'}]})));
+      ? Response.json(pages[new URL(path, 'http://rush').searchParams.get('after')])
+      : Response.json({harnesses: [{rank: 1, harness: 'RUSH'}], cases: []})));
     send('b', 'leaderboard', {task: 'save-paper-source'});
     send('t', 'leaderboard.trace', {attemptId: SESSION});
     await until(() => posted.length === 2);
     const byId = Object.fromEntries(messages(posted).map(message => [message.id, message.result]));
-    assert.deepEqual(byId, {b: {harnesses: [{rank: 1, harness: 'RUSH'}]}, t: {events: [{kind: 'verifier.verdict', data: {correct: true}}]}});
+    assert.deepEqual(byId, {b: {harnesses: [{rank: 1, harness: 'RUSH'}], cases: []}, t: {events: [...pages[0].events, ...pages[1].events]}});
     assert.deepEqual(calls.map(({path}) => path), [
-      '/api/benchmark/leaderboard?plugin_id=arxiv-source&task_id=save-paper-source', `/api/benchmark/attempts/${SESSION}/events?limit=1000`,
+      '/api/benchmark/leaderboard?plugin_id=arxiv-source&task_id=save-paper-source',
+      `/api/benchmark/attempts/${SESSION}/events?limit=1000&after=0`, `/api/benchmark/attempts/${SESSION}/events?limit=1000&after=1`,
     ]);
   });
 
