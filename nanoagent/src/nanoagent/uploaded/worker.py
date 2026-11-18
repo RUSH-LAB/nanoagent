@@ -58,6 +58,7 @@ class Toolchain(Enum):
     TYPESCRIPT_5 = "typescript-5"
     JAVASCRIPT_22 = "javascript-22"
     JAVA_21 = "java-21"
+    SHELL_1 = "shell-1"
 
 
 class Model(Enum):

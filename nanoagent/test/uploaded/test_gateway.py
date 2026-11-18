@@ -166,6 +166,13 @@ async def test_missing_first_prompt_is_rejected_until_one_call_completes(tmp_pat
         assert (await client.post(PATHS["chat_completions"], json=other)).status_code == 200  # later calls are free
 
 
+async def test_an_unbound_session_admits_a_first_call_without_the_prompt_and_records_it(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, ScriptedTransport(chat_ok()), policy=make_policy(prompt_bound=False))
+    async with rig.client() as client:
+        assert (await client.post(PATHS["chat_completions"], json=chat_request("something else"))).status_code == 200
+    assert len(rig.journal.of("model_call.admitted")) == 1 and len(rig.journal.of("model_call.response")) == 1
+
+
 async def test_effective_request_adds_policy_and_both_requests_are_kept(tmp_path: Path) -> None:
     rig = make_rig(tmp_path, ScriptedTransport(chat_ok()))
     submitted = chat_request(stream=False, temperature=0.2)

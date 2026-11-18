@@ -8,6 +8,7 @@ const {
 } = require('../benchmark/limits');
 const {chargeAttemptStorage, chargeStorage, inTransaction} = require('./benchmark-context');
 const {sweepExpired} = require('./benchmark-sweep');
+const {REFERENCE_HARNESSES} = require('../benchmark/harness');
 
 const TODAY = "(now() at time zone 'utc')::date";
 
@@ -93,7 +94,10 @@ function createPostgresBenchmarkWorker({pool, config}) {
         lease_seconds: Number(config.leaseSeconds),
         run: {
           run_id: run.run_id, model: run.model, endpoint_profile: run.endpoint_label, dialects: run.dialects, source_sha256: run.source_sha256,
-          policy: run.policy, limits: run.limits, prompt_source: 'benchmark', renderer_version: run.renderer_version, interactive: run.session,
+          policy: run.policy, limits: run.limits, prompt_source: 'benchmark', renderer_version: run.renderer_version, interactive: run.interactive,
+          // The gateway holds a run to its pinned prompt (the first call carries it) but for a session of the Terminal or of a harness
+          // saved from one, whose agent is anything a member runs and phrases its own calls.
+          prompt_bound: !(run.session && (run.harness_name === 'shell' || !REFERENCE_HARNESSES.includes(run.harness_name))),
         },
         plugin: {id: run.plugin_id, name: run.plugin_name, version: run.version, sha256: run.package_sha256},
         case_set: {case_set_id: run.case_set_id, digest: run.case_set_digest},
@@ -217,11 +221,11 @@ function createPostgresBenchmarkWorker({pool, config}) {
       });
     },
 
-    /** The workspace of the attempt's run, a Harness tab session's, whose member saves a harness from it: 403 `not_a_session` for any other run. */
+    /** The workspace of the attempt's run, a session a member works in, who saves a harness from it: 403 `not_a_session` for any other run. */
     async sessionWorkspace(userId, attemptId, fence) {
       return fenced(userId, attemptId, fence, async (client, attempt) => {
-        const {session} = (await client.query('select session from benchmark_run where run_id = $1', [attempt.run_id])).rows[0];
-        if (!session) throw new BenchmarkError(403, 'not_a_session', 'Only a session someone works in saves a harness');
+        const {interactive} = (await client.query('select interactive from benchmark_run where run_id = $1', [attempt.run_id])).rows[0];
+        if (!interactive) throw new BenchmarkError(403, 'not_a_session', 'Only a session someone works in saves a harness');
         return attempt.workspace_id;
       });
     },

@@ -85,8 +85,8 @@ function createBenchmarkService({repository}) {
     /**
      * Pin and queue the run of a session in a plugin page's Harness tab: `publication` (validated) is its one-case case set, `source`
      * the saved reference harness (`saveSource`'s answer) and `policy` the one the harness works under. It is a run like any other,
-     * resolved and pinned the same way, of a benchmark nobody publishes: `{run_id, replayed}`. An `interactive` one, whose member is at
-     * its terminal, is marked a session; a one-shot one (`nanoagent harness prompt=…`) is a run of one case like a benchmark's.
+     * resolved and pinned the same way, of a benchmark nobody publishes: `{run_id, replayed}`. Every one is a session, which the member's benchmark
+     * results never list; an `interactive` one's member is at its terminal, and a one-shot one (`nanoagent harness prompt=…`) runs alone.
      */
     async session(context, publication, source, policy, {interactive}) {
       const publisher = await repository.saveCaseSet(context.userId, publication);
@@ -101,7 +101,7 @@ function createBenchmarkService({repository}) {
       const {resolved} = await resolveRequest(context, benchmark, {policy});
       const previewId = await repository.savePreview(context, keptPlan(resolved.plan), resolved.digest);
       const request = {benchmark_id: benchmark.benchmark_id, policy, preview_id: previewId, source_sha256: source.source_sha256, idempotency_key: crypto.randomUUID()};
-      return repository.createRun(context, {...request, request_digest: sha256Hex(canonicalJson(request))}, resolved, benchmark, source.harness, {session: interactive});
+      return repository.createRun(context, {...request, request_digest: sha256Hex(canonicalJson(request))}, resolved, benchmark, source.harness, {session: true, interactive});
     },
   });
 }

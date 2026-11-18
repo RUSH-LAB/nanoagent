@@ -112,15 +112,6 @@ describe('POST /api/benchmark/sessions', () => {
   });
 });
 
-describe('GET /api/benchmark/harnesses', () => {
-  it('lists the harnesses the member saved in this workspace', async () => {
-    const harnesses = [{name: 'my-agent', version: '0123456789ab', saved_at: 'now'}];
-    const ctx = makeCtx({benchmark: {service: {}, repository: {savedHarnesses: async context => (context.workspaceId === 'w' ? harnesses : [])}}});
-    const {status, payload} = await invoke(route, {path: '/api/benchmark/harnesses', requestContext: CONTEXT, ctx});
-    assert.deepEqual([status, payload], [200, {harnesses}]);
-  });
-});
-
 describe('POST /api/benchmark-worker/attempts/{id}/harness', () => {
   const ATTEMPT = '00000000-0000-4000-8000-000000000009';
   const savedZip = name => Buffer.from(zipSync({'harness.yaml': strToU8(`protocol: rush.harness.v1
@@ -181,7 +172,7 @@ describe('a session\'s run', () => {
     assert.deepEqual(result, {run_id: 'r1', replayed: false});
     assert.deepEqual(kept.slice(0, 2), [['case set', 'u', publication.case_set_digest], ['preview', 'coding', 64]]);
     const [, request, cases, benchmark, harness, options] = kept[2];
-    assert.deepEqual(options, {session: true}); // a session's run, which the member's results do not list
+    assert.deepEqual(options, {session: true, interactive: true}); // a session's run, which the member's results do not list
     assert.deepEqual([request.policy, request.source_sha256, request.preview_id, request.request_digest.length], ['coding', 'b'.repeat(64), '00000000-0000-4000-8000-000000000001', 64]);
     assert.equal(cases, 1);
     assert.deepEqual([benchmark.case_set_id, benchmark.publisher.name, benchmark.plugin.sha256, benchmark.context], [publication.case_set_digest, 'Ada', SHA, 'Add one and two']);

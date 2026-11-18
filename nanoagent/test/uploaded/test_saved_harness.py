@@ -47,16 +47,17 @@ def test_the_command_is_the_text_after_the_dashes_as_typed_or_the_last_one(monke
 def test_the_manifest_is_a_valid_harness_that_runs_the_command_through_the_shell() -> None:
     for locked in (False, True):
         manifest = parse_manifest(rush.manifest("my-agent", "0123456789ab", 'aider --message "$RUSH_PROMPT"', locked).encode())
-        assert (manifest.name, manifest.version, manifest.toolchain) == ("my-agent", "0123456789ab", "python-3")
+        assert (manifest.name, manifest.version, manifest.toolchain) == ("my-agent", "0123456789ab", "shell-1")
         assert manifest.run_argv == ("python", "/harness/shell.py", 'aider --message "$RUSH_PROMPT"')
-        assert manifest.lockfiles == (("requirements.txt",) if locked else ())
+        assert manifest.lockfiles == ("package-lock.json", "clis.txt", *(("requirements.txt",) if locked else ()))
+        assert manifest.build_argv == ("sh", "build.sh") and ("packages" in manifest.build_outputs) is locked
 
 
 def saved_zip(**extra: bytes) -> bytes:
     archive = io.BytesIO()
     with zipfile.ZipFile(archive, "w") as out:
         out.writestr("harness.yaml", rush.manifest("my-agent", "0123456789ab", "bash run.sh", False))
-        for path, data in {"shell.py": b"print()", "executables": b"", "workspace/run.sh": b"echo", **extra}.items():
+        for path, data in {"shell.py": b"print()", "package-lock.json": b"{}", "clis.txt": b"", "executables": b"", "workspace/run.sh": b"echo", **extra}.items():
             out.writestr(path, data)
     return archive.getvalue()
 

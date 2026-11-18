@@ -283,7 +283,7 @@ class Gateway:
         except ContractError as error:
             raise from_contract(error) from error
         try:
-            effective, cap = apply_policy(dialect, body, policy, first_prompt_required=not self._prompt_satisfied)
+            effective, cap = apply_policy(dialect, body, policy, first_prompt_required=policy.prompt_bound and not self._prompt_satisfied)
         except PolicyViolation as violation:
             raise ServiceError(400, violation.code, violation.message) from violation
         if self._admitted >= policy.max_model_calls:

@@ -1,0 +1,12 @@
+#!/bin/sh
+# Hermes Agent on RUSH's gateway (its chat completions dialect), as the hermes reference harness runs it: its openrouter route
+# pointed at the gateway and keyed by the attempt token, the session's model and provider in its home's config.yaml (which Hermes
+# reads in place of flags), its shell and file tools in the current directory, and nothing to approve: the VM is the sandbox.
+home="${TMPDIR:-/tmp}/rush-hermes"
+if [ ! -d "$home" ]; then
+  mkdir -p "$home"
+  printf 'model:\n  provider: openrouter\n  default: "%s"\n' "$RUSH_MODEL" > "$home/config.yaml"
+fi
+HERMES_HOME="$home" TERMINAL_CWD="$PWD" HERMES_YOLO_MODE=1 HERMES_ACCEPT_HOOKS=1 HERMES_MAX_TOKENS="$RUSH_MAX_OUTPUT_TOKENS" \
+  OPENROUTER_BASE_URL="$OPENAI_BASE_URL" OPENROUTER_API_KEY="$RUSH_ATTEMPT_TOKEN" PYTHONPATH=/harness/site \
+  exec python -c 'import sys; sys.argv[0] = "hermes"; from hermes_cli.main import main; main()' "$@"

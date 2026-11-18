@@ -835,3 +835,13 @@ async def test_rejection_messages_do_not_overflow_the_finalize_coverage(tmp_path
 
     result = await _with_harness(rig, post)
     assert result.outcome == "finalized" and rush.refusals == [] and rush.finalized[0]["verdict"] == "fail"
+
+
+async def test_a_later_attempt_of_the_same_source_runs_the_build_an_earlier_one_kept(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    first = await rig.run()
+    rig.runner.worker = fx.FakeRush()  # the next attempt's lease
+    second = await rig.run(fx.job(attempt_id="22222222-2222-4222-8222-222222222222"))
+    assert first.outcome == second.outcome == "finalized" and rig.supervisor.builds == 1
+    [kept] = (tmp_path / "scratch" / "builds").iterdir()
+    assert rig.supervisor.specs[0].artifact.directory == rig.supervisor.specs[1].artifact.directory == kept / "harness"

@@ -1,9 +1,10 @@
 """The member's own terminal in the case's VM: bash in the case workspace, which holds prompt.md (the rendered coding prompt) and
-request.json (the case's input), with every model SDK pointed at the attempt's gateway. They install and run any agent there,
-and once they exit, the answer.json it left is scored as a coding harness's is.
+request.json (the case's input), with every model SDK pointed at the attempt's gateway and the reference CLIs (bin/: claude,
+codex, pi, hermes, dsh) set up for it. They install and run any agent there (pip and npm install into .rush/), and once they exit,
+the answer.json it left is scored as a coding harness's is.
 
 Given a command (a harness `rush save` made), it runs that command instead, once, in the same workspace and environment, after
-putting back the files the member built (``workspace/``) and with the Python packages they installed (``site/``).
+putting back the files the member built (``workspace/``) and with the Python packages they installed (``packages/``).
 """
 
 import json
@@ -31,17 +32,19 @@ if (HERE / "workspace").is_dir():
 gateway = request["openrouter"]["base_url"]  # .../api/v1: what the OpenAI SDK takes; the Anthropic SDK adds /v1 itself
 token = os.environ["RUSH_ATTEMPT_TOKEN"]
 user_base = workspace / ".rush" / "python"  # where `pip install` puts packages, the system's being read-only; rush save locks them
-path = [str(user_base / "bin")]
+npm_prefix = workspace / ".rush" / "npm"  # where `npm install -g` puts packages, for the same reason
+path = [str(HERE / "bin"), str(user_base / "bin"), str(npm_prefix / "bin")]
 env = {
     **os.environ,
     "OPENAI_BASE_URL": gateway, "OPENAI_API_KEY": token,
     "ANTHROPIC_BASE_URL": gateway.removesuffix("/v1"), "ANTHROPIC_API_KEY": token,
     "RUSH_MODEL": request["openrouter"]["model"], "RUSH_PROMPT": request["prompt"]["user"],
-    "PYTHONUSERBASE": str(user_base),
+    "RUSH_MAX_OUTPUT_TOKENS": str(request["limits"]["max_output_tokens_per_call"]),
+    "PYTHONUSERBASE": str(user_base), "NPM_CONFIG_PREFIX": str(npm_prefix),
 }  # fmt: skip
-if (HERE / "site").is_dir():
-    env["PYTHONPATH"] = str(HERE / "site")
-    path.append(str(HERE / "site" / "bin"))
+if (HERE / "packages").is_dir():
+    env["PYTHONPATH"] = str(HERE / "packages")
+    path.append(str(HERE / "packages" / "bin"))
 env["PATH"] = os.pathsep.join([*path, os.environ["PATH"]])
 os.chdir(workspace)
 
@@ -50,9 +53,10 @@ if command is not None:
 
 print(
     f"\x1b[1mRUSH terminal\x1b[0m · {request['openrouter']['model']} · {workspace}\r\n"
-    "prompt.md is the task and request.json its input. Write answer.json here, then exit: it is scored like any harness's.\r\n"
-    "OPENAI_BASE_URL/OPENAI_API_KEY and ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY reach the model through RUSH's gateway, which records\r\n"
-    "every call. Use model $RUSH_MODEL; until one call has finished, each must carry $RUSH_PROMPT as a user message.\r\n"
+    "prompt.md is the task and request.json its input, which the plugin's model filled from the request (in the Harness tab, from\r\n"
+    "the task's description). Write answer.json here, then exit: it is scored like any harness's.\r\n"
+    "claude, codex, pi, hermes and dsh (headless: dsh \"<task>\") are ready, and OPENAI_BASE_URL/OPENAI_API_KEY and ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY reach the\r\n"
+    "model ($RUSH_MODEL) through RUSH's gateway, which records every call. pip and npm -g install into .rush/.\r\n"
     "`rush save <name> [-- <command>]` saves what you built here as a harness that runs <command> (by default your last one).\r\n",
     end="",
     flush=True,

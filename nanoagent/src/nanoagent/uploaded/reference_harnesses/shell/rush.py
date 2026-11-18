@@ -1,9 +1,10 @@
 """`rush save <name> [-- <command>]`, in the RUSH terminal: what the member built there, saved in RUSH as a harness of theirs.
 
 The snapshot is the case workspace as it is: every file in it but the case's own (prompt.md, request.json, answer.json) and
-.rush/, the terminal's own folder. A link in it fails the save, as a source holds none. The Python packages the member installed
-(`pip install`, which lands in .rush/python) are saved as a hashed requirements.txt for this VM's platform, which the harness's
-build installs from the worker's verified wheels, never from the network. The harness runs <command>, as typed after `--`, or
+.rush/, the terminal's own folder (packages installed with npm -g are not kept). A link in it fails the save, as a source holds
+none. The Python packages the member installed (`pip install`, which lands in .rush/python) are saved as a hashed requirements.txt
+for this VM's platform, which the harness's build installs from the worker's verified wheels, never from the network, as it
+installs the reference CLIs from this terminal's own locks. The harness runs <command>, as typed after `--`, or
 the last command typed before `rush save`, in a workspace holding the saved files and the next case's prompt.md and
 request.json, with the same environment. It is sent to RUSH through the attempt's services, which check it as any source is
 checked, and becomes the member's harness <name>, at a version of its content.
@@ -98,20 +99,23 @@ def requirements() -> bytes | None:
         return (Path(scratch) / "requirements.txt").read_bytes()
 
 
+# The terminal's own files, which build and run a saved harness as they build and run the terminal (build.sh).
+TERMINAL = ("shell.py", "bashrc", "rush.py", "build.sh", "package.json", "package-lock.json", "clis.txt")
+CLIS = ("claude", "codex", "pi", "hermes", "dsh")
+
+
 def manifest(name: str, version: str, command: str, locked: bool) -> str:
-    copy = "cp -R shell.py executables workspace /build-out/"
-    install = " && python -m pip install --quiet --no-index --find-links /deps --require-hashes --target /build-out/site -r requirements.txt"
-    outputs = ["shell.py", "executables", "workspace", *(["site"] if locked else [])]
+    outputs = [*TERMINAL, "bin", "node_modules", "site", "workspace", "executables", *(["packages"] if locked else [])]
     return "\n".join([
         "protocol: rush.harness.v1",
         f"name: {name}",
         f"version: {json.dumps(version)}",
         "dialects: [chat_completions, responses, anthropic_messages]",
-        "toolchain: python-3",
-        f"lockfiles: {json.dumps(['requirements.txt'] if locked else [])}",
+        "toolchain: shell-1",
+        f"lockfiles: {json.dumps(['package-lock.json', 'clis.txt', *(['requirements.txt'] if locked else [])])}",
         "# Saved by `rush save` in the RUSH terminal: the files built there (workspace/) and the packages installed (requirements.txt).",
         "build:",
-        f"  argv: {json.dumps(['sh', '-c', copy + (install if locked else '')])}",
+        "  argv: [sh, build.sh]",
         f"  outputs: {json.dumps(outputs)}",
         "run:",
         f"  argv: {json.dumps(['python', '/harness/shell.py', command])}",
@@ -124,7 +128,8 @@ def save(name: str, command: str) -> None:
     files, executables = workspace_files(Path(request["workspace"]))
     locked = requirements()
     parts = {f"workspace/{path}": data for path, data in files.items()}
-    parts |= {"shell.py": (HERE / "shell.py").read_bytes(), "executables": "".join(f"{path}\n" for path in executables).encode()}
+    parts |= {path: (HERE / path).read_bytes() for path in TERMINAL} | {f"bin/{cli}": (HERE / "bin" / cli).read_bytes() for cli in CLIS}
+    parts["executables"] = "".join(f"{path}\n" for path in executables).encode()
     if locked is not None:
         parts["requirements.txt"] = locked
     digest = hashlib.sha256(command.encode())

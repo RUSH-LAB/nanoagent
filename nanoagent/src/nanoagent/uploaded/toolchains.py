@@ -81,6 +81,8 @@ class ToolchainProfile:
     resolver: str  # key into RESOLVER_KINDS
     offline: OfflinePolicy
     runtime_env: Mapping[str, str] = field(default_factory=dict)  # platform-owned runtime environment
+    # A profile of several languages stages each lockfile with the part toolchain that reads it, from that part's index.
+    parts: tuple[str, ...] = ()
 
 
 _DIGEST_REF = re.compile(r"^[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$")
@@ -99,6 +101,8 @@ _GO_1_24 = "golang@sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce
 _NODE_22 = "node@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee"  # 22-bookworm-slim
 _JDK_21 = "eclipse-temurin@sha256:432e54724c3e57d1846aeb886f4d339f3b0522931c4e64119c2797013b7cfc3c"  # 21-jdk-jammy
 _JRE_21 = "eclipse-temurin@sha256:dff6eb46527bd293a3c06bbbe9e64e8c9f91f01905b5abbdad31761c03059d2c"  # 21-jre-jammy
+# nikolaik/python-nodejs:python3.12-nodejs22-bookworm: Python 3.12 and pip, Node 22 and npm, git and curl (Debian bookworm).
+_PYTHON_NODE = "nikolaik/python-nodejs@sha256:90b566c2693e921713c1c315b6eb4727573c1a6c7a30d70c826cd53ee36c3668"
 
 
 def _offline(**env: str) -> OfflinePolicy:
@@ -141,6 +145,15 @@ TOOLCHAINS: Mapping[str, ToolchainProfile] = {
             },
         ),
         runtime_env={"PYTHONDONTWRITEBYTECODE": "1", "PYTHONUNBUFFERED": "1"},
+    ),
+    # The RUSH terminal (reference harness `shell`) and the harnesses saved from it: Python and Node with their package
+    # managers, git and curl, so what runs in a terminal runs here. package-lock.json stages as javascript-22's does
+    # (/deps/node_modules), requirements.txt and uv.lock as python-3's (/deps/*.whl).
+    "shell-1": ToolchainProfile(
+        "shell-1", _PYTHON_NODE, _PYTHON_NODE, "parts",
+        _offline(npm_config_offline="true", PIP_NO_INDEX="1", PIP_FIND_LINKS=DEPENDENCY_MOUNT, PIP_DISABLE_PIP_VERSION_CHECK="1", PIP_NO_CACHE_DIR="1", PYTHONDONTWRITEBYTECODE="1"),
+        runtime_env={"PYTHONDONTWRITEBYTECODE": "1", "PYTHONUNBUFFERED": "1"},
+        parts=("javascript-22", "python-3"),
     ),
 }
 
@@ -538,13 +551,17 @@ def resolve_dependencies(
     index_url: str | None,
     target: PythonTarget | None = None,
     timeout_s: float = DEFAULT_RESOLVE_TIMEOUT_S,
+    index_urls: Mapping[str, str] | None = None,
 ) -> DependencyClosure:
-    """Stages the closure for a profile. An empty `lockfiles` needs no index; any other needs `index_url`.
+    """Stages the closure for a profile. An empty `lockfiles` needs no index; any other needs `index_url`, or, for a profile of
+    parts, the index of each part that reads one in `index_urls` (toolchain id -> index).
 
     Resolution is bounded: `timeout_s` of wall clock (checked between downloads, `dependency_timeout`) and `MAX_CLOSURE_BYTES` /
     `MAX_CLOSURE_FILES` of artifacts (`dependency_too_large`)."""
     if not lockfiles:
         return NoDependencyResolver().stage(profile, source_root, lockfiles, destination)
+    if profile.parts:
+        return _resolve_parts(profile, source_root, lockfiles, destination, dict(index_urls or {}), target, timeout_s)
     if index_url is None:
         raise ToolchainError("index_unavailable", "the manifest declares lockfiles but no dependency index is configured")
     if profile.resolver == "none":
@@ -556,3 +573,25 @@ def resolve_dependencies(
     if profile.resolver == "python-hashed-wheels":
         return PythonWheelResolver(open_index(index_url), target).stage(profile, source_root, lockfiles, destination, timeout_s)
     raise ToolchainError("unknown_resolver", f"toolchain {profile.id} names resolver {profile.resolver!r}")
+
+
+def _reads(profile: ToolchainProfile, lockfile: str) -> bool:
+    if profile.resolver == "npm-lock":
+        return lockfile == "package-lock.json"
+    return profile.resolver == "python-hashed-wheels" and (lockfile.endswith(".txt") or lockfile.endswith("uv.lock"))
+
+
+def _resolve_parts(
+    profile: ToolchainProfile, source_root: Path, lockfiles: tuple[str, ...], destination: Path, index_urls: Mapping[str, str],
+    target: PythonTarget | None, timeout_s: float,
+) -> DependencyClosure:
+    parts = [toolchain(part) for part in profile.parts]
+    unread = [lockfile for lockfile in lockfiles if not any(_reads(part, lockfile) for part in parts)]
+    if unread:
+        raise ToolchainError("unsupported_lockfile", f"{profile.id} reads package-lock.json, requirements.txt files and uv.lock, not {', '.join(unread)}")
+    files: dict[str, str] = {}
+    for part in parts:
+        mine = tuple(lockfile for lockfile in lockfiles if _reads(part, lockfile))
+        if mine:
+            files |= resolve_dependencies(part, source_root, mine, destination, index_url=index_urls.get(part.id), target=target, timeout_s=timeout_s).files
+    return DependencyClosure(destination, files)

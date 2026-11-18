@@ -33,7 +33,9 @@ sandbox > nanoagent.uploaded.worker.SandboxConfig:
   workspace_bytes: 268435456
   # /tmp holds the Go build cache (the standard library is compiled into it).
   tmp_bytes: 402653184
-  build_wall_s: 600
+  # A Harness tab session's Terminal builds five CLIs (about 1.5 GiB) once; a worker keeps the build for every later session.
+  build_wall_s: 1800
+  build_output_bytes: 4294967296
 
 # Internet access for harnesses, on by default for benchmarks: public addresses only, which the worker proves at startup.
 egress > nanoagent.uploaded.worker.EgressConfig:

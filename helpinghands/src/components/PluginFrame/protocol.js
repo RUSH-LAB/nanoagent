@@ -53,7 +53,6 @@ const PARAMS = {
     && typeof text === 'string' && text.trim() && text.length <= PROMPT_LIMIT
     ? null
     : `harness.run needs a harness name, a task id and text of 1 to ${PROMPT_LIMIT} characters`),
-  'harness.saved': () => null,
   'harness.cancel': ({runId}) => (typeof runId === 'string' && runId ? null : 'harness.cancel needs a runId'),
   'harness.input': ({runId, data}) => (typeof runId === 'string' && runId && typeof data === 'string' && data && data.length <= TYPED_LIMIT
     ? null

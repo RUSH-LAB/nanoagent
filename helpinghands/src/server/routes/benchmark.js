@@ -30,7 +30,7 @@ const PAGE = 1000;
 
 const ROUTE = new RegExp([
   '^/api/benchmark/(?:',
-  '(defaults|benchmarks|benchmarks/pinned|sessions|harnesses|previews|sources|runs|compare|compare/attempts|worker-credentials)',
+  '(defaults|benchmarks|benchmarks/pinned|sessions|previews|sources|runs|compare|compare/attempts|worker-credentials)',
   '|worker-credentials/([^/]+)',
   '|benchmarks/([^/]+)(?:/(results))?',
   '|runs/([^/]+)(?:/(cancel)|/cases/([^/]+)/(rerun))?',
@@ -266,12 +266,6 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       const policy = reference ? referencePolicy(harness) : 'coding';
       const {run_id: id} = await service.session(context, publication, source, policy, {interactive: body.interactive});
       return json(res, 201, {run: await repository.run(context, id)});
-    }
-    // The harnesses the member saved from Terminal sessions in this workspace, each at its latest version, newest first.
-    if (top === 'harnesses') {
-      if (req.method !== 'GET') return wrongMethod();
-      read();
-      return json(res, 200, {harnesses: await repository.savedHarnesses(context)});
     }
     if (top === 'previews') {
       if (req.method !== 'POST') return wrongMethod();

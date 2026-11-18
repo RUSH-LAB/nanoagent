@@ -209,10 +209,15 @@ class SessionsConfig(Config):
 
     # The model calls one session admits: a person works with the harness, so more than a benchmark case's.
     max_model_calls: int = 200
+    # The Terminal's build (`shell`: Claude Code's and Codex's binaries, dsh, Hermes) outgrows a benchmark's build bounds; a worker
+    # keeps each build for every later session of it, so only the first pays.
+    build_output_bytes: int = 3 << 30
+    build_wall_ms: int = 1_800_000
 
     def __post_init__(self) -> None:
-        if self.max_model_calls < 1:
-            raise ValueError(f"sessions.max_model_calls must be >= 1, got {self.max_model_calls}")
+        for name in ("max_model_calls", "build_output_bytes", "build_wall_ms"):
+            if getattr(self, name) < 1:
+                raise ValueError(f"sessions.{name} must be >= 1, got {getattr(self, name)}")
 
 
 async def session_case_set(
@@ -233,4 +238,5 @@ async def session_case_set(
         raise PreparationError(f"the model could not make task {task.id}'s input from the request: {error}") from error
     cases = CaseSet(plugin=manifest.id, task=task.id, context=text, answer=[answer.value], refuse=[])
     publication = await asyncio.to_thread(derive_case_set, SESSION, cases, manifest, sha256, timeout)
-    return {**publication, "limits": {"max_model_calls": sessions.max_model_calls}}
+    limits = {"max_model_calls": sessions.max_model_calls, "build_output_bytes": sessions.build_output_bytes, "build_wall_ms": sessions.build_wall_ms}
+    return {**publication, "limits": limits}

@@ -22,7 +22,7 @@ import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-HARNESSES = ("claude-code", "codex", "dsh", "pi")
+HARNESSES = ("claude-code", "codex", "dsh", "pi", "shell")
 ARCHITECTURES = {"x64", "arm64"}
 DROPPED = {"node_modules/@deepseek-ai/libreoffice-kit-wasm", "node_modules/@img/sharp-wasm32"}
 

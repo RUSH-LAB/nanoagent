@@ -1,7 +1,7 @@
 // The page frame: `mountApp` (run by kit/boot.js) connects to the host and shows the tabs every
 // plugin has: its Dashboard; its Session, a chat with the plugin's agent in which each task
 // the agent runs shows its result, drawn by kit/result.js or the plugin's renderer; and its
-// Harness, where a harness the person picks works the plugin's task on a terminal they work in (kit/harness.js).
+// Harness, the person's own terminal in the plugin's task, where they run any agent (kit/harness.js).
 
 import { hasHost, on, request } from "./bridge.js";
 import { chatPanel } from "./chat.js";

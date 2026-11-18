@@ -3,7 +3,6 @@ const crypto = require('crypto');
 const {BenchmarkError} = require('../benchmark/errors');
 const {checkTaskAgainstEntry} = require('../benchmark/entry-check');
 const {CAPABILITY_WINDOW_S} = require('../benchmark/limits');
-const {REFERENCE_HARNESSES} = require('../benchmark/harness');
 const {stringifyJson} = require('../benchmark/json');
 const {RENDERER_VERSION, sha256Hex} = require('../benchmark/prompt');
 const {latestByCase, runScore, sumMetrics} = require('../benchmark/rules');
@@ -307,15 +306,6 @@ function createPostgresBenchmark({pool}) {
         return row ? {source_sha256: row.sha256, size: row.size, harness: {name: row.harness_name, version: row.harness_version, dialects: row.dialects}} : null;
       });
     },
-    /** The caller's own harnesses with a source in this workspace, each at its latest version, newest first: `[{name, version, saved_at}]`. */
-    async savedHarnesses(context) {
-      return member(context, async client => (await client.query(
-        `select * from (select distinct on (v.name) v.name, v.version, v.created_at as saved_at from benchmark_harness_version v
-            join benchmark_source s on s.sha256 = v.source_sha256 and s.user_id = v.owner_id and s.workspace_id = $2
-           where v.owner_id = $1 and v.name <> all($3) order by v.name, v.created_at desc) latest order by saved_at desc`,
-        [context.userId, context.workspaceId, REFERENCE_HARNESSES],
-      )).rows);
-    },
     /** The caller's source `sha256`: `{harness: {name, version, dialects}}`, or null. */
     async source(context, sha256) {
       return member(context, async client => {
@@ -336,9 +326,10 @@ function createPostgresBenchmark({pool}) {
      * each case with its rendered prompt, and the case set's private references are in rows before
      * any attempt is claimable. `request` is the validated run request, `resolved` what it resolved to
      * (`resolve` in benchmark/plan.js), `benchmark` the benchmark it was resolved against and `harness` the source's manifest identity;
-     * `session` marks a Harness tab session's run. A concurrent submission under the same key gets the first one's run: `{run_id, replayed}`.
+     * `session` marks a Harness tab or `nanoagent harness` run, never a benchmark result, and `interactive` one whose member works at its
+     * terminal. A concurrent submission under the same key gets the first one's run: `{run_id, replayed}`.
      */
-    async createRun(context, request, resolved, benchmark, harness, {session = false} = {}) {
+    async createRun(context, request, resolved, benchmark, harness, {session = false, interactive = false} = {}) {
       const {plan, cases} = resolved;
       return memberWrite(context, async client => {
         await client.query(
@@ -354,15 +345,15 @@ function createPostgresBenchmark({pool}) {
           `insert into benchmark_run (run_id, workspace_id, user_id, idempotency_key, request_digest, preview_id, source_sha256,
              model, endpoint_label, dialects, policy, prompt_text, limits, selection, renderer_version,
              benchmark_id, benchmark_name, harness_name, harness_version, case_set_id, case_set_digest, publisher,
-             plugin_id, plugin_name, version, package_sha256, task_id, task, context, session)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
+             plugin_id, plugin_name, version, package_sha256, task_id, task, context, session, interactive)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)
            on conflict (workspace_id, user_id, idempotency_key) do nothing returning run_id`,
           [runId, context.workspaceId, context.userId, request.idempotency_key, request.request_digest, request.preview_id, request.source_sha256,
             plan.model, plan.endpoint_profile, JSON.stringify(harness.dialects), plan.policy, plan.prompt.text,
             JSON.stringify(plan.limits), JSON.stringify({case_ids: cases.map(c => c.case_id)}), plan.renderer_version,
             benchmark.benchmark_id, benchmark.name, harness.name, harness.version, benchmark.case_set_id, benchmark.case_set_digest, JSON.stringify(benchmark.publisher),
             benchmark.plugin.id, benchmark.plugin.name, benchmark.plugin.version, benchmark.plugin.sha256, benchmark.task_id, stringifyJson(benchmark.task), benchmark.context,
-            session],
+            session, interactive],
         )).rows[0];
         if (!inserted) {
           const existing = (await client.query(
@@ -487,7 +478,7 @@ function createPostgresBenchmark({pool}) {
     async terminalInput(context, attemptId, {data = null, rows = null, cols = null}) {
       return member(context, async client => {
         const open = (await client.query(
-          'select 1 from benchmark_attempt a join benchmark_run r on r.run_id = a.run_id where a.attempt_id = $1 and r.session and not a.sealed', [attemptId],
+          'select 1 from benchmark_attempt a join benchmark_run r on r.run_id = a.run_id where a.attempt_id = $1 and r.interactive and not a.sealed', [attemptId],
         )).rowCount;
         if (!open) return false;
         await client.query(

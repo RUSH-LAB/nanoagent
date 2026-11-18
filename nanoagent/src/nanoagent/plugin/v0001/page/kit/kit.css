@@ -444,14 +444,11 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .chat-page > * { min-height: 0; }
 .chat-page .chat { padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
 .chat-page .chat-log:has(> .chat-intro) { align-content: center; }
-/* The Harness tab (kit/harness.js): the harness picker and the request over the harness's terminal, and its status line. */
-.kit-harness > .harness-page { height: calc(100vh - var(--kit-tabs-height)); box-sizing: border-box; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 10px; padding: 14px 16px; }
-.harness-head { display: grid; gap: 6px; }
-.harness-head p { margin: 0; }
-.harness-pick { display: flex; flex-wrap: wrap; gap: 6px; }
-.harness-pick .button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); font-weight: 620; }
-.harness-ask { display: flex; gap: 8px; align-items: stretch; }
-.harness-ask .input { flex: 1; resize: none; }
+/* The Harness tab (kit/harness.js): the task (of a plugin of several) and Start/Stop over the terminal, and its status line. */
+.kit-harness > .harness-page { height: calc(100vh - var(--kit-tabs-height)); box-sizing: border-box; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 10px; padding: 14px 16px; }
+.harness-head { display: flex; gap: 8px; align-items: stretch; }
+.harness-head .input { flex: 1; }
+.harness-ask { display: flex; gap: 8px; align-items: stretch; margin-left: auto; }
 /* The padding is the terminal's own, which the fit add-on measures it by. */
 .harness-terminal { min-height: 0; background: #14161b; border-radius: var(--radius-sm); overflow: hidden; }
 .harness-terminal .xterm { height: 100%; box-sizing: border-box; padding: 8px; }

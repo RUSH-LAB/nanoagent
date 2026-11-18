@@ -85,6 +85,9 @@ class AttemptPolicy:
     provider: Mapping[str, Any] = field(default_factory=dict)  # pinned routing, e.g. {"order": ["fireworks"]}
     tools: tuple[ToolPolicy, ...] = ()
     max_request_bytes: int = MAX_BODY_BYTES
+    # Whether calls must carry the pinned prompt until one completes (the run's `prompt_bound`): every run's but a session of the
+    # Terminal or of a harness saved from it, where the agent is anything a member runs.
+    prompt_bound: bool = True
 
     def __post_init__(self) -> None:
         if not self.token or not self.model:

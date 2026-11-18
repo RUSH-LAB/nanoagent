@@ -52,7 +52,7 @@ def job_body(policy: str = "task_tools", limits: dict[str, Any] | None = None, t
         "kind": "attempt", "attempt_id": ATTEMPT_ID, "attempt_no": 1, "fence": 1, "lease_expires_at": "later", "lease_seconds": 60,
         "run": {
             "run_id": "r", "model": "test/model", "endpoint_profile": "mock", "dialects": ["chat_completions"], "source_sha256": "b" * 64,
-            "policy": policy, "limits": {**LIMITS, **(limits or {})}, "interactive": False,
+            "policy": policy, "limits": {**LIMITS, **(limits or {})}, "interactive": False, "prompt_bound": True,
         },
         "task": {
             "id": "probe", "kind": "agent", "description": "Sum the numbers.", "instructions": "Be exact.", "plugin_name": "Acceptance probe",
@@ -307,7 +307,8 @@ class FakeSupervisor:
         self.builds += 1
         if self.build_error:
             raise self.build_error
-        return BuildArtifact(self.tmp_path, ("main.py",), "digest", b"", b"", 0.1)
+        (spec.workdir / "harness").mkdir(parents=True)  # where a build's artifact lands
+        return BuildArtifact(spec.workdir / "harness", ("main.py",), "digest", b"", b"", 0.1)
 
     def create_case(self, spec: Any) -> FakeCase:
         self.specs.append(spec)

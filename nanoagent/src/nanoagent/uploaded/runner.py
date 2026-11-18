@@ -24,11 +24,14 @@ unavailable. The worker goes on to its next job.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
+import platform
 import secrets
 import shutil
 import time
+import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
@@ -91,6 +94,8 @@ EXPECTED_SOURCES = ("worker", "gateway", "process")
 EXEC_THREADS = 4  # concurrent managed commands per attempt
 MISSING_ANSWER = "wrote no answer.json"  # read_answer's failure for an absent file
 SNAPSHOT_EVENT_DIFF_BYTES = 128 * 1024  # of the diff a snapshot.taken event carries; the snapshot payload has all of it
+BUILDS = "builds"  # under the scratch folder: each source's built harness, kept for the next attempt of it
+BUILT = "built.json"  # beside a kept build's harness/: its outputs and digest, written last
 
 
 class Supervisor(Protocol):
@@ -442,12 +447,32 @@ class AttemptRunner:
         return tuple(job.task["tools"]) if job.run["policy"] == "task_tools" else ()
 
     def _build(self, job: AttemptJob, archive: Any, profile: ToolchainProfile, work: Path) -> BuildArtifact:
+        """The source's built harness: the one an earlier attempt built of the same source, build image and architecture, kept under
+        the scratch folder's builds/ (read-only to every case, so one serves all), or built now and kept there."""
+        builds = self.config.scratch / BUILDS
+        key = hashlib.sha256(f"{archive.source_sha256}\0{profile.build_image}\0{platform.machine()}".encode()).hexdigest()[:32]
+        kept = builds / key
+        if (kept / BUILT).is_file():
+            built = json.loads((kept / BUILT).read_text())
+            return BuildArtifact(kept / "harness", tuple(built["outputs"]), built["digest"], b"", b"", 0.0)
+        artifact = self._build_now(job, archive, profile, work)
+        staging = builds / f".{key}-{uuid.uuid4().hex[:8]}"
+        staging.mkdir(parents=True)
+        shutil.move(artifact.directory, staging / "harness")
+        (staging / BUILT).write_text(json.dumps({"outputs": list(artifact.outputs), "digest": artifact.digest, "duration_s": artifact.duration_s}))
+        try:
+            staging.rename(kept)
+        except OSError:  # an attempt beside this one kept the same build first: theirs serves
+            shutil.rmtree(staging, ignore_errors=True)
+        return replace(artifact, directory=kept / "harness")
+
+    def _build_now(self, job: AttemptJob, archive: Any, profile: ToolchainProfile, work: Path) -> BuildArtifact:
         source_root = work / "source"
         source_root.mkdir()
         extract(archive, source_root)
         closure = resolve_dependencies(
             profile, source_root, archive.manifest.lockfiles, work / "deps", index_url=self.config.index_urls.get(profile.id),
-            timeout_s=job.run["limits"]["build_wall_ms"] / 1000,
+            timeout_s=job.run["limits"]["build_wall_ms"] / 1000, index_urls=self.config.index_urls,
         )
         run_limits = job.run["limits"]
         # The build's output volume is a tmpfs charged to the build's memory, so the build has bounds of its own.
@@ -493,6 +518,7 @@ class AttemptRunner:
             prompt_system=job.prompt["system"], max_model_calls=run_limits["max_model_calls"],
             max_output_tokens_per_call=run_limits["max_output_tokens_per_call"], input_price_bound=input_price, output_price_bound=output_price,
             tools=tuple(ToolPolicy(tool["name"], bool(tool["writes"]), tool["input_schema"], tool["output_schema"]) for tool in tools),
+            prompt_bound=run["prompt_bound"],
         )
         limits = case_limits(run_limits, cfg.limits)
         commands = CaseCommands(limits)
