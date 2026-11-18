@@ -1,10 +1,10 @@
 name: Helping Hands quality and NanoAgent contract
 
-# Only a pull request runs these: production changes only by merging one, and its checks
-# decide; pushes to devmode are tested with npm test before they are pushed.
+# Only a pull request into production runs these: production changes only by merging one, and its checks
+# decide. Pull requests into devmode, and pushes to it, run nothing: test them with npm test first.
 on:
   pull_request:
-    branches: [production, devmode]
+    branches: [production]
     paths:
       - '.github/workflows/helpinghands-quality.yml'
       - 'helpinghands/**'
