@@ -113,5 +113,6 @@ describe('POST /api/benchmark/imports', () => {
     const {reference: _reference, ...unreferenced} = RECORD;
     assert.equal((await post(ctxFor().ctx, unreferenced)).payload.error, 'reference is required (null for none)');
     assert.equal((await post(ctxFor().ctx, {...RECORD, kind: 'refuse'})).status, 400);
+    assert.equal((await post(ctxFor().ctx, {...RECORD, trajectory: [{message: 'a\u0000b'}]})).payload.error, 'A trajectory step may not contain the character \\u0000');
   });
 });

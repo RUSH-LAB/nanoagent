@@ -5,7 +5,8 @@ goes to RUSH's POST benchmark/imports, in one of the member's workspaces, as the
 step's harness's name (`harnesses`): its case set's frame (the plugin, its task and the case file's context, as NanoAgent reads them
 from the plugin the run used, which RUSH checks against the version it publishes), the case, how the run ended, whether the verifier
 found it right and its word, its time, tokens and cost; and, kept as RUSH keeps a run's trace, the case's input, expected error and
-reference, the harness's answer and its trajectory (messages.json, the ATIF steps, long strings cut as step 4 cuts them). Each reference harness's ZIP, built by this NanoAgent, is sent first as the
+reference, the harness's answer and its trajectory (messages.json, the ATIF steps, long strings cut as step 4 cuts them and each NUL
+character, which RUSH cannot store, shown as ␀). Each reference harness's ZIP, built by this NanoAgent, is sent first as the
 member's source of it (POST benchmark/sources/references/<name>). The runs are owned by the member signed in to RUSH Lab's connection,
 as `nanoagent harness` signs in, and go only to the RUSH `site` names, a local one: a connection to another RUSH stops the step.
 RUSH keeps a run once per plugin, task, case and harness, so the step runs again without keeping any twice, filling in the trace of
@@ -71,6 +72,17 @@ def execution(result: dict[str, Any]) -> str:
     return "answered" if result["output"] is not None else "refused" if result["refused"] is not None else "execution_failed"
 
 
+def shown(value: Any) -> Any:
+    """A JSON value as the trace keeps it: strings cut as step 4 cuts them, and each NUL character (which RUSH cannot store) as ␀."""
+    if isinstance(value, str):
+        return clipped(value).replace("\x00", "␀")
+    if isinstance(value, dict):
+        return {key: shown(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [shown(item) for item in value]
+    return value
+
+
 class ImportRuns(Run):
     """Keep every run of step 3 in the local RUSH, as the signed-in member's."""
 
@@ -134,8 +146,8 @@ class ImportRuns(Run):
                     "arguments": result["arguments"],
                     "expected_error": None if refusal is None else refusal.reference_error,
                     "reference": result["reference"] if refusal is None else refusal.reference_error,
-                    "answer": clipped({"answered": result["output"], "refused": result["refused"], "execution_failed": result["error"]}[ended]),
-                    "trajectory": clipped(json.loads((path.parent / "messages.json").read_text(encoding="utf-8"))["steps"]),
+                    "answer": shown({"answered": result["output"], "refused": result["refused"], "execution_failed": result["error"]}[ended]),
+                    "trajectory": shown(json.loads((path.parent / "messages.json").read_text(encoding="utf-8"))["steps"]),
                 }
                 answer = checked(rush.post(f"{prefix}/imports", json=body))
                 if answer["created"]:

@@ -387,8 +387,9 @@ function importBody(body) {
     input_tokens: integer(body.input_tokens, 'input_tokens', {max: MAX_INTEGER}), output_tokens: integer(body.output_tokens, 'output_tokens', {max: MAX_INTEGER}),
     cost_usd: finite(body.cost_usd, 'cost_usd'),
     case: {...pinnedCase({case_id: body.case_id, kind: body.kind, arguments: body.arguments, expected_error: body.expected_error}, body.reference), reference: body.reference},
-    answer: body.answer,
-    trajectory: array(body.trajectory, 'trajectory', {max: MAX_IMPORTED_STEPS}).map(step => object(step, 'A trajectory step')),
+    // Each is kept as an event's data, bounded as a worker's is.
+    answer: bounded({answer: body.answer}, 'answer', MAX_EVENT_DATA_BYTES).answer,
+    trajectory: array(body.trajectory, 'trajectory', {max: MAX_IMPORTED_STEPS}).map(step => bounded(step, 'A trajectory step', MAX_EVENT_DATA_BYTES)),
   };
 }
 
