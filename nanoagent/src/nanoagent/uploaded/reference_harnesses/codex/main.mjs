@@ -20,7 +20,12 @@ const common = [
 const env = {...process.env, CODEX_HOME: mkdtempSync(join(tmpdir(), "codex-home-"))};
 const child = request.interactive
   // Someone is at the terminal: Codex's own screen, started with the prompt, the workspace trusted as after a person's first run.
-  ? spawn(process.execPath, [codex, ...common, "-c", `projects.${JSON.stringify(request.workspace)}.trust_level="trusted"`, request.prompt.user], {
+  // The screen offers the model its thread and worktree tools as one `namespace` tool, which the gateway refuses. It leaves them
+  // out when a configured MCP server holds their name, codex_tui, so one is configured, switched off.
+  ? spawn(process.execPath, [
+      codex, ...common, "-c", `projects.${JSON.stringify(request.workspace)}.trust_level="trusted"`,
+      "-c", 'mcp_servers.codex_tui={command="true",enabled=false}', request.prompt.user,
+    ], {
       cwd: request.workspace, stdio: "inherit", env,
     })
   : spawn(process.execPath, [codex, "exec", "--color", "always", "--skip-git-repo-check", ...common, "-"], {cwd: request.workspace, stdio: ["pipe", "inherit", "inherit"], env});
