@@ -311,12 +311,15 @@ class RushWorkerClient:
         """Tells RUSH that terminal ``terminal`` ended, after its last output."""
         await self._json("POST", f"/attempts/{attempt_id}/terminal", {"fence": fence, "terminal": terminal, "closed": True})
 
-    async def terminal_input(self, attempt_id: str, fence: int, after: int) -> list[Mapping[str, Any]]:
-        """What the member sent the attempt's terminals after input ``after``: ``[{seq, terminal, data, rows, cols, close}]`` (``data``
-        base64 keystrokes, or null for a resize to ``rows`` by ``cols``, which opens a terminal not yet open, or for ``close``). RUSH
-        holds the request open a while for some to come, and answers [] if none did."""
-        response = await self._send("GET", f"/attempts/{attempt_id}/terminal-input", params={"after": after}, headers={FENCE_HEADER: str(fence)})
-        return response.json()["inputs"]
+    async def terminal_link(self, attempt_id: str, fence: int, port: int, token: str) -> None:
+        """Tells RUSH where the page reaches the attempt's terminals on this computer: ``port`` on 127.0.0.1, with ``token``, which RUSH
+        hands only to the attempt's member."""
+        await self._json("POST", f"/attempts/{attempt_id}/terminal-link", {"fence": fence, "port": port, "token": token})
+
+    async def watch(self, attempt_id: str, fence: int) -> None:
+        """Waits a while for the attempt to be canceled, its lease lost or it sealed, which raises at once ([Canceled], [LeaseLost],
+        [Sealed]); returns if none was."""
+        await self._send("GET", f"/attempts/{attempt_id}/watch", headers={FENCE_HEADER: str(fence)})
 
     async def case(self, attempt_id: str, fence: int) -> Mapping[str, Any] | None:
         """The case of a job claimed while it was pending, ``{case_set, case, prompt, private_reference}``, once RUSH has pinned it;

@@ -101,6 +101,7 @@ class FakeRush:
     def __init__(self, source: bytes | None = None) -> None:
         self.screen = b""  # what the harness wrote to its terminal (0)
         self.closed_terminals: list[int] = []
+        self.links: list[tuple[int, str]] = []  # where each session's page reaches its terminals
         self.source_bytes = source if source is not None else source_zip()
         self.events: list[dict[str, Any]] = []
         self.event_ids: set[str] = set()
@@ -142,9 +143,11 @@ class FakeRush:
             raise self.pinned_case
         return self.pinned_case
 
-    async def terminal_input(self, attempt_id: str, fence: int, after: int) -> list[Any]:
-        await anyio.sleep(0.05)  # nobody types: RUSH answers [] after holding the request
-        return []
+    async def terminal_link(self, attempt_id: str, fence: int, port: int, token: str) -> None:
+        self.links.append((port, token))
+
+    async def watch(self, attempt_id: str, fence: int) -> None:
+        await anyio.sleep(0.05)  # nothing happened: RUSH answers after holding the request
 
     async def claim(self, worker_id: str, label: str, mode: str, capabilities: Any, wait_s: float, *, interactive: bool) -> Any:
         self.claims.append(capabilities)

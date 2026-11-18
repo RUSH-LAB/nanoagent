@@ -8,7 +8,7 @@ const {RENDERER_VERSION, canonicalJson, sha256Hex} = require('../benchmark/promp
 const {checkReference, referencePolicy} = require('../benchmark/harness');
 const {renderCase} = require('../benchmark/plan');
 const {latestByCase, runScore, sumMetrics} = require('../benchmark/rules');
-const {MAX_ATTEMPT_LINKS, MAX_ATTEMPTS_PER_CASE, MAX_EVENT_PAGE_BYTES, MAX_TERMINAL_PAGE_BYTES, MAX_TRACE_PAGE_BYTES} = require('../benchmark/limits');
+const {MAX_ATTEMPT_LINKS, MAX_ATTEMPTS_PER_CASE, MAX_EVENT_PAGE_BYTES, MAX_TRACE_PAGE_BYTES} = require('../benchmark/limits');
 const {chargeStorage, inTransaction} = require('./benchmark-context');
 const {sweepExpired} = require('./benchmark-sweep');
 
@@ -546,43 +546,17 @@ function createPostgresBenchmark({pool}) {
       });
     },
     /**
-     * What terminal `terminal` of the attempt wrote from byte `start`, at most MAX_TERMINAL_PAGE_BYTES of it (always one chunk), whether
-     * that terminal ended and whether the attempt is sealed: `{chunks: [{offset, data}], closed, sealed}`, null for an attempt the caller
-     * cannot see.
+     * Where the caller reaches their session attempt's terminals on their computer: `{port, token}`, `{port: null}` before its worker
+     * started them; null for an attempt that is not the caller's own running session.
      */
-    async terminal(context, attemptId, terminal, start) {
+    async terminalLink(context, attemptId) {
       return member(context, async client => {
-        const attempt = (await client.query(
-          `select sealed, exists (select 1 from benchmark_terminal_closed c where c.attempt_id = a.attempt_id and c.terminal = $2) as closed
-             from benchmark_attempt a where attempt_id = $1`, [attemptId, terminal],
+        const row = (await client.query(
+          `select l.port, l.token from benchmark_attempt a join benchmark_run r on r.run_id = a.run_id
+             left join benchmark_terminal_link l on l.attempt_id = a.attempt_id
+            where a.attempt_id = $1 and r.user_id = $2 and r.interactive`, [attemptId, context.userId],
         )).rows[0];
-        if (!attempt) return null;
-        const rows = (await client.query(
-          `select byte_offset, data from (
-             select byte_offset, data, sum(octet_length(data)) over (order by byte_offset) - octet_length(data) as before_bytes
-               from benchmark_terminal where attempt_id = $1 and terminal = $2 and byte_offset >= $3 order by byte_offset) page
-            where before_bytes < $4 order by byte_offset`, [attemptId, terminal, start, MAX_TERMINAL_PAGE_BYTES],
-        )).rows;
-        return {chunks: rows.map(row => ({offset: Number(row.byte_offset), data: row.data})), closed: attempt.closed, sealed: attempt.sealed};
-      });
-    },
-    /**
-     * Send `input` (`{terminal}` and `{data}` keystrokes, `{rows, cols}` or `{close: true}`) to a terminal of the caller's running
-     * session attempt; false when there is none. Only a free-form Terminal session (an attempt of no case) opens more than terminal 0.
-     */
-    async terminalInput(context, attemptId, {terminal, data = null, rows = null, cols = null, close = false}) {
-      return member(context, async client => {
-        const open = (await client.query(
-          `select 1 from benchmark_attempt a join benchmark_run r on r.run_id = a.run_id
-            where a.attempt_id = $1 and r.interactive and not a.sealed and ($2 = 0 or a.case_id is null)`, [attemptId, terminal],
-        )).rowCount;
-        if (!open) return false;
-        await client.query(
-          `insert into benchmark_terminal_input (attempt_id, seq, terminal, data, rows, cols, close)
-           select $1, coalesce(max(seq), 0) + 1, $2, $3, $4, $5, $6 from benchmark_terminal_input where attempt_id = $1`,
-          [attemptId, terminal, data, rows, cols, close],
-        );
-        return true;
+        return row ? {port: row.port, token: row.token} : null;
       });
     },
     async payload(context, attemptId, sha256) {

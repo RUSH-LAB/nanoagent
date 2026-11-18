@@ -74,12 +74,20 @@ class Rush(fx.FakeRush):
     async def package(self, attempt_id: str, fence: int) -> bytes:
         return self._package
 
-    async def terminal_input(self, attempt_id: str, fence: int, after: int) -> list[dict[str, Any]]:
-        for _ in range(50):
-            if after < len(self._typed) and self.screen.count(b"rush\x1b[0m:") > after:
-                return [{"seq": after + 1, "data": base64.b64encode(self._typed[after].encode() + b"\r").decode(), "rows": None, "cols": None}]
-            await asyncio.sleep(0.2)
-        return []
+    async def terminal_link(self, attempt_id: str, fence: int, port: int, token: str) -> None:
+        self._typing = asyncio.get_running_loop().create_task(self._type(port, token))
+
+    async def _type(self, port: int, token: str) -> None:
+        """The member's page, over the session's link: each line typed once the shell has drawn one more prompt."""
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        writer.write(json.dumps({"token": token}).encode() + b"\n")
+        for count, line in enumerate(self._typed, 1):
+            while self.screen.count(b"rush\x1b[0m:") < count:
+                await asyncio.sleep(0.2)
+            writer.write(json.dumps({"terminal": 0, "data": base64.b64encode(line.encode() + b"\r").decode()}).encode() + b"\n")
+            await writer.drain()
+        await reader.read()
+        writer.close()
 
     async def save_harness(self, attempt_id: str, fence: int, data: bytes) -> dict[str, Any]:
         self.saved.append(data)

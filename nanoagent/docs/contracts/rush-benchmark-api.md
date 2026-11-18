@@ -284,13 +284,9 @@ data: <the event object above>
 
 When the attempt is sealed and every event up to its final cursor was sent: `event: sealed` with `data: {"final_cursor": N}`, then the stream ends. `: heartbeat` comments arrive while idle. A sealed attempt streams what remains, then `sealed`. `404` for an attempt the caller cannot see.
 
-## `GET /attempts/{attempt_id}/terminal?terminal=<id>&from=<byte>`
+## `GET /attempts/{attempt_id}/terminal-link`
 
-Server-sent events: what terminal `terminal` of the attempt wrote from byte `from` (default 0), in order, each chunk `event: output` with `data: {"offset": N, "data": "<base64>"}`; `event: closed` once that terminal ended and every chunk was sent; then `event: sealed` once the attempt is sealed. Terminal `0` is the harness's; a free-form session's member opens more (`1` to `31`, `POST /attempts/{id}/terminal`), all in its one VM. A reconnect resumes from the byte it reached. An attempt's terminals keep 4 MiB at most together. `400` without a terminal id from 0 to 31, `404` for an attempt the caller cannot see.
-
-## `POST /attempts/{attempt_id}/terminal`
-
-What the member sends terminal `terminal` (0 to 31) of their own running Harness tab session: `{"terminal", "data": "<base64>"}`, keystrokes; `{"terminal", "rows": R, "cols": C}`, its new size (1 to 1000 each), which opens a terminal not yet open at that size; or `{"terminal", "close": true}`, which closes it (every process of it is killed). Only a free-form session opens terminals past 0. `200 {"sent": true}`; `409 session_ended` when the attempt is not a running session's, or it names a terminal past 0 of a session that is not free-form.
+Where the member reaches the terminals of their own Harness tab session on their computer: `200 {"port", "token"}` once its worker has started them, the worker's link on `127.0.0.1:<port>`, which takes `token` (RUSH Lab connects the page to it; what is typed and what the terminals write never pass through RUSH). Terminal `0` is the harness's; a free-form session's member opens more (`1` to `31`), all in its one VM. RUSH holds the request up to 20 s for the worker, then answers `204`. `404` for an attempt that is not the caller's own session. What the terminals wrote reaches RUSH too, in the background, and is kept (4 MiB at most together).
 
 ## `GET /attempts/{attempt_id}/spans?kind=&status=&q=&limit=`
 
@@ -450,7 +446,7 @@ Job (`200`):
 }
 ```
 
-`free_form` is `true` for a free-form Terminal session (`POST /sessions`), whose attempt has no case: `case_set`, `case`, `prompt` and `private_reference` are `null`, the worker reads no result and runs no verifier, and finalizes it `ended` (only such an attempt may end so, and it may not end `answered` or `refused`). `case_pending` is `true` for a session whose case is still being pinned: `case_set`, `case`, `prompt` and `private_reference` are then `null`, and the worker reads them from `GET /attempts/{id}/case` before the harness starts. `run.interactive` is `true` for a Harness tab session's run, whose member works at the harness's terminal (the worker reads what they type from `GET /attempts/{id}/terminal-input`). `run.prompt_bound` is whether the gateway holds the attempt to its pinned prompt (until one call completes, each carries it): `false` only for a session of `shell` or of a harness saved from one, whose agent is whatever the member runs. `task.instructions` is the instructions the run works: under `task_tools` the benchmark's pinned `task_instructions`, under `coding` the task's default. `task.egress_hosts` is the tool container's network under `task_tools`; the worker applies it only for that policy. `case.input_schema` / `output_schema` are the task's. `case.kind` and `private_reference` stay on the worker, which is the member's own computer; the claim hands them to the member's machine, so the references are not private from the member running the benchmark. `private_reference` is the pinned output object (or `null`) of an answer case and the pinned error string of a refusal case. A run's scoring is computed by the server from the attempts' verdicts; there are no scoring jobs.
+`free_form` is `true` for a free-form Terminal session (`POST /sessions`), whose attempt has no case: `case_set`, `case`, `prompt` and `private_reference` are `null`, the worker reads no result and runs no verifier, and finalizes it `ended` (only such an attempt may end so, and it may not end `answered` or `refused`). `case_pending` is `true` for a session whose case is still being pinned: `case_set`, `case`, `prompt` and `private_reference` are then `null`, and the worker reads them from `GET /attempts/{id}/case` before the harness starts. `run.interactive` is `true` for a Harness tab session's run, whose member works at the harness's terminal (the worker serves its terminals to the member's page on their computer and tells RUSH where, `POST /attempts/{id}/terminal-link`). `run.prompt_bound` is whether the gateway holds the attempt to its pinned prompt (until one call completes, each carries it): `false` only for a session of `shell` or of a harness saved from one, whose agent is whatever the member runs. `task.instructions` is the instructions the run works: under `task_tools` the benchmark's pinned `task_instructions`, under `coding` the task's default. `task.egress_hosts` is the tool container's network under `task_tools`; the worker applies it only for that policy. `case.input_schema` / `output_schema` are the task's. `case.kind` and `private_reference` stay on the worker, which is the member's own computer; the claim hands them to the member's machine, so the references are not private from the member running the benchmark. `private_reference` is the pinned output object (or `null`) of an answer case and the pinned error string of a refusal case. A run's scoring is computed by the server from the attempts' verdicts; there are no scoring jobs.
 
 ## `POST /attempts/{id}/renew`
 
@@ -513,9 +509,13 @@ Raw bytes. Headers: `X-Rush-Fence`, `X-Rush-Redaction: none|redacted|truncated` 
 
 Header `X-Rush-Fence`. The case of a job claimed with `case_pending`: `200 {"case_set", "case", "prompt", "private_reference"}` as a claim carries them, once the member's computer has pinned it. RUSH holds the request up to 20 s for the pin, then answers `204`. `422 case_failed` with why the case could not be pinned (or that RUSH lost the pin, past its pin timeout): the attempt ends `execution_failed`, reason `case_failed: <why>`, unscored.
 
-## `GET /attempts/{id}/terminal-input?after=<seq>`
+## `POST /attempts/{id}/terminal-link`
 
-Header `X-Rush-Fence`. What the member sent a session's terminals after `after`: `200 {"inputs": [{"seq", "terminal", "data": "<base64>|null", "rows", "cols", "close"}]}`, keystrokes, a resize (which opens a terminal not yet open) or a close, in order. RUSH holds the request up to 15 s for some to come, then answers `[]`.
+`{"fence": N, "port": P, "token": "<secret>"}`: the session's terminals are served on `127.0.0.1:P` to whoever sends `token`, which RUSH hands only to the session's member (`GET /attempts/{id}/terminal-link`). `200 {"linked": true}`; `403 not_a_session` for a run nobody works in.
+
+## `GET /attempts/{id}/watch`
+
+Header `X-Rush-Fence`. A session's watch: `409 canceled` as soon as it is canceled (its member left its page or opened another), `409 lease_lost` or `409 sealed` as soon as that happens, so the worker ends the case at once; `204` when none did within 15 s.
 
 ## `POST /attempts/{id}/harness`
 

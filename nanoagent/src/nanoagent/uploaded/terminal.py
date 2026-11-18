@@ -1,61 +1,97 @@
-"""The harness's terminals, between it and the member at a page: what each one's process writes to its PTY goes to RUSH as it comes,
-and what the member types at one (or a new size of it, or that they opened or closed it) comes back from RUSH to its PTY.
+"""The harness's terminals, between it and the member at a page on this computer: what each one's process writes to its PTY goes to
+the page as it comes, over the session's local link, and to RUSH, which keeps it; what the member types at one (or a new size of
+it, or that they opened or closed it) comes back over the link to its PTY. RUSH is on neither way of the link.
 
 Terminal 0 is the harness's own; a free-form session's member opens more (1, 2, ...) in the same case (`CaseHandle.open_terminal`).
 The case's sandbox hands each chunk of output to :meth:`Terminal.write` from its own thread; :meth:`Terminal.pump` sends what has
-come every :data:`SEND_S` until it is cancelled, and :meth:`Terminal.flush` sends the rest, then that each terminal that ended did.
-What passes ``limit_bytes``, all terminals together, is not sent: a last line in each says so instead. :meth:`Terminal.feed` reads
-the member's input and passes it to the case.
+come to RUSH every :data:`SEND_S` until it is cancelled, and :meth:`Terminal.flush` sends the rest, then that each terminal that ended
+did. What passes ``limit_bytes``, all terminals together, is kept from both: a last line in each says so instead.
+
+:meth:`Terminal.serve` is the link: a TCP listener on 127.0.0.1 that RUSH Lab connects to for the page (RUSH tells the page its port
+and :attr:`Terminal.token`, and only the session's member). Each side sends one JSON object a line. The link's first line is
+``{"token"}``; then the page sends ``{"terminal", "data"}`` (base64 keystrokes), ``{"terminal", "rows", "cols"}`` (a size, which opens
+a terminal not yet open) or ``{"terminal", "close": true}``, and hears ``{"terminal", "data"}`` (everything that terminal wrote, from
+its first byte, then as it comes) and ``{"terminal", "closed": true}`` once it ended, after its output. A link that sends anything
+else is closed, with ``{"error"}`` why.
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import binascii
+import contextlib
+import json
+import secrets
 import threading
 from functools import partial
 from typing import Any
 
 import anyio
+from anyio.abc import SocketAttribute, SocketStream
+from anyio.streams.buffered import BufferedByteReceiveStream
 
-from nanoagent.uploaded.rush_worker import Canceled, Lease, LeaseLost, RushWorkerClient, Sealed
+from nanoagent.uploaded.rush_worker import RushWorkerClient
 
 SEND_S = 0.05
-MAX_SEND_BYTES = 256 * 1024  # one request's bytes at most
+MAX_SEND_BYTES = 256 * 1024  # one request's or link line's bytes of output at most
 # What one attempt's terminals send at most, with room for the notes that they were cut (32 at most): RUSH keeps 4 MiB of it.
 LIMIT_BYTES = 4 * 1024 * 1024 - 4096
+MAX_TERMINALS = 32  # a free-form session's: ids 0 to 31
+MAX_LINE = 1 << 20  # one line the page sends: a paste is 40 000 characters at most, as base64
+CLOSE_S = 1.0  # how long a closing link has to send what is left
+
+
+class LinkRefused(Exception):
+    """What the page sent the link that it does not take."""
 
 
 class Terminal:
-    def __init__(self, worker: RushWorkerClient, attempt_id: str, fence: int, limit_bytes: int = LIMIT_BYTES) -> None:
+    def __init__(self, worker: RushWorkerClient, attempt_id: str, fence: int, *, terminals: int = 1, limit_bytes: int = LIMIT_BYTES) -> None:
         self._worker = worker
         self._attempt_id = attempt_id
         self._fence = fence
+        self._terminals = terminals  # the ids the member may use: 0 alone, or all a free-form session opens
         self._limit = limit_bytes
+        self.token = secrets.token_urlsafe(32)
+        self._loop = asyncio.get_running_loop()
         self._lock = threading.Lock()
-        self._pending: dict[int, bytearray] = {}
-        self._taken = 0  # bytes accepted into _pending, at most the limit
+        self._pending: dict[int, bytearray] = {}  # what RUSH has yet to get
+        self._screens: dict[int, bytearray] = {}  # everything each terminal wrote, which a link sends from its first byte
+        self._taken = 0  # bytes accepted, at most the limit
         self._cut: set[int] = set()
         self._sent: dict[int, int] = {}
         self._opened = {0}
         self._closed: set[int] = set()  # the terminals RUSH was told ended
         self._failed: set[int] = set()  # the terminals that could not open
         self._sending = anyio.Lock()
+        self._links: set[asyncio.Event] = set()  # each open link's wake-up
+        self._ended = False
 
     def write(self, terminal: int, data: bytes) -> None:
         with self._lock:
-            pending = self._pending.setdefault(terminal, bytearray())
             room = self._limit - self._taken
-            if len(data) > room and terminal not in self._cut:
+            if terminal in self._cut:
+                return
+            if len(data) > room:
                 self._cut.add(terminal)
-                note = f"\r\n\x1b[0m[RUSH: the terminals' output passed its {self._limit} byte bound; the rest is not shown]\r\n".encode()
-                pending += data[: max(room, 0)] + note
+                data = (
+                    data[: max(room, 0)]
+                    + f"\r\n\x1b[0m[RUSH: the terminals' output passed its {self._limit} byte bound; the rest is not shown]\r\n".encode()
+                )
                 self._taken = self._limit
-            elif terminal not in self._cut:
-                pending += data
+            else:
                 self._taken += len(data)
+            self._pending.setdefault(terminal, bytearray()).extend(data)
+            self._screens.setdefault(terminal, bytearray()).extend(data)
+        self._loop.call_soon_threadsafe(self._wake)
+
+    def _wake(self) -> None:
+        for wake in self._links:
+            wake.set()
 
     async def flush(self, case: Any) -> None:
-        """Sends what every terminal wrote, then that each terminal of ``case`` (a `CaseHandle`) that ended did, after its output."""
+        """Sends RUSH what every terminal wrote, then that each terminal of ``case`` (a `CaseHandle`) that ended did, after its output."""
         async with self._sending:
             ended = case.ended_terminals() | self._failed  # before the output: a terminal writes nothing after it ended
             for terminal in list(self._pending):
@@ -78,29 +114,128 @@ class Terminal:
             await anyio.sleep(SEND_S)
             await self.flush(case)
 
-    async def feed(self, case: Any, lease: Lease) -> None:
-        """Passes what the member sends to ``case``'s terminals (a `CaseHandle`), in order, until cancelled: a size for a terminal not
-        yet open opens it, and one that cannot open ends with why printed in it. RUSH answers this read as soon as the session is canceled (the member opened another) or its lease lost,
-        which fails ``lease`` at once, so the case is killed in well under a second rather than at the next renewal."""
-        after = 0
-        while True:
+    async def serve(self, case: Any, *, task_status: anyio.abc.TaskStatus[int] = anyio.TASK_STATUS_IGNORED) -> None:
+        """The session's link to the page, for ``case`` (a `CaseHandle`), until cancelled: its port is the task's start value."""
+        listener = await anyio.create_tcp_listener(local_host="127.0.0.1", local_port=0)
+        async with listener:
+            task_status.started(listener.extra(SocketAttribute.local_port))
+            await listener.serve(partial(self._link, case))
+
+    async def close(self) -> None:
+        """Ends every link once it has sent what is left: the session is over."""
+        self._ended = True
+        self._wake()
+        with anyio.move_on_after(CLOSE_S):
+            while self._links:
+                await anyio.sleep(0.01)
+
+    async def _link(self, case: Any, stream: SocketStream) -> None:
+        wake = asyncio.Event()
+        lines = BufferedByteReceiveStream(stream)
+        refused: list[LinkRefused] = []
+        async with stream:
             try:
-                inputs = await self._worker.terminal_input(self._attempt_id, self._fence, after)
-            except (Canceled, LeaseLost, Sealed) as error:
-                lease.fail(error)
+                hello = await self._read(lines)
+                if not secrets.compare_digest(str(hello.get("token", "")).encode(), self.token.encode()):
+                    raise LinkRefused("the link's token is not this session's")
+            except LinkRefused as error:
+                refused.append(error)
+            except anyio.EndOfStream:
                 return
-            for item in inputs:
-                terminal = item["terminal"]
-                if item["close"]:
-                    await anyio.to_thread.run_sync(case.close_terminal, terminal)
-                elif terminal not in self._opened:
-                    self._opened.add(terminal)
-                    try:
-                        await anyio.to_thread.run_sync(case.open_terminal, terminal, item["rows"], item["cols"], partial(self.write, terminal))
-                    except Exception as error:  # noqa: BLE001 - it ends this terminal, with why, not the session
-                        self.write(terminal, f"\x1b[0m[RUSH: this terminal could not open: {type(error).__name__}: {error}]\r\n".encode())
-                        self._failed.add(terminal)
-                else:
-                    data = None if item["data"] is None else base64.b64decode(item["data"])
-                    await anyio.to_thread.run_sync(case.terminal_input, terminal, data, item["rows"], item["cols"])
-                after = item["seq"]
+            if not refused:
+                self._links.add(wake)
+                try:
+                    async with anyio.create_task_group() as group:
+                        group.start_soon(self._receive, case, lines, group.cancel_scope, refused)
+                        await self._send(case, stream, wake)
+                        group.cancel_scope.cancel()
+                finally:
+                    self._links.discard(wake)
+            if refused:
+                with anyio.move_on_after(CLOSE_S), contextlib.suppress(anyio.BrokenResourceError, anyio.ClosedResourceError):
+                    await stream.send(json.dumps({"error": str(refused[0])}).encode() + b"\n")
+
+    async def _read(self, lines: BufferedByteReceiveStream) -> dict[str, Any]:
+        try:
+            line = await lines.receive_until(b"\n", MAX_LINE)
+        except anyio.DelimiterNotFound as error:
+            raise LinkRefused(f"a line passed {MAX_LINE} bytes") from error
+        except anyio.IncompleteRead as error:
+            raise anyio.EndOfStream from error
+        try:
+            item = json.loads(line)
+        except ValueError as error:
+            raise LinkRefused(f"a line is not JSON: {error}") from error
+        if not isinstance(item, dict):
+            raise LinkRefused("a line is not a JSON object")
+        return item
+
+    async def _send(self, case: Any, stream: SocketStream, wake: asyncio.Event) -> None:
+        """Sends the page each terminal's output from its first byte, then as it comes, and that a terminal ended after its output;
+        returns once the session is over and all of it is sent."""
+        shown: dict[int, int] = {}
+        told: set[int] = set()
+        while True:
+            wake.clear()
+            ended = self._ended
+            closed = case.ended_terminals() | self._failed  # before the output: a terminal writes nothing after it ended
+            lines = []
+            with self._lock:
+                for terminal, screen in self._screens.items():
+                    while len(screen) > shown.get(terminal, 0):
+                        start = shown.get(terminal, 0)
+                        chunk = bytes(screen[start : start + MAX_SEND_BYTES])
+                        lines.append({"terminal": terminal, "data": base64.b64encode(chunk).decode("ascii")})
+                        shown[terminal] = start + len(chunk)
+            lines += [{"terminal": terminal, "closed": True} for terminal in sorted(closed - told)]
+            told |= closed
+            if lines:
+                try:
+                    await stream.send(b"".join(json.dumps(line).encode() + b"\n" for line in lines))
+                except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                    return  # the page went away
+            if ended:
+                return
+            with anyio.move_on_after(SEND_S):  # a terminal that ended says nothing: it is looked for this often
+                await wake.wait()
+
+    async def _receive(self, case: Any, lines: BufferedByteReceiveStream, scope: anyio.CancelScope, refused: list[LinkRefused]) -> None:
+        """Passes what the page sends to ``case``'s terminals, in order, until it goes away or sends what the link does not take: a
+        size for a terminal not yet open opens it, and one that cannot open ends with why printed in it."""
+        try:
+            while True:
+                await self._apply(case, await self._read(lines))
+        except LinkRefused as error:
+            refused.append(error)
+        except (anyio.EndOfStream, anyio.BrokenResourceError):
+            pass  # the page went away
+        scope.cancel()
+
+    async def _apply(self, case: Any, item: dict[str, Any]) -> None:
+        terminal = item.get("terminal")
+        if type(terminal) is not int or not 0 <= terminal < self._terminals:
+            raise LinkRefused(f"terminal is a terminal's id, 0 to {self._terminals - 1}")
+        rows, cols, data = item.get("rows"), item.get("cols"), item.get("data")
+        if item.get("close") is True:
+            await anyio.to_thread.run_sync(case.close_terminal, terminal)
+            return
+        if data is None:
+            if not all(type(n) is int and 1 <= n <= 1000 for n in (rows, cols)):
+                raise LinkRefused("a size is rows and cols, each 1 to 1000")
+        else:
+            try:
+                data = base64.b64decode(data, validate=True)
+            except (TypeError, binascii.Error) as error:
+                raise LinkRefused("data is what was typed, in base64") from error
+            rows = cols = None
+        if terminal not in self._opened:
+            if data is not None:
+                return  # typed at a terminal not yet open: its size opens it
+            self._opened.add(terminal)
+            try:
+                await anyio.to_thread.run_sync(case.open_terminal, terminal, rows, cols, partial(self.write, terminal))
+            except Exception as error:  # noqa: BLE001 - it ends this terminal, with why, not the session
+                self.write(terminal, f"\x1b[0m[RUSH: this terminal could not open: {type(error).__name__}: {error}]\r\n".encode())
+                self._failed.add(terminal)
+            return
+        await anyio.to_thread.run_sync(case.terminal_input, terminal, data, rows, cols)

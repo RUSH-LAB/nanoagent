@@ -1,11 +1,15 @@
-"""The harness's terminals between the case and RUSH: each one's output sent in order within their shared bound, then that it ended;
-the member's input passed to the case, which opens and closes terminals."""
+"""The harness's terminals: each one's output sent to RUSH in order within their shared bound, then that it ended; and the session's
+local link, which shows the member's page every terminal's output and passes what they send to the case, which opens and closes
+terminals."""
 
 from __future__ import annotations
 
 import asyncio
 import base64
+import json
+from collections.abc import AsyncIterator
 from concurrent.futures import Future
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -15,17 +19,16 @@ import pytest
 
 from microsandbox import ExecEventType
 
+from nanoagent.uploaded.runner import AttemptRunner
 from nanoagent.uploaded.rush_worker import Canceled, Lease
 from nanoagent.uploaded.sandbox import Limits, MicrosandboxSupervisor, _Case
 from nanoagent.uploaded.terminal import Terminal
 
 
 class Rush:
-    def __init__(self, inputs: list[dict[str, Any]]) -> None:
+    def __init__(self) -> None:
         self.screens: dict[int, bytes] = {}
         self.sent: list[tuple[str, int]] = []  # ("output" | "closed", terminal), in order
-        self.inputs = inputs
-        self.reads: list[int] = []
 
     async def terminal(self, attempt_id: str, fence: int, terminal: int, offset: int, data: bytes) -> None:
         assert (attempt_id, fence, offset) == ("a", 3, len(self.screens.get(terminal, b"")))
@@ -34,12 +37,6 @@ class Rush:
 
     async def terminal_closed(self, attempt_id: str, fence: int, terminal: int) -> None:
         self.sent.append(("closed", terminal))
-
-    async def terminal_input(self, attempt_id: str, fence: int, after: int) -> list[dict[str, Any]]:
-        self.reads.append(after)
-        if len(self.reads) > 1:
-            await anyio.sleep_forever()
-        return self.inputs
 
 
 class Case:
@@ -62,9 +59,45 @@ class Case:
         return self.ended
 
 
-@pytest.mark.anyio
-async def test_output_goes_in_order_and_stops_at_its_bound() -> None:
-    rush = Rush([])
+class Page:
+    """The member's page at the session's link."""
+
+    def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        self.reader, self.writer = reader, writer
+
+    def send(self, **item: Any) -> None:
+        self.writer.write(json.dumps(item).encode() + b"\n")
+
+    def type(self, terminal: int, text: bytes) -> None:
+        self.send(terminal=terminal, data=base64.b64encode(text).decode())
+
+    async def hear(self) -> dict[str, Any]:
+        with anyio.fail_after(2):
+            return json.loads(await self.reader.readline())
+
+    async def screen(self, terminal: int, until: bytes) -> bytes:
+        seen = b""
+        while until not in seen:
+            item = await self.hear()
+            assert item["terminal"] == terminal, item
+            seen += base64.b64decode(item["data"])
+        return seen
+
+
+@asynccontextmanager
+async def linked(terminal: Terminal, case: Any, token: str | None = None) -> AsyncIterator[Page]:
+    async with anyio.create_task_group() as group:
+        port = await group.start(terminal.serve, case)
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        page = Page(reader, writer)
+        page.send(token=terminal.token if token is None else token)
+        yield page
+        writer.close()
+        group.cancel_scope.cancel()
+
+
+async def test_output_goes_to_rush_in_order_and_stops_at_its_bound() -> None:
+    rush = Rush()
     terminal = Terminal(rush, "a", 3, limit_bytes=10)  # type: ignore[arg-type]
     terminal.write(0, b"hello ")
     await terminal.flush(Case())
@@ -76,9 +109,8 @@ async def test_output_goes_in_order_and_stops_at_its_bound() -> None:
     assert b"passed its 10 byte bound" in rush.screens[1]
 
 
-@pytest.mark.anyio
-async def test_a_terminal_that_ended_is_told_once_after_its_output() -> None:
-    rush = Rush([])
+async def test_a_terminal_that_ended_is_told_to_rush_once_after_its_output() -> None:
+    rush = Rush()
     terminal = Terminal(rush, "a", 3)  # type: ignore[arg-type]
     terminal.write(1, b"bye")
     await terminal.flush(Case(frozenset({1})))
@@ -86,37 +118,67 @@ async def test_a_terminal_that_ended_is_told_once_after_its_output() -> None:
     assert rush.sent == [("output", 1), ("closed", 1)]
 
 
-@pytest.mark.anyio
-async def test_the_members_input_opens_types_at_and_closes_terminals_in_order() -> None:
-    rush = Rush([
-        {"seq": 1, "terminal": 0, "data": None, "rows": 30, "cols": 100, "close": False},
-        {"seq": 2, "terminal": 0, "data": base64.b64encode(b"hi\r").decode(), "rows": None, "cols": None, "close": False},
-        {"seq": 3, "terminal": 1, "data": None, "rows": 20, "cols": 80, "close": False},
-        {"seq": 4, "terminal": 1, "data": None, "rows": 21, "cols": 81, "close": False},
-        {"seq": 5, "terminal": 1, "data": None, "rows": None, "cols": None, "close": True},
-    ])
+async def test_the_page_sees_output_from_its_first_byte_and_its_input_opens_types_at_and_closes_terminals_in_order() -> None:
     case = Case()
-    terminal = Terminal(rush, "a", 3)  # type: ignore[arg-type]
-    with anyio.move_on_after(1):
-        await terminal.feed(case, Lease("a", 3))  # type: ignore[arg-type]
-    assert case.calls == [
-        ("input", 0, None, 30, 100), ("input", 0, b"hi\r", None, None), ("open", 1, 20, 80), ("input", 1, None, 21, 81), ("close", 1),
-    ]
-    assert rush.reads == [0, 5]
-    case.outputs[1](b"$ ")  # the opened terminal's output is its own
-    await terminal.flush(case)
-    assert rush.screens == {1: b"$ "}
+    terminal = Terminal(Rush(), "a", 3, terminals=32)  # type: ignore[arg-type]
+    terminal.write(0, b"$ ")  # before the page connected
+    async with linked(terminal, case) as page:
+        assert await page.screen(0, b"$ ") == b"$ "
+        page.send(terminal=0, rows=30, cols=100)
+        page.type(0, b"hi\r")
+        page.send(terminal=1, rows=20, cols=80)
+        page.send(terminal=1, rows=21, cols=81)
+        page.send(terminal=1, close=True)
+        await page.writer.drain()
+        with anyio.fail_after(2):
+            while len(case.calls) < 5:
+                await anyio.sleep(0.01)
+        assert case.calls == [
+            ("input", 0, None, 30, 100),
+            ("input", 0, b"hi\r", None, None),
+            ("open", 1, 20, 80),
+            ("input", 1, None, 21, 81),
+            ("close", 1),
+        ]
+        case.outputs[1](b"one$ ")  # the opened terminal's output is its own, and comes as it is written
+        assert await page.screen(1, b"one$ ") == b"one$ "
+        case.ended = frozenset({1})
+        assert await page.hear() == {"terminal": 1, "closed": True}
 
 
-@pytest.mark.anyio
-async def test_a_cancel_answered_to_the_input_read_revokes_the_lease_at_once() -> None:
-    class Canceling(Rush):
-        async def terminal_input(self, attempt_id: str, fence: int, after: int) -> list[dict[str, Any]]:
+async def test_a_link_without_the_sessions_token_is_refused_and_one_naming_another_terminal_is_closed() -> None:
+    async with linked(Terminal(Rush(), "a", 3), Case(), token="guess") as page:  # type: ignore[arg-type]
+        assert await page.hear() == {"error": "the link's token is not this session's"}
+        assert await page.reader.read() == b""
+    case = Case()
+    async with linked(Terminal(Rush(), "a", 3), case) as page:  # type: ignore[arg-type]
+        page.send(terminal=1, rows=20, cols=80)  # a scored case has terminal 0 alone
+        assert await page.hear() == {"error": "terminal is a terminal's id, 0 to 0"}
+        assert await page.reader.read() == b"" and case.calls == []
+
+
+async def test_a_closing_session_sends_the_page_what_is_left_then_ends_its_link() -> None:
+    case = Case()
+    terminal = Terminal(Rush(), "a", 3)  # type: ignore[arg-type]
+    async with linked(terminal, case) as page:
+        await page.writer.drain()
+        await anyio.sleep(0.1)
+        terminal.write(0, b"bye\r\n")
+        case.ended = frozenset({0})
+        await terminal.close()
+        assert await page.screen(0, b"bye") == b"bye\r\n"
+        assert await page.hear() == {"terminal": 0, "closed": True}
+        assert await page.reader.read() == b""
+
+
+async def test_a_cancel_answered_to_the_watch_revokes_the_lease_at_once() -> None:
+    class Canceling:
+        async def watch(self, attempt_id: str, fence: int) -> None:
             raise Canceled(409, "canceled", "The run was canceled")
 
     lease = Lease("a", 3)
     with anyio.fail_after(1):
-        await Terminal(Canceling([]), "a", 3).feed(Case(), lease)  # type: ignore[arg-type]
+        await AttemptRunner._watch(SimpleNamespace(worker=Canceling()), lease)  # type: ignore[arg-type]
     assert lease.revoked.is_set() and lease.reason == "canceled"
 
 
@@ -160,36 +222,40 @@ class Sandbox:
 
 
 @pytest.mark.anyio
-async def test_the_member_opens_a_second_terminal_in_the_case_from_the_input_reader(tmp_path: Path) -> None:
+async def test_the_member_opens_a_second_terminal_in_the_case_from_the_link(tmp_path: Path) -> None:
     sandbox = Sandbox()
     case = _Case(
-        MicrosandboxSupervisor(tools=tmp_path / "tools"), SimpleNamespace(limits=Limits(), run_argv=("bash",)),  # type: ignore[arg-type]
-        "rush-case-x", sandbox, None, tmp_path, tmp_path / "out", {},  # type: ignore[arg-type]
+        MicrosandboxSupervisor(tools=tmp_path / "tools"),
+        SimpleNamespace(limits=Limits(), run_argv=("bash",)),  # type: ignore[arg-type]
+        "rush-case-x",
+        sandbox,
+        None,
+        tmp_path,
+        tmp_path / "out",
+        {},  # type: ignore[arg-type]
     )
     case._future, case._env, case._deadline = Future(), {"RUSH_TERMINAL": "0"}, case._s._clock() + 3600
-    rush = Rush([{"seq": 1, "terminal": 1, "data": None, "rows": 20, "cols": 80, "close": False}])
-    terminal = Terminal(rush, "a", 3)  # type: ignore[arg-type]
-    with anyio.move_on_after(1):
-        await terminal.feed(case, Lease("a", 3))  # type: ignore[arg-type]
+    async with linked(Terminal(Rush(), "a", 3, terminals=32), case) as page:  # type: ignore[arg-type]
+        page.send(terminal=1, rows=20, cols=80)
+        with anyio.fail_after(2):
+            while len(sandbox.calls) < 3:
+                await anyio.sleep(0.01)
     assert sandbox.calls == [("exec", "mkdir", "-p", "-m", "0755", "/rush-trace/terminal-1"), ("exec_stream", "1"), ("resize", 20, 80)]
     assert case.ended_terminals() == frozenset()
 
 
-@pytest.mark.anyio
 async def test_a_terminal_that_cannot_open_ends_alone_with_why_printed_in_it() -> None:
     class Failing(Case):
         def open_terminal(self, terminal: int, rows: int, cols: int, on_output: Any) -> None:
             raise RuntimeError("no running event loop")
 
-    rush = Rush([
-        {"seq": 1, "terminal": 1, "data": None, "rows": 20, "cols": 80, "close": False},
-        {"seq": 2, "terminal": 0, "data": base64.b64encode(b"ls\r").decode(), "rows": None, "cols": None, "close": False},
-    ])
-    case, lease = Failing(), Lease("a", 3)
-    terminal = Terminal(rush, "a", 3)  # type: ignore[arg-type]
-    with anyio.move_on_after(1):
-        await terminal.feed(case, lease)  # type: ignore[arg-type]
+    rush, case = Rush(), Failing()
+    terminal = Terminal(rush, "a", 3, terminals=32)  # type: ignore[arg-type]
+    async with linked(terminal, case) as page:
+        page.send(terminal=1, rows=20, cols=80)
+        page.type(0, b"ls\r")
+        assert b"could not open: RuntimeError: no running event loop" in await page.screen(1, b"\r\n")
+        assert await page.hear() == {"terminal": 1, "closed": True}
     await terminal.flush(case)
-    assert case.calls == [("input", 0, b"ls\r", None, None)] and not lease.revoked.is_set()
-    assert b"could not open: RuntimeError: no running event loop" in rush.screens[1]
+    assert case.calls == [("input", 0, b"ls\r", None, None)]
     assert rush.sent == [("output", 1), ("closed", 1)]

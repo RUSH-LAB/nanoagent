@@ -97,7 +97,7 @@ from nanoagent.uploaded.sandbox import (
 from nanoagent.uploaded.reference import build_reference
 from nanoagent.uploaded import session_result
 from nanoagent.uploaded.source import SourceLimits, extract, inspect_zip
-from nanoagent.uploaded.terminal import Terminal
+from nanoagent.uploaded.terminal import MAX_TERMINALS, Terminal
 from nanoagent.uploaded.toolchains import CLOSURE_ARCHIVE, ToolchainProfile, resolve_dependencies, toolchain
 
 LOG = logging.getLogger(__name__)
@@ -618,6 +618,16 @@ class AttemptRunner:
                 continue
             lease.extend(seconds, requested)
 
+    async def _watch(self, lease: Lease) -> None:
+        """Fails ``lease`` as soon as RUSH says the session was canceled (its member left its page or opened another), its lease lost or
+        it sealed, so the case is killed in well under a second rather than at the next renewal."""
+        while True:
+            try:
+                await self.worker.watch(lease.attempt_id, lease.fence)
+            except (Canceled, LeaseLost, Sealed) as error:
+                lease.fail(error)
+                return
+
     async def _fetch_case(self, job: AttemptJob, lease: Lease, pending: PendingCase) -> None:
         """Fetch the case RUSH pins while the attempt prepares and runs, until it is pinned, its pin fails, or the lease is lost."""
         while not lease.lapsed():
@@ -939,7 +949,7 @@ class AttemptRunner:
             relay = await self.relay.start(job.attempt_id, network, services.app, work)
         stack.push_async_callback(shielded, relay.aclose)
         request = self._request(job, tools, relay.base_url)
-        terminal = Terminal(self.worker, job.attempt_id, job.fence)
+        terminal = Terminal(self.worker, job.attempt_id, job.fence, terminals=MAX_TERMINALS if job.free_form else 1)
         offset = self.wall_clock_ns() - self.clock_ns()
         if warm is not None:
             handle = warm.handle
@@ -1054,7 +1064,8 @@ class AttemptRunner:
 
     async def _wait(self, lease: Lease, handle: CaseHandle, services: AttemptServices, terminal: Terminal, *, interactive: bool) -> Any:
         """The case's outcome, or None if the lease was lost or canceled first (the case is killed and drained). The harness's terminal
-        output goes to RUSH as it comes meanwhile, and, when someone is at it, what they type comes back."""
+        output goes to RUSH as it comes meanwhile, and, when someone is at it, to their page over the session's link (RUSH told where),
+        which brings back what they type."""
         done = anyio.Event()
         box: list[Any] = []
 
@@ -1072,12 +1083,15 @@ class AttemptRunner:
             group.start_soon(waiter)
             group.start_soon(terminal.pump, handle)
             if interactive:
-                group.start_soon(terminal.feed, handle, lease)
+                port = await group.start(terminal.serve, handle)
+                await self.worker.terminal_link(lease.attempt_id, lease.fence, port, terminal.token)
+                group.start_soon(self._watch, lease)
             await first_of(done, lease.revoked)
             if not done.is_set():
                 await self._revoke(services)
                 await in_thread(handle.close)  # kills the sandbox, which ends wait()
                 await done.wait()
+            await terminal.close()
             group.cancel_scope.cancel()
         return None if lease.revoked.is_set() or not box else box[0]
 

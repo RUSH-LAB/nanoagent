@@ -281,21 +281,10 @@ function terminalBody(body) {
   return {...head, offset: integer(body.offset, 'offset', {min: 0, max: MAX_ATTEMPT_TERMINAL_BYTES}), data: Buffer.from(encoded, 'base64')};
 }
 
-/**
- * What a member sends one terminal of their session (`terminal`): `{data}`, keystrokes as base64; `{rows, cols}`, its new size, which
- * opens a terminal not yet open at that size; or `{close: true}`, which closes it.
- */
-function terminalInputBody(body) {
+/** Where a session's member reaches its terminals on their computer: `{fence, port, token}`, `port` on 127.0.0.1. */
+function terminalLinkBody(body) {
   object(body, 'The body');
-  const terminal = terminalOf(body);
-  if (body.close !== undefined) {
-    if (body.close !== true) throw bad('invalid_request', 'close is true when given');
-    return {terminal, close: true};
-  }
-  if (body.data === undefined) return {terminal, rows: integer(body.rows, 'rows', {min: 1, max: 1000}), cols: integer(body.cols, 'cols', {min: 1, max: 1000})};
-  const encoded = string(body.data, 'data', {max: 128 * 1024});
-  if (!BASE64.test(encoded)) throw bad('invalid_request', 'data is the keystrokes as base64');
-  return {terminal, data: Buffer.from(encoded, 'base64')};
+  return {fence: fenceOf(body), port: integer(body.port, 'port', {min: 1, max: 65535}), token: string(body.token, 'token', {max: 200})};
 }
 
 function spansBody(body) {
@@ -421,6 +410,6 @@ function importBody(body) {
 }
 
 module.exports = {
-  benchmarkPublication, importBody, publicationFrame, previewBody, runBody, eventsBody, terminalBody, terminalInputBody, spansBody, finalizeBody, admissionBody, settleBody, accountingBody,
+  benchmarkPublication, importBody, publicationFrame, previewBody, runBody, eventsBody, terminalBody, terminalLinkBody, spansBody, finalizeBody, admissionBody, settleBody, accountingBody,
   claimBody, SHA256, fenceOf, object, string,
 };

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-terminal-send"
+description = "Enables the terminal_send command without any pre-configured scope."
+commands.allow = ["terminal_send"]
+
+[[permission]]
+identifier = "deny-terminal-send"
+description = "Denies the terminal_send command without any pre-configured scope."
+commands.deny = ["terminal_send"]

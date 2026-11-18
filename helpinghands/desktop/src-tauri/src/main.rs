@@ -17,6 +17,7 @@ mod releases;
 mod setup;
 #[cfg(target_os = "macos")]
 mod sign_in;
+mod terminal;
 mod update;
 
 use std::sync::Arc;
@@ -24,6 +25,7 @@ use std::thread;
 use std::time::Duration;
 
 use lab::Lab;
+use tauri::ipc::CapabilityBuilder;
 #[cfg(target_os = "macos")]
 use tauri::menu::MenuItemKind;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -182,6 +184,8 @@ fn main() {
         .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![AT_LOGIN])))
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(terminal::Links::default())
+        .invoke_handler(tauri::generate_handler![terminal::terminal_link, terminal::terminal_send, terminal::terminal_unlink])
         .setup(|app| {
             let at_login = std::env::args().any(|arg| arg == AT_LOGIN);
             #[cfg(target_os = "macos")]
@@ -193,6 +197,15 @@ fn main() {
             #[cfg(target_os = "macos")]
             app.manage(Site(site.clone()));
             app.manage(setup::Setup::new());
+            // The window's site, and no other page, links to the terminals of the member's sessions on this computer (terminal.rs).
+            app.add_capability(
+                CapabilityBuilder::new("terminal")
+                    .remote(format!("{}/*", site.origin().ascii_serialization()))
+                    .window("main")
+                    .permission("allow-terminal-link")
+                    .permission("allow-terminal-send")
+                    .permission("allow-terminal-unlink"),
+            )?;
             let update_site = site.clone();
             let engine_site = site.clone();
             let releases_site = site.clone();
@@ -205,10 +218,10 @@ fn main() {
                 .visible(!at_login)
                 .initialization_script(IN_APP)
                 // Each page is told what setting up is doing (setup.rs), as the one before it was.
-                .on_page_load(|window, payload| {
-                    if payload.event() == PageLoadEvent::Finished {
-                        setup::again(&window);
-                    }
+                // A page that loads ends the links the one before it made.
+                .on_page_load(|window, payload| match payload.event() {
+                    PageLoadEvent::Started => terminal::unlink_all(&window.state::<terminal::Links>()),
+                    PageLoadEvent::Finished => setup::again(&window),
                 })
                 // The site's <scheme>: links are the app's to follow, not the page's.
                 .on_navigation(move |url| {

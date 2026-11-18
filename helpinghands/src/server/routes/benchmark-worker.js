@@ -13,14 +13,14 @@ const {UUID, jsonBody, rawBody, sendFailure} = require('../benchmark/http');
 const v = require('../benchmark/validate');
 const {MAX_SOURCE_BYTES, positiveSetting} = require('../benchmark/limits');
 const {uploadedHarnessOf} = require('../benchmark/harness');
-const {listen} = require('../benchmark/wake');
+const {listen, wake} = require('../benchmark/wake');
 const {PIN_TIMEOUT_MS} = require('../ai');
 const {startSession} = require('./benchmark');
 
 const MAX_PAYLOAD_BYTES = positiveSetting('BENCHMARK_PAYLOAD_MAX_BYTES', 16 * 1024 * 1024);
-// A read of a terminal's input waits this long for the member to send some, looking every INPUT_POLL_MS.
-const INPUT_WAIT_MS = 15_000;
-const INPUT_POLL_MS = 50;
+// A session's watch waits this long for it to be canceled, its lease lost or it sealed, looking every WATCH_POLL_MS.
+const WATCH_MS = 15_000;
+const WATCH_POLL_MS = 100;
 // A read of a session's case waits this long for its pin; a pin RUSH lost (it restarted while pinning) fails after PIN_TIMEOUT_MS.
 const CASE_WAIT_MS = 20_000;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -29,7 +29,7 @@ const REDACTIONS = ['none', 'redacted', 'truncated'];
 const ROUTE = new RegExp([
   '^/api/benchmark-worker/(?:',
   '(claim|started)',
-  '|attempts/([^/]+)/(renew|source|package|case|admissions|events|terminal|terminal-input|harness|score|spans|finalize|accounting)',
+  '|attempts/([^/]+)/(renew|source|package|case|admissions|events|terminal|terminal-link|watch|harness|score|spans|finalize|accounting)',
   '|attempts/([^/]+)/score/([^/]+)',
   '|attempts/([^/]+)/admissions/([^/]+)/(settle)',
   '|attempts/([^/]+)/payloads/([^/]+)',
@@ -129,18 +129,19 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
           }
         }
       }
-      if (jobPart === 'terminal-input') {
+      // A session's watch: answered 409 as soon as it is canceled (its member left its page or opened another), its lease lost or it
+      // sealed, so its worker frees the slot at once; 204 when none was within WATCH_MS.
+      if (jobPart === 'watch') {
         wanted('GET', jobId);
         const fence = fenceHeader(req);
-        const after = Number(url.searchParams.get('after') ?? 0);
-        if (!Number.isSafeInteger(after) || after < 0) throw new BenchmarkError(400, 'invalid_request', 'after is the last input seq read, a non-negative integer');
         let closed = false;
         req.on('close', () => { closed = true; });
-        for (const until = Date.now() + INPUT_WAIT_MS; ;) {
-          const inputs = await worker.terminalInput(userId, jobId, fence, after);
-          if (inputs.length || closed || Date.now() >= until) return json(res, 200, {inputs});
-          await sleep(INPUT_POLL_MS);
+        for (const until = Date.now() + WATCH_MS; !closed && Date.now() < until;) {
+          await worker.watch(userId, jobId, fence);
+          await sleep(WATCH_POLL_MS);
         }
+        res.writeHead(204);
+        return res.end();
       }
       // A harness the member saved from the attempt's Terminal session (`rush save`): their own, as if uploaded to its workspace.
       if (jobPart === 'harness') {
@@ -165,6 +166,13 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
       if (jobPart === 'admissions') {
         const {fence, callId: id, reserveUsd} = v.admissionBody(input);
         return json(res, 201, await worker.admit(userId, jobId, fence, id, reserveUsd));
+      }
+      // Where the session's member reaches its terminals on their computer, which RUSH hands only to them (GET attempts/{id}/terminal-link).
+      if (jobPart === 'terminal-link') {
+        const {fence, port, token} = v.terminalLinkBody(input);
+        await worker.terminalLink(userId, jobId, fence, port, token);
+        wake(`link:${jobId}`);
+        return json(res, 200, {linked: true});
       }
       if (jobPart === 'terminal') {
         const {fence, terminal, offset, data, closed} = v.terminalBody(input);

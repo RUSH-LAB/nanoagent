@@ -8,7 +8,7 @@ const {compareRuns} = require('../../../src/server/benchmark/compare.js');
 const {createPostgresBenchmarkWorker} = require('../../../src/server/postgres/benchmark-worker.js');
 const {createPostgresBenchmark} = require('../../../src/server/postgres/benchmark.js');
 const limits = require('../../../src/server/benchmark/limits.js');
-const {accountingBody, eventsBody, finalizeBody, settleBody, spansBody, terminalBody, terminalInputBody} = require('../../../src/server/benchmark/validate.js');
+const {accountingBody, eventsBody, finalizeBody, settleBody, spansBody, terminalBody, terminalLinkBody} = require('../../../src/server/benchmark/validate.js');
 
 const config = {leaseSeconds: 60, uncertainDeadlineSeconds: 3600, memberBudgetUsd: 25, workspaceBudgetUsd: 100};
 
@@ -143,15 +143,13 @@ describe('request validation bounds', () => {
 });
 
 describe('a session\'s terminals', () => {
-  test('output, input and a close name one terminal, 0 to MAX_TERMINALS - 1', () => {
+  test('output and a close name one terminal, 0 to MAX_TERMINALS - 1, and a link is a port and a token', () => {
     const data = Buffer.from('hi').toString('base64');
     assert.deepEqual(terminalBody({fence: 1, terminal: 3, offset: 0, data}), {fence: 1, terminal: 3, offset: 0, data: Buffer.from('hi')});
     assert.deepEqual(terminalBody({fence: 1, terminal: 3, closed: true}), {fence: 1, terminal: 3, closed: true});
-    assert.deepEqual(terminalInputBody({terminal: 1, rows: 20, cols: 80}), {terminal: 1, rows: 20, cols: 80});
-    assert.deepEqual(terminalInputBody({terminal: 1, close: true}), {terminal: 1, close: true});
-    assert.deepEqual(terminalInputBody({terminal: 0, data}), {terminal: 0, data: Buffer.from('hi')});
-    for (const body of [{data}, {terminal: limits.MAX_TERMINALS, data}, {terminal: 0, close: false}]) {
-      assert.throws(() => terminalInputBody(body), {status: 400, code: 'invalid_request'});
+    assert.deepEqual(terminalLinkBody({fence: 1, port: 51234, token: 't0k'}), {fence: 1, port: 51234, token: 't0k'});
+    for (const body of [{fence: 1, port: 0, token: 't'}, {fence: 1, port: 65536, token: 't'}, {fence: 1, port: 80, token: ''}, {port: 80, token: 't'}]) {
+      assert.throws(() => terminalLinkBody(body), {status: 400, code: 'invalid_request'});
     }
     assert.throws(() => terminalBody({fence: 1, offset: 0, data}), {status: 400, code: 'invalid_request'});
     assert.throws(() => terminalBody({fence: 1, terminal: 0, closed: 'yes'}), {status: 400, code: 'invalid_request'});

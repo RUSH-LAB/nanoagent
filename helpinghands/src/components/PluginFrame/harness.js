@@ -4,14 +4,17 @@ import {workerNotice} from './worker.js';
 /**
  * A session of a plugin page's Harness tab, on the host's side: the run RUSH queued for it (POST /api/benchmark/sessions) is a
  * benchmark run of one case whose harness runs on terminals the member works in (0 the first; a free-form session opens more, all in
- * its one VM). What each writes reaches the page as it comes (`harness.output`, from GET attempts/{id}/terminal), with that it ended
- * (`harness.closed`); what the member types, each terminal's size, and opening or closing one go back (`harnessInput`, POST
- * attempts/{id}/terminal), and once the attempt is sealed the page gets its outcome (`harness.outcome`): the verifier's verdict,
- * tokens, time and cost.
+ * its one VM), on the member's own computer. The page reaches them there, not through RUSH: RUSH says where the session's worker
+ * serves them (GET attempts/{id}/terminal-link, to the session's member alone), and RUSH Lab, whose window the page is in, links the
+ * page to it (`openLink`). What each terminal writes reaches the page over the link as it comes (`harness.output`), with that it ended
+ * (`harness.closed`); what the member types, each terminal's size, and opening or closing one go back over it (`linkLine`). Once the
+ * attempt is sealed the page gets its outcome (`harness.outcome`): the verifier's verdict, tokens, time and cost.
  */
 
 const BASE = '/api/benchmark';
 const RETRY_MS = 1500;
+// How often a session whose link ended is read until it is sealed, for its outcome.
+const SEAL_POLL_MS = 250;
 // A terminal with no output this long after it opened says what it waits on, from the attempt's state and the worker's.
 const SILENT_MS = 4000;
 
@@ -52,18 +55,35 @@ export function typedBase64(text) {
   return btoa(binary);
 }
 
-/**
- * Send terminal `input.terminal` of the attempt `input`: `{data}`, what the member typed; `{rows, cols}`, its new size, which opens
- * a terminal not yet open; or `{close: true}`. `request(path, init)` fetches a RUSH API path.
- */
-export async function harnessInput({attemptId, request, input}) {
+/** The line the link carries for the page's `input` to terminal `input.terminal`: `{data}` typed, `{rows, cols}`, or `{close: true}`. */
+export function linkLine(input) {
   const {terminal} = input;
-  const body = input.close ? {terminal, close: true}
-    : input.data === undefined ? {terminal, rows: input.rows, cols: input.cols} : {terminal, data: typedBase64(input.data)};
-  const response = await request(`${BASE}/attempts/${attemptId}/terminal`, {
-    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+  if (input.close) return {terminal, close: true};
+  return input.data === undefined ? {terminal, rows: input.rows, cols: input.cols} : {terminal, data: typedBase64(input.data)};
+}
+
+/**
+ * RUSH Lab's link to a session's terminals on this computer: `port` on 127.0.0.1, which takes `token`. Each line the worker sends goes
+ * to `onLine` in order, the last `{ended}` (null, or why the link broke). `{send(line), close()}`. The page is in RUSH Lab's window,
+ * whose IPC is `tauri`; a page anywhere else has no way to its terminals, and says so.
+ */
+export async function openLink({port, token, onLine, tauri = globalThis.__TAURI_INTERNALS__}) {
+  if (!tauri) throw new Error('The Harness terminal runs on your computer, through RUSH Lab: open this page in the RUSH Lab app.');
+  // A Tauri channel: each message carries its index, and a large one, which the page fetches, can come after the next.
+  let next = 0;
+  const held = new Map();
+  const channel = tauri.transformCallback(({message, index}) => {
+    held.set(index, message);
+    while (held.has(next)) {
+      const line = held.get(next);
+      held.delete(next);
+      next += 1;
+      if (line !== undefined) onLine(line);
+    }
   });
-  if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `The terminal did not take the input (${response.status})`);
+  const call = (command, args) => tauri.invoke(command, args).catch(error => { throw new Error(String(error)); });
+  const link = await call('terminal_link', {port, token, events: `__CHANNEL__:${channel}`});
+  return {send: line => call('terminal_send', {link, line: JSON.stringify(line)}), close: () => call('terminal_unlink', {link})};
 }
 
 /**
@@ -92,80 +112,76 @@ const reader = request => async path => {
 };
 
 /**
- * Follow terminal `terminal` of the attempt `attemptId` until the attempt is sealed or `signal` aborts, telling the page each chunk
- * of its output (`emit('harness.output', {terminal, data})`, data in base64) and that it ended (`emit('harness.closed', {terminal})`).
- * A stream that ends or drops is opened again from the byte it reached; `progress(offset)` hears each byte count it reaches.
- * `request(path, init)` fetches a RUSH API path; `read(response, onFrame)` reads a stream's frames.
+ * Follow the attempt `attemptId` of a Harness tab session until it is sealed or `signal` aborts: link to its terminals once its worker
+ * has started them (`connect`, openLink), hand the link to `linked`, tell the page what the link carries (`emit('harness.output',
+ * {terminal, data})`, data in base64; `emit('harness.closed', {terminal})`), and once the link ended and the attempt is sealed, tell
+ * its outcome (`emit('harness.outcome', outcome)`). `request(path, init)` fetches a RUSH API path.
  */
-export async function followTerminal({attemptId, terminal, request, read, emit, signal, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), progress = () => {}}) {
-  let offset = 0;
-  let closed = false;
-  let sealed = false;
-  while (!sealed && !signal.aborted) {
-    let failed = false;
-    try {
-      const response = await request(`${BASE}/attempts/${attemptId}/terminal?terminal=${terminal}&from=${offset}`, {signal, headers: {Accept: 'text/event-stream'}});
-      if (response.status === 404) throw new Error('The session\'s attempt is gone');
-      failed = !response.ok;
-      if (response.ok) {
-        await read(response, frame => {
-          if (frame.event === 'sealed') sealed = true;
-          if (frame.event === 'closed' && !closed) {
-            closed = true;
-            emit('harness.closed', {terminal});
-          }
-          if (frame.event !== 'output' || frame.data.offset !== offset) return;
-          offset += atob(frame.data.data).length;
-          progress(offset);
-          emit('harness.output', {terminal, data: frame.data.data});
-        });
-      }
-    } catch (error) {
-      if (signal.aborted) return;
-      if (error.message === 'The session\'s attempt is gone') throw error;
-      failed = true;
-    }
-    // A stream that ended before the seal is opened again from where it reached, at once unless it failed.
-    if (failed && !signal.aborted) await sleep(RETRY_MS);
-  }
-}
-
-/**
- * Follow the attempt `attemptId` of a Harness tab session until it is sealed or `signal` aborts: its first terminal (followTerminal)
- * and every terminal the page opened (`opened`, the promises of their followTerminal, which the host adds to as the page opens them),
- * then tell its outcome (`emit('harness.outcome', outcome)`). `request(path, init)` fetches a RUSH API path; `read(response, onFrame)`
- * reads a stream's frames.
- */
-export async function followHarness({attemptId, request, read, emit, signal, opened = [], sleep = ms => new Promise(resolve => setTimeout(resolve, ms))}) {
+export async function followHarness({attemptId, request, emit, signal, linked, connect = openLink, sleep = ms => new Promise(resolve => setTimeout(resolve, ms))}) {
   const json = reader(request);
-  let offset = 0;
+  const attempt = async () => (await json(`${BASE}/attempts/${attemptId}`)).attempt;
+  let shown = false;
   let sealed = false;
   // Never a silent black screen: until the first byte, the terminal itself says what it waits on, each time that changes.
   (async () => {
     let said = null;
     await sleep(SILENT_MS);
-    while (!offset && !sealed && !signal.aborted) {
+    while (!shown && !sealed && !signal.aborted) {
       let text;
       try {
-        const [{attempt}, status] = await Promise.all([json(`${BASE}/attempts/${attemptId}`), json('/api/runner/status')]);
-        text = waitingText(attempt, status);
+        const [now, status] = await Promise.all([attempt(), json('/api/runner/status')]);
+        text = waitingText(now, status);
       } catch (error) {
         text = error.message;
       }
-      if (offset || sealed || signal.aborted) return;
+      if (shown || sealed || signal.aborted) return;
       if (text !== said) emit('harness.output', {terminal: 0, data: typedBase64(`\x1b[2m[RUSH] ${text}\x1b[0m\r\n`)});
       said = text;
       await sleep(RETRY_MS);
     }
   })();
-  await followTerminal({attemptId, terminal: 0, request, read, emit, signal, sleep, progress: reached => (offset = reached)});
-  // Every terminal's stream reaches the seal; the outcome comes after the last of their output.
-  for (let count = -1; count !== opened.length;) {
-    count = opened.length;
-    await Promise.all(opened);
+  try {
+    let link = null;
+    while (!link && !signal.aborted) {
+      let response;
+      try {
+        response = await request(`${BASE}/attempts/${attemptId}/terminal-link`, {signal});
+      } catch (error) {
+        if (signal.aborted) break;
+        throw error;
+      }
+      if (response.status === 200) link = await response.json();
+      else if (response.status !== 204) throw new Error((await response.json().catch(() => ({}))).error || `Could not find the session's terminals (${response.status})`);
+      else if ((await attempt()).sealed) break;  // it ended before its worker started its terminals
+    }
+    if (link) {
+      await new Promise((resolve, reject) => {
+        signal.addEventListener('abort', resolve, {once: true});
+        const onLine = line => {
+          if (line.data !== undefined) {
+            shown = true;
+            emit('harness.output', {terminal: line.terminal, data: line.data});
+          } else if (line.closed) {
+            emit('harness.closed', {terminal: line.terminal});
+          } else if (line.error) {
+            emit('harness.error', {message: `The session's terminals refused the page: ${line.error}`});
+          } else if ('ended' in line) {
+            if (line.ended) emit('harness.error', {message: `The link to the session's terminals broke: ${line.ended}`});
+            resolve();
+          }
+        };
+        connect({port: link.port, token: link.token, onLine}).then(opened => {
+          linked(opened);
+          if (signal.aborted) opened.close().catch(() => {});
+          else signal.addEventListener('abort', () => opened.close().catch(() => {}), {once: true});
+        }, reject);
+      });
+    }
+    while (!signal.aborted && !(await attempt()).sealed) await sleep(SEAL_POLL_MS);
+    if (signal.aborted) return;
+    const [ended, accounting] = await Promise.all([attempt(), json(`${BASE}/attempts/${attemptId}/accounting`)]);
+    emit('harness.outcome', harnessOutcome(ended, accounting));
+  } finally {
+    sealed = true;  // the notices stop, however the session ended
   }
-  sealed = true;
-  if (signal.aborted) return;
-  const [{attempt}, accounting] = await Promise.all([json(`${BASE}/attempts/${attemptId}`), json(`${BASE}/attempts/${attemptId}/accounting`)]);
-  emit('harness.outcome', harnessOutcome(attempt, accounting));
 }

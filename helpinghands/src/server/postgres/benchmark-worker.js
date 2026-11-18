@@ -416,19 +416,22 @@ function createPostgresBenchmarkWorker({pool, config}) {
       });
     },
 
-    /**
-     * What the member sent the attempt's terminals after `after`, in order: `[{seq, terminal, data, rows, cols, close}]`, `data` base64
-     * or null.
-     */
-    async terminalInput(userId, attemptId, fence, after) {
+    /** Throws 409 `canceled` once the session is canceled (its member left its page or opened another), as fenced() does once it is sealed or its lease lost. */
+    async watch(userId, attemptId, fence) {
       return fenced(userId, attemptId, fence, async (client, attempt) => {
-        // A session canceled (its member opened another) hears so on the read it polls, so its worker frees the slot at once.
         if (attempt.cancel_requested || attempt.canceled_at) throw new BenchmarkError(409, 'canceled', 'The run was canceled');
-        return (await client.query(
-          'select seq, terminal, data, rows, cols, close from benchmark_terminal_input where attempt_id = $1 and seq > $2 order by seq limit 500', [attemptId, after],
-        )).rows.map(row => ({
-          seq: Number(row.seq), terminal: row.terminal, data: row.data === null ? null : row.data.toString('base64'), rows: row.rows, cols: row.cols, close: row.close,
-        }));
+      });
+    },
+
+    /** Keep where the session's member reaches its terminals on their computer: `port` on 127.0.0.1, with `token`; only a session's. */
+    async terminalLink(userId, attemptId, fence, port, token) {
+      return fenced(userId, attemptId, fence, async (client, attempt) => {
+        const run = (await client.query('select interactive from benchmark_run where run_id = $1', [attempt.run_id])).rows[0];
+        if (!run.interactive) throw new BenchmarkError(403, 'not_a_session', 'Only a session someone works in has a terminal link');
+        await client.query(
+          `insert into benchmark_terminal_link (attempt_id, port, token) values ($1, $2, $3)
+           on conflict (attempt_id) do update set port = excluded.port, token = excluded.token`, [attemptId, port, token],
+        );
       });
     },
 

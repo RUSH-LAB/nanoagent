@@ -15,19 +15,19 @@ const {parseJson, stringifyJson} = require('../benchmark/json');
 const {compareAttempts, compareRuns} = require('../benchmark/compare');
 const {UUID, jsonBody, losslessBody, rawBody, sendFailure} = require('../benchmark/http');
 const {REFERENCE_HARNESSES, checkReference, referenceHarnessOf, referencePolicy, uploadedHarnessOf} = require('../benchmark/harness');
-const {previewBody, runBody, benchmarkPublication, importBody, publicationFrame, terminalInputBody, SHA256, object, string} = require('../benchmark/validate');
+const {previewBody, runBody, benchmarkPublication, importBody, publicationFrame, SHA256, object, string} = require('../benchmark/validate');
 const {checkTaskAgainstEntry} = require('../benchmark/entry-check');
 const {leaderboard} = require('../benchmark/leaderboard');
-const {wake} = require('../benchmark/wake');
-const {MAX_SOURCE_BYTES, MAX_TERMINALS} = require('../benchmark/limits');
+const {listen, wake} = require('../benchmark/wake');
+const {MAX_SOURCE_BYTES} = require('../benchmark/limits');
 
 // The endpoint profile of the worker RUSH Lab runs (nanoagent/deploy/worker/worker.openrouter.yaml), which a Harness tab session runs on.
 const SESSION_ENDPOINT = 'openrouter';
 // What a Harness tab session's request may hold: what a plugin page's prompt may (PluginFrame/protocol.js).
 const SESSION_TEXT_LIMIT = 50_000;
 const STREAM_POLL_MS = 300;
-// A terminal's output is read this often while its harness runs, so typing echoes promptly.
-const TERMINAL_POLL_MS = 50;
+// A read of a session's terminal link waits this long for its worker to start it.
+const LINK_WAIT_MS = 20_000;
 const HEARTBEAT_MS = 15_000;
 const PAGE = 1000;
 
@@ -37,7 +37,7 @@ const ROUTE = new RegExp([
   '|worker-credentials/([^/]+)',
   '|benchmarks/([^/]+)(?:/(results))?',
   '|runs/([^/]+)(?:/(cancel)|/cases/([^/]+)/(rerun))?',
-  '|attempts/([^/]+)(?:/(events|stream|terminal|spans|accounting)|/payloads/([^/]+))?',
+  '|attempts/([^/]+)(?:/(events|stream|terminal-link|spans|accounting)|/payloads/([^/]+))?',
   '|sources/references/([^/]+)(?:/(computer))?',
   ')$',
 ].join(''));
@@ -101,42 +101,6 @@ async function stream(req, res, repository, context, attemptId, after) {
     quiet = page.events.length ? 0 : quiet + STREAM_POLL_MS;
     if (quiet >= HEARTBEAT_MS) { res.write(': heartbeat\n\n'); quiet = 0; }
     await sleep(STREAM_POLL_MS);
-  }
-  res.end();
-}
-
-/**
- * Server-sent events: terminal `terminal`'s output from byte `start`, each chunk an `output` event (`{offset, data}`, data in base64),
- * `closed` once the terminal ended and every chunk is sent, then `sealed` once the attempt is sealed.
- */
-async function terminalStream(req, res, repository, context, attemptId, terminal, start) {
-  if (!(await repository.terminal(context, attemptId, terminal, start))) throw new BenchmarkError(404, 'unknown_attempt', 'No such attempt');
-  let closed = false;
-  res.on('close', () => { closed = true; });
-  res.writeHead(200, {'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no'});
-  req.setTimeout(0);
-  let offset = start;
-  let quiet = 0;
-  let ended = false;
-  while (!closed) {
-    const page = await repository.terminal(context, attemptId, terminal, offset);
-    if (!page) break;
-    for (const chunk of page.chunks) {
-      res.write(`event: output\ndata: ${JSON.stringify({offset: chunk.offset, data: chunk.data.toString('base64')})}\n\n`);
-      offset = chunk.offset + chunk.data.length;
-    }
-    if (page.chunks.length) { quiet = 0; continue; }
-    if (page.closed && !ended) {
-      res.write('event: closed\ndata: {}\n\n');
-      ended = true;
-    }
-    if (page.sealed) {
-      res.write('event: sealed\ndata: {}\n\n');
-      break;
-    }
-    quiet += TERMINAL_POLL_MS;
-    if (quiet >= HEARTBEAT_MS) { res.write(': heartbeat\n\n'); quiet = 0; }
-    await sleep(TERMINAL_POLL_MS);
   }
   res.end();
 }
@@ -388,11 +352,6 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
     }
 
     if (!UUID.test(attemptId)) return notFound('attempt');
-    if (attemptPart === 'terminal' && req.method === 'POST') {
-      write();
-      const sent = await repository.terminalInput(context, attemptId, terminalInputBody(await jsonBody(req, readBody)));
-      return sent ? json(res, 200, {sent: true}) : json(res, 409, {error: 'The session has ended', code: 'session_ended'});
-    }
     if (req.method !== 'GET') return wrongMethod();
     read();
     if (!attemptPart && !payload) {
@@ -407,12 +366,24 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       const after = cursorOf(url.searchParams.get('after') ?? req.headers['last-event-id'] ?? null);
       return await stream(req, res, repository, context, attemptId, after);
     }
-    if (attemptPart === 'terminal') {
-      const terminal = /^\d{1,2}$/.test(url.searchParams.get('terminal') ?? '') ? Number(url.searchParams.get('terminal')) : NaN;
-      if (!Number.isInteger(terminal) || terminal < 0 || terminal >= MAX_TERMINALS) {
-        throw new BenchmarkError(400, 'invalid_request', `terminal is the terminal's id, 0 to ${MAX_TERMINALS - 1}`);
+    // Where the member reaches their session's terminals on their own computer (the worker's link, through RUSH Lab): `{port, token}`
+    // once its worker has started it; 204 if it has not within LINK_WAIT_MS.
+    if (attemptPart === 'terminal-link') {
+      for (const until = Date.now() + LINK_WAIT_MS; ;) {
+        const linking = listen(`link:${attemptId}`);
+        try {
+          const link = await repository.terminalLink(context, attemptId);
+          if (link === null) return notFound('attempt');
+          if (link.port) return json(res, 200, {port: link.port, token: link.token});
+          if (Date.now() >= until) {
+            res.writeHead(204);
+            return res.end();
+          }
+          await linking.woken(until - Date.now());
+        } finally {
+          linking.stop();
+        }
       }
-      return await terminalStream(req, res, repository, context, attemptId, terminal, cursorOf(url.searchParams.get('from')));
     }
     if (attemptPart === 'spans') {
       const found = await repository.spans(context, attemptId, {
