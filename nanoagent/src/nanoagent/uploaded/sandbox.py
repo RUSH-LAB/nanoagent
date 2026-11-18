@@ -4,9 +4,10 @@ Every sandbox is its own lightweight Linux virtual machine, booted from a pinned
 the worker depends on: no Docker, no daemon, no privileged container. Its only network is the policy it is created
 with, deny by default.
 
-* Build: a VM from the toolchain's pinned build image with no network, the source and the verified dependency closure
-  mounted read-only, and a bounded writable `/build-out`. Only the manifest's declared `build.outputs` are accepted,
-  with no links, and they become the worker-owned `/harness` of every run.
+* Build: a VM from the toolchain's pinned build image with no network, the source mounted read-only, the verified dependency
+  closure (one tar) unpacked onto a disk of the VM's own, and a bounded writable `/build-out` on another, which leaves the VM
+  as one tar: a tree of small files read or written through the VM's shared folder is slow. Only the manifest's declared
+  `build.outputs` are accepted, with no links, and they become the worker-owned `/harness` of every run.
 * Case: a fresh VM from the pinned runtime image. The harness runs on a PTY, as an unprivileged uid beneath the worker's static
   `strace` (root), which records every process it starts (`nanoagent.uploaded.collector`). `/rush/request.json` is
   written into the VM read-only, `/harness` is mounted read-only, and `/rush/out` and `/rush/workspace` are bounded
@@ -62,14 +63,16 @@ from microsandbox import (
     Rule,
     Sandbox,
     Stdin,
+    Volume,
+    VolumeKind,
 )
 
 from nanoagent.plugin.egress import egress_port
 from nanoagent.plugin.install import INSTALL_HOSTS
-from nanoagent.uploaded.archive import ArchiveError, Extracted, copy_tree
+from nanoagent.uploaded.archive import ArchiveError, Extracted, copy_tree, unpack_tar
 from nanoagent.uploaded.collector import STRACE_FLAGS, CollectorError, ProcessEvent, ProcessEvidence, TraceSession, launch_argv, launched_processes, parse_trace
 from nanoagent.uploaded.contract import ContractError, HarnessManifest, is_canonical_relative_path, path_problem, read_result_file, validate_argv
-from nanoagent.uploaded.toolchains import DependencyClosure, ToolchainProfile
+from nanoagent.uploaded.toolchains import CLOSURE_ARCHIVE, DependencyClosure, ToolchainProfile
 
 UID = 10001
 GID = 10001
@@ -84,6 +87,11 @@ FIXTURES_DIR = "/fixtures"
 TOOLS_DIR = "/opt/rush-tools"  # the worker's guest tools (strace, uv), read-only in every VM
 CLIS_DIR = "/opt/rush/clis"  # the worker's installs of the reference CLIs (nanoagent.uploaded.clis), read-only in a case VM
 TRACE_DIR = "/rush-trace"  # root-owned: the case user cannot write the evidence
+CLOSURE_MOUNT = "/rush-closure"  # the build's read-only view of the closure's tar, unpacked at the dependency mount
+OUTPUT_MOUNT = "/rush-build-tar"  # where the build VM leaves OUTPUT_ARCHIVE, its /build-out
+OUTPUT_ARCHIVE = "build-out.tar"
+INODE_BYTES = 16 << 10  # ext4's default bytes per inode: a VM disk holds a file per this many bytes of its size
+DISK_SLACK_MIB = 64  # beyond a VM disk's contents: ext4's own
 UV_BIN = f"{TOOLS_DIR}/uv"
 STRACE_BIN = f"{TOOLS_DIR}/strace"
 FIXTURES_ENV = "NANOAGENT_FIXTURES"
@@ -349,6 +357,11 @@ def _bind(path: Path, *, readonly: bool = True, quota: int | None = None) -> Mou
         kind=MountKind.BIND, bind=str(path), readonly=readonly, quota_mib=None if quota is None else _mib(quota),
         override_uid=UID, override_gid=GID,
     )
+
+
+def _disk(size: int) -> MountConfig:
+    """A disk of the VM's own (ext4, removed with it) of ``size`` bytes beside ext4's own; it has an inode per INODE_BYTES."""
+    return Volume.owned(kind=VolumeKind.DISK, size_mib=_mib(size) + DISK_SLACK_MIB)
 
 
 def _tmpfs(size: int) -> MountConfig:
@@ -713,7 +726,7 @@ class MicrosandboxSupervisor:
                 raise SandboxError("build_timeout", f"build exceeded {spec.limits.wall_s}s")
             if run.code != 0:
                 raise SandboxError("build_failed", f"build exited {run.code}: {run.stderr[-2000:].decode('utf-8', 'replace')}")
-            extracted = self._copy_out(out, spec.limits, spec.workdir)
+            extracted = self._unpack_out(out / OUTPUT_ARCHIVE, spec.limits, spec.workdir)
             try:
                 return self._accept_outputs(spec, extracted, run, duration)
             finally:
@@ -722,24 +735,41 @@ class MicrosandboxSupervisor:
             shutil.rmtree(out, ignore_errors=True)
 
     async def _build(self, spec: BuildSpec, source: Path, out: Path) -> tuple[_Run, float]:
+        """Runs the build; when it succeeds, its outputs are in ``out`` as OUTPUT_ARCHIVE."""
         name = f"rush-build-{spec.attempt_id}-{uuid.uuid4().hex[:8]}"
+        deps, limits = spec.profile.offline.dependency_mount, spec.limits
+        output = max(limits.workspace_bytes, limits.workspace_files * INODE_BYTES)
         volumes = {
-            "/src": _bind(source), spec.profile.offline.dependency_mount: _bind(spec.closure.directory),
-            "/build-out": _bind(out, readonly=False, quota=spec.limits.workspace_bytes), "/tmp": _tmpfs(spec.limits.tmp_bytes),
+            "/src": _bind(source), CLOSURE_MOUNT: _bind(spec.closure.directory),
+            deps: _disk(max(2 * spec.closure.archive.stat().st_size, spec.closure.entries * INODE_BYTES)),
+            "/build-out": _disk(output), OUTPUT_MOUNT: _bind(out, readonly=False, quota=2 * output), "/tmp": _tmpfs(limits.tmp_bytes),
         }
-        sandbox = await self._create(name, spec.profile.build_image, spec.limits, Network.none(), volumes)
+        sandbox = await self._create(name, spec.profile.build_image, limits, Network.none(), volumes)
         try:
+            await self._step(sandbox, "start_failed", "preparing the build's disks", ["chown", CASE_USER, deps, "/build-out"], "root", limits)
+            await self._step(sandbox, "build_failed", "unpacking the dependencies", ["tar", "-xf", f"{CLOSURE_MOUNT}/{CLOSURE_ARCHIVE}", "-C", deps], CASE_USER, limits)
             env = {**spec.profile.offline.env, "HOME": "/tmp", "TMPDIR": "/tmp"}
             started = self._clock()
             argv = spec.manifest.build_argv
             run = await _run(
-                sandbox, argv[0], argv[1:], user=CASE_USER, cwd="/src", env=env, timeout_s=spec.limits.wall_s,
-                capture_bytes=spec.limits.output_bytes, rlimits=[Rlimit(RlimitResource.NPROC, spec.limits.pids, spec.limits.pids)],
+                sandbox, argv[0], argv[1:], user=CASE_USER, cwd="/src", env=env, timeout_s=limits.wall_s,
+                capture_bytes=limits.output_bytes, rlimits=[Rlimit(RlimitResource.NPROC, limits.pids, limits.pids)],
                 on_timeout=lambda: _kill_case_processes(sandbox),
             )
-            return run, self._clock() - started
+            duration = self._clock() - started
+            if run.code == 0 and not run.timed_out:
+                await _kill_case_processes(sandbox)  # nothing the build left running changes the outputs as they are packed
+                await self._step(sandbox, "output_invalid", "packing the outputs", ["tar", "-cf", f"{OUTPUT_MOUNT}/{OUTPUT_ARCHIVE}", "-C", "/build-out", "."], CASE_USER, limits)
+            return run, duration
         finally:
             await self._destroy(sandbox)
+
+    @staticmethod
+    async def _step(sandbox: Sandbox, code: str, what: str, argv: list[str], user: str, limits: Limits) -> None:
+        """One step of the worker's own around a build, which must succeed."""
+        run = await _run(sandbox, argv[0], argv[1:], user=user, cwd="/", timeout_s=limits.wall_s, capture_bytes=limits.output_bytes)
+        if run.timed_out or run.code != 0:
+            raise SandboxError(code, f"{what} failed ({'timed out' if run.timed_out else f'exit {run.code}'}): {run.stderr[-2000:].decode('utf-8', 'replace')}")
 
     def _stage_source(self, spec: BuildSpec) -> Path:
         """A private copy with modes the unprivileged build user can read; links are refused."""
@@ -761,6 +791,7 @@ class MicrosandboxSupervisor:
         if artifact.exists():
             shutil.rmtree(artifact)
         artifact.mkdir(parents=True)
+        artifact.chmod(0o755)
         accepted: dict[str, str] = {}
         for output in spec.manifest.build_outputs:
             prefix = output + "/"
@@ -770,16 +801,14 @@ class MicrosandboxSupervisor:
             if not covered and output not in tree.directories:
                 raise SandboxError("output_invalid", f"declared build output {output} was not produced")
             accepted.update(covered)
-            source = root / output
+        for output in sorted(spec.manifest.build_outputs, key=len):  # one inside another moves with it
             target = artifact / output
-            target.parent.mkdir(parents=True, exist_ok=True)
-            if source.is_dir():
-                shutil.copytree(source, target, dirs_exist_ok=True)
-            else:
-                shutil.copy2(source, target)
-        for path in [artifact, *artifact.rglob("*")]:
-            executable = path.is_dir() or os.access(path, os.X_OK)
-            path.chmod(0o755 if executable else 0o644)
+            if target.exists():
+                continue
+            for parent in reversed(target.relative_to(artifact).parents[:-1]):
+                (artifact / parent).mkdir(exist_ok=True)
+                (artifact / parent).chmod(0o755)
+            os.rename(root / output, target)  # unpacked with its modes by `unpack_tar`, beside the artifact
         digest = hashlib.sha256("".join(f"{p}\0{h}\n" for p, h in sorted(accepted.items())).encode()).hexdigest()
         return BuildArtifact(artifact, spec.manifest.build_outputs, digest, run.stdout, run.stderr, duration)
 
@@ -961,6 +990,15 @@ class MicrosandboxSupervisor:
             await sandbox.kill()
         finally:
             await Sandbox.remove(name)
+
+    def _unpack_out(self, archive: Path, limits: Limits, workdir: Path) -> tuple[Extracted, Path]:
+        destination = workdir / f"copy-{uuid.uuid4().hex[:8]}"
+        try:
+            extracted = unpack_tar(archive, destination, max_files=limits.workspace_files, max_bytes=limits.workspace_bytes)
+        except ArchiveError as error:
+            shutil.rmtree(destination, ignore_errors=True)
+            raise SandboxError(error.code, error.message) from error
+        return extracted, destination
 
     def _copy_out(self, source: Path, limits: Limits, workdir: Path) -> tuple[Extracted, Path]:
         destination = workdir / f"copy-{uuid.uuid4().hex[:8]}"

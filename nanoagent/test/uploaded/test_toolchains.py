@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import http.server
+import tarfile
 import threading
 import urllib.error
 import zipfile
@@ -73,7 +74,8 @@ def test_closure_is_staged_with_every_hash_verified(source, index, tmp_path):
     (source / "requirements.txt").write_text(f"demo-pkg==1.0 \\\n    --hash=sha256:{digest}\n")
     closure = stage(source, index, tmp_path)
     assert closure.files == {wheel.name: digest}
-    assert (closure.directory / wheel.name).read_bytes() == wheel.read_bytes()
+    with tarfile.open(closure.archive) as archive:
+        assert archive.extractfile(wheel.name).read() == wheel.read_bytes()  # type: ignore[union-attr]
 
 
 def test_a_wheel_whose_bytes_differ_from_the_pinned_hash_fails_the_build(source, index, tmp_path):

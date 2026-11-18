@@ -2,7 +2,7 @@
 
 Each ecosystem has two small functions. `plan_*` reads the declared lockfiles and returns one `Artifact` per file the lock
 pins: where it lives on the registry (relative to the configured base URL) and a check of its bytes against the lock's hash.
-`install_*` lays the verified bytes out under the closure directory the network-less build mounts at /deps. A dependency that
+`install_*` lays the verified bytes out in the closure (one tar) the network-less build unpacks at /deps. A dependency that
 is not on the registry fails with `dependency_unavailable`, one whose bytes differ from the lock with `hash_mismatch`; nothing
 unlocked is ever fetched.
 
@@ -26,7 +26,6 @@ import io
 import json
 import platform
 import re
-import shutil
 import tarfile
 import tomllib
 import urllib.error
@@ -41,11 +40,13 @@ from nanoagent.uploaded.toolchains import (
     DEFAULT_RESOLVE_TIMEOUT_S,
     DEPENDENCY_MOUNT,
     MAX_WHEEL_BYTES,
-    DependencyClosure,
+    ClosureWriter,
     ResolveBudget,
     ToolchainError,
     ToolchainProfile,
     _read_lockfile,
+    cached_fetch,
+    in_parallel,
     read_url,
 )
 
@@ -58,6 +59,7 @@ class Artifact:
     label: str  # for messages: `github.com/x/y@v1.2.3 zip`
     path: str  # relative to the registry base URL, `/` separated
     check: Callable[[bytes], None]  # raises ToolchainError("hash_mismatch") when the bytes differ from the lock
+    pin: str  # the lock's hash of its bytes: its name in the download cache
     key: str = ""  # npm: the lock's `node_modules/...` path the tarball is unpacked at
 
 
@@ -65,8 +67,8 @@ class Artifact:
 class Ecosystem:
     lockfiles: frozenset[str]
     plan: Callable[[Path, tuple[str, ...]], list[Artifact]]
-    install: Callable[[Artifact, bytes, Path], int]  # lays one verified artifact out; returns the bytes it wrote
-    finish: Callable[[Path], None] | None = None  # once every artifact is installed
+    install: Callable[[Artifact, bytes, ClosureWriter], int]  # lays one verified artifact out; returns the bytes it wrote
+    finish: Callable[[ClosureWriter], None] | None = None  # once every artifact is installed
 
 
 def _mismatch(label: str, found: str, expected: str) -> ToolchainError:
@@ -107,21 +109,6 @@ def _lock_text(source_root: Path, relative: str) -> str:
         raise ToolchainError("invalid_lockfile", f"{relative} is not UTF-8") from error
 
 
-def _contained(destination: Path, relative: str) -> Path:
-    target = destination / relative
-    if not target.resolve().is_relative_to(destination.resolve()):
-        raise ToolchainError("invalid_dependency", f"{relative!r} escapes the closure directory")
-    return target
-
-
-def _write(destination: Path, relative: str, data: bytes) -> int:
-    target = _contained(destination, relative)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(data)
-    target.chmod(0o644)
-    return len(data)
-
-
 def _safe_members(archive: tarfile.TarFile, label: str, strip: bool) -> list[tuple[tarfile.TarInfo, PurePosixPath]]:
     """The regular files and directories of a tarball, as paths relative to its single top directory."""
     found: list[tuple[tarfile.TarInfo, PurePosixPath]] = []
@@ -144,24 +131,22 @@ def _safe_members(archive: tarfile.TarFile, label: str, strip: bool) -> list[tup
     return found
 
 
-def _extract_tarball(data: bytes, destination: Path, label: str) -> tuple[dict[str, str], int]:
-    """Extracts a `.tgz` below `destination`, dropping the top directory; returns each file's sha256 and the bytes written."""
+def _extract_tarball(data: bytes, closure: ClosureWriter, prefix: str, label: str) -> tuple[dict[str, str], int]:
+    """Extracts a `.tgz` into the closure below `prefix`, dropping the top directory; returns each file's sha256 and the bytes
+    written."""
     hashes: dict[str, str] = {}
     written = 0
     try:
         with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
             members = _safe_members(archive, label, strip=True)
             for member, path in members:
-                target = destination / path
                 if member.isdir():
-                    target.mkdir(parents=True, exist_ok=True)
+                    closure.directory(f"{prefix}/{path}")
                     continue
                 source = archive.extractfile(member)
                 assert source is not None
                 content = source.read()
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(content)
-                target.chmod(0o755 if member.mode & 0o100 else 0o644)
+                closure.file(f"{prefix}/{path}", content, executable=bool(member.mode & 0o100))
                 hashes[path.as_posix()] = hashlib.sha256(content).hexdigest()
                 written += len(content)
     except (tarfile.TarError, OSError, EOFError) as error:
@@ -240,10 +225,10 @@ def plan_go(source_root: Path, lockfiles: tuple[str, ...]) -> list[Artifact]:
     for (module, version), hashes in sorted(pins.items()):
         base = f"{_go_escape(module)}/@v/{version}"
         if "mod" in hashes:
-            artifacts.append(Artifact(f"{module}@{version} go.mod", f"{base}.mod", _go_checker(f"{module}@{version} go.mod", hashes["mod"], None)))
+            artifacts.append(Artifact(f"{module}@{version} go.mod", f"{base}.mod", _go_checker(f"{module}@{version} go.mod", hashes["mod"], None), hashes["mod"]))
         if "zip" in hashes:
             prefix = f"{module}@{version}/"
-            artifacts.append(Artifact(f"{module}@{version} zip", f"{base}.zip", _go_checker(f"{module}@{version} zip", hashes["zip"], prefix)))
+            artifacts.append(Artifact(f"{module}@{version} zip", f"{base}.zip", _go_checker(f"{module}@{version} zip", hashes["zip"], prefix), hashes["zip"]))
     return artifacts
 
 
@@ -266,8 +251,8 @@ def _go_checker(label: str, expected: str, prefix: str | None) -> Callable[[byte
     return check
 
 
-def install_go(artifact: Artifact, data: bytes, destination: Path) -> int:
-    return _write(destination, f"proxy/{artifact.path}", data)
+def install_go(artifact: Artifact, data: bytes, closure: ClosureWriter) -> int:
+    return closure.file(f"proxy/{artifact.path}", data)
 
 
 # -- Rust ----------------------------------------------------------------------------------------------------------------
@@ -302,22 +287,22 @@ def plan_cargo(source_root: Path, lockfiles: tuple[str, ...]) -> list[Artifact]:
         if not (re.fullmatch(r"[A-Za-z0-9_-]+", str(name)) and re.fullmatch(r"[0-9A-Za-z.+-]+", str(version))):
             raise ToolchainError("invalid_lockfile", f"Cargo.lock: bad package {name!r} {version!r}")
         label = f"{name} {version}"
-        artifacts.append(Artifact(label, f"crates/{name}/{name}-{version}.crate", _sha256_checker(label, checksum)))
+        artifacts.append(Artifact(label, f"crates/{name}/{name}-{version}.crate", _sha256_checker(label, checksum), checksum))
     return artifacts
 
 
-def install_cargo(artifact: Artifact, data: bytes, destination: Path) -> int:
+def install_cargo(artifact: Artifact, data: bytes, closure: ClosureWriter) -> int:
     """A `cargo vendor` layout: the crate unpacked with a `.cargo-checksum.json`."""
     directory = PurePosixPath(artifact.path).name.removesuffix(".crate")
-    files, written = _extract_tarball(data, destination / "vendor" / directory, artifact.label)
+    files, written = _extract_tarball(data, closure, f"vendor/{directory}", artifact.label)
     package = hashlib.sha256(data).hexdigest()
-    return written + _write(destination, f"vendor/{directory}/.cargo-checksum.json", json.dumps({"files": files, "package": package}).encode())
+    return written + closure.file(f"vendor/{directory}/.cargo-checksum.json", json.dumps({"files": files, "package": package}).encode())
 
 
-def finish_cargo(destination: Path) -> None:
+def finish_cargo(closure: ClosureWriter) -> None:
     """The source replacement config."""
     config = f'[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source.vendored-sources]\ndirectory = "{DEPENDENCY_MOUNT}/vendor"\n'
-    _write(destination, "cargo-config.toml", config.encode())
+    closure.file("cargo-config.toml", config.encode())
 
 
 # -- JavaScript and TypeScript -------------------------------------------------------------------------------------------
@@ -377,12 +362,12 @@ def plan_npm(source_root: Path, lockfiles: tuple[str, ...]) -> list[Artifact]:
         if not isinstance(integrity, str):
             raise ToolchainError("unhashed_requirement", f"package-lock.json: {label} has no integrity")
         path = urllib.parse.unquote(urllib.parse.urlsplit(resolved).path).lstrip("/")
-        artifacts.append(Artifact(label, path, _integrity_checker(label, integrity), key))
+        artifacts.append(Artifact(label, path, _integrity_checker(label, integrity), integrity, key))
     return artifacts
 
 
-def install_npm(artifact: Artifact, data: bytes, destination: Path) -> int:
-    return _extract_tarball(data, _contained(destination, artifact.key), artifact.label)[1]
+def install_npm(artifact: Artifact, data: bytes, closure: ClosureWriter) -> int:
+    return _extract_tarball(data, closure, artifact.key, artifact.label)[1]
 
 
 # -- Java ----------------------------------------------------------------------------------------------------------------
@@ -406,12 +391,12 @@ def plan_maven(source_root: Path, lockfiles: tuple[str, ...]) -> list[Artifact]:
         seen.add((group, artifact))
         label = f"{group}:{artifact}:{version}"
         path = f"{group.replace('.', '/')}/{artifact}/{version}/{artifact}-{version}.jar"
-        artifacts.append(Artifact(label, path, _sha256_checker(label, digest)))
+        artifacts.append(Artifact(label, path, _sha256_checker(label, digest), digest))
     return artifacts
 
 
-def install_maven(artifact: Artifact, data: bytes, destination: Path) -> int:
-    return _write(destination, f"lib/{PurePosixPath(artifact.path).name}", data)
+def install_maven(artifact: Artifact, data: bytes, closure: ClosureWriter) -> int:
+    return closure.file(f"lib/{PurePosixPath(artifact.path).name}", data)
 
 
 ECOSYSTEMS: dict[str, Ecosystem] = {
@@ -423,35 +408,33 @@ ECOSYSTEMS: dict[str, Ecosystem] = {
 
 
 def stage_ecosystem(
-    profile: ToolchainProfile, source_root: Path, lockfiles: tuple[str, ...], destination: Path, registry_url: str,
-    timeout_s: float = DEFAULT_RESOLVE_TIMEOUT_S,
-) -> DependencyClosure:
-    """Fetches and verifies every artifact the lock pins, installing each as it arrives, under `destination`.
+    profile: ToolchainProfile, source_root: Path, lockfiles: tuple[str, ...], closure: ClosureWriter, registry_url: str,
+    timeout_s: float = DEFAULT_RESOLVE_TIMEOUT_S, cache: Path | None = None,
+) -> dict[str, str]:
+    """Fetches and verifies every artifact the lock pins, `FETCHES` at once, installing each into `closure` as it arrives.
 
     A registry path several lock entries share (npm lists one tarball under many `node_modules/` keys) is fetched once and
-    kept only while its entries are installed, so memory holds one artifact; every entry is still checked and charged.
+    installed at each of them; every entry is still checked and charged. Given `cache` (`cached_fetch`), verified downloads are
+    kept there and read back from it.
     """
     ecosystem = ECOSYSTEMS[profile.resolver]
     if set(lockfiles) != ecosystem.lockfiles:
         raise ToolchainError("unsupported_lockfile", f"{profile.id} reads exactly: {', '.join(sorted(ecosystem.lockfiles))}")
-    artifacts = sorted(ecosystem.plan(source_root, lockfiles), key=lambda artifact: artifact.path)  # equal paths are adjacent
-    destination.mkdir(parents=True, exist_ok=True)
+    by_path: dict[str, list[Artifact]] = {}
+    for artifact in ecosystem.plan(source_root, lockfiles):
+        by_path.setdefault(artifact.path, []).append(artifact)
     budget = ResolveBudget(timeout_s)
-    files: dict[str, str] = {}
-    current: tuple[str, bytes] | None = None
-    try:
-        for artifact in artifacts:
-            budget.tick()
-            if current is None or current[0] != artifact.path:
-                current = (artifact.path, fetch(registry_url, artifact.path, artifact.label))
-                budget.charge("downloaded", len(current[1]))
-            data = current[1]
+
+    def stage(entries: list[Artifact]) -> str:
+        budget.tick()
+        data = cached_fetch(cache, entries[0].pin, entries[0].check, lambda: fetch(registry_url, entries[0].path, entries[0].label))
+        budget.charge("downloaded", len(data))
+        for artifact in entries:
             artifact.check(data)
-            budget.charge("installed", ecosystem.install(artifact, data, destination))
-            files[artifact.path] = hashlib.sha256(data).hexdigest()
-        if ecosystem.finish is not None:
-            ecosystem.finish(destination)
-    except BaseException:
-        shutil.rmtree(destination, ignore_errors=True)
-        raise
-    return DependencyClosure(destination, files)
+            budget.charge("installed", ecosystem.install(artifact, data, closure))
+        return hashlib.sha256(data).hexdigest()
+
+    files = dict(zip(sorted(by_path), in_parallel(stage, [by_path[path] for path in sorted(by_path)]), strict=True))
+    if ecosystem.finish is not None:
+        ecosystem.finish(closure)
+    return files

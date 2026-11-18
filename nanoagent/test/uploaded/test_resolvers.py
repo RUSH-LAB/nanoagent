@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from nanoagent.uploaded.resolvers import _go_hash1, _write
-from nanoagent.uploaded.toolchains import ToolchainError, resolve_dependencies, toolchain
+from nanoagent.uploaded.resolvers import _go_hash1
+from nanoagent.uploaded.toolchains import ClosureWriter, ToolchainError, resolve_dependencies, toolchain
 
 
 def tgz(files: dict[str, bytes]) -> bytes:
@@ -26,8 +26,12 @@ def tgz(files: dict[str, bytes]) -> bytes:
     return buffer.getvalue()
 
 
-def stage(toolchain_id: str, source: Path, registry: Path, lockfiles: tuple[str, ...], tmp_path: Path) -> object:
-    return resolve_dependencies(toolchain(toolchain_id), source, lockfiles, tmp_path / "deps", index_url=str(registry))
+def stage(toolchain_id: str, source: Path, registry: Path, lockfiles: tuple[str, ...], tmp_path: Path, cache: Path | None = None) -> object:
+    """The closure, its tar unpacked beside it as the build VM unpacks it at /deps."""
+    closure = resolve_dependencies(toolchain(toolchain_id), source, lockfiles, tmp_path / "deps", index_url=str(registry), cache=cache)
+    with tarfile.open(closure.archive) as archive:
+        archive.extractall(closure.directory, filter="data")
+    return closure
 
 
 def fail(code: str, *args: object) -> None:
@@ -169,11 +173,29 @@ def test_go_module_paths_that_escape_are_rejected(tmp_path: Path, module: str) -
     fail("invalid_lockfile", "go-1", source, tmp_path, ("go.mod", "go.sum"), tmp_path)
 
 
-def test_write_refuses_paths_outside_the_closure(tmp_path: Path) -> None:
-    (tmp_path / "deps").mkdir()
-    with pytest.raises(ToolchainError) as error:
-        _write(tmp_path / "deps", "proxy/../../escaped", b"x")
-    assert error.value.code == "invalid_dependency" and not (tmp_path / "escaped").exists()
+def test_the_closure_refuses_paths_outside_it(tmp_path: Path) -> None:
+    closure = ClosureWriter(tmp_path / "closure.tar")
+    for path in ("proxy/../../escaped", "/etc/passwd", ""):
+        with pytest.raises(ToolchainError) as error:
+            closure.file(path, b"x")
+        assert error.value.code == "invalid_dependency"
+    closure.close()
+    with tarfile.open(tmp_path / "closure.tar") as archive:
+        assert archive.getnames() == []
+
+
+def test_downloads_are_kept_in_the_cache_and_checked_again_when_read_from_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from nanoagent.uploaded import resolvers
+
+    registry, source = shared_tarball_lock(tmp_path, 2)
+    cache = tmp_path / "cache"
+    stage("javascript-22", source, registry, ("package-lock.json",), tmp_path, cache)
+    (kept,) = cache.iterdir()
+    monkeypatch.setattr(resolvers, "fetch", lambda *args, **kw: pytest.fail("fetched what the cache holds"))
+    stage("javascript-22", source, registry, ("package-lock.json",), tmp_path / "again", cache)
+    assert (tmp_path / "again/deps/node_modules/p1/index.js").read_bytes() == b"x" * 1000
+    kept.write_bytes(b"altered")
+    fail("hash_mismatch", "javascript-22", source, registry, ("package-lock.json",), tmp_path / "altered", cache)
 
 
 def shared_tarball_lock(tmp_path: Path, keys: int) -> tuple[Path, Path]:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 import time
@@ -19,8 +20,9 @@ from nanoagent.uploaded.app import AttemptServices
 from nanoagent.uploaded.execservice import ExecError
 from nanoagent.uploaded.collector import ProcessEvent, ProcessEventKind, ProcessEvidence
 from nanoagent.uploaded.rush_worker import LeaseLost, RushError, RushUnavailable
+from nanoagent.uploaded.clis import CLIS
 from nanoagent.uploaded.runner import EXEC_THREADS, AttemptRunner, CaseCommands, RunnerConfig, default_project
-from nanoagent.uploaded.sandbox import SandboxError, Termination, TerminationKind
+from nanoagent.uploaded.sandbox import CLIS_DIR, BuildArtifact, SandboxError, Termination, TerminationKind
 from nanoagent.uploaded.toolchains import DependencyClosure
 from nanoagent.uploaded.worker import runner_config  # noqa: F401  (imported so the worker module stays importable)
 
@@ -972,3 +974,29 @@ async def test_a_worker_start_warms_a_terminal_from_the_limits_the_last_session_
         [spec] = rig.supervisor.specs
         assert json.loads(spec.request_json) == {"wait_go": True} and spec.run_argv == ("python", "/harness/shell.py") and rig.supervisor.case.launched
         group.cancel_scope.cancel()
+
+
+async def test_the_clis_install_ahead_of_sessions_and_a_session_typing_one_meanwhile_waits_on_that_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = Rig(tmp_path).runner
+    gate, built = threading.Event(), []
+
+    def build_now(attempt_id: str, run_limits: Any, archive: Any, profile: Any, work: Path) -> BuildArtifact:
+        built.append(attempt_id)
+        assert gate.wait(5)
+        (work / "harness").mkdir()
+        return BuildArtifact(work / "harness", ("main.mjs",), "digest", b"", b"", 0.0)
+
+    monkeypatch.setattr(runner, "_build_now", build_now)
+    ahead = asyncio.ensure_future(runner._install_clis(fx.LIMITS))
+    with anyio.fail_after(5):
+        while not built:
+            await anyio.sleep(0.01)
+    typed = runner._install_cli(fx.free_job(), "claude", None)
+    assert await anext(typed) == {"installing": "Claude Code", "version": CLIS["claude"].version()}
+    gate.set()
+    events = [event async for event in typed]
+    assert events[-1]["path"].startswith(f"{CLIS_DIR}/") and events[-2]["installed"] == "Claude Code"
+    await ahead
+    assert built == ["cli-claude", "cli-codex", "cli-pi", "cli-hermes", "cli-dsh"]  # each once, claude's shared with the session
+    [found] = [event async for event in runner._install_cli(fx.free_job(), "dsh", None)]  # typed later: there at once
+    assert found["path"] == f"{CLIS_DIR}/{found['key']}/harness"

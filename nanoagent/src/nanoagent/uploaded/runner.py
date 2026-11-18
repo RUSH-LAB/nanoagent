@@ -55,7 +55,7 @@ from nanoagent.uploaded.answer import read_answer
 from nanoagent.uploaded.app import AttemptServices
 from nanoagent.uploaded.attempt import AttemptPolicy, ToolPolicy
 from nanoagent.uploaded.broker import PluginToolRunner, ToolError
-from nanoagent.uploaded.clis import CLIS
+from nanoagent.uploaded.clis import CLIS, Cli
 from nanoagent.uploaded.collector import ProcessEvent, ProcessEventKind, ProcessEvidence, launched_processes
 from nanoagent.uploaded.contract import Answered, ContractError, Refused, validate, validate_result
 from nanoagent.uploaded.endpoint import EndpointProfile
@@ -98,7 +98,7 @@ from nanoagent.uploaded.reference import build_reference
 from nanoagent.uploaded import session_result
 from nanoagent.uploaded.source import SourceLimits, extract, inspect_zip
 from nanoagent.uploaded.terminal import Terminal
-from nanoagent.uploaded.toolchains import ToolchainProfile, resolve_dependencies, toolchain
+from nanoagent.uploaded.toolchains import CLOSURE_ARCHIVE, ToolchainProfile, resolve_dependencies, toolchain
 
 LOG = logging.getLogger(__name__)
 NS = 1_000_000_000
@@ -108,6 +108,7 @@ MISSING_ANSWER = "wrote no answer.json"  # read_answer's failure for an absent f
 SNAPSHOT_EVENT_DIFF_BYTES = 128 * 1024  # of the diff a snapshot.taken event carries; the snapshot payload has all of it
 BUILDS = "builds"  # under the scratch folder: each source's built harness, kept for the next attempt of it
 CLIS_FOLDER = "clis"  # under the scratch folder: the terminal's CLI installs (nanoagent.uploaded.clis), mounted into every case
+DOWNLOADS_FOLDER = "downloads"  # under the scratch folder: every build's checked downloads, by lock hash (toolchains.cached_fetch)
 PLUGINS = "plugins"  # under the scratch folder: each plugin package a tooled attempt ran, unpacked with its environment synced
 PREPARED = "prepared"  # beside a kept plugin's folder: written last, once its environment is synced
 BUILT = "built.json"  # beside a kept build's harness/: its outputs and digest, written last
@@ -477,6 +478,8 @@ class AttemptRunner:
         self._recipe: WarmRecipe | None = None  # the last Terminal session's, which the warm terminal is made of
         self._rewarm = anyio.Event()  # set when the recipe changes or the warm terminal is taken
         self._warm: WarmTerminal | None = None
+        self._installs: dict[str, tuple[asyncio.Future[None], Path]] = {}  # each CLI install in flight, by key, and its scratch
+        self._preinstall: asyncio.Future[None] | None = None
 
     # -- the warm terminal ---------------------------------------------------------------------------------------
 
@@ -505,6 +508,8 @@ class AttemptRunner:
                 continue
             self._warm = warm
             LOG.info("warm terminal ready: %s", warm.handle.container_id)
+            if self._preinstall is None:
+                self._preinstall = asyncio.ensure_future(self._install_clis(recipe.run_limits))
             with anyio.move_on_after(WARM_MAX_AGE_S):
                 await first_of(warm.taken, self._rewarm)
             if not warm.taken.is_set():
@@ -781,38 +786,79 @@ class AttemptRunner:
             shutil.rmtree(staging, ignore_errors=True)
         return replace(artifact, directory=kept / "harness")
 
-    async def _install_cli(self, job: AttemptJob, work: Path, name: str, expect: str | None) -> AsyncIterator[Mapping[str, Any]]:
+    async def _install_clis(self, run_limits: Mapping[str, Any]) -> None:
+        """Installs every terminal CLI not installed yet, one after another, so a session that types one finds it at once (or
+        waits on the install already under way)."""
+        for cli in CLIS.values():
+            try:
+                archive, profile, key = await in_thread(self._cli_source, cli)
+                if not (self.config.scratch / CLIS_FOLDER / key / BUILT).is_file():
+                    await self._cli_install(cli, archive, profile, key, run_limits)[0]
+            except ContractError:
+                pass  # logged by the install; a session that types it tries again
+            except Exception:
+                LOG.exception("installing %s ahead of a session failed", cli.label)
+
+    def _cli_source(self, cli: Cli) -> tuple[Any, ToolchainProfile, str]:
+        archive = inspect_zip(build_reference(cli.reference), self.config.source_limits)
+        profile = toolchain(archive.manifest.toolchain)
+        return archive, profile, cli.key(profile.build_image)
+
+    def _cli_install(self, cli: Cli, archive: Any, profile: ToolchainProfile, key: str, run_limits: Mapping[str, Any]) -> tuple[asyncio.Future[None], Path]:
+        """The install of ``cli`` under ``key`` and its scratch: the one under way, or one started now that whoever asks next
+        waits on too."""
+        if key in self._installs:
+            return self._installs[key]
+        scratch = self.config.scratch / f"cli-{uuid.uuid4().hex[:8]}"
+        scratch.mkdir(parents=True)
+        kept = self.config.scratch / CLIS_FOLDER / key
+
+        async def install() -> None:
+            started = time.monotonic()
+            try:
+                await in_thread(lambda: self._keep(self._build_now(f"cli-{cli.name}", run_limits, archive, profile, scratch), kept))
+                LOG.info("installed %s %s in %.1fs", cli.label, cli.version(), time.monotonic() - started)
+            except ContractError as error:
+                LOG.warning("installing %s %s failed after %.1fs: %s: %s", cli.label, cli.version(), time.monotonic() - started, error.code, error.message)
+                raise
+            finally:
+                del self._installs[key]
+                await in_thread(shutil.rmtree, scratch, True)
+
+        self._installs[key] = (asyncio.ensure_future(install()), scratch)
+        return self._installs[key]
+
+    async def _install_cli(self, job: AttemptJob, name: str, expect: str | None) -> AsyncIterator[Mapping[str, Any]]:
         """Installs the terminal's CLI ``name`` (its reference harness, built as any harness is), once per lockfile: what the
         wrapper shows while it waits, then where the install is in the case VM, or why there is none."""
         cli = CLIS.get(name)
         if cli is None:
             yield {"error": f"{name} is not a CLI the terminal installs; they are {', '.join(CLIS)}"}
             return
-        archive = inspect_zip(build_reference(cli.reference), self.config.source_limits)
-        profile = toolchain(archive.manifest.toolchain)
-        key, version = cli.key(profile.build_image), cli.version()
+        archive, profile, key = await in_thread(self._cli_source, cli)
+        version = cli.version()
         if expect is not None and expect != key:
             yield {"error": f"this harness was saved with another {cli.label} than this RUSH Lab installs ({version}): save it again"}
             return
         kept = self.config.scratch / CLIS_FOLDER / key
         if not (kept / BUILT).is_file():
             yield {"installing": cli.label, "version": version}
-            scratch = work / f"cli-{uuid.uuid4().hex[:8]}"
-            scratch.mkdir(parents=True)
             started = time.monotonic()
-            install = asyncio.ensure_future(in_thread(lambda: self._keep(self._build_now(job.attempt_id, job.run["limits"], archive, profile, scratch), kept)))
+            install, scratch = self._cli_install(cli, archive, profile, key, job.run["limits"])
+            staged = 0
             while not install.done():
                 await asyncio.wait({install}, timeout=1)
-                yield {"bytes": tree_bytes(scratch / "deps")}  # the verified downloads so far
+                try:
+                    staged = (scratch / "deps" / CLOSURE_ARCHIVE).stat().st_size  # the verified downloads so far, unpacked
+                except FileNotFoundError:
+                    pass  # not begun, or built and removed: the last size stands
+                yield {"bytes": staged}
             try:
                 install.result()
             except ContractError as error:
-                LOG.warning("installing %s for %s failed: %s: %s", name, job.attempt_id, error.code, error.message)
                 yield {"error": f"installing {cli.label} {version} failed: {error.code}: {error.message}"}
                 return
-            finally:
-                shutil.rmtree(scratch, ignore_errors=True)
-            yield {"installed": cli.label, "version": version, "bytes": tree_bytes(kept), "seconds": round(time.monotonic() - started)}
+            yield {"installed": cli.label, "version": version, "bytes": await in_thread(tree_bytes, kept), "seconds": round(time.monotonic() - started)}
         yield {"path": f"{CLIS_DIR}/{key}/harness", "key": key}
 
     async def _score(self, job: AttemptJob, name: str) -> AsyncIterator[Mapping[str, Any]]:
@@ -847,9 +893,9 @@ class AttemptRunner:
         extract(archive, source_root)
         closure = resolve_dependencies(
             profile, source_root, archive.manifest.lockfiles, work / "deps", index_url=self.config.index_urls.get(profile.id),
-            timeout_s=run_limits["build_wall_ms"] / 1000, index_urls=self.config.index_urls,
+            timeout_s=run_limits["build_wall_ms"] / 1000, index_urls=self.config.index_urls, cache=self.config.scratch / DOWNLOADS_FOLDER,
         )
-        # The build's output volume is a tmpfs charged to the build's memory, so the build has bounds of its own.
+        # The build has bounds of its own: its memory, its output (on a disk of the build VM's own), /tmp and wall time.
         limits = replace(
             case_limits(run_limits, self.config.limits), memory_bytes=run_limits["build_memory_mb"] << 20, workspace_bytes=run_limits["build_output_bytes"],
             workspace_files=run_limits["build_files"], tmp_bytes=run_limits["build_tmp_bytes"], wall_s=run_limits["build_wall_ms"] / 1000,
@@ -913,7 +959,7 @@ class AttemptRunner:
             policy=policy, endpoint=cfg.endpoint, admission=RushAdmission(self.worker, lease), journal=journal, tool_runner=runner,
             command_runner=commands, workspace=workspace, clock_ns=self.clock_ns,
             save_harness=lambda data: self.worker.save_harness(job.attempt_id, job.fence, data),
-            install_cli=lambda name, expect: self._install_cli(job, work, name, expect),
+            install_cli=lambda name, expect: self._install_cli(job, name, expect),
             score_harness=lambda name: self._score(job, name),
         )
         services.attempt.lease_lapsed = lease.lapsed  # the services refuse new work once the lease's known expiry passes

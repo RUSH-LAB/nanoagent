@@ -3,7 +3,8 @@
 Each is its reference harness, built by the worker as any harness is: the reference's own lockfile staged with every
 artifact's integrity or sha256 checked, in a build VM with no network. The install is kept on the member's computer under
 the worker's scratch, keyed by that lockfile, and mounted read-only into every case VM at `CLIS_DIR`, so a second session,
-and a harness saved from the first, runs the same install at once.
+and a harness saved from the first, runs the same install at once. The worker installs each, in this order, once its warm
+terminal is up (runner.AttemptRunner._install_clis), so a member rarely waits on one.
 """
 
 from __future__ import annotations
@@ -49,7 +50,7 @@ CLIS = {
         Cli("claude", "claude-code", "Claude Code", "@anthropic-ai/claude-code"),
         Cli("codex", "codex", "Codex", "@openai/codex"),
         Cli("pi", "pi", "PI", "@earendil-works/pi-coding-agent"),
-        Cli("dsh", "dsh", "DeepSeek Harness", "@deepseek-ai/dsh"),
         Cli("hermes", "hermes", "Hermes Agent", "hermes-agent"),
+        Cli("dsh", "dsh", "DeepSeek Harness", "@deepseek-ai/dsh"),
     )
 }

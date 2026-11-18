@@ -15,17 +15,23 @@ read-only into the build sandbox, which has no network, as the only package sour
 from __future__ import annotations
 
 import hashlib
+import io
 import platform
 import re
+import shutil
+import tarfile
+import threading
 import time
+import uuid
 import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Protocol
 
 from packaging import tags
@@ -42,6 +48,7 @@ DOWNLOAD_ATTEMPTS = 3
 MAX_CLOSURE_BYTES = 2 << 30  # per build: bytes downloaded, and separately bytes installed, across the whole closure
 MAX_CLOSURE_FILES = 20_000  # per build: artifacts downloaded, and separately artifacts installed
 DEFAULT_RESOLVE_TIMEOUT_S = 1800.0
+FETCHES = 16  # registry downloads in flight at once
 
 
 class ToolchainError(ContractError):
@@ -171,16 +178,63 @@ for _profile in TOOLCHAINS.values():
             raise ToolchainError("unpinned_image", f"toolchain {_profile.id} image {_image!r} is not pinned by digest")
 
 
+CLOSURE_ARCHIVE = "closure.tar"  # in a closure's directory: every file of the closure
+
+
 @dataclass(frozen=True)
 class DependencyClosure:
-    """The verified dependency files on the worker, ready to mount read-only."""
+    """The verified dependency files on the worker, as one tar (`ClosureWriter`) in ``directory``, ready to mount read-only."""
 
     directory: Path
     files: Mapping[str, str]  # file name to sha256
+    entries: int = 0  # the files and directories in the archive
 
     @property
     def empty(self) -> bool:
         return not self.files
+
+    @property
+    def archive(self) -> Path:
+        return self.directory / CLOSURE_ARCHIVE
+
+
+class ClosureWriter:
+    """A closure as it is staged: one tar every fetch writes into at once. The build VM unpacks it onto a disk of its own at the
+    dependency mount (sandbox.build), where a tree of small files read through the VM's shared folder is slow."""
+
+    def __init__(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._tar = tarfile.open(path, "w", format=tarfile.PAX_FORMAT)
+        self._lock = threading.Lock()
+        self._now = time.time()  # a zip a build makes of the closure refuses times before 1980
+        self.entries = 0
+
+    def _entry(self, relative: str, kind: bytes) -> tarfile.TarInfo:
+        parts = PurePosixPath(relative).parts
+        if not parts or relative.startswith("/") or any(part in (".", "..") for part in parts):
+            raise ToolchainError("invalid_dependency", f"{relative!r} escapes the closure directory")
+        info = tarfile.TarInfo(relative)
+        info.type, info.mtime = kind, self._now
+        return info
+
+    def directory(self, relative: str) -> None:
+        info = self._entry(relative, tarfile.DIRTYPE)
+        info.mode = 0o755
+        with self._lock:
+            self._tar.addfile(info)
+            self.entries += 1
+
+    def file(self, relative: str, data: bytes, *, executable: bool = False) -> int:
+        """Adds a file; returns the bytes it holds."""
+        info = self._entry(relative, tarfile.REGTYPE)
+        info.size, info.mode = len(data), 0o755 if executable else 0o644
+        with self._lock:
+            self._tar.addfile(info, io.BytesIO(data))
+            self.entries += 1
+        return len(data)
+
+    def close(self) -> None:
+        self._tar.close()
 
 
 class ResolveBudget:
@@ -190,19 +244,53 @@ class ResolveBudget:
         self._deadline = time.monotonic() + timeout_s
         self._timeout_s = timeout_s
         self._used = {"downloaded": [0, 0], "installed": [0, 0]}  # kind -> [bytes, files]
+        self._lock = threading.Lock()  # charged from every fetch at once (`in_parallel`)
 
     def tick(self) -> None:
         if time.monotonic() > self._deadline:
             raise ToolchainError("dependency_timeout", f"resolving dependencies exceeded {self._timeout_s}s")
 
     def charge(self, kind: str, size: int) -> None:
-        used = self._used[kind]
-        used[0] += size
-        used[1] += 1
-        if used[0] > MAX_CLOSURE_BYTES or used[1] > MAX_CLOSURE_FILES:
+        with self._lock:
+            used = self._used[kind]
+            used[0] += size
+            used[1] += 1
+            over = used[0] > MAX_CLOSURE_BYTES or used[1] > MAX_CLOSURE_FILES
+        if over:
             raise ToolchainError(
                 "dependency_too_large", f"the closure {kind} more than {MAX_CLOSURE_BYTES} bytes or {MAX_CLOSURE_FILES} artifacts"
             )
+
+
+def in_parallel[T, R](function: Callable[[T], R], items: Sequence[T]) -> list[R]:
+    """``function`` of each item, `FETCHES` at a time, in order; the first to fail cancels those not started and raises."""
+    with ThreadPoolExecutor(FETCHES) as pool:
+        futures = [pool.submit(function, item) for item in items]
+        wait(futures, return_when=FIRST_EXCEPTION)
+        for future in futures:
+            if future.done() and (error := future.exception()) is not None:
+                for other in futures:
+                    other.cancel()
+                raise error
+        return [future.result() for future in futures]
+
+
+def cached_fetch(cache: Path | None, pin: str, check: Callable[[bytes], None], download: Callable[[], bytes]) -> bytes:
+    """One download, checked against the lock. Given ``cache`` (the worker's, shared by every build), it is kept there under its
+    lock ``pin`` once checked, and a later build reads it from there, checking it again."""
+    kept = None if cache is None else cache / hashlib.sha256(pin.encode()).hexdigest()
+    if kept is not None and kept.is_file():
+        data = kept.read_bytes()
+        check(data)
+        return data
+    data = download()
+    check(data)
+    if kept is not None:
+        kept.parent.mkdir(parents=True, exist_ok=True)
+        staging = kept.with_name(f".{kept.name}-{uuid.uuid4().hex[:8]}")
+        staging.write_bytes(data)
+        staging.replace(kept)
+    return data
 
 
 @dataclass(frozen=True)
@@ -482,20 +570,20 @@ class PythonWheelResolver:
         return pins
 
     def stage(
-        self, profile: ToolchainProfile, source_root: Path, lockfiles: tuple[str, ...], destination: Path,
-        timeout_s: float = DEFAULT_RESOLVE_TIMEOUT_S,
-    ) -> DependencyClosure:
+        self, profile: ToolchainProfile, source_root: Path, lockfiles: tuple[str, ...], closure: ClosureWriter,
+        timeout_s: float = DEFAULT_RESOLVE_TIMEOUT_S, cache: Path | None = None,
+    ) -> dict[str, str]:
         pins = set(self._pins(source_root, lockfiles))  # a pin repeated across lockfile lines is fetched once
-        destination.mkdir(parents=True, exist_ok=True)
         compatible = self._target.compatible_tags()
         budget = ResolveBudget(timeout_s)
         staged: dict[str, str] = {}
-        for pin in sorted(pins, key=lambda p: (p.name, p.version, sorted(p.hashes))):
-            staged.update(self._stage_one(pin, compatible, destination, budget))
-        return DependencyClosure(destination, dict(sorted(staged.items())))
+        ordered = sorted(pins, key=lambda p: (p.name, p.version, sorted(p.hashes)))
+        for files in in_parallel(lambda pin: self._stage_one(pin, compatible, closure, budget, cache), ordered):
+            staged.update(files)
+        return dict(sorted(staged.items()))
 
     def _stage_one(
-        self, pin: PinnedRequirement, compatible: frozenset[tags.Tag], destination: Path, budget: ResolveBudget
+        self, pin: PinnedRequirement, compatible: frozenset[tags.Tag], closure: ClosureWriter, budget: ResolveBudget, cache: Path | None
     ) -> dict[str, str]:
         candidates = self._index.candidates(pin.name, pin.version)
         if not candidates:
@@ -513,19 +601,21 @@ class PythonWheelResolver:
                 "dependency_unavailable", f"{pin.name}=={pin.version} has no installable wheel matching the pinned hashes"
             )
         staged: dict[str, str] = {}
-        for filename, fetch in usable:
-            budget.tick()
-            data = fetch()
-            budget.charge("downloaded", len(data))
+
+        def check(filename: str, data: bytes) -> None:
             digest = hashlib.sha256(data).hexdigest()
             if digest not in pin.hashes:
                 raise ToolchainError(
                     "hash_mismatch", f"{filename}: sha256 {digest} is not among the pinned hashes of {pin.name}=={pin.version}"
                 )
-            target = destination / filename
-            target.write_bytes(data)
-            target.chmod(0o644)
-            staged[filename] = digest
+
+        for filename, fetch in usable:
+            budget.tick()
+            pinned = f"{filename} {' '.join(sorted(pin.hashes))}"
+            data = cached_fetch(cache, pinned, lambda data, filename=filename: check(filename, data), fetch)
+            budget.charge("downloaded", len(data))
+            closure.file(filename, data)
+            staged[filename] = hashlib.sha256(data).hexdigest()
         return staged
 
 
@@ -533,13 +623,12 @@ class NoDependencyResolver:
     """For a project with `lockfiles: []`: the closure is empty and nothing is fetched."""
 
     def stage(
-        self, profile: ToolchainProfile, source_root: Path, lockfiles: tuple[str, ...], destination: Path,
+        self, profile: ToolchainProfile, source_root: Path, lockfiles: tuple[str, ...], closure: ClosureWriter,
         timeout_s: float = DEFAULT_RESOLVE_TIMEOUT_S,
-    ) -> DependencyClosure:
+    ) -> dict[str, str]:
         if lockfiles:
             raise ToolchainError("unsupported_lockfile", "internal: the empty resolver was given lockfiles")
-        destination.mkdir(parents=True, exist_ok=True)
-        return DependencyClosure(destination, {})
+        return {}
 
 
 def resolve_dependencies(
@@ -552,16 +641,33 @@ def resolve_dependencies(
     target: PythonTarget | None = None,
     timeout_s: float = DEFAULT_RESOLVE_TIMEOUT_S,
     index_urls: Mapping[str, str] | None = None,
+    cache: Path | None = None,
 ) -> DependencyClosure:
-    """Stages the closure for a profile. An empty `lockfiles` needs no index; any other needs `index_url`, or, for a profile of
+    """Stages the closure for a profile, as one tar in `destination` (`ClosureWriter`). An empty `lockfiles` needs no index; any other needs `index_url`, or, for a profile of
     parts, the index of each part that reads one in `index_urls` (toolchain id -> index).
 
     Resolution is bounded: `timeout_s` of wall clock (checked between downloads, `dependency_timeout`) and `MAX_CLOSURE_BYTES` /
-    `MAX_CLOSURE_FILES` of artifacts (`dependency_too_large`)."""
+    `MAX_CLOSURE_FILES` of artifacts (`dependency_too_large`). Given `cache`, checked downloads are kept and reused there
+    (`cached_fetch`)."""
+    closure = ClosureWriter(destination / CLOSURE_ARCHIVE)
+    try:
+        files = _stage(profile, source_root, lockfiles, closure, index_url, target, timeout_s, dict(index_urls or {}), cache)
+        closure.close()
+    except BaseException:
+        closure.close()
+        shutil.rmtree(destination, ignore_errors=True)
+        raise
+    return DependencyClosure(destination, files, closure.entries)
+
+
+def _stage(
+    profile: ToolchainProfile, source_root: Path, lockfiles: tuple[str, ...], closure: ClosureWriter, index_url: str | None,
+    target: PythonTarget | None, timeout_s: float, index_urls: Mapping[str, str], cache: Path | None,
+) -> dict[str, str]:
     if not lockfiles:
-        return NoDependencyResolver().stage(profile, source_root, lockfiles, destination)
+        return NoDependencyResolver().stage(profile, source_root, lockfiles, closure)
     if profile.parts:
-        return _resolve_parts(profile, source_root, lockfiles, destination, dict(index_urls or {}), target, timeout_s)
+        return _resolve_parts(profile, source_root, lockfiles, closure, index_urls, target, timeout_s, cache)
     if index_url is None:
         raise ToolchainError("index_unavailable", "the manifest declares lockfiles but no dependency index is configured")
     if profile.resolver == "none":
@@ -569,9 +675,9 @@ def resolve_dependencies(
     from nanoagent.uploaded.resolvers import ECOSYSTEMS, stage_ecosystem
 
     if profile.resolver in ECOSYSTEMS:
-        return stage_ecosystem(profile, source_root, lockfiles, destination, index_url, timeout_s)
+        return stage_ecosystem(profile, source_root, lockfiles, closure, index_url, timeout_s, cache)
     if profile.resolver == "python-hashed-wheels":
-        return PythonWheelResolver(open_index(index_url), target).stage(profile, source_root, lockfiles, destination, timeout_s)
+        return PythonWheelResolver(open_index(index_url), target).stage(profile, source_root, lockfiles, closure, timeout_s, cache)
     raise ToolchainError("unknown_resolver", f"toolchain {profile.id} names resolver {profile.resolver!r}")
 
 
@@ -582,9 +688,9 @@ def _reads(profile: ToolchainProfile, lockfile: str) -> bool:
 
 
 def _resolve_parts(
-    profile: ToolchainProfile, source_root: Path, lockfiles: tuple[str, ...], destination: Path, index_urls: Mapping[str, str],
-    target: PythonTarget | None, timeout_s: float,
-) -> DependencyClosure:
+    profile: ToolchainProfile, source_root: Path, lockfiles: tuple[str, ...], closure: ClosureWriter, index_urls: Mapping[str, str],
+    target: PythonTarget | None, timeout_s: float, cache: Path | None,
+) -> dict[str, str]:
     parts = [toolchain(part) for part in profile.parts]
     unread = [lockfile for lockfile in lockfiles if not any(_reads(part, lockfile) for part in parts)]
     if unread:
@@ -593,5 +699,5 @@ def _resolve_parts(
     for part in parts:
         mine = tuple(lockfile for lockfile in lockfiles if _reads(part, lockfile))
         if mine:
-            files |= resolve_dependencies(part, source_root, mine, destination, index_url=index_urls.get(part.id), target=target, timeout_s=timeout_s).files
-    return DependencyClosure(destination, files)
+            files |= _stage(part, source_root, mine, closure, index_urls.get(part.id), target, timeout_s, index_urls, cache)
+    return files

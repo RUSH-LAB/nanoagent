@@ -1,14 +1,16 @@
-"""copy_tree: a sandbox's directory copied without following links, within its bounds."""
+"""copy_tree and unpack_tar: a sandbox's directory, or its tar of one, copied without following links, within its bounds."""
 
 from __future__ import annotations
 
+import io
 import os
 import struct
 import subprocess
+import tarfile
 
 import pytest
 
-from nanoagent.uploaded.archive import GUEST_STAT, ArchiveError, copy_tree
+from nanoagent.uploaded.archive import GUEST_STAT, ArchiveError, copy_tree, unpack_tar
 
 
 def test_regular_files_and_directories_are_copied_and_links_and_specials_only_listed(tmp_path):
@@ -67,3 +69,27 @@ def test_a_file_keeps_the_mode_its_sandbox_gave_it_not_the_host_files(tmp_path):
     copy_tree(source, tmp_path / "out", max_files=10, max_bytes=1 << 20)
     assert (tmp_path / "out" / "claude").stat().st_mode & 0o777 == 0o755
     assert (tmp_path / "out" / "main.mjs").stat().st_mode & 0o777 == 0o644
+
+
+def test_a_sandboxs_tar_unpacks_as_its_tree_copies_and_a_path_leaving_it_is_refused(tmp_path):
+    source = tmp_path / "workspace"
+    (source / "sub").mkdir(parents=True)
+    (source / "a.txt").write_text("a")
+    (source / "sub" / "run.sh").write_text("#!/bin/sh\n")
+    (source / "sub" / "run.sh").chmod(0o700)
+    (source / "evil").symlink_to("/etc")
+    with tarfile.open(tmp_path / "out.tar", "w") as archive:  # as the guest's `tar -cf out.tar -C /build-out .` writes it
+        archive.add(source, ".")
+    extracted = unpack_tar(tmp_path / "out.tar", tmp_path / "out", max_files=10, max_bytes=1 << 20)
+    assert set(extracted.files) == {"a.txt", "sub/run.sh"} and extracted.directories == ("sub",)
+    assert extracted.skipped == {"evil": "symlink"} and extracted.total_bytes == 11
+    assert not (tmp_path / "out" / "evil").exists(), "a link is never materialized"
+    assert (tmp_path / "out" / "sub" / "run.sh").stat().st_mode & 0o777 == 0o755
+    with pytest.raises(ArchiveError) as files:
+        unpack_tar(tmp_path / "out.tar", tmp_path / "few", max_files=1, max_bytes=1 << 20)
+    assert files.value.code == "snapshot_too_large"
+    with tarfile.open(tmp_path / "escape.tar", "w") as archive:
+        archive.addfile(tarfile.TarInfo("../escaped"), io.BytesIO(b""))
+    with pytest.raises(ArchiveError) as escaped:
+        unpack_tar(tmp_path / "escape.tar", tmp_path / "escape", max_files=10, max_bytes=1 << 20)
+    assert escaped.value.code == "unsafe_path" and not (tmp_path / "escaped").exists()

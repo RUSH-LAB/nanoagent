@@ -1,4 +1,4 @@
-"""Link-safe, bounded copying of a directory a sandbox wrote into.
+"""Link-safe, bounded copying of a directory a sandbox wrote into, or of a tar it made of one.
 
 A case's workspace and output are host directories its microVM mounts, so their contents are untrusted: nothing is
 followed, links and special files are never copied (they are reported), and file count and byte totals are bounded
@@ -13,8 +13,9 @@ import hashlib
 import os
 import stat
 import struct
+import tarfile
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from nanoagent.uploaded.contract import ContractError
 
@@ -121,4 +122,56 @@ def copy_tree(source: Path, destination: Path, *, max_files: int, max_bytes: int
         walk(root, "")
     finally:
         os.close(root)
+    return Extracted(files, tuple(directories), skipped, total)
+
+
+def unpack_tar(archive: Path, destination: Path, *, max_files: int, max_bytes: int) -> Extracted:
+    """Unpacks the regular files and directories of a tar a sandbox wrote into ``destination`` (created if needed), as `copy_tree`
+    copies a tree: links and special files are reported, never made, and file count and byte totals are bounded."""
+    destination.mkdir(parents=True, exist_ok=True)
+    files: dict[str, str] = {}
+    directories: list[str] = []
+    skipped: dict[str, str] = {}
+    total = 0
+    try:
+        with tarfile.open(archive, "r:") as tar:
+            for member in tar:
+                parts = PurePosixPath(member.name).parts
+                if parts[:1] == (".",):
+                    parts = parts[1:]
+                if not parts:
+                    continue
+                path = "/".join(parts)
+                if member.name.startswith("/") or ".." in parts:
+                    raise ArchiveError("unsafe_path", f"{path!r} leaves the tree")
+                try:
+                    path.encode("utf-8")
+                except UnicodeEncodeError:
+                    skipped[path.encode("utf-8", "surrogateescape").decode("utf-8", "backslashreplace")] = "invalid_name"
+                    continue
+                target = destination / path
+                if member.isdir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    os.chmod(target, 0o755)
+                    directories.append(path)
+                elif member.isreg():
+                    if len(files) >= max_files:
+                        raise ArchiveError("snapshot_too_large", f"more than {max_files} files")
+                    total += member.size
+                    if total > max_bytes:
+                        raise ArchiveError("snapshot_too_large", f"more than {max_bytes} bytes")
+                    reader = tar.extractfile(member)
+                    assert reader is not None
+                    digest = hashlib.sha256()
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with open(target, "wb") as out:
+                        while chunk := reader.read(1 << 16):
+                            digest.update(chunk)
+                            out.write(chunk)
+                    os.chmod(target, 0o755 if member.mode & stat.S_IXUSR else 0o644)
+                    files[path] = digest.hexdigest()
+                else:
+                    skipped[path] = "symlink" if member.issym() or member.islnk() else "special"
+    except (tarfile.TarError, OSError) as error:
+        raise ArchiveError("unsafe_path", f"the tree's archive could not be unpacked: {error}") from error
     return Extracted(files, tuple(directories), skipped, total)
