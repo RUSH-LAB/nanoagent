@@ -13,9 +13,14 @@ import { FitAddon } from "./vendor/xterm/addon-fit.mjs";
 const ALTERNATE_SCREEN = new Set([47, 1047, 1049]);
 const bytes = (base64) => Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
 
-/** The status line of an ended session: right or wrong by the plugin's verifier when it gave an answer, then time, tokens and cost. */
+/**
+ * The status line of an ended session: right or wrong by the plugin's verifier when it gave an answer (or that it ran out of its
+ * time, sessions.wall_time_ms), then time, tokens and cost.
+ */
 export function outcomeText(outcome) {
-  const verdict = !outcome.scored
+  const verdict = outcome.reason === "timed_out"
+    ? "Session time limit reached"
+    : !outcome.scored
     ? `No verdict: no answer to score (${outcome.status}${outcome.reason ? `: ${outcome.reason}` : ""})`
     : outcome.verdict === "Pass" ? "Right" : outcome.verdict === "Fail" ? "Wrong" : outcome.verdict;
   const tokens = outcome.inputTokens === null ? "—" : thousands((outcome.inputTokens ?? 0) + (outcome.outputTokens ?? 0));

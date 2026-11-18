@@ -212,6 +212,8 @@ class SessionsConfig(Config):
 
     # The model calls one session admits: a person works with the harness, so more than a benchmark case's.
     max_model_calls: int = 200
+    # How long one session may run: a person installs and tries agents in it, so far longer than a benchmark case's 10 minutes.
+    wall_time_ms: int = 3_600_000
     # The Terminal's build (`shell`: Claude Code's and Codex's binaries, dsh, Hermes) outgrows a benchmark's build bounds; a worker
     # keeps each build for every later session of it, so only the first pays.
     build_output_bytes: int = 3 << 30
@@ -220,7 +222,7 @@ class SessionsConfig(Config):
     fill_max_tokens: int = 16_384
 
     def __post_init__(self) -> None:
-        for name in ("max_model_calls", "build_output_bytes", "build_wall_ms", "fill_max_tokens"):
+        for name in ("max_model_calls", "wall_time_ms", "build_output_bytes", "build_wall_ms", "fill_max_tokens"):
             if getattr(self, name) < 1:
                 raise ValueError(f"sessions.{name} must be >= 1, got {getattr(self, name)}")
 
@@ -236,7 +238,10 @@ def session_frame(manifest, sha256: str, task_id: str, text: str, sessions: Sess
     """A Harness tab session's case set but its case (and that case's id, ``case_id``), read from ``manifest`` at once: RUSH queues
     the session's run on it while :func:`session_case_set` fills and pins the case, whose case set has this same frame."""
     task = session_task(manifest, task_id)
-    limits = {"max_model_calls": sessions.max_model_calls, "build_output_bytes": sessions.build_output_bytes, "build_wall_ms": sessions.build_wall_ms}
+    limits = {
+        "max_model_calls": sessions.max_model_calls, "wall_time_ms": sessions.wall_time_ms, "build_output_bytes": sessions.build_output_bytes,
+        "build_wall_ms": sessions.build_wall_ms,
+    }  # fmt: skip
     [case_id] = case_ids(CaseSet(plugin=manifest.id, task=task.id, context=text, answer=[{}], refuse=[]))
     return {**case_set_frame(SESSION, manifest, sha256, task, text), "limits": limits, "case_id": case_id}
 

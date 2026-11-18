@@ -140,7 +140,7 @@ def test_a_session_is_one_case_whose_input_the_plugin_model_fills_from_the_reque
     assert (body["name"], body["task_id"], body["context"]) == ("harness-session", "echo", "Echo hi, please.")
     assert body["cases"] == [{"case_id": "echo-01", "kind": "answer", "arguments": {"value": "hi"}, "expected_error": None}]
     assert body["private"] == {"echo-01": {"value": "hi"}}
-    assert body["limits"] == {"max_model_calls": 200, "build_output_bytes": 3 << 30, "build_wall_ms": 1_800_000}
+    assert body["limits"] == {"max_model_calls": 200, "wall_time_ms": 3_600_000, "build_output_bytes": 3 << 30, "build_wall_ms": 1_800_000}
     [(messages, name, schema)] = client.model.asked
     assert name == "echo" and schema["properties"]["value"] and messages[1] == {"role": "user", "content": "Echo hi, please."}
 
