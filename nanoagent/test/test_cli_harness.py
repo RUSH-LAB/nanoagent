@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from nanoagent.cli.harness import DEFAULT_CONFIG, HarnessCommandConfig, answer_of, connection, summary_line, verdict
+from nanoagent.cli.harness import DEFAULT_CONFIG, HarnessCommandConfig, answer_of, connection, find_lab, summary_line, verdict
 from nanoagent.runtime.config import load_config_args
 
 
@@ -20,17 +20,32 @@ def test_the_config_takes_plugin_and_harness_and_leaves_the_rest_to_the_tab_s_ch
         None,
         None,
     )
-    assert cfg.lab.endswith("lab.mochi.lab")
+    assert cfg.lab is None
+
+
+def sign_in(lab: Path) -> Path:
+    folder = lab / "connections" / "localhost-3000-x"
+    folder.mkdir(parents=True)
+    (folder / "site").write_text("http://localhost:3000\n")
+    (folder / "runner-credentials.json").write_text(json.dumps({"site": "http://localhost:3000", "token": "t"}))
+    return folder
 
 
 def test_the_connection_is_rush_lab_s_one_signed_in_connection(tmp_path: Path) -> None:
     with pytest.raises(SystemExit, match="holds 0"):
         connection(tmp_path)
-    folder = tmp_path / "connections" / "localhost-3000-x"
-    folder.mkdir(parents=True)
-    (folder / "site").write_text("http://localhost:3000\n")
-    (folder / "runner-credentials.json").write_text(json.dumps({"site": "http://localhost:3000", "token": "t"}))
+    folder = sign_in(tmp_path)
     assert connection(tmp_path) == (folder, "http://localhost:3000", "t")
+
+
+def test_without_lab_it_is_whichever_of_rush_lab_and_rush_lab_dev_is_signed_in(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit, match="neither"):
+        find_lab(tmp_path)
+    sign_in(tmp_path / "lab.mochi.lab.dev")
+    assert find_lab(tmp_path) == tmp_path / "lab.mochi.lab.dev"
+    sign_in(tmp_path / "lab.mochi.lab")
+    with pytest.raises(SystemExit, match="pass lab="):
+        find_lab(tmp_path)
 
 
 def test_a_sealed_attempt_reads_as_right_wrong_or_no_verdict_with_its_answer() -> None:

@@ -3,9 +3,6 @@
 #
 #     nanoagent harness plugin=city-weather harness=claude-code                  # interactive: the harness's own screen here
 #     nanoagent harness plugin=city-weather harness=codex prompt="Which cities…"   # one-shot, for scripts
-#
-# RUSH Lab Dev keeps its connection in lab.mochi.lab.dev:
-#     nanoagent harness lab="$HOME/Library/Application Support/lab.mochi.lab.dev" plugin=… harness=…
 
 _ > nanoagent.cli.harness.HarnessCommandConfig:
 
@@ -16,5 +13,6 @@ task: null
 model: null
 home: null
 workspace: null
-# RUSH Lab's data folder (on Windows %LOCALAPPDATA%\lab.mochi.lab): its one connection names the site and holds the member's sign-in.
-lab: ${oc.env:HOME}/Library/Application Support/lab.mochi.lab
+# RUSH Lab's data folder, which holds its one signed-in connection; null: whichever of RUSH Lab's (lab.mochi.lab) and RUSH
+# Lab Dev's (lab.mochi.lab.dev) is signed in, in this OS's app data folder. Both signed in: name one.
+lab: null

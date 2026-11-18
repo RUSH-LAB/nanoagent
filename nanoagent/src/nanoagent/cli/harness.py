@@ -40,6 +40,8 @@ from nanoagent.runtime.config import load_config_args
 DEFAULT_CONFIG = str(PACKAGED_CONFIGS / "harness.yaml")
 # The command's names of the reference harnesses, each the one RUSH builds; rush is NanoAgent's own.
 HARNESSES = {"rush": "nanoagent", "claude-code": "claude-code", "codex": "codex", "pi": "pi", "dsh": "dsh", "hermes": "hermes"}
+# The data folders of RUSH Lab and RUSH Lab Dev (helpinghands/desktop/config.yaml's labels).
+LABELS = ("lab.mochi.lab", "lab.mochi.lab.dev")
 # RUSH waits this long for the member's computer to pin the case and build the harness (helpinghands/src/server/ai.js).
 START_TIMEOUT_S = 960.0
 RETRY_S = 1.5
@@ -61,8 +63,33 @@ class HarnessCommandConfig(Config):
     home: str | None = MISSING
     # The slug of the workspace whose plugin to run; null: the one workspace that has it installed.
     workspace: str | None = MISSING
-    # RUSH Lab's data folder, which holds its one connection.
-    lab: str = MISSING
+    # RUSH Lab's data folder, which holds its one connection; null: whichever of RUSH Lab's and RUSH Lab Dev's is signed in.
+    lab: str | None = MISSING
+
+
+def app_data() -> Path:
+    """Where this OS keeps an app's data folder, as RUSH Lab's (Tauri's app data dir)."""
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support"
+    if sys.platform == "win32":
+        return Path(os.environ["LOCALAPPDATA"])
+    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+
+
+def signed_in(lab: Path) -> bool:
+    return any((lab / "connections").glob("*/runner-credentials.json"))
+
+
+def find_lab(root: Path) -> Path:
+    """The one RUSH Lab data folder under ``root`` with a signed-in connection: RUSH Lab's or RUSH Lab Dev's."""
+    labs = [root / label for label in LABELS if signed_in(root / label)]
+    if len(labs) > 1:
+        raise SystemExit(f"harness: both {labs[0]} and {labs[1]} are signed in; pass lab=<one of them>")
+    if not labs:
+        raise SystemExit(
+            f"harness: neither {root / LABELS[0]} nor {root / LABELS[1]} holds a signed-in RUSH Lab connection. Open RUSH Lab and sign in."
+        )
+    return labs[0]
 
 
 def connection(lab: Path) -> tuple[Path, str, str]:
@@ -216,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
     interactive = cfg.prompt is None
     if interactive and not sys.stdin.isatty():
         raise SystemExit("harness: without prompt= the session is interactive and needs a terminal")
-    folder, site, token = connection(Path(cfg.lab))
+    folder, site, token = connection(find_lab(app_data()) if cfg.lab is None else Path(cfg.lab))
     with httpx.Client(base_url=site, headers={"Authorization": f"Bearer {token}", "Origin": site}, timeout=60.0) as rush:
         prefix, app = find_plugin(rush, cfg.plugin, cfg.workspace)
         tasks = [task["id"] for task in app["tasks"]]
