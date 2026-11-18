@@ -193,7 +193,7 @@ def evidence(rush: RushServer) -> Iterator[Evidence]:
         limits={**MAIN_LIMITS, "max_model_calls": 6},
         check=False,
     )
-    failures["too-many-calls"] = publish("too-many-calls", "main", "too-many-calls", limits={"max_model_calls": 10_000_000}, check=False)
+    failures["too-many-calls"] = publish("too-many-calls", "main", "too-many-calls", limits={"max_model_calls": 1_000}, check=False)
     failures["nobody"] = publish("nobody", "main", "nobody", endpoint="nobody", check=False)
     failures["unpriced"] = gate.publish_benchmark(cli, run_dir / "step1-unpriced", name="unpriced", cases=run_dir / "main.json", model=UNPRICED_MODEL, check=False)
 

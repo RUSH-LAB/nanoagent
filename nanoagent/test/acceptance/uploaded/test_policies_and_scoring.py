@@ -580,7 +580,7 @@ def test_explicit_limits_override_the_defaults_and_reach_the_harness(evidence: E
 
 def test_a_benchmark_asking_for_more_than_the_worker_offers_is_refused_and_stores_nothing(evidence: Evidence) -> None:
     for name, options, code in (
-        ("too-many-calls", {"limits": {"max_model_calls": 10_000_000}}, "limit_exceeds_worker"),
+        ("too-many-calls", {"limits": {"max_model_calls": 1_000}}, "limit_exceeds_worker"),
         ("nobody", {"endpoint": "nobody"}, "worker_unavailable"),
     ):
         done = gate.publish_benchmark(evidence.cli, evidence.run_dir / f"step1-{name}", name=name, cases=evidence.run_dir / "mix.json", check=False, **options)
