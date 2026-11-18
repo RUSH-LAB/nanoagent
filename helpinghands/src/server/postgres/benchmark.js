@@ -694,8 +694,9 @@ function createPostgresBenchmark({pool}) {
      * (`importBody`, whose own frame is `frame` before the check), worked by the harness of the caller's source `record.source_sha256`. Like a session's, its run is of a benchmark
      * nobody publishes; its one attempt is final as the run ended, with its verdict, its time, tokens and profile (metrics), its cost (one
      * settled admission) and its trace (`keepTrace`). `{run_id, created, filled}`: the same plugin, task, case and harness kept again is
-     * the run kept before, its trace or its profile filled in (`filled`) when it was kept without it, and a different record under them is
-     * refused (409 idempotency_conflict); neither the trace nor the profile is part of the record compared.
+     * the run kept before, its trace (case and answer) or its profile filled in (`filled`) when it was kept without it; only its version
+     * and score (the verifier's verdict and word, and the answer when kept) are compared, and a different one is refused (409
+     * idempotency_conflict). The rest (frame, source, time, tokens, cost) is what a later build of the harness may record differently.
      */
     async importRun(context, frame, record) {
       return memberWrite(context, async client => {
@@ -706,8 +707,8 @@ function createPostgresBenchmark({pool}) {
         if (!source) throw new BenchmarkError(404, 'unknown_source', 'Upload the source first');
         checkReference(source.harness_name);
         const key = `import:${frame.plugin_id}/${frame.task_id}/${record.case_id}/${source.harness_name}`;
-        const {case: _case, answer: _answer, trajectory: _trajectory, profile: _profile, ...scored} = record;
-        const digest = sha256Hex(canonicalJson(scored));
+        const said = {correct: record.correct, verdict: record.verdict};
+        const digest = sha256Hex(canonicalJson({key, version: frame.version, ...said, answer: record.answer}));
         const policy = referencePolicy(source.harness_name);
         const ended = new Date(Date.parse(record.started_at) + record.elapsed_ms).toISOString();
         const metrics = {
@@ -715,14 +716,20 @@ function createPostgresBenchmark({pool}) {
           ...record.profile,
         };
         const existing = (await client.query(
-          'select run_id, request_digest from benchmark_run where workspace_id = $1 and user_id = $2 and idempotency_key = $3', [context.workspaceId, context.userId, key],
+          'select run_id, version from benchmark_run where workspace_id = $1 and user_id = $2 and idempotency_key = $3', [context.workspaceId, context.userId, key],
         )).rows[0];
         if (existing) {
-          if (existing.request_digest !== digest) throw new BenchmarkError(409, 'idempotency_conflict', `${key} was kept with a different record`);
           const kept = (await client.query(
-            `select a.attempt_id, a.metrics ? 'model_ms' as profiled, c.prompt_sha256 from benchmark_attempt a join benchmark_run_case c using (run_id, case_id) where a.run_id = $1`,
+            `select a.attempt_id, a.metrics ? 'model_ms' as profiled, c.prompt_sha256, v.data as said, w.data as answered
+               from benchmark_attempt a join benchmark_run_case c using (run_id, case_id)
+               join benchmark_event v on v.attempt_id = a.attempt_id and v.event_id = 'verdict'
+               left join benchmark_event w on w.attempt_id = a.attempt_id and w.event_id = 'answer'
+              where a.run_id = $1`,
             [existing.run_id],
           )).rows[0];
+          const differs = existing.version !== frame.version || canonicalJson(kept.said) !== canonicalJson(said)
+            || (kept.answered !== null && canonicalJson(kept.answered) !== canonicalJson({answer: record.answer}));
+          if (differs) throw new BenchmarkError(409, 'idempotency_conflict', `${key} was kept with a different record`);
           if (kept.prompt_sha256 === null) await keepTrace(client, frame, record, {runId: existing.run_id, attemptId: kept.attempt_id, policy, ended});
           if (!kept.profiled) await client.query('update benchmark_attempt set metrics = $2 where attempt_id = $1', [kept.attempt_id, JSON.stringify(metrics)]);
           return {run_id: existing.run_id, created: false, filled: kept.prompt_sha256 === null || !kept.profiled};
@@ -752,7 +759,6 @@ function createPostgresBenchmark({pool}) {
           [attemptId, runId, record.case_id, record.execution, record.correct ? 'pass' : 'fail',
             record.execution === 'execution_failed' ? 'execution_failed' : null, JSON.stringify(metrics), record.started_at, ended],
         );
-        const said = {correct: record.correct, verdict: record.verdict};
         await client.query(
           `insert into benchmark_event (attempt_id, cursor, event_id, source, kind, sequence, data, digest, received_at)
            values ($1, 1, 'verdict', 'import', 'verifier.verdict', 1, $2, $3, $4)`,

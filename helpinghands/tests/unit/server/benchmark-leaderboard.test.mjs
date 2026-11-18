@@ -6,6 +6,7 @@ import {invoke, loadRoute, makeCtx} from '../_harness.mjs';
 const require = createRequire(import.meta.url);
 const {REFERENCE_HARNESSES} = require('../../../src/server/benchmark/harness.js');
 const {REFERENCE_LABELS, leaderboard} = require('../../../src/server/benchmark/leaderboard.js');
+const {createPostgresBenchmark} = require('../../../src/server/postgres/benchmark.js');
 const route = loadRoute('benchmark');
 const CONTEXT = {userId: 'me', workspaceId: 'w', membershipId: 'm', role: 'owner'};
 const SHA = 'a'.repeat(64);
@@ -127,5 +128,40 @@ describe('POST /api/benchmark/imports', () => {
     assert.equal((await post(ctxFor().ctx, unreferenced)).payload.error, 'reference is required (null for none)');
     assert.equal((await post(ctxFor().ctx, {...RECORD, kind: 'refuse'})).status, 400);
     assert.equal((await post(ctxFor().ctx, {...RECORD, trajectory: [{message: 'a\u0000b'}]})).payload.error, 'A trajectory step may not contain the character \\u0000');
+  });
+});
+
+describe('importRun kept again', () => {
+  /** A pool holding one imported run kept before, with its trace but without a profile, whose verifier said `said`. */
+  const keptPool = (said = {correct: true, verdict: 'right'}) => {
+    const statements = [];
+    const answers = {
+      'select harness_name': [{harness_name: 'hermes', harness_version: '1', dialects: []}],
+      'select run_id, version': [{run_id: 'r1', version: '1.0.0'}],
+      'select a.attempt_id': [{attempt_id: 'a1', profiled: false, prompt_sha256: 'p', said, answered: {answer: {sum: 1}}}],
+    };
+    return {statements, async connect() {
+      return {async query(sql, values) {
+        const text = String(sql.text ?? sql).replace(/\s+/g, ' ').trim();
+        statements.push({text, values: sql.values ?? values});
+        const key = Object.keys(answers).find(prefix => text.startsWith(prefix));
+        return key ? {rows: answers[key], rowCount: 1} : {rows: [], rowCount: 0};
+      }, release() {}};
+    }};
+  };
+  // A later build of the harness: another source, start time, tokens and cost, and now a profile.
+  const again = {...RECORD, source_sha256: 'c'.repeat(64), started_at: '2026-11-18T00:00:00.000Z', input_tokens: 1, cost_usd: 0.5, case: {case_id: 'p-01'}};
+
+  it('fills in a profile added on re-import', async () => {
+    const pool = keptPool();
+    assert.deepEqual(await createPostgresBenchmark({pool}).importRun(CONTEXT, FRAME, again), {run_id: 'r1', created: false, filled: true});
+    const update = pool.statements.find(s => s.text.startsWith('update benchmark_attempt set metrics'));
+    assert.deepEqual(JSON.parse(update.values[1]), {elapsed_ms: 95491, input_tokens: 1, output_tokens: 4685, total_tokens: 4686, ...RECORD.profile});
+    assert.ok(!pool.statements.some(s => s.text.startsWith('insert into benchmark_run ')));
+  });
+
+  it('still refuses a different verdict or answer', async () => {
+    await assert.rejects(createPostgresBenchmark({pool: keptPool({correct: false, verdict: 'wrong'})}).importRun(CONTEXT, FRAME, again), {code: 'idempotency_conflict'});
+    await assert.rejects(createPostgresBenchmark({pool: keptPool()}).importRun(CONTEXT, FRAME, {...again, answer: {sum: 2}}), {code: 'idempotency_conflict'});
   });
 });
