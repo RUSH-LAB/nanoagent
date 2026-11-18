@@ -185,8 +185,8 @@ export function benchmarkWorker({
   // Which start is current: stop() and each new start move it on, and an older one that wakes up leaves quietly.
   let generation = 0;
   let container = false;
-  // The `docker run` in flight, if any.
-  let starting = null;
+  // Serialize launch and stop, including their cleanup, environment lookup and credential minting.
+  let transitioning = null;
   let keyInUse;
   let concurrencyInUse;
   // The member's setting as last read (at start, a settings change, or set), so publishing never reads the file.
@@ -313,9 +313,23 @@ export function benchmarkWorker({
     logTail = [...logTail, clip(line)].slice(-LOG_LINES);
   };
 
+  function transition(mine, operation) {
+    const previous = transitioning;
+    transitioning = (async () => {
+      await previous?.catch(() => {});
+      if (mine === generation) await operation();
+    })();
+    return transitioning;
+  }
+
   /** Mint a credential and run the container, then follow it until it exits. */
   async function launch(mine) {
+    return transition(mine, () => launchCurrent(mine));
+  }
+
+  async function launchCurrent(mine) {
     await removeContainer();
+    if (mine !== generation) return;
     mark('proofs', 'running', 'Starting the worker.');
     // The relay signs in on its own, in the member's browser; the worker waits for that.
     let session = readSession();
@@ -336,17 +350,15 @@ export function benchmarkWorker({
     logTail = [];
     advertised = null;
     concurrencySetting = concurrencyInUse = readConcurrency();
-    // halt() waits for this, so a stop or restart in the middle of `docker run` never leaves its container behind.
-    starting = (async () => {
-      const result = await docker(workerArgs({name, site, worker: `lab-${device.replace(/[^A-Za-z0-9_-]/g, '-')}`, concurrency: concurrencyInUse}), {
-        env: {...await env(), RUSH_WORKER_TOKEN: credential.token, OPENROUTER_API_KEY: keyInUse},
-      });
-      // A newer start owns the name now: remove only the container this docker run made, by the id it printed.
-      if (mine !== generation && result.code === 0) await docker(['rm', '--force', result.tail.at(-1)], {env: await env()});
-      return result;
-    })();
-    const started = await starting;
+    const dockerEnvironment = await env();
     if (mine !== generation) return;
+    const started = await docker(workerArgs({name, site, worker: `lab-${device.replace(/[^A-Za-z0-9_-]/g, '-')}`, concurrency: concurrencyInUse}), {
+      env: {...dockerEnvironment, RUSH_WORKER_TOKEN: credential.token, OPENROUTER_API_KEY: keyInUse},
+    });
+    if (mine !== generation) {
+      if (started.code === 0) await docker(['rm', '--force', started.tail.at(-1)], {env: dockerEnvironment});
+      return;
+    }
     if (started.code !== 0) {
       mark('proofs', 'fail', `Docker could not start the worker: ${started.error?.message ?? clip(started.tail.join(' '))}`,
         'Docker must allow privileged containers (`--privileged --cgroupns=private`); then press Re-check.');
@@ -436,10 +448,11 @@ export function benchmarkWorker({
   /** Stop the container (docker's own timeout first), and any start in the middle of its checks. */
   async function halt() {
     const mine = ++generation;
-    await starting?.catch(() => {});
-    if (!container) return mine;
-    await docker(['stop', '--time', String(STOP_SECONDS), name], {env: await env()});
-    await removeContainer();
+    await transition(mine, async () => {
+      if (!container) return;
+      await docker(['stop', '--time', String(STOP_SECONDS), name], {env: await env()});
+      await removeContainer();
+    });
     return mine;
   }
 
@@ -448,7 +461,8 @@ export function benchmarkWorker({
     /** The connection ends or the app quits. */
     async stop() {
       stopped = true;
-      await halt();
+      const mine = await halt();
+      if (mine !== generation) return;
       checks = CHECKS.map(blank);
       progress = null;
     },

@@ -429,7 +429,7 @@ test('the runner concurrency persists in a file of the connection, 1 until set, 
 });
 
 /** A fake docker whose `run` takes a while and names its container by id (`rm` by name removes whichever holds the name), as the reviewer's races needed. */
-function raceSetup() {
+function raceSetup({dockerEnv = async () => ({}), mint = async () => ({token: 't'}), onStop = async () => {}} = {}) {
   const containers = new Map();
   const events = [];
   const state = {key: 'sk-one', nextId: 0, onRun: null};
@@ -438,7 +438,8 @@ function raceSetup() {
     const [verb] = args;
     if (verb === '--version') return {code: 0, tail: ['Docker 29']};
     if (verb === 'info') return {code: 0, tail: [JSON.stringify(INFO)]};
-    if (verb === 'image' || verb === 'stop') return {code: 0, tail: []};
+    if (verb === 'image') return {code: 0, tail: []};
+    if (verb === 'stop') { await onStop(); return {code: 0, tail: []}; }
     if (verb === 'rm') {
       const target = args.at(-1);
       const found = [...containers.entries()].find(([name, entry]) => name === target || entry.id === target);
@@ -473,8 +474,8 @@ function raceSetup() {
   const snapshots = [];
   const worker = benchmarkWorker({
     id: 'x', site: 'https://rush-lab.org', device: 'laptop', product: 'RUSH Lab', logFile: path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'worker-')), 'worker.log'),
-    readKey: () => state.key, readSession: () => 'session', dockerEnv: async () => ({}), report: snapshot => snapshots.push(snapshot), log: () => {},
-    docker, mint: async () => ({token: 't'}), sleep: () => sleep(2), platform: 'darwin',
+    readKey: () => state.key, readSession: () => 'session', dockerEnv, report: snapshot => snapshots.push(snapshot), log: () => {},
+    docker, mint, sleep: () => sleep(2), platform: 'darwin',
   });
   return {worker, state, containers, events, last: () => snapshots.at(-1), sleep};
 }
@@ -517,6 +518,66 @@ test('stop during docker run waits for it and leaves no container behind', async
   await again.worker.start();
   await again.sleep(300);
   assert.ok(stopped);
+});
+
+for (const phase of ['cleanup environment', 'credential mint', 'run environment']) {
+  test(`a superseded launch blocked in ${phase} cannot remove or revoke the newest worker`, async () => {
+    let release, entered;
+    const gate = new Promise(resolve => { release = resolve; });
+    const blocked = new Promise(resolve => { entered = resolve; });
+    let envCalls = 0, minted = 0;
+    const t = raceSetup({
+      dockerEnv: async () => {
+        envCalls += 1;
+        if ((phase === 'cleanup environment' && envCalls === 4) || (phase === 'run environment' && envCalls === 5)) {
+          entered();
+          await gate;
+        }
+        return {};
+      },
+      mint: async () => {
+        minted += 1;
+        if (phase === 'credential mint' && minted === 1) { entered(); await gate; }
+        return {token: `credential-${minted}`};
+      },
+    });
+    const old = t.worker.start();
+    await blocked;
+    const current = t.worker.start();
+    await settle();
+    assert.equal(t.containers.size, 0, 'the new launch waits for the old transition to leave');
+    release();
+    await Promise.all([old, current]);
+    await settle();
+    assert.equal(t.containers.size, 1);
+    assert.equal(t.state.nextId, 1, 'only the current launch runs a container');
+    assert.equal(minted, phase === 'cleanup environment' ? 1 : 2);
+    assert.equal(t.last().state, 'ready');
+    assert.ok(!t.events.includes('rm c1'));
+    await t.worker.stop();
+  });
+}
+
+test('an overtaken stop finishes its cleanup before the newer launch and leaves its checks intact', async () => {
+  let release, entered;
+  const gate = new Promise(resolve => { release = resolve; });
+  const blocked = new Promise(resolve => { entered = resolve; });
+  const t = raceSetup({onStop: async () => { entered(); await gate; }});
+  await t.worker.start();
+  await settle();
+  const stopping = t.worker.stop();
+  await blocked;
+  const current = t.worker.start();
+  await settle();
+  assert.equal(t.state.nextId, 1, 'the new launch waits for the old stop');
+  release();
+  await Promise.all([stopping, current]);
+  await settle();
+  assert.equal(t.last().state, 'ready');
+  assert.deepEqual([...t.containers.values()].map(entry => entry.id), ['c2']);
+  assert.ok(t.events.includes('rm c1'));
+  assert.ok(!t.events.includes('rm c2'));
+  await t.worker.stop();
 });
 
 test('a removal that failed stays queued and is retried until it succeeds, then dropped', async () => {
