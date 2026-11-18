@@ -72,10 +72,10 @@ repository. To have the local NanoAgent publish plugin packages too, set
 each one does and run its tasks. A `NANOAGENT_PLUGINS_DIR` that is missing or
 holds no plugin stops the launch.
 
-Benchmark runs need a worker. `npm start` runs one in a container built from
-your NanoAgent checkout when Docker is running and `OPENROUTER_API_KEY` is in
-`.env`, and otherwise says why it did not; the first start also builds the
-image and pulls toolchain images. It claims the root account's runs
+Benchmark runs need a worker. `npm start` runs one from your NanoAgent
+checkout's `.venv` when `OPENROUTER_API_KEY` is in `.env`, and otherwise says
+why it did not; its sandboxes are microVMs, so nothing else is needed (the
+first start pulls toolchain images and builds the guest tools). It claims the root account's runs
 and stops with `npm start`. See the [local worker](../nanoagent/docs/plans/uploaded-harness-benchmarks.md#local-worker)
 design.
 

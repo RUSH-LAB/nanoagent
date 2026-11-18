@@ -1,7 +1,6 @@
 """Linux integration tests: brokered tools in their own gVisor container, sharing the case workspace with the harness.
 
-    docker run --rm --init --privileged --cgroupns=private -v rush-worker-docker:/var/lib/docker rush-benchmark-worker:dev \
-        python -m pytest -p no:cacheprovider -o addopts= -m 'gvisor or not gvisor' test/uploaded/test_tool_sandbox_gvisor.py
+    .venv/bin/python -m pytest -p no:cacheprovider -m microsandbox test/uploaded/test_tool_sandbox_microsandbox.py
 
 The `workspace-tools` fixture plugin is prepared inside the pinned prep image, then its MCP server runs in the tool
 container through `docker exec -i`. A small harness polls the shared workspace volume.
@@ -23,15 +22,16 @@ import pytest
 from nanoagent.plugin.manifest import load_manifest
 from nanoagent.plugin.package import pack
 from nanoagent.uploaded.broker import PluginToolRunner
-from nanoagent.uploaded.collector import SeccheckCollector
 from nanoagent.uploaded.contract import HarnessManifest
 from nanoagent.uploaded.plugin_package import isolate, unpack_package
-from nanoagent.uploaded.sandbox import WORKSPACE, BuildSpec, CaseSpec, DockerSandboxSupervisor, Limits, ToolContainerSpec
+from microsandbox import Sandbox
+
+from nanoagent.uploaded.sandbox import MSB, WORKSPACE, BuildSpec, CaseSpec, Limits, MicrosandboxSupervisor, ToolContainerSpec
 from nanoagent.uploaded.toolchains import resolve_dependencies, toolchain
 
-pytestmark = pytest.mark.gvisor
+pytestmark = pytest.mark.microsandbox
 
-SOCKET = os.environ.get("RUSH_SECCHECK_SOCKET", "/run/rush-gvisor/seccheck.sock")
+TOOLS = Path(os.environ.get("RUSH_WORKER_HOME", Path.home() / "rush-worker")) / "guest-tools"
 PROFILE = toolchain("python-3")
 SCRATCH = Path(os.environ.get("RUSH_WORKER_HOME", Path.home() / "rush-worker")) / "scratch"
 PLUGIN = Path(__file__).resolve().parents[1] / "plugins" / "workspace-tools"
@@ -82,12 +82,8 @@ elif request["mode"] == "busy":
 def rig():
     root = SCRATCH / f"tool-{uuid.uuid4().hex[:8]}"
     root.mkdir(parents=True)
-    collector = SeccheckCollector(SOCKET)
-    collector.start()
     isolate()
-    uv = shutil.which("uv")
-    assert uv is not None
-    supervisor = DockerSandboxSupervisor(collector=collector, uv=Path(uv))
+    supervisor = MicrosandboxSupervisor(tools=TOOLS)
     try:
         supervisor.startup(PROFILE)
         data = pack(PLUGIN)
@@ -102,7 +98,6 @@ def rig():
         manifest = HarnessManifest("h", "1", ("chat_completions",), "python-3", (), ("sh", "-c", "cp main.py /build-out/main.py"), ("main.py",), ("python", "/harness/main.py"))
         artifact = supervisor.build(BuildSpec("tb", PROFILE, manifest, source, closure, root / "build-work", Limits(wall_s=180)))
     except BaseException:
-        collector.stop()
         shutil.rmtree(root, ignore_errors=True)
         raise
 
@@ -115,7 +110,6 @@ def rig():
     r.fixtures.mkdir()
     (r.fixtures / "fx.txt").write_text("fixture text")
     yield r
-    collector.stop()
     shutil.rmtree(root, ignore_errors=True)
 
 
@@ -138,13 +132,19 @@ def runner_for(rig, name):
 
 def in_tool(name: str, script: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["docker", "exec", "--user=10001:10001", name, "python", "-c", script], capture_output=True, text=True, timeout=60, check=False
+        [str(MSB), "exec", "-u", "10001:10001", name, "--", "python", "-c", script], capture_output=True, text=True, timeout=60, check=False
     )
 
 
 def cleanup(handle, network) -> None:
     handle.close()
-    subprocess.run(["docker", "network", "rm", network.name], capture_output=True)
+
+
+def sandboxes(rig) -> set[str]:
+    async def names():
+        return {handle.name for handle in (await Sandbox.list()).sandboxes}
+
+    return rig.supervisor._loop.run(names())
 
 
 async def test_the_harness_and_a_writing_tool_share_the_workspace_in_both_directions(rig):
@@ -171,7 +171,7 @@ async def test_the_harness_and_a_writing_tool_share_the_workspace_in_both_direct
         assert set(snapshot.added) == {"from_harness.txt", "from_tool.txt"}
         assert (snapshot.directory / "from_tool.txt").read_text() == "v2"
         assert (snapshot.directory / "from_harness.txt").read_text() == "harness says v1"
-        assert subprocess.run(["docker", "inspect", "--format", "{{.State.Running}}", name], capture_output=True, text=True).stdout.strip() == "false"
+        assert name not in sandboxes(rig), "the tool VM is gone once the case is drained"
     finally:
         cleanup(handle, network)
 
@@ -206,7 +206,6 @@ print(json.dumps({
     "plugin_write": code(lambda: open("/plugin/x", "w")),
     "root_write": code(lambda: open("/rootfile", "w")),
     "network": code(connect),
-    "interfaces": sorted(os.listdir("/sys/class/net")) if os.path.isdir("/sys/class/net") else [],
     "env": sorted(k for k in os.environ if k != "GPG_KEY" and ("TOKEN" in k or "RUSH" in k or "KEY" in k or "SECRET" in k)),  # GPG_KEY is the image's public one
 }))
 """,
@@ -218,14 +217,12 @@ print(json.dumps({
         # Read-only mounts answer EROFS or, when the host folder's owner is another user, EACCES: either way the write is refused.
         for denied in ("fixture_write", "fixture_create", "plugin_write", "root_write"):
             assert seen[denied] in ("EROFS", "EACCES"), (denied, seen[denied])
-        assert seen["network"] != "ok" and seen["interfaces"] in ([], ["lo"])
-        mounts = subprocess.run(["docker", "inspect", "--format", "{{json .Mounts}}", name], capture_output=True, text=True).stdout
-        assert "request.json" not in mounts and "/rush/out" not in mounts and "/harness" not in mounts
+        assert seen["network"] != "ok"
     finally:
         cleanup(handle, network)
 
 
-async def test_cpu_counters_cover_the_harness_and_the_tool_container(rig):
+async def test_cpu_counters_cover_the_harness_and_the_tool_vm(rig):
     busy_s = 1.5
     handle, name, network = create(rig, mode="busy", cpu_seconds=busy_s)
     try:
@@ -239,7 +236,7 @@ async def test_cpu_counters_cover_the_harness_and_the_tool_container(rig):
         assert tool["identity"]["role"] == "tool" and tool["identity"]["container"] != handle.container_id
         harness_s = (harness["user_ns"] + harness["system_ns"]) / 1e9
         tool_s = (tool["user_ns"] + tool["system_ns"]) / 1e9
-        assert busy_s * 0.8 <= harness_s <= busy_s * 3, harness
+        assert busy_s * 0.8 <= harness_s <= busy_s * 3 + 5, harness  # a VM's time includes its kernel and the tracer
         assert 0 < tool_s < 10, tool
     finally:
         cleanup(handle, network)
@@ -293,12 +290,7 @@ print(json.dumps({
 '''
 
 
-def networks() -> set[str]:
-    return set(subprocess.run(["docker", "network", "ls", "--format", "{{.Name}}"], capture_output=True, text=True, check=True).stdout.split())
-
-
-async def test_the_tool_container_reaches_only_its_declared_hosts_through_the_egress_proxy(rig):
-    before = networks()
+async def test_the_tool_vm_reaches_only_its_declared_hosts_through_the_egress_proxy(rig):
     handle, name, network = create(rig, hosts=("example.com",), mode="coherence")
     try:
         assert handle.tool_proxy is not None and handle.tool_proxy.startswith("http://")
@@ -309,22 +301,21 @@ async def test_the_tool_container_reaches_only_its_declared_hosts_through_the_eg
         for refused in ("undeclared", "plain_port", "private", "metadata", "loopback"):
             assert " 403 " in seen[refused], (refused, seen[refused])
         for direct in ("direct_public", "direct_name", "direct_private"):
-            assert seen[direct] != "ok", f"{direct}: the tool container has no route but the proxy"
+            assert seen[direct] != "ok", f"{direct}: the tool VM has no route but the proxy"
         with rig.supervisor.tool_launcher(name).launch(rig.manifest, {}) as (argv, _):
             assert f"HTTPS_PROXY={handle.tool_proxy}" in argv and f"http_proxy={handle.tool_proxy}" in argv, "the plugin's own environment carries the proxy"
-        assert len(networks() - before) == 2, "the attempt network and the tool network"
     finally:
         cleanup(handle, network)
-    assert networks() == before, "the tool network goes with the case"
+    assert name not in sandboxes(rig), "the tool VM goes with the case"
 
 
 async def test_a_plugin_with_no_declared_hosts_has_no_network_at_all(rig):
     handle, name, network = create(rig, mode="coherence")
     try:
         assert handle.tool_proxy is None
-        probe = in_tool(name, "import json, os, socket\ntry:\n    socket.create_connection(('1.1.1.1', 443), timeout=3)\n    r = 'ok'\nexcept OSError as e:\n    r = type(e).__name__\nprint(json.dumps({'net': r, 'ifs': sorted(os.listdir('/sys/class/net')) if os.path.isdir('/sys/class/net') else []}))")
+        probe = in_tool(name, "import json, os, socket\ntry:\n    socket.create_connection(('1.1.1.1', 443), timeout=3)\n    r = 'ok'\nexcept OSError as e:\n    r = type(e).__name__\nprint(json.dumps({'net': r}))")
         seen = json.loads(probe.stdout)
-        assert seen["net"] != "ok" and seen["ifs"] in ([], ["lo"])
+        assert seen["net"] != "ok"
         with rig.supervisor.tool_launcher(name).launch(rig.manifest, {}) as (argv, _):
             assert not any(part.startswith(("HTTPS_PROXY", "https_proxy")) for part in argv)
     finally:

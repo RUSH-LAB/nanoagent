@@ -6,7 +6,7 @@ Run on the host (the worker runs in the worker container, see support.py):
 
 Every case goes through the CLI steps: step 1 publishes the probe case set (the harness's own manifest names its toolchain), step 2 submits a source
 (a fixture folder or a hand-made ZIP) and follows the run, step 3 reads the stored trace. One real worker with the real
-toolchain images, offline builds and gVisor sandboxes serves them all; the package registries are local mocks generated from
+toolchain images, offline builds and microVM sandboxes serves them all; the package registries are local mocks generated from
 the fixtures' lockfiles (registries.py). No fixture calls a model, so the scripted upstream must never be reached.
 """
 
@@ -44,11 +44,10 @@ from support import Cli, Worker  # noqa: E402
 
 from nanoagent.plugin.package import pack  # noqa: E402
 
-pytestmark = [pytest.mark.gvisor, pytest.mark.uploaded_acceptance]
+pytestmark = [pytest.mark.microsandbox, pytest.mark.uploaded_acceptance]
 
 PROBE = NANOAGENT / "test" / "plugins" / "acceptance-probe"
 SUITE = "source-support-probe"
-SOCKET = "/run/rush-gvisor/seccheck.sock"
 FIXTURES = {
     "python_local": "python-3",
     "cpp": "cpp-20",
@@ -134,7 +133,6 @@ def rig() -> Iterator[Rig]:
             base_url=f"http://{support.HOST}:{server.base_url.rsplit(':', 1)[1]}",
             upstream=handle.base_url.replace("127.0.0.1", support.HOST),
             index=indexes["python-3"],
-            socket=SOCKET,
             scratch=f"{worker.home}/scratch",
         )
         first = f"    python-3: {indexes['python-3']}\n"

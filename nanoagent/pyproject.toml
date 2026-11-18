@@ -56,9 +56,6 @@ dependencies = [
     # Makes jsonschema's `uri` format check real (it is silently skipped without an RFC 3986
     # validator); the uploaded-harness wire schema relies on it (nanoagent.uploaded.contract).
     "rfc3986-validator",
-    # Decodes gVisor's seccheck trace frames in the uploaded-harness process collector
-    # (nanoagent.uploaded.collector). The generated modules under uploaded/seccheck need >= 7.35.1.
-    "protobuf>=7.35.1,<8",
     # Imported directly by the plugin runtime and the uploaded-harness services (nanoagent.uploaded). The floor is the one `mcp`
     # already requires, so it adds no constraint.
     "anyio>=4.5",
@@ -68,6 +65,9 @@ dependencies = [
     "httpx>=0.27",
     "starlette>=0.41",
     "uvicorn>=0.30",
+    # The uploaded-harness worker's sandboxes: one microVM per build, case and tool server (nanoagent.uploaded.sandbox),
+    # on macOS, Linux and Windows, with no Docker. Pinned: its network policy and exec API are what the sandbox relies on.
+    "microsandbox==0.7.15",
 ]
 authors = [
     {name = "Zeyu Yang"},
@@ -147,8 +147,6 @@ nanoagent = ["py.typed", "configs/*.yaml", "configs/tools/*.yaml", "web/schema/*
 
 [tool.ruff]
 line-length = 150
-# protoc output: its imports register descriptor dependencies, so lint fixes must not touch it.
-extend-exclude = ["src/nanoagent/uploaded/seccheck/*_pb2.py", "src/nanoagent/uploaded/seccheck/*_pb2.pyi"]
 
 [tool.ruff.lint]
 # Pinned, not inherited: ruff's default selection has widened across releases, so an unpinned
@@ -164,7 +162,7 @@ testpaths = ["test"]
 norecursedirs = ["plugins"]
 # The external-harness acceptance tiers run locally and before benchmark releases, not on every run:
 #   pytest test/acceptance/benchmark -m "acceptance or harness_claude or harness_codex or harness_pi or harness_dsh"
-addopts = "-m 'not harness_claude and not harness_codex and not harness_pi and not harness_dsh and not gvisor and not rush_server and not uploaded_acceptance and not real_openrouter'"
+addopts = "-m 'not harness_claude and not harness_codex and not harness_pi and not harness_dsh and not microsandbox and not rush_server and not uploaded_acceptance and not real_openrouter'"
 markers = [
     "acceptance: benchmark acceptance tests against the scripted mock provider, NanoAgent only (no external binary)",
     "harness_claude: acceptance tests that need the local `claude` binary",
@@ -172,7 +170,7 @@ markers = [
     "harness_pi: acceptance tests that need node and a built js/pi-runner/dist",
     "harness_dsh: acceptance tests that need npx and the pinned @deepseek-ai/dsh package",
     "rush_server: smoke tests that start the real RUSH server (helpinghands) on a scratch PostgreSQL database; run with -m rush_server",
-    "uploaded_acceptance: uploaded-harness CLI acceptance: the CLI steps against a real RUSH server and a worker in the benchmark worker image (deploy/gvisor); run on the host with -m uploaded_acceptance",
+    "uploaded_acceptance: uploaded-harness CLI acceptance: the CLI steps against a real RUSH server and a worker on this machine (microsandbox); run with -m uploaded_acceptance",
     "real_openrouter: the real uploaded-harness CLI benchmark against live OpenRouter (spends money; needs OPENROUTER_API_KEY in the repository .env); run with -m real_openrouter",
-    "gvisor: Linux integration tests that need Docker with the runsc-rush runtime and a running collector (deploy/gvisor)",
+    "microsandbox: integration tests that boot real sandbox microVMs on this machine (macOS on Apple silicon, or Linux with /dev/kvm)",
 ]

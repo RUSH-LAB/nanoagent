@@ -27,7 +27,7 @@ from scripted import ANSWER, Session, session, turn
 from nanoagent.plugin.package import pack
 from nanoagent.uploaded.client import BenchmarkClient
 
-pytestmark = [pytest.mark.gvisor, pytest.mark.uploaded_acceptance]
+pytestmark = [pytest.mark.microsandbox, pytest.mark.uploaded_acceptance]
 
 PROBE = support.NANOAGENT / "test" / "plugins" / "acceptance-probe"
 NS = 1_000_000_000

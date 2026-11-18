@@ -24,13 +24,13 @@ from nanoagent.uploaded.rush_worker import (
     RushWorkerClient,
     Sealed,
 )
-from nanoagent.uploaded.dockercli import DockerResult
+from nanoagent.uploaded import sandbox as sandbox_module
 from nanoagent.uploaded.sandbox import reap_leftovers
-from nanoagent.uploaded.worker import Machine, WorkerConfigError, machine_of
+from nanoagent.uploaded.worker import Machine, machine_of
 from slimconfig import load_config
 
 MACHINE = Machine(cpus=8, memory_bytes=16 << 30)
-DEPLOY = Path(__file__).resolve().parents[2] / "deploy" / "gvisor"
+DEPLOY = Path(__file__).resolve().parents[2] / "deploy" / "worker"
 
 
 async def no_sleep(_: float) -> None:
@@ -256,24 +256,11 @@ def test_configured_maxima_only_lower_what_the_machine_has(tmp_path: Path) -> No
     assert small["build_memory_mb"] == 2048
 
 
-class ScriptedDocker:
-    def __init__(self, listings: dict[str, str], info: str = "", returncode: int = 0) -> None:
-        self.listings, self.info, self.returncode, self.calls = listings, info, returncode, []
+def test_machine_is_this_computers_cpus_and_physical_memory() -> None:
+    import os
 
-    def run(self, args: Any, **_: Any) -> DockerResult:
-        self.calls.append(list(args))
-        if args[0] == "info":
-            return DockerResult(self.returncode, self.info.encode(), b"boom")
-        kind = "container" if args[0] == "ps" else args[0]
-        return DockerResult(self.returncode, self.listings.get(kind, "").encode() if args[-2] == "--format" or "--format" in args else b"", b"boom")
-
-
-def test_machine_is_read_from_docker_info() -> None:
-    assert machine_of(ScriptedDocker({}, info='{"NCPU": 6, "MemTotal": 8589934592}')) == Machine(6, 8 << 30)
-    with pytest.raises(WorkerConfigError, match="NCPU"):
-        machine_of(ScriptedDocker({}, info="{}"))
-    with pytest.raises(WorkerConfigError, match="docker info failed"):
-        machine_of(ScriptedDocker({}, returncode=1))
+    machine = machine_of()
+    assert machine.cpus == os.cpu_count() and machine.memory_bytes == os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
 
 
 async def test_a_host_whose_plugin_sandbox_fails_stops_the_worker_before_it_claims(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -284,29 +271,41 @@ async def test_a_host_whose_plugin_sandbox_fails_stops_the_worker_before_it_clai
     def refuse(_root: Path) -> None:
         raise RuntimeError(refused)
 
-    monkeypatch.setattr(worker, "CliDockerRunner", lambda: ScriptedDocker({}, info='{"NCPU": 8, "MemTotal": 17179869184}'))
     monkeypatch.setattr(worker, "isolate", lambda: None)
     monkeypatch.setattr(worker.sandbox, "check", refuse)
-    monkeypatch.setattr(worker, "SeccheckCollector", lambda _socket: pytest.fail("the collector started"))
+    monkeypatch.setattr(worker, "MicrosandboxSupervisor", lambda **_: pytest.fail("a sandbox was started"))
     monkeypatch.setattr(worker, "RushWorkerClient", lambda *_: pytest.fail("RUSH was contacted"))
     with pytest.raises(RuntimeError) as raised:
         await worker.serve(_config(tmp_path), {"RUSH_WORKER_TOKEN": "t", "OPENROUTER_API_KEY": "k"})
     assert str(raised.value) == refused
 
 
-def test_reaping_removes_only_names_starting_with_rush_dash() -> None:
-    docker = ScriptedDocker({"container": "rush-case-1\nnot-rush-case\nmyrush-x\n", "network": "bridge\nrush-net-a\n", "volume": "rush-ws-1\nrush-out-1\nother\n"})
-    reaped = reap_leftovers(docker)
-    assert reaped == [("container", "rush-case-1"), ("network", "rush-net-a"), ("volume", "rush-ws-1"), ("volume", "rush-out-1")]
-    removals = [call for call in docker.calls if call[0] in ("rm",) or call[:2] in (["network", "rm"], ["volume", "rm"])]
-    assert removals == [["rm", "-f", "-v", "rush-case-1"], ["network", "rm", "rush-net-a"], ["volume", "rm", "-f", "rush-ws-1"], ["volume", "rm", "-f", "rush-out-1"]]
+async def test_reaping_removes_only_sandboxes_whose_names_start_with_rush_dash(monkeypatch: pytest.MonkeyPatch) -> None:
+    killed: list[str] = []
+    removed: list[str] = []
 
+    class Handle:
+        def __init__(self, name: str) -> None:
+            self.name = name
 
-def test_reaping_fails_clearly_when_docker_does() -> None:
-    from nanoagent.uploaded.sandbox import SandboxError
+        async def kill(self) -> None:
+            killed.append(self.name)
 
-    with pytest.raises(SandboxError, match="reap_failed"):
-        reap_leftovers(ScriptedDocker({}, returncode=1))
+    class Page:
+        sandboxes = [Handle("rush-case-1"), Handle("not-rush-case"), Handle("myrush-x"), Handle("rush-tool-a")]
+
+    class FakeSandbox:
+        @staticmethod
+        async def list() -> Page:
+            return Page()
+
+        @staticmethod
+        async def remove(name: str) -> None:
+            removed.append(name)
+
+    monkeypatch.setattr(sandbox_module, "Sandbox", FakeSandbox)
+    assert await reap_leftovers() == ["rush-case-1", "rush-tool-a"]
+    assert killed == removed == ["rush-case-1", "rush-tool-a"]
 
 
 def test_the_worker_has_no_other_key_path(tmp_path: Path) -> None:

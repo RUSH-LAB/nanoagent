@@ -52,7 +52,7 @@ from nanoagent.plugin.package import pack  # noqa: E402
 from nanoagent.plugin.tasks import task_prompt  # noqa: E402
 from nanoagent.uploaded.client import BenchmarkClient, BenchmarkError  # noqa: E402
 
-pytestmark = [pytest.mark.gvisor, pytest.mark.uploaded_acceptance]
+pytestmark = [pytest.mark.microsandbox, pytest.mark.uploaded_acceptance]
 
 REF, NOREF, EGRESS = "probe-ref", "probe-noref", "probe-egress"
 HOSTS = ("api.example.com", "data.example.org")
@@ -607,7 +607,7 @@ def test_the_harness_reaches_the_public_internet_only_when_the_run_allows_it(evi
     # Internet on: a public address answers; the attempt's own relay does either way; cloud metadata and private ranges never.
     assert on["probes"] == {"public": True, "relay": True, "metadata": False, "private": False}
     assert off["probes"] == {"public": False, "relay": True, "metadata": False, "private": False}
-    # The host filter, and the tool container's declared-host egress, are proven by the worker's own gVisor tests (see the report).
+    # The host filter, and the tool container's declared-host egress, are proven by the worker's own microsandbox tests (see the report).
     assert evidence.runs["net-on"]["unverified_egress"] is True and evidence.runs["net-off"]["unverified_egress"] is False
 
 

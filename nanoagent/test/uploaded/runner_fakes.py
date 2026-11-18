@@ -180,10 +180,7 @@ class FakeNetwork:
     def __init__(self, name: str, internet: bool = False) -> None:
         self.name = name
         self.internet = internet
-        self.removed = False
-
-    def remove(self) -> None:
-        self.removed = True
+        self.ports: list[int] = []
 
 
 def evidence(complete: bool = True, reasons: tuple[str, ...] = ()) -> ProcessEvidence:

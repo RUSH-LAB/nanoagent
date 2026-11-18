@@ -1,20 +1,24 @@
 """Pieces of the recovery-and-access acceptance test: members and workspaces on a scratch RUSH server, the worker API as a
-direct client (for the faults only a hand-driven worker can inject), server-sent events read by hand, and the worker in the worker container
+direct client (for the faults only a hand-driven worker can inject), server-sent events read by hand, and the worker on this machine
 with signals and cleanup."""
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import os
+import signal
 import time
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
+from microsandbox import Sandbox
 
 from nanoagent.uploaded.client import sse_frames
 from rush_server import RushServer, psql, sign_in
-from support import HOST, Worker, inside
+from support import HOST, Worker
 
 # What a hand-driven worker offers: the defaults of a run's limits, with no internet access.
 CAPABILITIES = {
@@ -149,20 +153,27 @@ def read_stream(member: Member, attempt: str, after: int, *, stop_after: int | N
 
 
 def signal_worker(worker: Worker, name: str) -> None:
-    """Send ``name`` (STOP, CONT, KILL) to the worker process in the worker container (its pid is the launcher's: the script execs the worker)."""
-    done = inside("bash", "-c", f"kill -{name} $(cat {worker.pidfile})")
-    assert done.returncode == 0, done.stderr
+    """Send ``name`` (STOP, CONT, KILL) to the worker process."""
+    os.kill(worker.pid, getattr(signal, f"SIG{name}"))
 
 
 def remove_attempt_leftovers(attempt: str) -> None:
-    """What a killed worker leaves in the worker container for ``attempt``: its containers, volumes and network."""
-    inside("bash", "-c", f"docker ps -aq --filter label=rush.attempt={attempt} | xargs -r docker rm -f; docker ps -aq --filter name={attempt} | xargs -r docker rm -f", timeout=180)
-    inside("bash", "-c", f"docker volume ls -q --filter name={attempt} | xargs -r docker volume rm -f; docker network rm rush-net-{attempt}", timeout=180)
+    """What a killed worker leaves for ``attempt``: its sandboxes."""
+
+    async def remove() -> None:
+        for handle in (await Sandbox.list()).sandboxes:
+            if attempt in handle.name:
+                await handle.kill()
+                await Sandbox.remove(handle.name)
+
+    asyncio.run(remove())
 
 
 def attempt_containers(attempt: str) -> list[str]:
-    done = inside("bash", "-c", f"docker ps -aq --filter label=rush.attempt={attempt}", timeout=120)
-    return done.stdout.split()
+    async def names() -> list[str]:
+        return [handle.name for handle in (await Sandbox.list_with(labels={"rush.attempt": attempt})).sandboxes]
+
+    return asyncio.run(names())
 
 
 def wait_until(check: Any, what: str, timeout: float, interval: float = 0.5) -> Any:

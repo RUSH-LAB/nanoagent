@@ -31,7 +31,7 @@
  * relay has a request of RUSH's going, a held run included: the app updates itself only while it
  * is not (desktop/src-tauri/src/update.rs). SIGTERM stops every connection, cleanly.
  *
- * Each connection also runs the member's benchmark worker (worker.mjs) in a container on their Docker, its checks starting
+ * Each connection also runs the member's benchmark worker (worker.mjs), NanoAgent's own process, its checks starting
  * with the connection: its state goes to the relay, so to RUSH and the Benchmark screens, its log is logs/worker.log, and a
  * change of the OpenRouter key in the settings restarts it (applyKeys). It is stopped when the connection ends.
  *
@@ -52,7 +52,7 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import {fileURLToPath} from 'node:url';
-import {benchmarkWorker, queueRemoval, retryRemovals} from './worker.mjs';
+import {benchmarkWorker} from './worker.mjs';
 
 const NANOAGENT_TIMEOUT_MS = 60_000;
 const STOP_TIMEOUT_MS = 10_000;
@@ -499,8 +499,6 @@ async function main() {
   const bin = path.join(root, 'bin');
   const nanoagent = path.join(root, 'nanoagent');
   const connectionsFolder = path.join(data, 'connections');
-  // Connections whose container and volumes are still to be removed: kept on disk, as Docker may be down when a connection ends.
-  const pendingRemovals = path.join(data, 'pending-removals.json');
   /** Open `page` in the member's browser; when that cannot be done, the log has the page. */
   const openPage = page => {
     const [program, ...args] = platform.open();
@@ -607,17 +605,6 @@ async function main() {
     }
   }
 
-  // The member's own PATH and Docker variables, which find docker where their terminal does: asked once, when the first worker needs
-  // them, and again after a failure, which fails the check that needed it.
-  let memberDockerVars = null;
-  const dockerEnv = async () => {
-    memberDockerVars ??= shellVars(os.userInfo().shell, ['PATH', ...DOCKER_VARS]).catch(error => {
-      memberDockerVars = null;
-      throw new Error(`Could not read your terminal's PATH, where docker is found: ${error.message}`);
-    });
-    return {...system, ...await memberDockerVars};
-  };
-
   /** The connection's worker (worker.mjs): started with the connection, its state told to its relay. */
   function startWorker(connection, logs) {
     const {id, folder, settingsFile} = connection;
@@ -632,7 +619,6 @@ async function main() {
       }
     };
     connection.worker = benchmarkWorker({
-      id,
       site: connection.site,
       device: os.hostname(),
       product: config.product_name,
@@ -641,7 +627,10 @@ async function main() {
       readConcurrency: () => readConcurrency(path.join(folder, 'worker.json')),
       writeConcurrency: value => writeConcurrency(path.join(folder, 'worker.json'), value),
       readSession,
-      dockerEnv,
+      python: venvPython(nanoagent),
+      nanoagent,
+      folder,
+      system,
       report: snapshot => {
         connection.workerState = snapshot;
         tellRelay(connection, {worker: snapshot});
@@ -685,8 +674,7 @@ async function main() {
     fs.mkdirSync(connectionsFolder, {recursive: true, mode: 0o700});
     fs.mkdirSync(path.join(data, 'logs'), {recursive: true});
     await stopLeftovers();
-    for (const id of removeOtherSites(data, config)) queueRemoval(pendingRemovals, id);
-    await removePending(true);
+    removeOtherSites(data, config);
     const {shell} = os.userInfo();
     // Not awaited: the member's shell may take a while to say its PATH, and NanoAgent need not wait for it.
     installCommand({home: os.homedir(), root, config, shell, windows: WINDOWS, readPath: () => memberPath(shell)});
@@ -717,13 +705,6 @@ async function main() {
     }
   }
 
-  /** Try the removals still queued: a failure stays queued for the next pass, and is logged when `report` is set. */
-  async function removePending(report) {
-    for (const {id, error} of await retryRemovals(pendingRemovals, {dockerEnv, present: new Set(installedConnections().keys())})) {
-      if (report) log(`Benchmark worker: ${error.message}`, id);
-    }
-  }
-
   /** The connections on this computer: id to what its `installed` file says. */
   function installedConnections() {
     const present = new Map();
@@ -738,18 +719,12 @@ async function main() {
   /** Start the connections that are new, written again, or due to start again after failing; stop the removed ones. */
   async function watch() {
     const present = installedConnections();
-    // Removals that failed before (Docker down) are tried again, quietly: a connection's own first try is logged.
-    await removePending(false);
-    let removed = false;
     for (const [id, connection] of connections) {
       if (present.has(id)) continue;
-      removed = true;
       connections.delete(id);
       log(`Removed from this computer; stopping.`, id);
       await stopConnection(connection);
-      queueRemoval(pendingRemovals, id);
     }
-    if (removed) await removePending(true);
     for (const [id, installed] of present) {
       let connection = connections.get(id);
       if (connection && connection.installed !== installed) {
@@ -965,7 +940,6 @@ export function pathAdvice(shell, windows) {
   return `add this line to ${file}: export PATH="$HOME/.local/bin:$PATH"`;
 }
 
-const DOCKER_VARS = ['DOCKER_HOST', 'DOCKER_CONTEXT', 'DOCKER_CONFIG'];
 
 /**
  * The variables `names` the member's terminal has that are set: on macOS their login `shell`'s once their startup files have

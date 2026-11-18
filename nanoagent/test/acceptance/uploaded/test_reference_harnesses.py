@@ -41,7 +41,7 @@ from nanoagent.plugin.package import pack  # noqa: E402
 from nanoagent.uploaded.client import BenchmarkClient  # noqa: E402
 from nanoagent.uploaded.contract import contains_first_prompt  # noqa: E402
 
-pytestmark = [pytest.mark.gvisor, pytest.mark.uploaded_acceptance]
+pytestmark = [pytest.mark.microsandbox, pytest.mark.uploaded_acceptance]
 
 PLUGIN = "probe-ref"
 # harness folder -> (the dialect it speaks, the mock's action renderer for it)
@@ -110,7 +110,6 @@ def run_harness(name: str, rush: RushServer, benchmark: tuple[str, Path, Cli]) -
                 base_url=f"http://{support.HOST}:{rush.base_url.rsplit(':', 1)[1]}",
                 upstream=handle.base_url.replace("127.0.0.1", support.HOST),
                 index="https://pypi.org/simple",
-                socket=gate.SOCKET,
                 scratch=f"{worker.home}/scratch",
             )
         )

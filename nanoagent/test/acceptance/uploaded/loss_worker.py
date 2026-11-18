@@ -1,5 +1,5 @@
-"""The real worker with one test seam: a file appearing at $RUSH_LOSE_COLLECTOR_FILE stops its process collector, as a
-crash of the collector would, so the acceptance test can force a loss while a case is running.
+"""The real worker with one test seam: a file appearing at $RUSH_LOSE_COLLECTOR_FILE kills the tracer of the running case, as a
+crash of the tracer would, so the acceptance test can force a loss while a case is running.
 
     python loss_worker.py config=<yaml> home=<folder>
 """
@@ -9,23 +9,22 @@ import threading
 import time
 from pathlib import Path
 
-from nanoagent.uploaded import worker
-from nanoagent.uploaded.collector import SeccheckCollector
+from nanoagent.uploaded import sandbox, worker
 
 TRIGGER = Path(os.environ["RUSH_LOSE_COLLECTOR_FILE"])
-start = SeccheckCollector.start
+launch = sandbox._Case.launch
 
 
-def start_and_watch(self: SeccheckCollector) -> None:
-    start(self)
+def launch_and_watch(self: sandbox._Case) -> None:
+    launch(self)
 
     def watch() -> None:
         while not TRIGGER.exists():
             time.sleep(0.05)
-        self.stop()
+        self._run(self._sandbox.exec("sh", ["-c", "kill -KILL $(pidof strace)"], user="root", timeout=30))
 
-    threading.Thread(target=watch, name="lose-collector", daemon=True).start()
+    threading.Thread(target=watch, name="lose-tracer", daemon=True).start()
 
 
-SeccheckCollector.start = start_and_watch  # type: ignore[method-assign]
+sandbox._Case.launch = launch_and_watch  # type: ignore[method-assign]
 worker.WorkerRun().run()

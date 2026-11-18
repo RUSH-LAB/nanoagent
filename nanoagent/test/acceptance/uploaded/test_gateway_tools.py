@@ -46,7 +46,7 @@ from support import Cli  # noqa: E402
 
 from nanoagent.plugin.package import pack  # noqa: E402
 
-pytestmark = [pytest.mark.gvisor, pytest.mark.uploaded_acceptance]
+pytestmark = [pytest.mark.microsandbox, pytest.mark.uploaded_acceptance]
 
 NOTE = ("note.txt", "hello gateway")
 ANSWER = {"path": "note.txt", "bytes": 13}
@@ -520,8 +520,8 @@ STARTUP_REFUSALS = [
 
 @pytest.mark.parametrize(("name", "change", "code"), STARTUP_REFUSALS, ids=[case[0] for case in STARTUP_REFUSALS])
 def test_worker_startup_refuses_an_invalid_endpoint_profile_or_a_missing_credential(name: str, change: dict[str, Any], code: str, tmp_path: Path) -> None:
-    """The profile is validated before the worker touches Docker, the collector or the RUSH server, so this needs no container."""
-    text = support.worker_yaml(base_url="http://127.0.0.1:9", upstream=f"http://{support.HOST}:9/api/v1", index="http://127.0.0.1:9/simple", socket="/nonexistent/seccheck.sock", scratch=str(tmp_path / "scratch"))
+    """The profile is validated before the worker starts a sandbox or reaches the RUSH server, so this needs no VM."""
+    text = support.worker_yaml(base_url="http://127.0.0.1:9", upstream=f"http://{support.HOST}:9/api/v1", index="http://127.0.0.1:9/simple", scratch=str(tmp_path / "scratch"))
     text = text.replace("  mode: mock\n", f"  mode: {change['mode']}\n") if "mode" in change else text
     if "upstream" in change:
         text = text.replace(f"upstream_base_url: http://{support.HOST}:9/api/v1", f"upstream_base_url: {change['upstream']}")

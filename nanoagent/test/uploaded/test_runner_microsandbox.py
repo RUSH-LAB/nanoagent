@@ -1,7 +1,6 @@
-"""Linux integration test: the real supervisor, relay, attempt services, plugin tools and verifier, with a fake worker API.
+"""Integration test: the real supervisor and its microVMs, the relay, attempt services, plugin tools and verifier, with a fake worker API.
 
-    docker run --rm --init --privileged --cgroupns=private -v rush-worker-docker:/var/lib/docker rush-benchmark-worker:dev \
-        python -m pytest -p no:cacheprovider -o addopts= -m 'gvisor or not gvisor' test/uploaded/test_runner_gvisor.py
+    .venv/bin/python -m pytest -p no:cacheprovider -m microsandbox test/uploaded/test_runner_microsandbox.py
 
 A tiny Python harness reads its request, calls `/chat/completions` with the exact prompt through the relay, calls the
 probe plugin's `wait` tool through `/tools` with the model's `cause`, tries direct egress and writes `result.json`. The
@@ -21,21 +20,19 @@ from pathlib import Path
 import pytest
 import runner_fakes as fx
 from nanoagent.plugin.package import pack
-from nanoagent.uploaded.collector import SeccheckCollector
-from nanoagent.uploaded.dockercli import CliDockerRunner
 from nanoagent.uploaded.endpoint import EndpointProfile
 from nanoagent.uploaded.plugin_package import isolate
-from nanoagent.uploaded.relay import DockerRelay
+from nanoagent.uploaded.relay import HostRelay
 from nanoagent.uploaded.runner import AttemptRunner, RunnerConfig, SyncedPlugins
-from nanoagent.uploaded.sandbox import DockerSandboxSupervisor, Egress
+from nanoagent.uploaded.sandbox import MicrosandboxSupervisor
 from nanoagent.uploaded.toolchains import toolchain
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "acceptance" / "benchmark"))
 from mockllm import MockProvider, Scenario, Turn, Usage  # noqa: E402
 
-pytestmark = pytest.mark.gvisor
+pytestmark = pytest.mark.microsandbox
 
-SOCKET = os.environ.get("RUSH_SECCHECK_SOCKET", "/run/rush-gvisor/seccheck.sock")
+TOOLS = Path(os.environ.get("RUSH_WORKER_HOME", Path.home() / "rush-worker")) / "guest-tools"
 SCRATCH = Path(os.environ.get("RUSH_WORKER_HOME", Path.home() / "rush-worker")) / "scratch"
 MODEL = "test/model"
 TOKEN = "alpha"
@@ -126,25 +123,21 @@ async def test_attempt_runs_through_relay_gateway_tools_and_verifier(policy: str
     rush = Rush(source_zip())
     root = SCRATCH / f"runner-{uuid.uuid4().hex[:8]}"
     root.mkdir(parents=True)
-    collector = SeccheckCollector(SOCKET)
-    collector.start()
     scenario = Scenario(name="probe", turns=[Turn(act={"wait": 0.0}, usage=Usage(prompt=100, completion=10))])
     try:
         with MockProvider() as provider:
             handle = provider.register(scenario, harness="nanoagent", model=MODEL)
-            docker = CliDockerRunner()
-            supervisor = DockerSandboxSupervisor(docker, collector=collector, uv=Path(shutil.which("uv") or ""), egress=Egress())
+            supervisor = MicrosandboxSupervisor(tools=TOOLS, internet=True)
             supervisor.startup(toolchain("python-3"))
             endpoint = EndpointProfile("mock", "mock", handle.base_url, "MOCK_KEY", ("127.0.0.1",), "synthetic-key")
             config = RunnerConfig(
                 "image-worker", endpoint, {MODEL: (Decimal("0.000001"), Decimal("0.000004"))}, root, capabilities={**fx.CAPABILITIES, "wall_time_ms": 600_000}, drain_timeout_s=20
             )
             isolate()  # the host sandbox the verifier runs in
-            runner = AttemptRunner(config, supervisor=supervisor, worker=rush, relay=DockerRelay(docker), plugins=SyncedPlugins())  # type: ignore[arg-type]
+            runner = AttemptRunner(config, supervisor=supervisor, worker=rush, relay=HostRelay(), plugins=SyncedPlugins())  # type: ignore[arg-type]
             result = await runner.run(job)
             assert not handle.ledger.violations and len(handle.ledger.calls) == 1
     finally:
-        collector.stop()
         shutil.rmtree(root, ignore_errors=True)
 
     assert result.outcome == "finalized", result
@@ -162,8 +155,8 @@ async def test_attempt_runs_through_relay_gateway_tools_and_verifier(policy: str
     [snapshot] = rush.of("snapshot.taken")
     files = {entry["path"]: entry["sha256"] for entry in snapshot["diff"]}
     assert set(files) == {"egress.txt", *(["answer.json"] if policy == "coding" else [])}
-    expected = b"ok" if internet else b"ENETUNREACH"
-    assert files["egress.txt"] == hashlib.sha256(expected).hexdigest(), "direct egress follows internet_access"
+    reached = files["egress.txt"] == hashlib.sha256(b"ok").hexdigest()
+    assert reached is internet, "direct egress follows internet_access"
     assert final["coverage"]["status"] == "complete", final["coverage"]
     # The mock reports tokens but no cost, so the reservation is kept (uncertain) until a generation lookup could settle it.
     assert [(call, outcome) for call, outcome, _, _ in rush.settles] == [(call, "uncertain") for call in rush.admissions] and len(rush.admissions) == 1

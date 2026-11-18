@@ -74,7 +74,7 @@ async def test_answered_attempt_runs_the_whole_lifecycle_and_finalizes_once(tmp_
     expected = ["attempt.started", "case.launched", "case.exited", "case.quiesced", "snapshot.taken", "collector.health", "result.read"]
     assert [kind for kind in kinds if kind in expected] == expected
     assert rig.verified == [{"status": "answered", "answer": {"sum": 3}}]
-    assert rig.rush.span_bodies and rig.supervisor.networks[0].removed and rig.relay.handle.closed and rig.supervisor.case.closed
+    assert rig.rush.span_bodies and rig.relay.handle.closed and rig.supervisor.case.closed
     assert rig.rush.of("attempt.started")[0]["expected_sources"] == ["worker", "gateway", "process"]
     assert not rig.rush.events_after_loss and rig.rush.sealed
 
@@ -250,7 +250,7 @@ async def test_lease_loss_with_a_model_stream_in_flight_revokes_and_keeps_the_ca
     assert rig.services[0].attempt.revoked and rig.supervisor.case.closed and rig.transport.responses[0].closed
     assert len(rig.transport.requests) == 1
     assert responses and responses[0].status_code in (200, 403)
-    assert rig.supervisor.networks[0].removed and rig.relay.handle.closed
+    assert rig.relay.handle.closed
 
 
 async def test_no_events_are_committed_after_the_seal(tmp_path: Path) -> None:
@@ -303,7 +303,7 @@ async def test_a_tool_container_launch_failure_ends_only_that_attempt_and_leaves
     result = await rig.run(fx.parse_job(fx.job_body(tools=[fx.WAIT_TOOL])))
     assert result.outcome == "platform_fault" and "start_failed" in result.execution["error"]
     assert not rig.rush.finalized and not rig.rush.sealed, "the server interrupts it when the lease expires; the worker finalizes nothing"
-    assert rig.supervisor.networks[0].removed and rig.relay.handle.closed
+    assert rig.relay.handle.closed
     assert not (tmp_path / "scratch" / fx.ATTEMPT_ID).exists()
     assert "attempt.started" in rig.rush.kinds() and "case.launched" not in rig.rush.kinds()
     renews = rig.rush.renew_attempts
@@ -315,13 +315,13 @@ async def test_a_fault_after_launch_stops_the_case_and_commits_the_process_evide
     rig = Rig(tmp_path, script=fx.CaseScript(result=RuntimeError("the result volume vanished")))
     result = await rig.run()
     assert result.outcome == "platform_fault" and "the result volume vanished" in result.execution["error"]
-    assert not rig.rush.finalized and rig.supervisor.case.closed and rig.supervisor.networks[0].removed
+    assert not rig.rush.finalized and rig.supervisor.case.closed
     assert rig.rush.of("collector.health"), "the evidence the collector had is kept on the interrupted attempt"
     assert rig.services[0].attempt.revoked
 
 
 @pytest.mark.parametrize("tools", [[], [fx.WAIT_TOOL]], ids=["coding", "task_tools"])
-async def test_a_worker_shutdown_mid_case_still_closes_the_case_and_removes_its_network_and_relay(tmp_path: Path, tools: list) -> None:
+async def test_a_worker_shutdown_mid_case_still_closes_the_case_and_its_relay(tmp_path: Path, tools: list) -> None:
     rig = Rig(tmp_path, script=fx.CaseScript(block=True))
     with anyio.fail_after(10):
         async with anyio.create_task_group() as group:
@@ -329,7 +329,7 @@ async def test_a_worker_shutdown_mid_case_still_closes_the_case_and_removes_its_
             while "case.launched" not in rig.rush.kinds():
                 await anyio.sleep(0.01)
             group.cancel_scope.cancel()  # what Ctrl-C, or another attempt's fault, does to every attempt in flight
-    assert rig.supervisor.case.closed and rig.supervisor.networks[0].removed and rig.relay.handle.closed
+    assert rig.supervisor.case.closed and rig.relay.handle.closed
 
 
 async def test_the_worker_goes_on_to_its_next_job_after_a_platform_fault(tmp_path: Path) -> None:

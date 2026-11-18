@@ -22,7 +22,6 @@ SCRIPTED = Path(__file__).resolve().parent / "harnesses" / "scripted"
 ANTHROPIC_SDK = Path(__file__).resolve().parent / "harnesses" / "anthropic_sdk"
 PLUGIN = NANOAGENT / "test" / "plugins" / "workspace-tools"
 PLUGIN_ID = "workspace-tools"
-SOCKET = "/run/rush-gvisor/seccheck.sock"
 sys.path[:0] = [str(NANOAGENT / "examples" / "uploaded_benchmark"), str(NANOAGENT / "examples" / "benchmark")]
 
 if TYPE_CHECKING:
@@ -127,7 +126,6 @@ def start_worker(
         base_url=f"http://{support.HOST}:{rush_url.rsplit(':', 1)[1]}",
         upstream=upstream.replace("127.0.0.1", support.HOST),
         index=f"http://{support.HOST}:{index}/simple",
-        socket=SOCKET,
         scratch=f"{worker.home}/scratch",
     )
     assert "  label: mock\n" in text

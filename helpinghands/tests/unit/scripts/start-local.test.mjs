@@ -4,9 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  BENCHMARK_WORKER_IMAGE,
-  benchmarkWorkerArgs,
-  benchmarkWorkerBuildArgs,
+  benchmarkWorkerCommand,
   benchmarkWorkerUnavailable,
   environmentFor,
   nanoagentPluginsFrom,
@@ -32,30 +30,19 @@ describe('local process supervisor configuration', () => {
     assert.equal(env.LAB_UPLOAD_TOKEN, 'local-site');
   });
 
-  it('runs the OpenRouter benchmark worker in the image against this API, its credential and key never on the command line', () => {
-    const args = benchmarkWorkerArgs(4101);
-    assert.deepEqual(args.slice(0, 2), ['run', '--rm']);
-    assert.ok(args.includes('--privileged') && args.includes('--init') && args.includes('--cgroupns=private'));
-    assert.ok(args.includes('config=/opt/nanoagent/deploy/gvisor/worker.openrouter.yaml'));
-    assert.ok(args.includes('rush.base_url=http://host.docker.internal:4101'));
-    assert.ok(args.indexOf(BENCHMARK_WORKER_IMAGE) < args.indexOf('--'), 'the worker command follows the image, its overrides the --');
-    for (const name of ['RUSH_WORKER_TOKEN', 'OPENROUTER_API_KEY']) assert.equal(args[args.indexOf(name) - 1], '-e');
-    assert.ok(!args.some(arg => /=.*(rwk_|sk-or)/.test(arg)));
+  it('runs the OpenRouter benchmark worker with the checkout\'s Python against this API, its credential and key never on the command line', () => {
+    const [program, args] = benchmarkWorkerCommand('/src/nanoagent', 4101, 'darwin');
+    assert.equal(program, '/src/nanoagent/.venv/bin/python');
+    assert.deepEqual(args.slice(0, 4), ['-I', '-m', 'nanoagent.uploaded.worker', 'config=deploy/worker/worker.openrouter.yaml']);
+    assert.ok(args.includes('rush.base_url=http://127.0.0.1:4101') && args.includes('worker_id=dev-worker'));
+    assert.ok(args.includes('scratch="/src/nanoagent/var/dev-worker/scratch"'));
+    assert.ok(!args.some(arg => /rwk_|sk-or/.test(arg)));
+    assert.equal(benchmarkWorkerCommand('C:\\n', 4101, 'win32')[0].endsWith('python.exe'), true);
   });
 
-  it('builds the image from the NanoAgent checkout', () => {
-    assert.deepEqual(benchmarkWorkerBuildArgs('/src/nanoagent'), ['build', '-t', BENCHMARK_WORKER_IMAGE, '-f', '/src/nanoagent/deploy/gvisor/Dockerfile', '/src/nanoagent']);
-  });
-
-  it('says why the benchmark worker cannot start: no OpenRouter key, no Docker, or Docker not running', () => {
-    const docker = result => ({spawnSyncImpl: (command, args) => {
-      assert.deepEqual([command, args], ['docker', ['info']]);
-      return result;
-    }});
-    assert.match(benchmarkWorkerUnavailable({OPENROUTER_API_KEY: ' '}, docker({status: 0})), /OPENROUTER_API_KEY is not in \.env or the shell/);
-    assert.match(benchmarkWorkerUnavailable({OPENROUTER_API_KEY: 'sk-or'}, docker({error: {code: 'ENOENT'}, status: null})), /docker is not installed/);
-    assert.match(benchmarkWorkerUnavailable({OPENROUTER_API_KEY: 'sk-or'}, docker({status: 1})), /docker is not running/);
-    assert.equal(benchmarkWorkerUnavailable({OPENROUTER_API_KEY: 'sk-or'}, docker({status: 0})), null);
+  it('says why the benchmark worker cannot start: no OpenRouter key', () => {
+    assert.match(benchmarkWorkerUnavailable({OPENROUTER_API_KEY: ' '}), /OPENROUTER_API_KEY is not in \.env or the shell/);
+    assert.equal(benchmarkWorkerUnavailable({OPENROUTER_API_KEY: 'sk-or'}), null);
   });
 
   it('refuses any other database URL, in .env or the shell', () => {

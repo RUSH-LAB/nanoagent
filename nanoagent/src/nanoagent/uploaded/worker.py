@@ -1,23 +1,23 @@
 """The NanoAgent worker: claims uploaded-harness benchmark jobs from RUSH and runs them.
 
-    python -m nanoagent.uploaded.worker config=deploy/gvisor/worker.openrouter.yaml [home=<run folder>]
+    python -m nanoagent.uploaded.worker config=configs/benchmark_worker.yaml [home=<run folder>]
 
 Everything is validated before the first claim: the RUSH token and the OpenRouter key (`OPENROUTER_API_KEY`) must be in the environment, the
-endpoint profile, prices and limits must be well formed, the plugin sandbox must work and the process collector must pass
-its end-to-end self-test for every published toolchain. A claim that returns nothing (204) backs off up to
-`poll.max_idle_s`. Leftovers of a previous run (`rush-*` containers, networks and volumes) are reaped first, the advertised
-capabilities come from the machine's CPUs and memory as Docker reports them, and a RUSH that cannot be reached is waited out
-(capped exponential backoff), never fatal.
+endpoint profile, prices and limits must be well formed, the plugin sandbox must work, the guest tools must be ready and the
+tracer must pass its end-to-end self-test in every published toolchain's runtime image. A claim that returns nothing (204)
+backs off up to `poll.max_idle_s`. Leftovers of a previous run (`rush-*` sandboxes) are reaped first, the advertised
+capabilities come from this machine's CPUs and memory, and a RUSH that cannot be reached is waited out (capped exponential
+backoff), never fatal.
 """
 
 from __future__ import annotations
 
-import ipaddress
+import ctypes
 import json
 import logging
 import math
 import os
-import shutil
+import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -30,21 +30,19 @@ from omegaconf import MISSING
 from slimconfig import Config, Run
 
 from nanoagent.plugin import sandbox
-from nanoagent.uploaded.collector import SeccheckCollector
-from nanoagent.uploaded.dockercli import CliDockerRunner, DockerRunner
 from nanoagent.uploaded.endpoint import EndpointProfile, parse_endpoint
 from nanoagent.uploaded.plugin_package import isolate
 from nanoagent.uploaded.reconcile import HttpxGenerationLookup, reconcile
-from nanoagent.uploaded.relay import DockerRelay
+from nanoagent.uploaded.relay import HostRelay
 from nanoagent.uploaded.runner import AttemptRunner, RunnerConfig, SyncedPlugins
 from nanoagent.uploaded.rush_worker import AttemptJob, RushUnavailable, RushWorkerClient
-from nanoagent.uploaded.sandbox import DockerSandboxSupervisor, Egress, Limits, reap_leftovers
+from nanoagent.uploaded.sandbox import Limits, MicrosandboxSupervisor
 from nanoagent.uploaded.timing import DEFAULT_CLOCK_TOLERANCE_NS
 from nanoagent.uploaded.toolchains import TOOLCHAINS
 
 LOG = logging.getLogger(__name__)
 
-# The one place the worker's OpenRouter key comes from: the container's environment, set by RUSH Lab from the member's settings.
+# The one place the worker's OpenRouter key comes from: the worker's environment, set by RUSH Lab from the member's settings.
 OPENROUTER_KEY_ENV = "OPENROUTER_API_KEY"
 
 
@@ -136,16 +134,9 @@ class LimitsConfig(Config):
 
 @dataclass
 class EgressConfig(Config):
-    # Internet access for harness containers (a run's `limits.internet_access`). Turning it on needs the host filter of
-    # deploy/gvisor/egress.sh for this subnet; the worker proves it at startup and refuses to start without it.
+    # Internet access for harness VMs (a run's `limits.internet_access`): public addresses only. The worker proves at
+    # startup that such a VM still cannot reach this host, and refuses to start otherwise.
     enabled: bool = False
-    subnet: str = "10.213.0.0/16"
-    dns: list[str] = field(default_factory=lambda: ["1.1.1.1", "8.8.8.8"])
-
-
-@dataclass
-class CollectorConfig(Config):
-    socket: str = MISSING
 
 
 @dataclass
@@ -173,7 +164,6 @@ class WorkerConfig(Config):
     sandbox: SandboxConfig = field(default_factory=SandboxConfig)
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     egress: EgressConfig = field(default_factory=EgressConfig)
-    collector: CollectorConfig = field(default_factory=CollectorConfig)
     dependencies: DependenciesConfig = field(default_factory=DependenciesConfig)
     poll: PollConfig = field(default_factory=PollConfig)
     scratch: str = MISSING
@@ -192,28 +182,32 @@ def prices_of(raw: dict[Model, Price]) -> dict[str, tuple[Decimal, Decimal]]:
 
 @dataclass(frozen=True)
 class Machine:
-    """What the worker has: the CPUs and memory Docker sees (its VM, on Docker Desktop)."""
+    """What the worker has: this computer's CPUs and physical memory, which its sandboxes' VMs share."""
 
     cpus: int
     memory_bytes: int
 
 
-def machine_of(docker: DockerRunner) -> Machine:
-    result = docker.run(["info", "--format", "{{json .}}"], timeout_s=60)
-    if result.returncode != 0:
-        raise WorkerConfigError(f"docker info failed: {result.error_text()}")
-    try:
-        info = json.loads(result.stdout)
-        machine = Machine(int(info["NCPU"]), int(info["MemTotal"]))
-    except (ValueError, KeyError, TypeError) as error:
-        raise WorkerConfigError(f"docker info did not report NCPU and MemTotal: {error!r}") from error
+def machine_of() -> Machine:
+    if sys.platform == "win32":
+        class _Status(ctypes.Structure):
+            _fields_ = [("length", ctypes.c_ulong), ("load", ctypes.c_ulong), *[(name, ctypes.c_ulonglong) for name in (
+                "total_phys", "avail_phys", "total_page", "avail_page", "total_virtual", "avail_virtual", "avail_extended")]]
+
+        status = _Status(length=ctypes.sizeof(_Status))
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):  # type: ignore[attr-defined]
+            raise WorkerConfigError("GlobalMemoryStatusEx failed")
+        memory = int(status.total_phys)
+    else:
+        memory = os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+    machine = Machine(os.cpu_count() or 0, memory)
     if machine.cpus < 1 or machine.memory_bytes < 1:
-        raise WorkerConfigError(f"docker info reports {machine.cpus} CPUs and {machine.memory_bytes} bytes of memory")
+        raise WorkerConfigError(f"this machine reports {machine.cpus} CPUs and {machine.memory_bytes} bytes of memory")
     return machine
 
 
 def endpoint_of(config: WorkerConfig, env: dict[str, str]) -> EndpointProfile:
-    """The validated OpenRouter endpoint profile; raises before the worker touches Docker."""
+    """The validated OpenRouter endpoint profile; raises before the worker starts any sandbox."""
     block = config.openrouter
     hosts = None if block.mock_hosts is None else list(block.mock_hosts)
     profile = {"label": block.label, "mode": block.mode, "upstream_base_url": block.upstream_base_url, "api_key_env": OPENROUTER_KEY_ENV}
@@ -235,15 +229,6 @@ def runner_config(config: WorkerConfig, env: dict[str, str], machine: Machine) -
     machine_mb = machine.memory_bytes >> 20
     cpus = machine.cpus if maxima.max_cpus is None else min(machine.cpus, maxima.max_cpus)
     memory_mb = machine_mb if maxima.max_memory_mb is None else min(machine_mb, maxima.max_memory_mb)
-    if config.egress.enabled:
-        try:
-            ipaddress.ip_network(config.egress.subnet)
-            for server in config.egress.dns:
-                ipaddress.ip_address(server)
-        except ValueError as error:
-            raise WorkerConfigError(f"egress: {error}") from error
-        if not config.egress.dns:
-            raise WorkerConfigError("egress.dns must name at least one resolver")
     scratch = Path(config.scratch)
     scratch.mkdir(parents=True, exist_ok=True)
     prices = prices_of(config.prices)
@@ -270,8 +255,7 @@ async def serve(config: WorkerConfig, env: dict[str, str] | None = None) -> None
     if not token.strip():
         raise WorkerConfigError(f"environment variable {config.rush.token_env} is unset or empty")
     endpoint_of(config, env)
-    docker = CliDockerRunner()
-    machine = machine_of(docker)
+    machine = machine_of()
     LOG.info("machine: %d CPUs, %d MiB memory", machine.cpus, machine.memory_bytes >> 20)
     settings = runner_config(config, env, machine)
     isolate()
@@ -280,36 +264,28 @@ async def serve(config: WorkerConfig, env: dict[str, str] | None = None) -> None
     with tempfile.TemporaryDirectory() as probe:
         sandbox.check(Path(probe))
     LOG.info("plugin sandbox verified")
-    uv = shutil.which("uv")
-    if uv is None:
-        raise WorkerConfigError("uv is not on PATH: plugin tools are prepared and run with it")
-    collector = SeccheckCollector(config.collector.socket)
-    collector.start()
-    supervisor = DockerSandboxSupervisor(
-        docker, collector=collector, clock=lambda: time.monotonic_ns() / 1e9, wall_clock_ns=time.time_ns, uv=Path(uv),
-        egress=Egress(config.egress.subnet, tuple(config.egress.dns)) if config.egress.enabled else None,
+    supervisor = MicrosandboxSupervisor(
+        tools=settings.scratch / "guest-tools", clock=lambda: time.monotonic_ns() / 1e9, wall_clock_ns=time.time_ns, internet=config.egress.enabled,
     )
     worker = RushWorkerClient(config.rush.base_url, token)
     lookup = HttpxGenerationLookup(settings.endpoint)
     try:
-        for kind, name in reap_leftovers(docker):
-            LOG.info("reaped a leftover %s: %s", kind, name)  # a previous run quit mid-attempt
+        for name in await anyio.to_thread.run_sync(supervisor.reap):
+            LOG.info("reaped a leftover sandbox: %s", name)  # a previous run quit mid-attempt
         LOG.info("leftover reaping passed")
+        await anyio.to_thread.run_sync(supervisor.guest_tools)
+        LOG.info("guest tools ready")
         for toolchain, profile in TOOLCHAINS.items():
-            supervisor.startup(profile)  # the collector must observe a probe's exec and exit before member source runs
-            LOG.info("collector probe passed: %s", toolchain)
+            await anyio.to_thread.run_sync(supervisor.startup, profile)  # the tracer must observe a probe's exec and exit before member source runs
+            LOG.info("tracer probe passed: %s", toolchain)
         if config.egress.enabled:
-            supervisor.verify_egress()  # the advertised internet access is only offered behind the host filter
-            LOG.info("egress filter verified")
+            await anyio.to_thread.run_sync(supervisor.verify_egress)  # internet access is only offered while this host stays unreachable
+            LOG.info("egress fence verified")
         LOG.info("advertised capabilities: %s", json.dumps(settings.capabilities, sort_keys=True))
-        runner = AttemptRunner(
-            settings, supervisor=supervisor, worker=worker, relay=DockerRelay(docker),
-            plugins=SyncedPlugins(),
-        )
+        runner = AttemptRunner(settings, supervisor=supervisor, worker=worker, relay=HostRelay(), plugins=SyncedPlugins())
         async with anyio.create_task_group() as background:
             await poll(config, settings, worker, runner, lookup, background)
     finally:
-        collector.stop()
         await worker.aclose()
         await lookup.aclose()
 

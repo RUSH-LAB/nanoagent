@@ -2,8 +2,8 @@
 works task_tools attempts against the scripted mock provider: an agent task, and a decide task.
 
 Everything goes through the CLI steps with the real worker in the worker container: the worker builds the assembled source offline from
-its hashed lock (the dependency registry is PyPI's, read-only and hash-verified, as deploy/gvisor/worker.openrouter.yaml does),
-runs it in gVisor against the attempt's gateway and tool broker, and the plugin's task verifier judges the result.
+its hashed lock (the dependency registry is PyPI's, read-only and hash-verified, as deploy/worker/worker.openrouter.yaml does),
+runs it in a microVM against the attempt's gateway and tool broker, and the plugin's task verifier judges the result.
 
     .venv/bin/python -m pytest test/acceptance/uploaded/test_nanoagent_harness.py -m uploaded_acceptance
 """
@@ -41,7 +41,7 @@ from nanoagent.plugin.package import pack  # noqa: E402
 from nanoagent.plugin.tasks import decide_prompt, task_prompt  # noqa: E402
 from nanoagent.uploaded.client import BenchmarkClient  # noqa: E402
 
-pytestmark = [pytest.mark.gvisor, pytest.mark.uploaded_acceptance]
+pytestmark = [pytest.mark.microsandbox, pytest.mark.uploaded_acceptance]
 
 AGENT, DECIDE = "na-agent", "na-decide"
 PYPI = "https://pypi.org/simple"
@@ -110,7 +110,6 @@ def evidence(rush: RushServer) -> Iterator[Evidence]:
                 base_url=f"http://{support.HOST}:{rush.base_url.rsplit(':', 1)[1]}",
                 upstream=handle.base_url.replace("127.0.0.1", support.HOST),
                 index=PYPI,
-                socket=gate.SOCKET,
                 scratch=f"{worker.home}/scratch",
             )
         )

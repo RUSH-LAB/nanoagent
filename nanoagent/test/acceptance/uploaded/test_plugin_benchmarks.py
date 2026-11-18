@@ -62,7 +62,7 @@ from nanoagent.plugin.tasks import task_prompt  # noqa: E402
 from nanoagent.uploaded.client import BenchmarkClient, BenchmarkError  # noqa: E402
 from nanoagent.uploaded.reference import build_reference  # noqa: E402
 
-pytestmark = [pytest.mark.gvisor, pytest.mark.uploaded_acceptance]
+pytestmark = [pytest.mark.microsandbox, pytest.mark.uploaded_acceptance]
 
 PLUGIN = "bench-probe"
 HARNESS = "bench-loop"

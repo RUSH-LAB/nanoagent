@@ -1,11 +1,9 @@
 """Pieces of the uploaded-harness CLI acceptance tests: the pinned NanoAgent source, the mocked dependency registry, the
-CLI steps as subprocesses and the real worker running in the benchmark worker image.
+CLI steps as subprocesses and the real worker running on this machine.
 
-Hosts and ports: the RUSH server, the scripted OpenRouter upstream and the dependency index all listen on the host's
-loopback; the container reaches them as `host.docker.internal`. The worker, its gVisor sandboxes and the process collector run in
-one long-lived container of the image (`rush-benchmark-worker:dev`, built as deploy/gvisor/Dockerfile says; `RUSH_WORKER_IMAGE`
-names another) and each worker is a `docker exec` in it. The checkout, and so everything under `build/`, is mounted read-only at
-the same path there. The container is left running between runs (it keeps its inner image cache); `docker rm -f` it to stop it.
+Hosts and ports: the RUSH server, the scripted OpenRouter upstream and the dependency index all listen on this machine's
+loopback, where the worker reaches them. Each worker is this Python running `nanoagent.uploaded.worker`; its sandboxes are
+microVMs (microsandbox), so the machine needs what microsandbox needs: Apple silicon, or Linux with /dev/kvm.
 """
 
 from __future__ import annotations
@@ -14,8 +12,10 @@ import hashlib
 import http.server
 import json
 import os
+import platform
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -37,10 +37,10 @@ SCRATCH = NANOAGENT / "build" / "uploaded_acceptance"
 OUTPUTS = NANOAGENT / "outputs" / "uploaded_acceptance"
 # Everything a run of this suite keeps (logs, step outputs, traces, comparisons, worker logs): one folder per module, never emptied.
 FINAL = OUTPUTS / "final"
-IMAGE = os.environ.get("RUSH_WORKER_IMAGE", "rush-benchmark-worker:dev")
-CONTAINER = "rush-acceptance-worker"
-WORKER_HOME = "/home/rush/rush-worker"
-HOST = "host.docker.internal"
+WORKER_HOME = SCRATCH / "workers"
+# The worker's guest tools (static strace, uv), built once and kept between runs.
+GUEST_TOOLS = NANOAGENT / "build" / "guest-tools"
+HOST = "127.0.0.1"
 MODEL = "test/model"
 # What the plugin's reference tool and the scripted answer both compute for the probe's first case.
 TOKEN = "alpha"
@@ -157,58 +157,27 @@ class Cli:
 # -- the worker in the container --------------------------------------------------------------------------------------
 
 
-def docker(*args: str, timeout: float = 120) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
-
-
-def inside(*command: str, timeout: float = 120) -> subprocess.CompletedProcess[str]:
-    """``command`` in the worker container, as the worker's own user."""
-    return docker("exec", "-u", "rush", CONTAINER, *command, timeout=timeout)
-
-
 def container_unavailable() -> str | None:
-    """Why the worker container cannot run here, or None once it is running with dockerd and the egress filter up."""
-    if shutil.which("docker") is None:
-        return "docker is not installed"
-    if docker("info", timeout=60).returncode != 0:
-        return "docker is not running (docker info failed)"
-    image = docker("image", "inspect", "--format", "{{.Id}}", IMAGE)
-    if image.returncode != 0:
-        return f"the image {IMAGE} is not built: docker buildx build --load -t {IMAGE} -f deploy/gvisor/Dockerfile . (from nanoagent/)"
-    current = docker("inspect", "--format", "{{.Image}}", CONTAINER)
-    if current.returncode == 0 and current.stdout.strip() != image.stdout.strip():
-        docker("rm", "-f", CONTAINER, timeout=180)  # built again since it started
-    if docker("inspect", "--format", "{{.State.Running}}", CONTAINER).stdout.strip() != "true":
-        docker("rm", "-f", CONTAINER, timeout=180)
-        started = docker(
-            "run", "-d", "--init", "--privileged", "--cgroupns=private", "--name", CONTAINER,
-            "--add-host", "host.docker.internal:host-gateway",
-            "-v", "rush-acceptance-docker:/var/lib/docker", "-v", f"rush-acceptance-home:{WORKER_HOME}",
-            "-v", f"{NANOAGENT}:{NANOAGENT}:ro", IMAGE, "sleep", "infinity",
-        )  # fmt: skip
-        if started.returncode != 0:
-            return f"could not start {CONTAINER}: {started.stderr.strip()}"
-    # The entrypoint hands over to `sleep` once dockerd is up and the egress filter installed.
-    deadline = time.monotonic() + 180
-    while inside("pgrep", "-x", "sleep").returncode != 0:
-        if time.monotonic() > deadline:
-            return f"{CONTAINER} did not come up in 180s:\n{docker('logs', '--tail', '40', CONTAINER).stdout}"
-        time.sleep(1)
-    return None
+    """Why the worker's sandboxes cannot run here, or None: microsandbox boots microVMs with Apple's Hypervisor framework
+    (Apple silicon) or KVM (Linux)."""
+    if sys.platform == "darwin":
+        return None if platform.machine() == "arm64" else "microsandbox needs a Mac with Apple silicon"
+    if sys.platform.startswith("linux"):
+        return None if os.access("/dev/kvm", os.R_OK | os.W_OK) else "microsandbox needs /dev/kvm"
+    return f"the acceptance suite does not run on {sys.platform}"
 
 
-def worker_yaml(*, base_url: str, upstream: str, index: str, socket: str, scratch: str, egress: bool = False, models: tuple[str, ...] = ()) -> str:
-    """deploy/gvisor/worker.mock.yaml with this run's endpoints; ``egress`` turns on internet access for harnesses (the worker then
-    advertises it and proves the host filter of deploy/gvisor/egress.sh at startup); ``models`` are priced beside ``test/model``, at its
-    rates (the worker advertises every model it prices, and the server refuses a benchmark for any other)."""
-    text = (NANOAGENT / "deploy" / "gvisor" / "worker.mock.yaml").read_text()
+def worker_yaml(*, base_url: str, upstream: str, index: str, scratch: str, egress: bool = False, models: tuple[str, ...] = ()) -> str:
+    """deploy/worker/worker.mock.yaml with this run's endpoints; ``egress`` turns on internet access for harnesses (the worker then
+    advertises it and proves its fence at startup); ``models`` are priced beside ``test/model``, at its rates (the worker advertises
+    every model it prices, and the server refuses a benchmark for any other)."""
+    text = (NANOAGENT / "deploy" / "worker" / "worker.mock.yaml").read_text()
     for old, new in (
-        ("scratch: /home/worker/rush-worker/scratch/attempts", f"scratch: {scratch}"),
+        ("scratch: ???", f"scratch: {scratch}"),
         ("base_url: http://127.0.0.1:3000", f"base_url: {base_url}"),
-        ("upstream_base_url: http://openrouter-mock:8080/api/v1", f"upstream_base_url: {upstream}"),
-        ("mock_hosts: [openrouter-mock]", f"mock_hosts: [{HOST}]"),
-        ("socket: /run/rush-gvisor/seccheck.sock", f"socket: {socket}"),
-        ("python-3: /home/worker/rush-worker/wheels", f"python-3: {index}"),
+        ("upstream_base_url: http://127.0.0.1:8080/api/v1", f"upstream_base_url: {upstream}"),
+        ("mock_hosts: [127.0.0.1]", f"mock_hosts: [{HOST}]"),
+        ("  index_urls:\n", f"  index_urls:\n    python-3: {index}\n"),
         ("  test/model:\n    input: 0.000001\n    output: 0.000004\n", "".join(f"  {model}:\n    input: 0.000001\n    output: 0.000004\n" for model in (MODEL, *models))),
     ):
         assert old in text, old
@@ -217,28 +186,35 @@ def worker_yaml(*, base_url: str, upstream: str, index: str, socket: str, scratc
 
 
 class Worker:
-    """`python -m nanoagent.uploaded.worker` (or a launcher) in the worker container, its log streamed to ``log`` on the host. It claims
-    for the member ``credential`` was minted for (rush_server.worker_credential); workers take turns, as one collector socket serves the container."""
+    """`python -m nanoagent.uploaded.worker` (or a launcher) on this machine, its log streamed to ``log``. It claims for the member
+    ``credential`` was minted for (rush_server.worker_credential). Its scratch, and so its guest tools, are its own unless the
+    YAML points them elsewhere; the guest tools are linked in from GUEST_TOOLS so they are built once."""
 
-    def __init__(self, name: str, config: Path, log: Path, *, credential: str, entry: tuple[str, ...] = ("-m", "nanoagent.uploaded.worker"), env: dict[str, str] | None = None) -> None:
-        self.name, self.config, self.log, self.entry = name, config, log, entry
+    def __init__(
+        self, name: str, config: Path, log: Path, *, credential: str, entry: tuple[str, ...] = ("-m", "nanoagent.uploaded.worker"), env: dict[str, str] | None = None,
+        tools: Path = GUEST_TOOLS,
+    ) -> None:
+        self.name, self.config, self.log, self.entry, self.tools = name, config, log, entry, tools
         self.env = {"RUSH_WORKER_TOKEN": credential, "OPENROUTER_API_KEY": "synthetic-acceptance-key", **(env or {})}
-        self.home = f"{WORKER_HOME}/acceptance/{name}"
-        self.pidfile = f"{self.home}/worker.pid"
+        self.home = str(WORKER_HOME / name)
         self.process: subprocess.Popen[bytes] | None = None
 
     def start(self) -> None:
-        assert inside("bash", "-c", f"rm -rf {self.home} && mkdir -p {self.home}").returncode == 0
+        shutil.rmtree(self.home, ignore_errors=True)
+        (Path(self.home) / "scratch").mkdir(parents=True)
+        self.tools.mkdir(parents=True, exist_ok=True)
+        (Path(self.home) / "scratch" / "guest-tools").symlink_to(self.tools, target_is_directory=True)
         self.log.parent.mkdir(parents=True, exist_ok=True)
-        # Values reach the process through this client's environment (`-e NAME`), never its command line.
-        flags = [flag for key in self.env for flag in ("-e", key)]
-        launch = f'echo $$ > {self.pidfile}; exec 9>{WORKER_HOME}/collector.lock; flock 9; exec python "$@"'
+        # Values reach the process through its environment, never its command line.
         self.process = subprocess.Popen(
-            ["docker", "exec", "-u", "rush", "-w", WORKER_HOME, *flags, CONTAINER, "bash", "-c", launch, "worker", *self.entry, f"config={self.config}", f"home={self.home}/run"],
-            env={**os.environ, **self.env},
-            stdout=self.log.open("wb"),
-            stderr=subprocess.STDOUT,
+            [sys.executable, *self.entry, f"config={self.config}", f"home={self.home}/run"],
+            cwd=NANOAGENT, env={**os.environ, **self.env}, stdout=self.log.open("wb"), stderr=subprocess.STDOUT,
         )
+
+    @property
+    def pid(self) -> int:
+        assert self.process is not None
+        return self.process.pid
 
     def text(self) -> str:
         return self.log.read_text(errors="replace")
@@ -253,15 +229,14 @@ class Worker:
             time.sleep(0.5)
 
     def stop(self) -> int | None:
-        """Ctrl-C the worker (so it stops its collector), wait for it to exit and return its status."""
+        """Ctrl-C the worker, wait for it to exit and return its status."""
         if self.process is None:
             return None
         if self.process.poll() is None:
-            inside("bash", "-c", f"kill -INT $(cat {self.pidfile}) 2>/dev/null || true")
+            self.process.send_signal(signal.SIGINT)
             try:
                 self.process.wait(timeout=90)
             except subprocess.TimeoutExpired:
-                inside("bash", "-c", f"kill -KILL $(cat {self.pidfile}) 2>/dev/null || true")
                 self.process.kill()
                 self.process.wait()
         return self.process.returncode

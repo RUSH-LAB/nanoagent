@@ -33,7 +33,6 @@ from rush_server import RushServer, worker_credential  # noqa: E402
 from slimconfig import load_layout  # noqa: E402
 
 LOOP = Path(__file__).resolve().parent / "harnesses" / "metrics_loop"
-SOCKET = "/run/rush-gvisor/seccheck.sock"
 DIALECTS = ("chat_completions", "responses", "anthropic_messages")
 ANSWER = {"answer": {"digest": REFERENCE}}
 
@@ -125,7 +124,7 @@ def start_worker(
     rush: RushServer, cli: Cli, run_dir: Path, name: str, *, upstream: str, index: int, rate: float, tolerance_ns: int,
     entry: tuple[str, ...] = ("-m", "nanoagent.uploaded.worker"),
 ) -> Worker:
-    """The real worker in the worker container, reaching the host's RUSH server, scripted upstream and dependency index as host.docker.internal."""
+    """The real worker on this machine, reaching its RUSH server, scripted upstream and dependency index on the loopback."""
     config = run_dir / f"{name}.yaml"
     worker = Worker(name, config, cli.logs / f"{name}-worker.log", credential=worker_credential(cli.base_url, cli.token), entry=entry)
     config.write_text(
@@ -134,7 +133,6 @@ def start_worker(
                 base_url=f"http://{support.HOST}:{rush.base_url.rsplit(':', 1)[1]}",
                 upstream=upstream.replace("127.0.0.1", support.HOST),
                 index=f"http://{support.HOST}:{index}/simple",
-                socket=SOCKET,
                 scratch=f"{worker.home}/scratch",
             ),
             rate=rate,

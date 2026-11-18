@@ -20,7 +20,7 @@ from scripted import ANSWER, session, turn
 
 from nanoagent.plugin.package import pack
 
-pytestmark = [pytest.mark.gvisor, pytest.mark.uploaded_acceptance]
+pytestmark = [pytest.mark.microsandbox, pytest.mark.uploaded_acceptance]
 
 PROBE = support.NANOAGENT / "test" / "plugins" / "acceptance-probe"
 SCRIPT = {"dialect": "chat_completions", "instrument": False}

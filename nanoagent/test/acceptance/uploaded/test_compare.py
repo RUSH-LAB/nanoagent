@@ -26,7 +26,7 @@ import step4_compare  # noqa: E402  (scripted puts the examples on sys.path)
 from nanoagent.plugin.package import pack
 from nanoagent.uploaded.client import BenchmarkClient
 
-pytestmark = [pytest.mark.gvisor, pytest.mark.uploaded_acceptance]
+pytestmark = [pytest.mark.microsandbox, pytest.mark.uploaded_acceptance]
 
 PROBE = support.NANOAGENT / "test" / "plugins" / "acceptance-probe"
 CHANGED_INSTRUCTIONS = "Compare gate: work the task with the wait tool, then submit the digest of the input's token."

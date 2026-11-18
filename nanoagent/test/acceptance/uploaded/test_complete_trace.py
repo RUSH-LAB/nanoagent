@@ -42,7 +42,7 @@ from support import Cli  # noqa: E402
 
 from nanoagent.plugin.package import pack  # noqa: E402
 
-pytestmark = [pytest.mark.gvisor, pytest.mark.uploaded_acceptance]
+pytestmark = [pytest.mark.microsandbox, pytest.mark.uploaded_acceptance]
 
 TRACED = ("trace.txt", "traced")
 ANSWER = {"path": "trace.txt", "bytes": 6}
@@ -191,7 +191,7 @@ def traced(rush: RushServer, cli: Cli, run_dir: Path, registry: int) -> Iterator
                 assert time.monotonic() < deadline, worker.text()
                 time.sleep(0.5)
             assert "exec.completed" not in kinds, "the command must still be running when the collector is lost"
-            assert support.inside("touch", trigger).returncode == 0
+            Path(trigger).touch()
             while True:
                 final = gt.read_trace(cli, attempt, run_dir / "trace-loss-final")
                 if final.sealed:
@@ -200,7 +200,7 @@ def traced(rush: RushServer, cli: Cli, run_dir: Path, registry: int) -> Iterator
                 time.sleep(1)
         finally:
             worker.stop()
-            support.inside("rm", "-f", trigger)
+            Path(trigger).unlink(missing_ok=True)
     reopened = gt.read_trace(cli, attempt, run_dir / "trace-loss-reopened")
     yield Traced(full, forge, handles[KEYS["tr-trace"]], handles[KEYS["tr-forge"]], midway, final, reopened, attempt)
 
@@ -411,9 +411,9 @@ def test_the_workspace_edit_and_the_hosted_write_are_in_the_snapshot(traced: Tra
 def test_a_forced_loss_marks_the_trace_partial_and_keeps_existing_evidence(traced: Traced, cli: Cli, run_dir: Path) -> None:
     midway, final = traced.loss_midway, traced.loss_final
     coverage = final.attempt["coverage"]
-    assert coverage["status"] == "partial" and "collector_stopped" in coverage["loss_reasons"] and coverage["collector_complete"] is False, coverage
+    assert coverage["status"] == "partial" and "tracer_lost" in coverage["loss_reasons"] and coverage["collector_complete"] is False, coverage
     [health] = [e for e in final.events if e["kind"] == "collector.health"]
-    assert health["data"]["complete"] is False and "collector_stopped" in health["data"]["loss_reasons"]
+    assert health["data"]["complete"] is False and "tracer_lost" in health["data"]["loss_reasons"]
     # Everything recorded before the loss is still there, unchanged and in order, including the command that was running.
     assert midway.events and all(final.events[event["cursor"] - 1] == event for event in midway.events)
     assert {"case.launched", "model_call.response", "tool.completed", "exec.started"} <= {event["kind"] for event in midway.events}

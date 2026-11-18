@@ -1,18 +1,19 @@
-"""Linux integration tests: the real supervisor, `runsc-rush` and the collector, inside the benchmark worker image.
+"""Integration tests: the real supervisor, its microVMs and the strace evidence, on this machine.
 
-    docker run --rm --init --privileged --cgroupns=private -v rush-worker-docker:/var/lib/docker rush-benchmark-worker:dev \
-        python -m pytest -p no:cacheprovider -o addopts= -m 'gvisor or not gvisor' test/uploaded/test_sandbox_gvisor.py
+    .venv/bin/python -m pytest -p no:cacheprovider -m microsandbox test/uploaded/test_sandbox_microsandbox.py
 
-Needs Docker with the `runsc-rush` runtime (`sudo python3 deploy/gvisor/setup.py`) and the
-collector socket path it was set up with (RUSH_SECCHECK_SOCKET).
+Needs what microsandbox needs (macOS on Apple silicon, or Linux with /dev/kvm) and the network, once, to pull the pinned
+images and build the guest tools (cached under RUSH_WORKER_HOME, default ~/rush-worker).
 """
 
 from __future__ import annotations
 
+import http.server
 import json
 import os
 import shutil
-import subprocess
+import socket
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -20,26 +21,29 @@ from pathlib import Path
 import pytest
 from test_toolchains import make_wheel
 
+from nanoagent.plugin.egress import egress_port
 from nanoagent.plugin.install import INSTALL_HOSTS
-from nanoagent.uploaded.collector import CollectorError, ProcessEventKind, SeccheckCollector, launched_processes
+from nanoagent.uploaded.collector import ProcessEventKind, launched_processes
 from nanoagent.uploaded.contract import HarnessManifest
-from nanoagent.uploaded.dockercli import CliDockerRunner
 from nanoagent.uploaded.sandbox import (
+    GUEST_HOST,
+    PLUGIN_PREP_IMAGE,
     BuildSpec,
     CaseSpec,
-    DockerSandboxSupervisor,
-    Egress,
     Limits,
+    MicrosandboxSupervisor,
     SandboxError,
     TerminationKind,
+    _network,
 )
 from nanoagent.uploaded.toolchains import resolve_dependencies, toolchain
 
-pytestmark = pytest.mark.gvisor
+pytestmark = pytest.mark.microsandbox
 
-SOCKET = os.environ.get("RUSH_SECCHECK_SOCKET", "/run/rush-gvisor/seccheck.sock")
 PROFILE = toolchain("python-3")
-SCRATCH = Path(os.environ.get("RUSH_WORKER_HOME", Path.home() / "rush-worker")) / "scratch"
+HOME = Path(os.environ.get("RUSH_WORKER_HOME", Path.home() / "rush-worker"))
+SCRATCH = HOME / "scratch"
+TOOLS = HOME / "guest-tools"
 
 HARNESS = r'''
 import errno, json, os, signal, socket, subprocess, sys, time, urllib.request
@@ -68,6 +72,8 @@ if mode == "full":
     with open(os.path.join(os.environ["RUSH_WORKSPACE"], "seed.txt"), "a") as seed:
         seed.write(" edited")
     child = subprocess.run(["/bin/sh", "-c", "exit 23"]).returncode
+    os.makedirs("/tmp/elsewhere", exist_ok=True)
+    moved = subprocess.run(["/bin/sh", "-c", "cd /tmp/elsewhere && /bin/true"]).returncode
 
     def egress():
         sock = socket.socket()
@@ -97,6 +103,7 @@ if mode == "full":
             "service": service(),
             "workspace_full": errname(too_big),
             "child": child,
+            "moved": moved,
             "cwd": os.getcwd(),
             "env": sorted(k for k in os.environ if k.startswith("RUSH_")),
             "argv": sys.argv,
@@ -131,8 +138,7 @@ elif mode == "net":
         results = list(pool.map(reach, targets))
     write_result({
         "protocol": "rush.harness.v1", "status": "answered",
-        "answer": {"reach": {f"{host}:{port}": result for (host, port), result in zip(targets, results)}, "https": https() if request["https"] else None,
-                   "resolv": open("/etc/resolv.conf").read()},
+        "answer": {"reach": {f"{host}:{port}": result for (host, port), result in zip(targets, results)}, "https": https() if request["https"] else None},
     })
 elif mode == "exit3":
     sys.exit(3)
@@ -155,15 +161,18 @@ elif mode == "writer":
 
 
 @pytest.fixture(scope="module")
-def artifact_dir(tmp_path_factory):
-    """Builds the probe harness once, with its own collector, and keeps the artifact on disk."""
+def supervisor():
+    supervisor = MicrosandboxSupervisor(tools=TOOLS, internet=True)
+    supervisor.startup(PROFILE)
+    return supervisor
+
+
+@pytest.fixture(scope="module")
+def artifact_dir(supervisor):
+    """Builds the probe harness once and keeps the artifact on disk."""
     root = SCRATCH / f"it-{uuid.uuid4().hex[:8]}"
     root.mkdir(parents=True)
-    collector = SeccheckCollector(SOCKET)
-    collector.start()
     try:
-        supervisor = DockerSandboxSupervisor(collector=collector)
-        supervisor.startup(PROFILE)
         source = root / "source"
         source.mkdir()
         (source / "main.py").write_text(HARNESS)
@@ -182,18 +191,12 @@ def artifact_dir(tmp_path_factory):
     except BaseException:
         shutil.rmtree(root, ignore_errors=True)
         raise
-    finally:
-        collector.stop()  # the socket is single-owner: each test starts its own collector
     yield artifact
     shutil.rmtree(root, ignore_errors=True)
 
 
 @pytest.fixture
-def env(artifact_dir):
-    collector = SeccheckCollector(SOCKET)
-    collector.start()
-    supervisor = DockerSandboxSupervisor(collector=collector, egress=Egress())
-    supervisor.startup(PROFILE)
+def env(supervisor, artifact_dir):
     created: list = []
     work = SCRATCH / f"case-{uuid.uuid4().hex[:8]}"
     work.mkdir(parents=True)
@@ -202,13 +205,11 @@ def env(artifact_dir):
         pass
 
     e = Env()
-    e.collector, e.supervisor, e.artifact, e.work, e.created = collector, supervisor, artifact_dir, work, created
-    e.networks = []
+    e.supervisor, e.artifact, e.work, e.created = supervisor, artifact_dir, work, created
 
     def start(mode, *, limits=Limits(wall_s=60, workspace_bytes=1 << 20), fixtures=None, network=None, argv=None, internet=False, **request):
         attempt = uuid.uuid4().hex[:10]
         net = network or supervisor.create_network(attempt, internet=internet)
-        e.networks.append(net)
         spec = CaseSpec(
             attempt_id=attempt, profile=PROFILE, run_argv=argv or ("python", "/harness/main.py"), artifact=artifact_dir,
             request_json=json.dumps({"mode": mode, **request}).encode(), attempt_token="tok-" + attempt, network=net,
@@ -222,54 +223,49 @@ def env(artifact_dir):
     yield e
     for handle in created:
         handle.close()
-    for net in e.networks:
-        subprocess.run(["docker", "network", "rm", net.name], capture_output=True)
-    collector.stop()
     shutil.rmtree(work, ignore_errors=True)
 
 
-def stub_service(network_name: str) -> str:
-    name = f"rush-stub-{uuid.uuid4().hex[:8]}"
-    subprocess.run(
-        ["docker", "run", "-d", "--runtime=runc", "--name", name, "--network", network_name, "--network-alias", "stub",
-         PROFILE.runtime_image, "python", "-m", "http.server", "8080", "--directory", "/tmp"],
-        check=True, capture_output=True,
-    )
-    return name
+def stub_service() -> tuple[http.server.HTTPServer, int]:
+    """A service on this host, as the relay serves an attempt's: loopback, on a free port."""
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, server.server_address[1]
 
 
-def test_startup_self_test_observes_a_trivial_containers_exec_and_exit(env):
-    # the fixture already ran it; run it again explicitly for its evidence
-    evidence = env.supervisor.startup(PROFILE)
+def test_startup_self_test_observes_a_trivial_execs_exec_and_exit(supervisor):
+    evidence = supervisor.startup(PROFILE)
     assert evidence.complete
 
 
-def test_case_runs_fully_isolated_and_the_collector_joins_exec_child_and_exits(env):
+def test_case_runs_fully_isolated_and_the_trace_joins_exec_child_and_exits(env):
     fixtures = env.work / "fixtures"
     fixtures.mkdir()
     (fixtures / "seed.txt").write_text("seed")
-    attempt_net = env.supervisor.create_network("net-" + uuid.uuid4().hex[:6])
-    stub = stub_service(attempt_net.name)
+    server, port = stub_service()
     try:
-        handle = env.start("full", fixtures=fixtures, network=attempt_net, stub_url=f"http://{attempt_net.address_of(stub)}:8080/")
+        network = env.supervisor.create_network("net-" + uuid.uuid4().hex[:6])
+        network.ports.append(port)
+        handle = env.start("full", fixtures=fixtures, network=network, stub_url=f"http://{GUEST_HOST}:{port}/")
         outcome = handle.wait()
         assert outcome.termination.kind is TerminationKind.EXITED, outcome.stderr
         assert outcome.launched_at <= outcome.exited_at
 
         answer = json.loads(handle.read_result())["answer"]
         assert answer["uid"] == 10001
-        assert answer["root_write"] in ("EROFS", "EACCES"), "read-only root denied"
+        assert answer["root_write"] in ("EROFS", "EACCES"), "the root is not the case user's"
         assert answer["harness_write"] in ("EROFS", "EACCES") and answer["request_write"] in ("EROFS", "EACCES")
-        assert answer["egress"] == "ENETUNREACH", "direct egress fails"
-        assert answer["service"] == 200, "the attached service is reachable"
+        assert answer["egress"] != "ok", "direct egress fails"
+        assert answer["service"] == 200, "the attempt's service is reachable"
         assert answer["workspace_full"] == "ENOSPC", "the workspace is size bound"
-        assert answer["child"] == 23 and answer["cwd"] == "/rush/workspace" and answer["argv"] == ["/harness/main.py"]
+        assert answer["child"] == 23 and answer["moved"] == 0 and answer["cwd"] == "/rush/workspace" and answer["argv"] == ["/harness/main.py"]
         assert answer["env"] == ["RUSH_ATTEMPT_TOKEN", "RUSH_REQUEST", "RUSH_RESULT", "RUSH_WORKSPACE"]
 
         snapshot = handle.stop_and_drain()
         assert "created.txt" in snapshot.added and snapshot.modified == ("seed.txt",)
         assert (snapshot.directory / "created.txt").read_text() == "made by harness"
         assert (snapshot.directory / "seed.txt").read_text() == "seed edited"
+        assert [c["identity"]["role"] for c in handle.cpu_counters()] == ["harness"] and handle.cpu_counters()[0]["user_ns"] > 0
 
         evidence = handle.evidence()
         assert evidence.complete, evidence.loss_reasons
@@ -279,9 +275,10 @@ def test_case_runs_fully_isolated_and_the_collector_joins_exec_child_and_exits(e
         assert child.parent == harness.identity, "lineage joined by group id and start time"
         assert child.exit.exit_code == 23 and harness.exit.exit_code == 0
         assert child.identity[2] != harness.identity[2]
+        assert harness.cwd == "/rush/workspace" and by_argv[("/bin/true",)].cwd == "/tmp/elsewhere", "chdir is followed"
         assert evidence.malformed == 0 and evidence.dropped == 0
     finally:
-        subprocess.run(["docker", "rm", "-f", stub], capture_output=True)
+        server.shutdown()
 
 
 def test_dependency_closure_is_installed_offline_and_importable_at_run(env):
@@ -309,14 +306,14 @@ def test_missing_result_is_reported_specifically(env):
     assert getattr(caught.value, "code", "") == "missing_result"
 
 
-def test_wall_budget_kills_the_whole_sandbox(env):
+def test_wall_budget_kills_every_case_process(env):
     started = time.monotonic()
     handle = env.start("sleep", limits=Limits(wall_s=3))
     outcome = handle.wait()
     assert outcome.termination.kind is TerminationKind.TIMED_OUT
     assert time.monotonic() - started < 30
-    running = subprocess.run(["docker", "inspect", "--format", "{{.State.Running}}", handle.container_id], capture_output=True, text=True)
-    assert running.stdout.strip() == "false"
+    harness = next(p for p in handle.evidence().lifetimes() if p.argv == ("python", "/harness/main.py"))
+    assert harness.exit is not None and harness.exit.exit_signal == 9, "the harness was killed, and the tracer saw it"
 
 
 def test_managed_exec_captures_bounded_streams_and_joins_process_evidence(env):
@@ -387,23 +384,24 @@ print(json.dumps(out))
 '''
 
 
-def test_plugin_prep_network_reaches_only_the_install_hosts(env):
-    def probe(network: str, *args: str, proxy: str | None = None) -> dict:
-        proxied = ["-e", f"HTTPS_PROXY={proxy}"] if proxy else []
-        run = subprocess.run(
-            ["docker", "run", "--rm", "--runtime=runc", f"--network={network}", *proxied, "--entrypoint", "python", PROFILE.runtime_image, "-c", PROBE_URLS, *args],
-            capture_output=True, text=True, timeout=120, check=True,
-        )
-        return json.loads(run.stdout)
+def test_plugin_prep_network_reaches_only_the_install_hosts(supervisor):
+    async def probe(ports, *urls, proxy=None):
+        name = f"rush-probe-{uuid.uuid4().hex[:8]}"
+        sandbox = await supervisor._create(name, PLUGIN_PREP_IMAGE, Limits(), _network(ports), {})
+        try:
+            out = await sandbox.exec("python", ["-c", PROBE_URLS, *urls], env={"HTTPS_PROXY": proxy} if proxy else {}, timeout=120)
+            return json.loads(out.stdout_text)
+        finally:
+            await supervisor._destroy(sandbox)
 
-    with env.supervisor._egress_bridge(INSTALL_HOSTS, "prep") as (network, proxy):
-        through = probe(network, "https://pypi.org/simple/", "https://example.com/", "http://pypi.org/", proxy=proxy)
+    with egress_port(INSTALL_HOSTS) as port:
+        proxy = f"http://{GUEST_HOST}:{port}"
+        through = supervisor._loop.run(probe([port], "https://pypi.org/simple/", "https://example.com/", "http://pypi.org/", proxy=proxy))
         assert through["https://pypi.org/simple/"] == 200, "an install host is tunnelled"
         assert "403" in through["https://example.com/"], "another host is refused by the allowlist"
         assert not isinstance(through["http://pypi.org/"], int), "plain HTTP is not proxied"
-        direct = probe(network, "https://pypi.org/simple/", "https://example.com/")
+        direct = supervisor._loop.run(probe([port], "https://pypi.org/simple/", "https://example.com/"))
         assert not any(isinstance(status, int) for status in direct.values()), "no route out except through the proxy"
-    assert subprocess.run(["docker", "network", "inspect", network], capture_output=True).returncode != 0, "the prep network is removed"
 
 
 def test_stop_and_drain_freezes_every_writer_before_the_snapshot(env):
@@ -416,47 +414,26 @@ def test_stop_and_drain_freezes_every_writer_before_the_snapshot(env):
     assert (first.directory / "log").stat().st_size > 0
 
 
-def test_stopping_the_collector_mid_case_marks_evidence_incomplete(env):
+def test_closing_a_running_case_keeps_what_the_tracer_saw(env):
     handle = env.start("sleep")
-    env.collector.stop()
     handle.close()
     evidence = handle.evidence()
-    assert not evidence.complete and "collector_stopped" in evidence.loss_reasons
-    assert any(e.kind is ProcessEventKind.CONTAINER_START for e in evidence.events), "what was observed stays available"
+    root = evidence.root()
+    assert root is not None and root.argv == ("python", "/harness/main.py")
+    assert any(e.kind is ProcessEventKind.CONTAINER_START for e in evidence.events)
+    assert root.exit is not None and root.exit.exit_signal == 9, "the harness was killed and its exit recorded"
 
 
-def test_runtime_refuses_to_start_a_container_when_the_sink_socket_is_absent():
-    docker = CliDockerRunner()
-    created = docker.run(["create", "--runtime=runsc-rush", "--network=none", PROFILE.runtime_image, "/bin/true"])
-    assert created.returncode == 0
-    container = created.text()
-    try:
-        started = docker.run(["start", container])
-        assert started.returncode != 0
-        assert "seccheck.sock" in started.error_text()
-        state = json.loads(docker.run(["inspect", "--format", "{{json .State}}", container]).stdout)
-        assert state["StartedAt"].startswith("0001"), "the container never ran"
-    finally:
-        docker.run(["rm", "-f", container])
-
-
-def test_supervisor_refuses_member_source_without_a_listening_collector(tmp_path):
-    collector = SeccheckCollector(tmp_path / "unused.sock")
-    supervisor = DockerSandboxSupervisor(collector=collector)
+def test_supervisor_refuses_member_source_before_its_self_test(tmp_path):
+    bare = MicrosandboxSupervisor(tools=TOOLS)
     with pytest.raises(SandboxError) as caught:
-        supervisor.startup(PROFILE)
-    assert caught.value.code == "collector_unhealthy"
-    with pytest.raises(CollectorError):
-        collector.session("x")
+        bare.build(BuildSpec("x", PROFILE, HarnessManifest("h", "1", ("chat_completions",), "python-3", (), ("true",), ("a",), ("true",)), tmp_path, None, tmp_path))  # type: ignore[arg-type]
+    assert caught.value.code == "collector_unverified"
 
 
-# -- internet access for the harness container (limits.internet_access) ----------------------------------------------------
-#
-# These need the host filter: `sudo bash deploy/gvisor/egress.sh` (the image's entrypoint installs it).
+# -- internet access for the harness VM (limits.internet_access) -----------------------------------------------------------
 
 PUBLIC = ("1.1.1.1", 443)
-# One address in each blocked class; none is a host that exists, so the proof that the filter, not an absent host, is what
-# stops them is the rule counters (below).
 BLOCKED = {
     "10.0.0.0/8": ("10.255.255.254", 80),
     "172.16.0.0/12": ("172.31.255.254", 80),
@@ -468,96 +445,49 @@ BLOCKED = {
 LOOPBACK_AND_IPV6 = [("127.0.0.1", 8), ("0.0.0.1", 80), ("::1", 80), ("fd00::1", 80), ("fe80::1", 80)]
 
 
-def host_addresses() -> list[str]:
-    out = subprocess.run(["ip", "-4", "-o", "addr", "show"], capture_output=True, text=True, check=True).stdout
-    return [line.split()[3].split("/")[0] for line in out.splitlines()]
+def test_the_egress_fence_is_proven_at_startup(supervisor):
+    supervisor.verify_egress()
 
 
-def rule_counters() -> dict[str, int] | None:
-    """Packets dropped per destination range by the RUSH-EGRESS chain and by the INPUT rule, or None without sudo."""
-    run = lambda *args: subprocess.run(["sudo", "-n", "iptables", "-L", *args, "-v", "-n", "-x"], capture_output=True, text=True)  # noqa: E731
-    chain, inbound = run("RUSH-EGRESS"), run("INPUT")
-    if chain.returncode or inbound.returncode:
-        return None
-    counters: dict[str, int] = {}
-    for line in chain.stdout.splitlines():
-        fields = line.split()
-        if len(fields) >= 9 and fields[2] == "DROP":
-            counters[fields[8]] = int(fields[0])
-    for line in inbound.stdout.splitlines():
-        fields = line.split()
-        if len(fields) >= 9 and fields[2] == "DROP" and fields[7] == Egress().subnet:
-            counters["host"] = int(fields[0])
-    return counters
-
-
-def test_the_host_filter_is_proven_at_startup(env):
-    env.supervisor.verify_egress()
-
-
-def test_an_internet_harness_reaches_public_addresses_and_names_and_the_relay_but_no_private_class(env):
-    import socket
-
+def test_an_internet_harness_reaches_public_addresses_and_its_service_but_no_private_class_nor_the_host(env):
     listener = socket.socket()
-    listener.bind(("0.0.0.0", 0))
+    listener.bind(("127.0.0.1", 0))
     listener.listen(8)
     listener.settimeout(0.2)
     port = listener.getsockname()[1]
-    hosts = [(address, port) for address in host_addresses()]
-    network = env.supervisor.create_network("egress-" + uuid.uuid4().hex[:6], internet=True)
-    stub = stub_service(network.name)
-    gateway = subprocess.run(
-        ["docker", "network", "inspect", "--format", "{{(index .IPAM.Config 0).Gateway}}", network.name], capture_output=True, text=True, check=True
-    ).stdout.strip()
-    before = rule_counters()
+    server, service = stub_service()
     try:
-        targets = [PUBLIC, *BLOCKED.values(), *LOOPBACK_AND_IPV6, *hosts, (gateway, port), (network.address_of(stub), 8080)]
+        network = env.supervisor.create_network("egress-" + uuid.uuid4().hex[:6], internet=True)
+        network.ports.append(service)
+        targets = [PUBLIC, *BLOCKED.values(), *LOOPBACK_AND_IPV6, (GUEST_HOST, port), (GUEST_HOST, service)]
         handle = env.start("net", network=network, targets=targets, https=True)
         assert handle.wait().termination.kind is TerminationKind.EXITED
         answer = json.loads(handle.read_result())["answer"]
         reach = answer["reach"]
         assert reach["1.1.1.1:443"] == "ok", "a public address is reachable"
-        assert answer["https"] == 200, "a public name resolves (public resolvers) and serves TLS"
-        assert reach[f"{network.address_of(stub)}:8080"] == "ok", "a service on the attempt network stays reachable"
+        assert answer["https"] == 200, "a public name resolves and serves TLS"
+        assert reach[f"{GUEST_HOST}:{service}"] == "ok", "the attempt's service stays reachable"
         for klass, (host, target_port) in BLOCKED.items():
             assert reach[f"{host}:{target_port}"] != "ok", klass
         for host, target_port in LOOPBACK_AND_IPV6:
             assert reach[f"{host}:{target_port}"] != "ok", host
-        for host, host_port in [*hosts, (gateway, port)]:
-            assert reach[f"{host}:{host_port}"] != "ok", f"worker host address {host}"
-        assert "nameserver 1.1.1.1" in answer["resolv"]
+        assert reach[f"{GUEST_HOST}:{port}"] != "ok", "another port of the worker host"
         with pytest.raises(OSError):
             listener.accept()
-        after = rule_counters()
-        if before is not None and after is not None:
-            for klass in BLOCKED:
-                if klass != "224.0.0.0/4":  # a TCP connect to a multicast address never leaves the sandbox's own stack
-                    assert after[klass] > before[klass], f"the filter dropped traffic to {klass}"
-            assert after["host"] > before["host"], "the filter dropped traffic to the worker host"
     finally:
         listener.close()
-        subprocess.run(["docker", "rm", "-f", stub], capture_output=True)
+        server.shutdown()
 
 
 def test_without_internet_access_the_harness_stays_isolated(env):
-    handle = env.start("net", targets=[PUBLIC, BLOCKED["10.0.0.0/8"]], https=False, internet=False)
+    handle = env.start("net", targets=[PUBLIC, BLOCKED["10.0.0.0/8"]], https=True, internet=False)
     assert handle.wait().termination.kind is TerminationKind.EXITED
     answer = json.loads(handle.read_result())["answer"]
     assert all(result != "ok" for result in answer["reach"].values()), answer["reach"]
-    assert "nameserver 1.1.1.1" not in answer["resolv"]
+    assert answer["https"] != 200
 
 
-def test_an_internet_network_is_carved_from_the_reserved_subnet_and_removed_with_the_case(env):
-    import ipaddress
-
-    network = env.supervisor.create_network("slice-" + uuid.uuid4().hex[:6], internet=True)
-    inspect = subprocess.run(["docker", "network", "inspect", "--format", "{{(index .IPAM.Config 0).Subnet}} {{.Internal}}", network.name], capture_output=True, text=True, check=True).stdout.split()
-    assert ipaddress.ip_network(inspect[0]).subnet_of(ipaddress.ip_network(Egress().subnet)) and inspect[1] == "false"
-    network.remove()
-    assert subprocess.run(["docker", "network", "inspect", network.name], capture_output=True).returncode != 0
-
-
-def test_internet_access_without_a_configured_egress_subnet_is_refused(env):
-    bare = DockerSandboxSupervisor(collector=env.collector)
-    with pytest.raises(SandboxError, match="egress subnet"):
+def test_internet_access_on_a_worker_without_it_is_refused():
+    bare = MicrosandboxSupervisor(tools=TOOLS)
+    with pytest.raises(SandboxError, match="not enabled"):
         bare.create_network("none-" + uuid.uuid4().hex[:6], internet=True)

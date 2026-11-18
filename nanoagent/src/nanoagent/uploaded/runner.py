@@ -476,9 +476,8 @@ class AttemptRunner:
         if model not in cfg.prices:
             raise UnknownModelPrice(f"the worker's prices have no entry for {model!r}")
         input_price, output_price = cfg.prices[model]
-        # Only the harness container may have the internet; the tool container and the build never do.
-        network = await in_thread(lambda: self.supervisor.create_network(job.attempt_id, internet=run_limits["internet_access"]))
-        stack.push_async_callback(shielded, lambda: in_thread(network.remove))
+        # Only the harness VM may have the internet; the tool VM and the build never do.
+        network = self.supervisor.create_network(job.attempt_id, internet=run_limits["internet_access"])
         workspace = Path(WORKSPACE)  # the case workspace, at the path the harness and the tool container both see
         runner: Any = NoTools()
         tool_container = None

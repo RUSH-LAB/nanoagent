@@ -72,7 +72,6 @@ PROBE = NANOAGENT / "test" / "plugins" / "acceptance-probe"
 SLOW_WRITER = Path(__file__).resolve().parent / "plugins" / "slow-writer"
 RECOVERY_HARNESS = Path(__file__).resolve().parent / "harnesses" / "recovery"
 RECOVERY_WORKER = Path(__file__).resolve().parent / "recovery_worker.py"
-SOCKET = "/run/rush-gvisor/seccheck.sock"
 LEASE_S = 20
 DEADLINE_S = 40
 RENEW_S = 5
@@ -212,7 +211,6 @@ def start_worker(name: str, rush: RushServer, cli: Cli, run_dir: Path, *, upstre
         base_url=host_url(rush),
         upstream=upstream.replace("127.0.0.1", support.HOST),
         index=f"http://{support.HOST}:{index}/simple",
-        socket=SOCKET,
         scratch=f"{worker.home}/scratch",
     )
     assert "renew_interval_s: 15" in text

@@ -6,7 +6,6 @@ import {apiRequest} from '../../utils/api.js';
 import useLoad, {usePoll} from './useLoad';
 import {searchFor} from './location';
 import {checkMark, workerNotice} from './worker';
-import {homebrewLink, installOptions, startOptions} from '../../runner/docker-help.js';
 import styles from './styles.module.css';
 
 const status = () => apiRequest('/api/runner/status');
@@ -16,44 +15,6 @@ function useWorkerStatus() {
   const load = useLoad(status, []);
   usePoll(load.reload, load.data?.worker?.state === 'ready' ? 10_000 : 2_000, true);
   return load;
-}
-
-/** A command with a button that copies it. */
-function Command({command}) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(command);
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
-  };
-  return (
-    <div>
-      <code>{command}</code>{' '}
-      <button type="button" className="button button--secondary button--sm" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
-    </div>
-  );
-}
-
-/** What to run for a failed Docker check, for the member's OS (`platform` comes from RUSH Lab's own process.platform): install, or start. */
-function DockerHelp({check, platform}) {
-  if (check.state !== 'fail' || !['docker-cli', 'docker-daemon'].includes(check.id)) return null;
-  const options = check.id === 'docker-cli' ? installOptions(platform) : startOptions(platform);
-  const brew = check.id === 'docker-cli' ? homebrewLink(platform) : null;
-  return (
-    <div>
-      {options.map(option => (
-        <div key={option.title}>
-          <strong>{option.title}</strong>
-          {(option.commands ?? []).map(command => <Command key={command} command={command} />)}
-          {option.then && <div className={styles.muted}>{option.then}</div>}
-        </div>
-      ))}
-      {brew && <div className={styles.muted}>These use Homebrew; if it is missing, see <Link to={brew}>brew.sh</Link>.</div>}
-    </div>
-  );
 }
 
 /** Runner health on the setup and publication screens. */
@@ -120,8 +81,8 @@ export function WorkerPanel() {
     <section className={styles.section}>
       <h2>Local Runner Health Check</h2>
       <p className={styles.muted}>
-        RUSH Lab runs your benchmark runs in a container on this computer&apos;s Docker, with your OpenRouter key.
-        It never installs Docker for you.
+        RUSH Lab runs your benchmark runs in sandboxed virtual machines on this computer, with your OpenRouter key.
+        Nothing else needs installing.
       </p>
       {error && <p className={styles.warn}>{error}</p>}
       {notice && <p role="status">{notice.text}</p>}
@@ -132,7 +93,6 @@ export function WorkerPanel() {
               <strong>{checkMark(check.state)} {check.label}</strong>
               {check.message && <div>{check.message}</div>}
               {check.fix && <div className={styles.muted}>{check.fix}</div>}
-              <DockerHelp check={check} platform={worker.platform} />
             </li>
           ))}
         </ol>

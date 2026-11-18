@@ -6,7 +6,7 @@ Run on the host (the worker itself runs in the worker container, see support.py)
 
 Everything is driven through the CLI steps in subprocesses with YAML configuration plus overrides: a scratch RUSH server, step 1
 (publish the probe suite), step 2 (submit the source and follow the run), the real worker in the worker container with the real source build,
-gVisor sandbox, gateway, tool broker, process collector and plugin verifier, and step 3 to read the saved trace, in a fresh process
+microVM sandbox, gateway, tool broker, process tracer and plugin verifier, and step 3 to read the saved trace, in a fresh process
 with the scripted upstream and the worker stopped. Assertions use the CLI's machine-readable output and stored evidence.
 """
 
@@ -42,11 +42,10 @@ from support import REFERENCE, Cli, Worker  # noqa: E402
 
 from nanoagent.plugin.package import pack  # noqa: E402
 
-pytestmark = [pytest.mark.gvisor, pytest.mark.uploaded_acceptance]
+pytestmark = [pytest.mark.microsandbox, pytest.mark.uploaded_acceptance]
 
 PROBE = NANOAGENT / "test" / "plugins" / "acceptance-probe"
 SUITE = "core-engine-probe"
-SOCKET = "/run/rush-gvisor/seccheck.sock"
 
 
 @pytest.fixture(scope="module")
@@ -116,8 +115,8 @@ def fetch_payloads(cli: Cli, attempt: str, digests: list[str], folder: Path) -> 
     return found
 
 
-def start_worker(name: str, rush: RushServer, cli: Cli, run_dir: Path, *, upstream: str, index: int, socket: str = SOCKET, **options: Any) -> Worker:
-    """The real worker in the worker container, reaching the host's RUSH server, scripted upstream and dependency index as host.docker.internal."""
+def start_worker(name: str, rush: RushServer, cli: Cli, run_dir: Path, *, upstream: str, index: int, **options: Any) -> Worker:
+    """The real worker on this machine, reaching its RUSH server, scripted upstream and dependency index on the loopback."""
     config = run_dir / f"{name}.yaml"
     worker = Worker(name, config, cli.logs / f"{name}-worker.log", credential=worker_credential(cli.base_url, cli.token), **options)
     config.write_text(
@@ -125,7 +124,6 @@ def start_worker(name: str, rush: RushServer, cli: Cli, run_dir: Path, *, upstre
             base_url=f"http://{support.HOST}:{rush.base_url.rsplit(':', 1)[1]}",
             upstream=upstream.replace("127.0.0.1", support.HOST),
             index=f"http://{support.HOST}:{index}/simple",
-            socket=socket.replace("<home>", worker.home),
             scratch=f"{worker.home}/scratch",
         )
     )
@@ -322,21 +320,29 @@ def probe_run(rush: RushServer, cli: Cli, run_dir: Path, source: tuple[Path, str
     return submit(cli, run_dir, source[0], "collector-startup", follow=False)
 
 
-@pytest.mark.parametrize(
-    ("name", "socket", "message"),
-    [
-        ("socket-unusable", "/nonexistent-collector-dir/seccheck.sock", "socket_unavailable"),
-        ("collector-unwired", "<home>/unwired.sock", "collector_self_test_failed"),
-    ],
-)
-def test_the_worker_refuses_to_start_or_claim_when_the_collector_is_unavailable(
-    name: str, socket: str, message: str, rush: RushServer, cli: Cli, run_dir: Path, registry: int, probe_run: Any
-) -> None:
+def broken_tracer(folder: Path) -> Path:
+    """Guest tools whose stamp is current but whose strace runs nothing: the tracer's startup probe must fail."""
+    from nanoagent.uploaded import sandbox
+
+    arch = sandbox.guest_arch()
+    tools = folder / arch
+    tools.mkdir(parents=True, exist_ok=True)
+    (tools / "strace").write_text("#!/bin/sh\nexit 1\n")
+    (tools / "uv").write_text("#!/bin/sh\nexit 1\n")
+    for binary in ("strace", "uv"):
+        (tools / binary).chmod(0o755)
+    stamp = f"strace {sandbox.STRACE_VERSION} {sandbox.STRACE_SHA256} {sandbox._GCC_14}\nuv {sandbox.UV_VERSION} {sandbox.UV_SHA256[arch]}\n"
+    (tools / "stamp").write_text(stamp)
+    return folder
+
+
+def test_the_worker_refuses_to_start_or_claim_when_its_tracer_does_not_work(rush: RushServer, cli: Cli, run_dir: Path, registry: int, probe_run: Any) -> None:
+    name, message = "tracer-broken", "collector_self_test_failed"
     attempt = probe_run.attempts[0].attempt_id
     with MockProvider() as provider:
         scenario = load_scenario(support.SCENARIOS / "core-engine.yaml")
         handle = provider.register(scenario, harness="nanoagent", model=support.MODEL, refs={"reference": REFERENCE})
-        worker = start_worker(name, rush, cli, run_dir, upstream=handle.base_url, index=registry, socket=socket)
+        worker = start_worker(name, rush, cli, run_dir, upstream=handle.base_url, index=registry, tools=broken_tracer(run_dir / "broken-tools"))
         try:
             status = worker.exit_code(timeout=300)
         finally:
@@ -388,7 +394,7 @@ def loss(rush: RushServer, cli: Cli, run_dir: Path, source: tuple[Path, str], re
                 assert time.monotonic() < deadline, worker.text()
                 time.sleep(0.5)
             assert not any(event["kind"] == "tool.completed" for event in midway.events), "the tool must still be running when the collector is lost"
-            assert support.inside("touch", trigger).returncode == 0
+            Path(trigger).touch()
             while True:
                 final = read_trace(cli, attempt, run_dir / "trace-loss-final")
                 if final.sealed:
@@ -397,17 +403,17 @@ def loss(rush: RushServer, cli: Cli, run_dir: Path, source: tuple[Path, str], re
                 time.sleep(1)
         finally:
             worker.stop()
-            support.inside("rm", "-f", trigger)
+            Path(trigger).unlink(missing_ok=True)
         yield Loss(attempt, midway, final, worker.text())
 
 
 def test_a_forced_collector_loss_marks_the_trace_partial_and_keeps_existing_evidence(loss: Loss, cli: Cli, run_dir: Path) -> None:
     final = loss.final
     coverage = final.attempt["coverage"]
-    assert coverage["status"] == "partial" and "collector_stopped" in coverage["loss_reasons"], coverage
+    assert coverage["status"] == "partial" and "tracer_lost" in coverage["loss_reasons"], coverage
     assert coverage["collector_complete"] is False
     [health] = [event for event in final.events if event["kind"] == "collector.health"]
-    assert health["data"]["complete"] is False and "collector_stopped" in health["data"]["loss_reasons"]
+    assert health["data"]["complete"] is False and "tracer_lost" in health["data"]["loss_reasons"]
     # Everything captured before the loss is still stored, unchanged and in order.
     assert loss.midway.events and all(final.events[event["cursor"] - 1] == event for event in loss.midway.events)
     assert {"case.launched", "model_call.response", "tool.invoked"} <= {event["kind"] for event in loss.midway.events}

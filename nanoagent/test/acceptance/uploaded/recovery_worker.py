@@ -10,17 +10,17 @@ import time
 
 from nanoagent.uploaded import sandbox, worker
 
-stop_and_drain = sandbox._DockerCase.stop_and_drain
+stop_and_drain = sandbox._Case.stop_and_drain
 SETTLE_S = 3.0
 
 
-def checked_stop_and_drain(self: sandbox._DockerCase) -> sandbox.WorkspaceSnapshot:
+def checked_stop_and_drain(self: sandbox._Case) -> sandbox.WorkspaceSnapshot:
     snapshot = stop_and_drain(self)
     time.sleep(SETTLE_S)
-    later, directory = self._s._copy_out(self.holder, "/hold/workspace", self.spec.limits, self.spec.workdir)
+    later, directory = self._s._copy_out(self.workspace, self.spec.limits, self.spec.workdir)
     print(f"SNAPSHOT_CHECK stable={later.files == snapshot.files} files={len(snapshot.files)} progress_bytes={(snapshot.directory / 'progress.bin').stat().st_size if (snapshot.directory / 'progress.bin').exists() else -1}", flush=True)
     return snapshot
 
 
-sandbox._DockerCase.stop_and_drain = checked_stop_and_drain  # type: ignore[method-assign]
+sandbox._Case.stop_and_drain = checked_stop_and_drain  # type: ignore[method-assign]
 worker.WorkerRun().run()

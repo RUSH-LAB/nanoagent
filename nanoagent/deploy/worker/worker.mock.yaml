@@ -1,10 +1,10 @@
-# The acceptance worker: inference goes to the scripted OpenRouter mock, with a synthetic credential.
+# The acceptance worker: inference goes to the scripted OpenRouter mock on this host, with a synthetic credential.
 #   export RUSH_WORKER_TOKEN=...  OPENROUTER_API_KEY=... (a synthetic key)
-#   python -m nanoagent.uploaded.worker config=deploy/gvisor/worker.mock.yaml home=<run folder>
+#   .venv/bin/python -m nanoagent.uploaded.worker config=deploy/worker/worker.mock.yaml home=<run folder> -- scratch=<folder>
 _ > nanoagent.uploaded.worker.WorkerConfig:
 
 worker_id: acceptance-worker-1
-scratch: /home/worker/rush-worker/scratch/attempts
+scratch: ???
 
 rush > nanoagent.uploaded.worker.RushConfig:
   base_url: http://127.0.0.1:3000
@@ -13,8 +13,8 @@ rush > nanoagent.uploaded.worker.RushConfig:
 openrouter > nanoagent.uploaded.worker.OpenRouterConfig:
   label: mock
   mode: mock
-  upstream_base_url: http://openrouter-mock:8080/api/v1
-  mock_hosts: [openrouter-mock]
+  upstream_base_url: http://127.0.0.1:8080/api/v1
+  mock_hosts: [127.0.0.1]
 
 # USD per token; the acceptance mock reports its own usage.
 prices > dict[nanoagent.uploaded.worker.Model, nanoagent.uploaded.worker.Price]:
@@ -39,13 +39,9 @@ sandbox > nanoagent.uploaded.worker.SandboxConfig:
 limits > nanoagent.uploaded.worker.LimitsConfig:
   concurrency: 4
 
-collector > nanoagent.uploaded.worker.CollectorConfig:
-  socket: /run/rush-gvisor/seccheck.sock
-
 # Acceptance fixtures stage the locked wheels from a folder; point this at it.
 dependencies > nanoagent.uploaded.worker.DependenciesConfig:
   index_urls:
-    python-3: /home/worker/rush-worker/wheels
     javascript-22: https://registry.npmjs.org
 
 poll > nanoagent.uploaded.worker.PollConfig:

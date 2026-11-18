@@ -33,7 +33,7 @@ from slimconfig import load_layout
 
 import step4_compare  # noqa: E402  (scripted puts the examples on sys.path)
 
-pytestmark = [pytest.mark.gvisor, pytest.mark.uploaded_acceptance]
+pytestmark = [pytest.mark.microsandbox, pytest.mark.uploaded_acceptance]
 
 PROBE = support.NANOAGENT / "test" / "plugins" / "acceptance-probe"
 FAULT_WORKER = Path(__file__).resolve().parent / "fault_worker.py"
@@ -150,8 +150,6 @@ def test_a_tool_container_launch_failure_ends_only_that_attempt_and_the_worker_r
             time.sleep(1)
         assert state == "final|interrupted", state
         assert "attempt.started" in {e["kind"] for e in client.events(attempt).events}
-        # Nothing of the faulted attempt is left in the worker container: containers, volumes, network.
+        # Nothing of the faulted attempt is left: no sandbox of it.
         assert attempt_containers(attempt) == []
-        leftovers = support.inside("bash", "-c", f"docker volume ls -q --filter name={attempt}; docker network ls -q --filter name={attempt}", timeout=120).stdout.split()
-        assert leftovers == [], leftovers
         assert "Traceback" in sess.worker.text() and "injected launch failure" in sess.worker.text()

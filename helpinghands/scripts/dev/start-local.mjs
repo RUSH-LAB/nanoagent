@@ -94,47 +94,25 @@ export function nanoagentWebArgs(env = process.env) {
   ];
 }
 
-/** The benchmark worker's image (nanoagent/deploy/gvisor/Dockerfile), built from the checkout, and the container npm start runs from it. */
-export const BENCHMARK_WORKER_IMAGE = 'rush-benchmark-worker:dev';
-export const BENCHMARK_WORKER_CONTAINER = 'rush-dev-worker';
-
 /**
- * Why the benchmark worker cannot run beside the local site, or null. It runs in a container of the worker image, so Docker must be
- * running, and its models are OpenRouter's, with OPENROUTER_API_KEY from .env or the shell.
+ * Why the benchmark worker cannot run beside the local site, or null: its models are OpenRouter's, with OPENROUTER_API_KEY
+ * from .env or the shell. Its sandboxes are microVMs NanoAgent starts itself (microsandbox), so nothing else is needed.
  */
-export function benchmarkWorkerUnavailable(env, {spawnSyncImpl = spawnSync} = {}) {
-  if (!env.OPENROUTER_API_KEY?.trim()) return 'OPENROUTER_API_KEY is not in .env or the shell';
-  const info = spawnSyncImpl('docker', ['info'], {encoding: 'utf8', stdio: 'ignore'});
-  if (info.error?.code === 'ENOENT') return 'docker is not installed: install Docker Desktop or Docker Engine';
-  return info.status === 0 ? null : 'docker is not running: start Docker Desktop or Docker Engine';
-}
-
-/** `docker build` arguments for the worker image from the NanoAgent checkout (its Dockerfile takes that folder as its context). */
-export function benchmarkWorkerBuildArgs(nanoagentRoot) {
-  return ['build', '-t', BENCHMARK_WORKER_IMAGE, '-f', path.join(nanoagentRoot, 'deploy', 'gvisor', 'Dockerfile'), nanoagentRoot];
+export function benchmarkWorkerUnavailable(env) {
+  return env.OPENROUTER_API_KEY?.trim() ? null : 'OPENROUTER_API_KEY is not in .env or the shell';
 }
 
 /**
- * `docker run` arguments that run the OpenRouter worker in the image, claiming from the API on `apiPort` of this computer. Its
- * credential and key are passed by name (`-e NAME`), taken from the environment of the docker process, never in a command line.
+ * The OpenRouter worker, run with the NanoAgent checkout's Python and claiming from the API on `apiPort` of this computer. Its
+ * credential and key are in its environment, never in a command line.
  */
-export function benchmarkWorkerArgs(apiPort) {
-  return [
-    'run', '--rm', '--init', '--privileged', '--cgroupns=private', '--name', BENCHMARK_WORKER_CONTAINER,
-    '--add-host', 'host.docker.internal:host-gateway',
-    '-v', 'rush-worker-docker:/var/lib/docker', '-v', 'rush-worker-home:/home/rush/rush-worker',
-    '-e', 'RUSH_WORKER_TOKEN', '-e', 'OPENROUTER_API_KEY',
-    BENCHMARK_WORKER_IMAGE,
-    'python', '-m', 'nanoagent.uploaded.worker',
-    'config=/opt/nanoagent/deploy/gvisor/worker.openrouter.yaml', 'home=/home/rush/rush-worker/run',
-    '--', `rush.base_url=http://host.docker.internal:${apiPort}`, 'worker_id=dev-worker',
-  ];
-}
-
-/** Stop the worker's container and remove it; one a crashed start left is removed too. Leases the worker held run out on their own. */
-function stopBenchmarkWorker() {
-  spawnSync('docker', ['stop', '--timeout', '30', BENCHMARK_WORKER_CONTAINER], {stdio: 'ignore'});
-  spawnSync('docker', ['rm', '--force', BENCHMARK_WORKER_CONTAINER], {stdio: 'ignore'});
+export function benchmarkWorkerCommand(nanoagentRoot, apiPort, platform = process.platform) {
+  const worker = path.join(nanoagentRoot, 'var', 'dev-worker');
+  const python = platform === 'win32' ? path.join(nanoagentRoot, '.venv', 'Scripts', 'python.exe') : path.join(nanoagentRoot, '.venv', 'bin', 'python');
+  return [python, [
+    '-I', '-m', 'nanoagent.uploaded.worker', 'config=deploy/worker/worker.openrouter.yaml', `home=${JSON.stringify(path.join(worker, 'run'))}`,
+    '--', `rush.base_url=http://127.0.0.1:${apiPort}`, 'worker_id=dev-worker', `scratch=${JSON.stringify(path.join(worker, 'scratch'))}`,
+  ]];
 }
 
 /** Wait until the local API answers, which is when its migrations and the root account are done. */
@@ -346,7 +324,7 @@ export async function startLocal(argv = process.argv.slice(2)) {
     const ready = await waitForNanoAgent(env);
     console.log(`NanoAgent ready: ${ready.profile.id} (${ready.profile.model})`);
   }
-  // The uploaded-harness benchmark worker runs in the worker image, started once the API is up (startBenchmarkWorker below).
+  // The uploaded-harness benchmark worker, started once the API is up (startBenchmarkWorker below).
   const workerUnavailable = benchmarkWorkerUnavailable(env);
   if (workerUnavailable) console.log(`Benchmark worker not started: ${workerUnavailable}`);
   // Restarts when the server's code changes, so the API is never older than the checkout the site and the apps are built from.
@@ -360,7 +338,6 @@ export async function startLocal(argv = process.argv.slice(2)) {
   function stop(exitCode, signal = 'SIGTERM') {
     if (stopping) return;
     stopping = true;
-    if (!workerUnavailable) stopBenchmarkWorker();
     for (const {child} of processes) signalTree(child, signal);
     const force = setTimeout(() => {
       for (const {child} of processes) signalTree(child, 'SIGKILL');
@@ -389,18 +366,16 @@ export async function startLocal(argv = process.argv.slice(2)) {
   processes.forEach(watch);
 
   async function startBenchmarkWorker() {
-    stopBenchmarkWorker();
-    console.log(`Benchmark worker: building ${BENCHMARK_WORKER_IMAGE} from ${nanoagentRoot} ...`);
-    await run('docker', benchmarkWorkerBuildArgs(nanoagentRoot), {cwd: root, env, stdio: 'inherit'});
     // The credential is the root account's, minted in the database the API has just migrated.
     await waitForApi(apiPort, api);
     const minted = spawnSync(process.execPath, ['scripts/dev/mint-worker-credential.mjs'], {cwd: root, env, encoding: 'utf8'});
     if (minted.status !== 0) throw new Error(`minting the worker credential failed:\n${minted.stdout}${minted.stderr}`);
     if (stopping) return;
-    console.log(`Benchmark worker starting in the ${BENCHMARK_WORKER_IMAGE} container (endpoint openrouter)`);
+    console.log(`Benchmark worker starting from ${nanoagentRoot} (endpoint openrouter)`);
+    const [program, args] = benchmarkWorkerCommand(nanoagentRoot, apiPort);
     const worker = {
       name: 'benchmark worker',
-      child: spawn('docker', benchmarkWorkerArgs(apiPort), {cwd: root, env: {...env, RUSH_WORKER_TOKEN: minted.stdout.trim()}, stdio: 'inherit'}),
+      child: spawn(program, args, {cwd: nanoagentRoot, env: {...env, RUSH_WORKER_TOKEN: minted.stdout.trim()}, stdio: 'inherit'}),
     };
     processes.push(worker);
     watch(worker);

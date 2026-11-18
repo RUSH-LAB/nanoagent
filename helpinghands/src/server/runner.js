@@ -49,7 +49,7 @@ function keyList(value) {
     }));
 }
 
-const WORKER_STATES = new Set(['ready', 'starting', 'pulling', 'no-key', 'no-docker', 'failed']);
+const WORKER_STATES = new Set(['ready', 'starting', 'no-key', 'unsupported', 'failed']);
 const CHECK_STATES = new Set(['pending', 'running', 'pass', 'warn', 'wait', 'fail']);
 const text = (value, max) => (typeof value === 'string' ? value.slice(0, max) : null);
 

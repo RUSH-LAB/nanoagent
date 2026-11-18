@@ -16,7 +16,6 @@ from support import Cli, Worker
 
 NANOAGENT = support.NANOAGENT
 BEHAVIORS = Path(__file__).resolve().parent / "harnesses" / "probe_behaviors"
-SOCKET = "/run/rush-gvisor/seccheck.sock"
 sys.path[:0] = [str(NANOAGENT / "examples" / "uploaded_benchmark"), str(NANOAGENT / "examples" / "benchmark")]
 
 import step1_publish_benchmark  # noqa: E402
@@ -37,7 +36,6 @@ def start_worker(name: str, base_url: str, cli: Cli, run_dir: Path, *, upstream:
             base_url=f"http://{support.HOST}:{base_url.rsplit(':', 1)[1]}",
             upstream=upstream.replace("127.0.0.1", support.HOST),
             index=f"http://{support.HOST}:{index}/simple",
-            socket=SOCKET,
             scratch=f"{worker.home}/scratch",
             egress=egress,
             models=models,
