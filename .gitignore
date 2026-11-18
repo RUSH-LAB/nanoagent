@@ -227,3 +227,6 @@ KEY
 
 # Claude Code settings for one computer only.
 .claude/settings.local.json
+
+# Local data kept out of git: benchmark runs and reports (db/benchmark/).
+/db/
