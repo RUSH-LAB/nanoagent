@@ -19,7 +19,7 @@ import {LINK} from './docker-help.js';
 // The one place the image is named. RUSH Lab never pulls a tag: each build pins the digest it was tested with.
 // benchmark-worker-pin.yml checks a new pin: published, tested and attested by benchmark-worker-image.yml, from exactly
 // the image inputs of the commit that pins it. To re-pin, run that workflow on the branch and paste its digest here.
-export const WORKER_IMAGE = 'ghcr.io/rush-lab/benchmark-worker@sha256:91ad4b528409221663f681ee6028c39687b3eecc00b13390d97b37be60dabfa4';
+export const WORKER_IMAGE = 'ghcr.io/rush-lab/benchmark-worker@sha256:d9a147e0cf759e7f0774cf195c0dbd52d61321d747f8162c0628fbca0c0b6a1c';
 
 // What Docker's VM should have (docker info): the worker's sandboxes and the toolchain images need room. Below either, the
 // resources check warns and the worker still starts.
