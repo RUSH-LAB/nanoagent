@@ -47,12 +47,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
+      # Each platform image carries the hash of the files it was built from, which the pin check compares
+      # (benchmark-worker-pin.yml).
+      - name: Image inputs
+        id: inputs
+        run: echo "hash=$(bash nanoagent/deploy/gvisor/image-inputs.sh)" >> "$GITHUB_OUTPUT"
       - name: Build (${{ matrix.platform }})
         uses: docker/build-push-action@v7
         with:
           context: nanoagent
           file: nanoagent/deploy/gvisor/Dockerfile
           platforms: ${{ matrix.platform }}
+          labels: org.rush-lab.benchmark-worker.inputs=${{ steps.inputs.outputs.hash }}
           load: true
           tags: rush-benchmark-worker:test
           cache-from: type=gha,scope=benchmark-worker-${{ matrix.runner }}

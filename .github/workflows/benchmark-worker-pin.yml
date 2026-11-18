@@ -1,0 +1,42 @@
+name: Benchmark worker pin
+
+# RUSH Lab runs, privileged on members' computers, the worker image it pins (helpinghands/src/runner/worker.mjs). A pin
+# change must name an image that this repository's image workflow built, tested and attested, from exactly the files
+# this commit has. To re-pin: run benchmark-worker-image.yml on the branch (workflow_dispatch), then pin its digest.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/benchmark-worker-pin.yml'
+      - 'helpinghands/src/runner/worker.mjs'
+      - 'nanoagent/deploy/gvisor/image-inputs.sh'
+
+jobs:
+  pin:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Check the pinned image
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pin=$(grep -oE 'ghcr\.io/rush-lab/benchmark-worker@sha256:[0-9a-f]{64}' helpinghands/src/runner/worker.mjs) || {
+            echo "::error file=helpinghands/src/runner/worker.mjs::WORKER_IMAGE must pin ghcr.io/rush-lab/benchmark-worker by digest"
+            exit 1
+          }
+          # Built by this repository's image workflow, not pushed by hand.
+          gh attestation verify "oci://$pin" --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/benchmark-worker-image.yml"
+          # From exactly the files this commit has, on every platform.
+          built=$(docker buildx imagetools inspect "$pin" --format '{{json .Image}}' \
+            | jq -r '[.[] | .config.Labels["org.rush-lab.benchmark-worker.inputs"] // "none"] | unique | join(" ")')
+          want=$(bash nanoagent/deploy/gvisor/image-inputs.sh)
+          if [ "$built" != "$want" ]; then
+            echo "::error file=helpinghands/src/runner/worker.mjs::$pin was built from image inputs $built, but this commit's are $want. Run the benchmark worker image workflow on this branch and pin its digest."
+            exit 1
+          fi
+          echo "$pin is attested and built from this commit's image inputs ($want)."
