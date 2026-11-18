@@ -55,6 +55,7 @@ The profile is RUSH's dashboard figures, measured alike for every harness:
 
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -87,6 +88,7 @@ from nanoagent.harness.subprocess import SubprocessRunner
 from nanoagent.llm.openrouter import OpenRouterConfig
 from nanoagent.plugin import load_manifest, sandbox
 from nanoagent.plugin.install import INSTALL_HOSTS, SYNC
+from nanoagent.plugin.package import pack
 from nanoagent.plugin.python import PluginPython
 from nanoagent.plugin.tasks import ModelDecider, PinnedReference, TaskNotSubmitted, run_task
 from nanoagent.plugin.verifier import Verification, verify_task
@@ -662,7 +664,11 @@ def prepared_plugin(source: Path, python: PluginPython, timeout: float) -> Itera
         root = Path(directory).resolve() / source.name
         shutil.copytree(source, root, symlinks=True)
         sync = [*SYNC, "--python", str(python.executable), "--quiet"]
-        with sandbox.launch(sync, root=root, env={}, writable=[root], hosts=INSTALL_HOSTS) as (argv, env):
+        # One uv cache per plugin package, kept across syncs, so its dependencies download once and not on every sync. Keyed
+        # by the package digest because a sync runs the plugin's build code with the cache writable: no other plugin shares it.
+        cache = Path(tempfile.gettempdir(), "nanoagent-benchmark-uv", hashlib.sha256(pack(source)).hexdigest())
+        cache.mkdir(parents=True, exist_ok=True)
+        with sandbox.launch(sync, root=root, env={"UV_CACHE_DIR": str(cache)}, writable=[root, cache], hosts=INSTALL_HOSTS) as (argv, env):
             subprocess.run(argv, cwd=root, env=env, check=True, timeout=timeout)
         yield root
 
