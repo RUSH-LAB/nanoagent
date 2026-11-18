@@ -74,7 +74,7 @@ if command is not None:
     os.execvpe("bash", ["bash", "-c", command], env)
 
 print(
-    f"\x1b[1m{request['task']['plugin_name']}\x1b[0m\r\nRun any CLI agent here (claude, codex, pi, hermes, dsh)\r\nModels and tracing are set up.\r\n",
+    "Run any CLI agent here (claude, codex, pi, hermes, dsh)\r\nModels and tracing are set up.\r\n",
     end="",
     flush=True,
 )

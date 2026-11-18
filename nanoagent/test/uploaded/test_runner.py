@@ -174,9 +174,10 @@ async def test_cancel_woken_wait_that_fails_as_closed_is_still_a_cancel(tmp_path
 
 async def test_a_free_form_session_has_no_case_reads_no_result_and_ends_unscored(tmp_path: Path) -> None:
     rig = Rig(tmp_path, script=fx.CaseScript(result=SandboxError("missing_result", "ignored"), workspace=answer_file('{"sum": 3}')))
-    result = await rig.run(fx.free_job(tools=[fx.WAIT_TOOL]))
+    result = await rig.run(fx.free_job())
     request = json.loads(rig.supervisor.specs[0].request_json)
-    assert (request["free_form"], request["case"], request["prompt"]) == (True, None, None)
+    assert (request["free_form"], request["task"], request["case"], request["prompt"]) == (True, None, None, None)
+    assert rig.rush.packages == 0  # nothing of the plugin is fetched, unpacked or synced
     assert rig.services[0].attempt.policy.prompt_user is None
     assert result.execution == {"status": "ended", "reason": None} and rig.verified == []
     assert rig.rush.finalized[0]["verdict"] is None and rig.rush.of("result.read") == [] and rig.rush.of("collector.health")
@@ -932,7 +933,8 @@ async def test_a_terminal_session_is_handed_the_warm_terminal_the_one_before_it_
         warm = rig.supervisor.case
         assert warm.launched and json.loads(rig.supervisor.specs[-1].request_json) == {"wait_go": True}
         rig.rush = rig.runner.worker = fx.FakeRush()  # the next session's attempt
-        second = await rig.run(fx.free_job(attempt_id="33333333-3333-4333-8333-333333333333"))
+        # opened from another plugin's page: one warm terminal serves every plugin
+        second = await rig.run(fx.free_job(attempt_id="33333333-3333-4333-8333-333333333333", plugin={"id": "another-plugin"}))
         assert second.execution == {"status": "ended", "reason": None}
         request, token = warm.went
         assert request["free_form"] is True and token and len(rig.supervisor.specs) >= 2

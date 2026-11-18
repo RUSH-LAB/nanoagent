@@ -29,7 +29,7 @@ import {
  * (`chat.turn`). Only `cancel` stops one.
  *
  * The Harness tab's session (`harness.run`) is a benchmark run of one case, the page's request to one of the plugin's tasks
- * worked by a reference harness on the member's own worker, or of the free-form Terminal (`shell`, no request and no case), on a
+ * worked by a reference harness on the member's own worker, or of the free-form Terminal (`shell`, no task, request or case), on a
  * terminal the member works in: RUSH queues and records it, and the page talks to its terminals on this computer, through RUSH
  * Lab, not through RUSH (./harness.js). The page hears the terminal's output as it comes and the outcome, through `harness.done`,
  * and sends what is typed (`harness.input`) and the terminal's size (`harness.resize`), each to one of its terminals (0 the first);

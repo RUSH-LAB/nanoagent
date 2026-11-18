@@ -138,13 +138,14 @@ class AttemptJob:
     ``{id, name, version, sha256}``. (The claim's ``case_set`` and ``renderer_version`` are the server's bookkeeping.)
     ``case_pending`` is a session's case still being pinned: ``case``, ``prompt`` and ``private_reference`` are None until
     :meth:`pinned` gives them from :meth:`RushWorkerClient.case`. ``free_form`` is a Terminal session someone is at, which has no
-    case at all: they run any agent and prompt it themselves, and nothing scores it."""
+    case at all: they run any agent and prompt it themselves, and nothing scores it. It has no task (``task`` is None) and of its
+    plugin, the page it was opened from, only ``plugin["id"]``."""
 
     attempt_id: str
     attempt_no: int
     fence: int
     run: Mapping[str, Any]
-    task: Mapping[str, Any]
+    task: Mapping[str, Any] | None
     case: Mapping[str, Any] | None
     prompt: Mapping[str, Any] | None
     plugin: Mapping[str, Any]

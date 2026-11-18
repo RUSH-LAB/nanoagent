@@ -10,6 +10,7 @@ const {MODEL} = require('../../../src/server/ai-settings.js');
 const {createBenchmarkService} = require('../../../src/server/benchmark/service.js');
 const {benchmarkPublication, publicationFrame} = require('../../../src/server/benchmark/validate.js');
 const {BenchmarkError} = require('../../../src/server/benchmark/errors.js');
+const {TERMINAL_LIMITS} = require('../../../src/server/benchmark/limits.js');
 const route = loadRoute('benchmark');
 const workerRoute = require('../../../src/server/routes/benchmark-worker.js');
 const CONTEXT = {userId: 'u', workspaceId: 'w', membershipId: 'm', role: 'owner'};
@@ -38,7 +39,7 @@ const {cases: _cases, private: _private, ...frame} = {...pinned, case_id: 'p-01'
 /** Let the session's pin, which runs after the answer, finish. */
 const settled = () => new Promise(resolve => setTimeout(resolve, 10));
 
-function ctxFor({computer, app = {value: {id: 'p', sha256: SHA, status: 'ready'}}} = {}) {
+function ctxFor({computer, app = {value: {id: 'p', sha256: SHA, status: 'ready', tasks: [{id: 'sum', description: 'Add two numbers'}, {id: 'other', description: 'o'}]}}} = {}) {
   const calls = [];
   const on = computer ?? {
     benchmarkSessionFrame: async (sha, bodyText) => { calls.push(['frame', sha, JSON.parse(bodyText)]); return {value: JSON.stringify(frame)}; },
@@ -83,16 +84,17 @@ describe('POST /api/benchmark/sessions', () => {
     assert.deepEqual([what, session, publication.cases.length, publication.case_set_digest.length], ['pinned', {run_id: 'r1'}, 1, 64]);
   });
 
-  it('queues a free-form Terminal session with no request and no case, which nothing fills or pins', async () => {
+  it('queues a free-form Terminal session with nothing of its plugin opened or read: the plugin\'s id its label, the Terminal\'s limits', async () => {
     const {ctx, calls} = ctxFor();
-    const {status, payload} = await post(ctx, {plugin_id: 'p', task_id: 'sum', harness: 'shell', interactive: true});
+    const {status, payload} = await post(ctx, {plugin_id: 'p', harness: 'shell', interactive: true});
     assert.equal(status, 201);
     assert.deepEqual(payload, {run: {run_id: 'r1'}, attempt_id: 'a1'});
-    assert.deepEqual(calls[1], ['frame', SHA, {task: 'sum'}]);
-    assert.equal(calls[3][1].case_id, null);
+    assert.deepEqual(calls.map(([what]) => what), ['build', 'session']);
+    const queued = calls[1][1];
+    assert.deepEqual([queued.plugin_id, queued.package_sha256, queued.task_id, queued.task, queued.case_id, queued.limits], ['p', null, null, null, null, TERMINAL_LIMITS]);
     await settled();
     assert.ok(!calls.some(([what]) => what === 'pin'));
-    assert.equal((await post(ctx, {plugin_id: 'p', task_id: 'sum', harness: 'shell', interactive: true, text: 'hi'})).status, 400);
+    for (const extra of [{text: 'hi'}, {task_id: 'sum'}]) assert.equal((await post(ctx, {plugin_id: 'p', harness: 'shell', interactive: true, ...extra})).status, 400);
   });
 
   it('takes the harness\'s model and whether the member is at its terminal from the request', async () => {
@@ -200,7 +202,7 @@ describe('`rush score`: POST /api/benchmark-worker/attempts/{id}/score and GET .
       authenticate: async bearer => (bearer === 'cred' ? 'u' : null),
       terminalSession: async (userId, attemptId, fence) => {
         assert.deepEqual([userId, attemptId, fence], ['u', ATTEMPT, 3]);
-        return {workspaceId: 'w', pluginId: 'p', taskId: 'sum', description: 'Add two numbers'};
+        return {workspaceId: 'w', pluginId: 'p'};
       },
     };
     ctx.benchmark.repository.attempt = async (context, id) => (id === SCORED ? {attempt_id: id, sealed: true, verdict: 'pass'} : null);
@@ -208,15 +210,15 @@ describe('`rush score`: POST /api/benchmark-worker/attempts/{id}/score and GET .
     return {ctx, calls};
   };
 
-  it('works the member\'s saved harness once on the session\'s task, as the one-shot `nanoagent harness` does, the task\'s description its request', async () => {
+  it('works the member\'s saved harness once on the first task of the session\'s plugin, as the one-shot `nanoagent harness` does, the task\'s description its request', async () => {
     const {ctx, calls} = scoring();
     const started = await invoke(workerRoute, {
       method: 'POST', path: `/api/benchmark-worker/attempts/${ATTEMPT}/score`, headers: {authorization: 'Bearer cred'}, body: {fence: 3, harness: 'my-agent'}, ctx, auth: null,
     });
     assert.deepEqual([started.status, started.payload], [201, {run: {run_id: 'r1'}, attempt_id: 'a1'}]);
     await settled();
-    assert.deepEqual(calls.map(([what]) => what), ['open', 'frame', 'session', 'pin', 'pinned']);
-    assert.deepEqual([calls[1][2], calls[2][2], calls[2][3], calls[2][4]], [{task: 'sum', text: 'Add two numbers'}, SAVED, 'coding', {interactive: false}]);
+    assert.deepEqual(calls.map(([what]) => what), ['open', 'open', 'frame', 'session', 'pin', 'pinned']);
+    assert.deepEqual([calls[2][2], calls[3][2], calls[3][3], calls[3][4]], [{task: 'sum', text: 'Add two numbers'}, SAVED, 'coding', {interactive: false}]);
   });
 
   it('reads how the scored attempt went, and what its calls cost', async () => {

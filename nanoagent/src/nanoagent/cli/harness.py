@@ -9,12 +9,14 @@ the member's own worker, and the run folder gets its result and recording.
 model calls and commands recorded; `rush save <name>` there makes what the member built a harness of theirs, which `harness=<name>`
 runs again, scored and recorded the same way.
 
-It goes through the RUSH that RUSH Lab on this computer is connected to, as the tab does (POST /api/benchmark/sessions and the
-attempt's terminal, docs/contracts/rush-benchmark-api.md): RUSH queues the run at once and pins the case on the member's computer
-meanwhile, and RUSH Lab's worker claims it and runs the harness in microsandbox with its gateway, strace and the plugin's verifier, on the OpenRouter
+It goes through the RUSH that RUSH Lab on this computer is connected to, as the tab does (POST /api/benchmark/sessions,
+docs/contracts/rush-benchmark-api.md): RUSH queues the run at once and pins the case on the member's computer meanwhile, and RUSH
+Lab's worker claims it and runs the harness in microsandbox with its gateway, strace and the plugin's verifier, on the OpenRouter
 key RUSH Lab keeps. This command signs in with RUSH Lab's connection (its `site` and `runner-credentials.json`) and never reads the
 key. Without `prompt`, the first line typed is the request (but for the shell, which takes none) and the terminal is then the
-harness's, raw, until it exits.
+harness's, raw, until it exits: the command reaches it as the tab does, over the worker's token-guarded link on this computer
+(GET attempts/{id}/terminal-link, nanoagent.uploaded.terminal), never through RUSH. A one-shot run nobody is at prints its
+terminal from its recording once it is over.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ import queue
 import select
 import shutil
 import signal
+import socket
 import sys
 import termios
 import threading
@@ -134,47 +137,66 @@ def find_plugin(rush: httpx.Client, plugin: str, workspace: str | None) -> tuple
     return found[0][0], found[0][2]
 
 
-def follow(rush: httpx.Client, prefix: str, attempt_id: str, write) -> bytes:
-    """The attempt's terminal output (its first, the harness's), each chunk given to ``write`` as it comes, until the attempt is sealed:
-    all of it."""
-    seen = bytearray()
-    sealed = False
-    while not sealed:
-        try:
-            with rush.stream("GET", f"{prefix}/benchmark/attempts/{attempt_id}/terminal", params={"terminal": 0, "from": len(seen)},
-                             headers={"Accept": "text/event-stream"}, timeout=httpx.Timeout(30.0, read=None)) as response:  # fmt: skip
-                if response.status_code == 404:
-                    raise SystemExit("harness: the session's attempt is gone")
-                if not response.is_success:
-                    raise httpx.HTTPStatusError(str(response.status_code), request=response.request, response=response)
-                event = None
-                for line in response.iter_lines():
-                    if line.startswith("event: "):
-                        event = line[len("event: ") :]
-                    elif line.startswith("data: ") and event == "sealed":
-                        sealed = True
-                    elif line.startswith("data: ") and event == "output":
-                        frame = json.loads(line[len("data: ") :])
-                        if frame["offset"] == len(seen):
-                            chunk = base64.b64decode(frame["data"])
-                            seen += chunk
-                            write(chunk)
-            continue  # a stream that ended before the seal opens again at once from where it reached
-        except (httpx.TransportError, httpx.HTTPStatusError):
-            time.sleep(RETRY_S)
-    return bytes(seen)
+def sealed(rush: httpx.Client, attempt_path: str) -> dict[str, Any]:
+    """The attempt at ``attempt_path`` once it is sealed."""
+    while not (attempt := checked(rush.get(attempt_path))["attempt"])["sealed"]:
+        time.sleep(RETRY_S)
+    return attempt
+
+
+def link_of(rush: httpx.Client, attempt_path: str) -> dict[str, Any] | None:
+    """Where the session's worker serves its terminals on this computer, ``{port, token}``, once it has started them; None when the
+    session ended first. RUSH holds each read until the link is there, or answers 204 after a while."""
+    while True:
+        response = rush.get(f"{attempt_path}/terminal-link")
+        if response.status_code == 404:
+            raise SystemExit("harness: the session's attempt is gone")
+        if response.status_code == 204:
+            if checked(rush.get(attempt_path))["attempt"]["sealed"]:
+                return None
+            continue
+        return checked(response)
+
+
+class Link:
+    """The session's terminals over the worker's link on this computer (nanoagent.uploaded.terminal): one JSON object a line each way,
+    the first the link's token. What terminal 0, the harness's, writes goes to ``write`` as it comes; what is typed goes back."""
+
+    def __init__(self, port: int, token: str, write) -> None:
+        self._socket = socket.create_connection(("127.0.0.1", port))
+        self._lock = threading.Lock()
+        self._write = write
+        self.error: str | None = None
+        self.send({"token": token})
+
+    def send(self, line: dict[str, Any]) -> None:
+        with self._lock:
+            self._socket.sendall(json.dumps(line).encode() + b"\n")
+
+    def follow(self) -> bytes:
+        """Terminal 0's output, each chunk to ``write``, until the worker ends the link (the session is over): all of it."""
+        screen = bytearray()
+        with self._socket, self._socket.makefile("rb") as lines:
+            for raw in lines:
+                line = json.loads(raw)
+                if "error" in line:
+                    self.error = f"the session's terminals refused this command: {line['error']}"
+                elif line.get("terminal") == 0 and "data" in line:
+                    chunk = base64.b64decode(line["data"])
+                    screen += chunk
+                    self._write(chunk)
+        return bytes(screen)
 
 
 class Keyboard:
-    """The member's terminal, raw, as the harness's: what is typed and each new size go to the attempt's PTY in order."""
+    """The member's terminal, raw, as the harness's: what is typed and each new size go over the link to its PTY in order."""
 
-    def __init__(self, rush: httpx.Client, path: str) -> None:
-        self._rush, self._path = rush, path
+    def __init__(self, link: Link) -> None:
+        self._link = link
         self._fd = sys.stdin.fileno()
         self._saved = termios.tcgetattr(self._fd)
         self._sends: queue.Queue[dict[str, Any] | None] = queue.Queue()
         self._done = threading.Event()
-        self.error: str | None = None
 
     def _size(self, *_: Any) -> None:
         size = shutil.get_terminal_size()
@@ -190,10 +212,10 @@ class Keyboard:
 
     def _send(self) -> None:
         while (body := self._sends.get()) is not None:
-            response = self._rush.post(self._path, json=body)
-            # After the harness exits and before the attempt is sealed, what is typed has nowhere to go.
-            if not response.is_success and response.status_code != 409 and self.error is None:
-                self.error = f"the terminal refused input: {response.status_code} {response.text[:200]}"
+            try:
+                self._link.send(body)
+            except OSError:
+                return  # the session ended: what is typed has nowhere to go
 
     def __enter__(self) -> Keyboard:
         tty.setraw(self._fd)
@@ -240,17 +262,21 @@ def main(argv: list[str] | None = None) -> int:
     folder, site, token = connection(find_lab(app_data()) if cfg.lab is None else Path(cfg.lab))
     with httpx.Client(base_url=site, headers={"Authorization": f"Bearer {token}", "Origin": site}, timeout=60.0) as rush:
         prefix, app = find_plugin(rush, cfg.plugin, cfg.workspace)
-        tasks = [task["id"] for task in app["tasks"]]
-        task = tasks[0] if cfg.task is None else cfg.task
-        if task not in tasks:
-            raise SystemExit(f"harness: {cfg.plugin}'s tasks are {', '.join(tasks)}, not {task!r}")
-        free = cfg.harness == "shell"  # a free-form terminal: no request, no case
+        free = cfg.harness == "shell"  # a free-form terminal: no task, request or case; the plugin only labels it
+        if free and cfg.task is not None:
+            raise SystemExit("harness: the shell is an empty terminal that works no task; drop task=")
+        task = None
+        if not free:
+            tasks = [task["id"] for task in app["tasks"]]
+            task = tasks[0] if cfg.task is None else cfg.task
+            if task not in tasks:
+                raise SystemExit(f"harness: {cfg.plugin}'s tasks are {', '.join(tasks)}, not {task!r}")
         text = None if free else cfg.prompt if cfg.prompt is not None else input(f"{cfg.harness} · {cfg.plugin} · ask: ").strip()
         if not free and not text:
             raise SystemExit("harness: the request is empty")
         home = Path(cfg.home) if cfg.home else folder / "runs" / cfg.plugin / f"{datetime.now():%Y_%m_%d_%H%M%S}_{cfg.harness}"
         print(f"{cfg.harness} · {cfg.plugin} · starting: the first session of a harness builds it", file=sys.stderr, flush=True)
-        body = {"plugin_id": cfg.plugin, "task_id": task, "harness": HARNESSES.get(cfg.harness, cfg.harness), "interactive": interactive} | ({} if free else {"text": text})
+        body = {"plugin_id": cfg.plugin, "harness": HARNESSES.get(cfg.harness, cfg.harness), "interactive": interactive} | ({} if free else {"task_id": task, "text": text})
         started = checked(rush.post(f"{prefix}/benchmark/sessions", json=body | ({} if cfg.model is None else {"model": cfg.model}),
                                     timeout=START_TIMEOUT_S))  # fmt: skip
         run, attempt_id = started["run"], started["attempt_id"]
@@ -261,17 +287,23 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.buffer.flush()
 
         try:
+            screen = b""
             if interactive:
-                with Keyboard(rush, f"{attempt_path}/terminal") as keyboard:
-                    screen = follow(rush, prefix, attempt_id, write)
-                if keyboard.error:
-                    print(f"harness: {keyboard.error}", file=sys.stderr)
+                if (found := link_of(rush, attempt_path)) is not None:
+                    link = Link(found["port"], found["token"], write)
+                    with Keyboard(link):
+                        screen = link.follow()
+                    if link.error:
+                        print(f"harness: {link.error}", file=sys.stderr)
+                attempt = sealed(rush, attempt_path)
             else:
-                screen = follow(rush, prefix, attempt_id, write)
+                attempt = sealed(rush, attempt_path)
+                recording = checked(rush.get(f"{attempt_path}/recording"))
+                screen = b"".join(base64.b64decode(each["data"]) for each in recording["terminals"] if each["terminal"] == 0)
+                write(screen)
         except KeyboardInterrupt:  # one-shot only: in raw mode Ctrl-C is the harness's
             checked(rush.post(f"{prefix}/benchmark/runs/{run['run_id']}/cancel"))
             raise
-        attempt = checked(rush.get(attempt_path))["attempt"]
         accounting = checked(rush.get(f"{attempt_path}/accounting"))
         recording = events(rush, f"{attempt_path}/events")
     metrics = attempt.get("metrics") or {}

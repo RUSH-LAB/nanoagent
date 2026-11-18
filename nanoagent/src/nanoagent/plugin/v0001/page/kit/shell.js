@@ -199,7 +199,7 @@ export async function mountApp(renderers) {
   const board = dashboard({ onOpen: (opened) => openSession(opened), closed });
   const home = homePage(plugin, board.element);
   const page = h("div", { class: "kit-session", hidden: true });
-  const harness = h("div", { class: "kit-harness", hidden: true }, closed ? null : harnessPage(plugin));
+  const harness = h("div", { class: "kit-harness", hidden: true }, closed ? null : harnessPage());
   const ranks = leaderboardPage();
   const leaderboard = h("main", { class: "page", hidden: true }, ranks.element);
   let open = false;

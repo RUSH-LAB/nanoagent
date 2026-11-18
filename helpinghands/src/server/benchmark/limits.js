@@ -34,6 +34,16 @@ const DEFAULT_LIMITS = Object.freeze({
   internet_access: true,
 });
 const LIMIT_FIELDS = Object.freeze(Object.keys(DEFAULT_LIMITS));
+const GIB = 1024 * 1024 * 1024;
+/**
+ * The limits of every free-form Terminal session, whichever plugin's page opened it: a scored Harness tab session's (NanoAgent's
+ * sessions config, nanoagent.uploaded.case_sets.SessionsConfig), as a person installs and runs agents there, so one warm terminal on
+ * their worker, made under these, serves every plugin.
+ */
+const TERMINAL_LIMITS = Object.freeze({
+  ...DEFAULT_LIMITS, max_model_calls: 200, wall_time_ms: 3_600_000, build_output_bytes: 3 * GIB, build_wall_ms: 1_800_000, tmp_bytes: 4 * GIB,
+  workspace_bytes: 10 * GIB, memory_mb: 4096,
+});
 
 /** How long a worker's advertised capabilities stand: an endpoint label with no claim within this window has no worker available. */
 const CAPABILITY_WINDOW_S = 300;
@@ -132,4 +142,4 @@ const MAX_SOURCE_BYTES = positiveSetting('BENCHMARK_SOURCE_MAX_BYTES', 50 * 1024
 module.exports = {
   CAPABILITY_WINDOW_S, MAX_SOURCE_BYTES, MEMBER_STORAGE_BYTES, MAX_EVENT_DATA_BYTES, MAX_SPAN_ATTRIBUTES_BYTES, MAX_LINK_ATTRIBUTES_BYTES, MAX_ACCOUNTING_RECORD_BYTES,
   MAX_RESULT_BYTES, MAX_MODEL_CALLS, MAX_ATTEMPTS_PER_CASE, MAX_ATTEMPT_EVENTS, MAX_ATTEMPT_SPANS, MAX_ATTEMPT_LINKS, MAX_ATTEMPT_TERMINAL_BYTES, MAX_TERMINAL_CHUNK_BYTES, MAX_TERMINALS, MAX_ACCOUNTING_VERSION, MAX_EVENT_PAGE_BYTES, MAX_TRACE_PAGE_BYTES, SETTLE_RESERVE_FACTOR, MAX_USD,
-  MAX_INTEGER, MAX_BIGINT, DEFAULT_LIMITS, LIMIT_FIELDS, limitOverrides, effectiveLimits, capabilitiesOf, exceeded, positiveSetting};
+  MAX_INTEGER, MAX_BIGINT, DEFAULT_LIMITS, TERMINAL_LIMITS, LIMIT_FIELDS, limitOverrides, effectiveLimits, capabilitiesOf, exceeded, positiveSetting};

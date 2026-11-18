@@ -249,19 +249,16 @@ def session_task(manifest, task_id: str) -> Any:
         raise PreparationError(f"{manifest.id} has an unknown task: {error.args[0]}") from error
 
 
-def session_frame(manifest, sha256: str, task_id: str, text: str | None, sessions: SessionsConfig) -> dict[str, Any]:
+def session_frame(manifest, sha256: str, task_id: str, text: str, sessions: SessionsConfig) -> dict[str, Any]:
     """A Harness tab session's case set but its case (and that case's id, ``case_id``), read from ``manifest`` at once: RUSH queues
-    the session's run on it while :func:`session_case_set` fills and pins the case, whose case set has this same frame. Without
-    ``text`` it is a free-form Terminal session's: the plugin and its task with no request, so no case and no ``case_id``."""
+    the session's run on it while :func:`session_case_set` fills and pins the case, whose case set has this same frame."""
     task = session_task(manifest, task_id)
     limits = {
         "max_model_calls": sessions.max_model_calls, "wall_time_ms": sessions.wall_time_ms, "build_output_bytes": sessions.build_output_bytes,
         "build_wall_ms": sessions.build_wall_ms, "tmp_bytes": sessions.tmp_bytes, "workspace_bytes": sessions.workspace_bytes,
         "memory_mb": sessions.memory_mb,
     }  # fmt: skip
-    frame = {**case_set_frame(SESSION, manifest, sha256, task, text or ""), "limits": limits}
-    if text is None:
-        return frame
+    frame = {**case_set_frame(SESSION, manifest, sha256, task, text), "limits": limits}
     [case_id] = case_ids(CaseSet(plugin=manifest.id, task=task.id, context=text, answer=[{}], refuse=[]))
     return {**frame, "case_id": case_id}
 

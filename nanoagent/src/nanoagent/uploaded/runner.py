@@ -658,7 +658,8 @@ class AttemptRunner:
             raise UnsupportedPolicy(f"the run's policy {policy!r} is not one of {POLICIES}")
         check_limits(limits, cfg.capabilities)
         source = await self.worker.source(job.attempt_id, job.fence)
-        package = await self.worker.package(job.attempt_id, job.fence)
+        # A free-form Terminal session runs nothing of its plugin: RUSH keeps no package for it, and none is fetched or unpacked.
+        package = None if job.free_form else await self.worker.package(job.attempt_id, job.fence)
         if (ended := await self._ended(job, lease, journal)) is not None:
             return ended
         rejection: ContractError | None = None
@@ -695,10 +696,12 @@ class AttemptRunner:
         if (ended := await self._ended(job, lease, journal)) is not None:  # the build is a thread nothing can interrupt, so a cancel is seen after it
             return ended
         LOG.info("attempt %s: harness built", job.attempt_id)  # with the worker log's times, these lines show where a session's start goes
-        manifest = await in_thread(self._plugin, job, package, work, bool(tools))
-        LOG.info("attempt %s: plugin ready", job.attempt_id)
-        if (ended := await self._ended(job, lease, journal)) is not None:
-            return ended
+        manifest = None
+        if package is not None:
+            manifest = await in_thread(self._plugin, job, package, work, bool(tools))
+            LOG.info("attempt %s: plugin ready", job.attempt_id)
+            if (ended := await self._ended(job, lease, journal)) is not None:
+                return ended
         if pending is not None:  # the harness reads its case as it starts
             await first_of(pending.done, lease.revoked)
             if (ended := await self._ended(job, lease, journal)) is not None:
@@ -848,8 +851,9 @@ class AttemptRunner:
         yield {"path": f"{CLIS_DIR}/{key}/harness", "key": key}
 
     async def _score(self, job: AttemptJob, name: str) -> AsyncIterator[Mapping[str, Any]]:
-        """`rush score <name>` in the Terminal session ``job``: the run RUSH starts of the member's harness ``name`` on the session's
-        task, its state each time it changes, then its one-line result as `nanoagent harness` prints it, or why there is none."""
+        """`rush score <name>` in the Terminal session ``job``: the run RUSH starts of the member's harness ``name`` on the first task of
+        the session's plugin, its state each time it changes, then its one-line result as `nanoagent harness` prints it, or why there is
+        none."""
         try:
             started = await self.worker.score(job.attempt_id, job.fence, name)
             yield {"run_id": started["run"]["run_id"]}
@@ -898,7 +902,7 @@ class AttemptRunner:
         run_argv: tuple[str, ...],
         profile: ToolchainProfile,
         artifact: BuildArtifact,
-        manifest: PluginManifest,
+        manifest: PluginManifest | None,
         tools: tuple[Mapping[str, Any], ...],
         stack: AsyncExitStack,
     ) -> AttemptResult:
@@ -1044,7 +1048,7 @@ class AttemptRunner:
             "protocol": "rush.harness.v1",
             "attempt_id": job.attempt_id,
             "policy": run["policy"],
-            "task": {key: task[key] for key in ("id", "kind", "description", "instructions", "plugin_name")},
+            "task": None if task is None else {key: task[key] for key in ("id", "kind", "description", "instructions", "plugin_name")},
             "free_form": job.free_form,
             "case": None if case is None else {key: case[key] for key in ("case_id", "arguments", "context", "input_schema", "output_schema")},
             "prompt": None if prompt is None else {key: prompt[key] for key in ("system", "user", "sha256")},

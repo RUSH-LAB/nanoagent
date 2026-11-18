@@ -1,7 +1,7 @@
-// The Harness tab every plugin's page has (kit/shell.js): the person's own terminals on their computer, in the harness VM, in the
-// workspace of one case of the plugin's task, with the model a call away through RUSH (which records every call) and the
-// reference CLIs installed. They run any agent there; when they leave the shell, the answer.json it left is scored as a
-// benchmark case is, and `rush save <name>` there keeps what they built as a harness of theirs.
+// The Harness tab every plugin's page has (kit/shell.js): the person's own terminals on their computer, in the harness VM, an empty
+// workspace with the model a call away through RUSH (which records every call) and the reference CLIs installed, the same whichever
+// plugin's page opened it. They run any agent there and prompt it themselves; nothing scores it, and `rush save <name>` there keeps
+// what they built as a harness of theirs.
 
 import { startRun, request } from "./bridge.js";
 import { h, icon } from "./dom.js";
@@ -13,34 +13,35 @@ import { FitAddon } from "./vendor/xterm/addon-fit.mjs";
 const MAX_TERMINALS = 32;
 const bytes = (base64) => Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
 
+/** Why a Terminal session that did not end as its member ended it stopped, in a few words: its status, and its reason when it has one. */
+const stopped = (outcome) => `${outcome.status}${outcome.reason ? `: ${outcome.reason}` : ""}`;
+
 /**
- * The line an ended session prints in its terminal: that it ended (a free-form Terminal session, which nothing scores), or right or
- * wrong by the plugin's verifier when it gave an answer (or that it ran out of its time, sessions.wall_time_ms), then time, tokens
- * and cost.
+ * The line a Terminal session that ran prints in its terminal once it is over: that it ended (or ran out of its time, or why it
+ * stopped otherwise), then its time, tokens and cost.
  */
 export function outcomeText(outcome) {
-  const verdict = outcome.reason === "timed_out"
+  const end = outcome.reason === "timed_out"
     ? "Session time limit reached"
     : outcome.ended
     ? "Session ended"
-    : !outcome.scored
-    ? `No verdict: no answer to score (${outcome.status}${outcome.reason ? `: ${outcome.reason}` : ""})`
-    : outcome.verdict === "Pass" ? "Right" : outcome.verdict === "Fail" ? "Wrong" : outcome.verdict;
+    : `Session ended (${stopped(outcome)})`;
   const tokens = outcome.inputTokens === null ? "—" : thousands((outcome.inputTokens ?? 0) + (outcome.outputTokens ?? 0));
-  return [verdict, formatSeconds(outcome.elapsedMs === null ? null : outcome.elapsedMs / 1000), `${tokens} tokens`, formatCost(outcome.cost)].join(" · ");
+  return [end, formatSeconds(outcome.elapsedMs === null ? null : outcome.elapsedMs / 1000), `${tokens} tokens`, formatCost(outcome.cost)].join(" · ");
 }
 
+/** The one plain line of a Terminal that could not start, with why. */
+const failedText = (reason) => `Couldn't start the terminal: ${reason}`;
+
 /**
- * The Harness tab: a free-form Terminal session that starts when the tab is first shown, on the plugin's first task (as `nanoagent
- * harness` picks it by default) but, as in an experiment's coding run, none of its tools: the member runs any agent there and
- * prompts it themselves. As in an editor's
+ * The Harness tab: a free-form Terminal session that starts when the tab is first shown, nothing of the plugin loaded in it: the
+ * member runs any agent there and prompts it themselves. As in an editor's
  * terminal panel, they open more terminals in the same VM and workspace ("+"), switch between them by their tabs and close one (×);
  * a terminal whose shell they leave (exit, Ctrl-D) closes too. The session ends with its last terminal; its time, tokens and cost
  * print there, and Enter then starts a new one.
  * @returns {HTMLElement}
  */
-export function harnessPage(plugin) {
-  const task = plugin.tasks[0];
+export function harnessPage() {
   let runId = null;
   let ended = false;
   let next = 0;  // the id the next terminal opened gets
@@ -144,8 +145,16 @@ export function harnessPage(plugin) {
     first.terminal.onResize((size) => send("harness.resize", { terminal: 0, ...size }, first));
     updateAdd();
     let preparing = false;
+    // Whether the shell started (its first output came), and whether it was told it could not.
+    let started = false;
+    let failed = false;
     // What the session says as a whole (its outcome, an error) is told in the terminal shown.
     const shown = () => views.get(active).terminal;
+    const fail = (reason) => {
+      if (failed) return;
+      failed = true;
+      shown().write(`\r\n${failedText(reason)}\r\n`);
+    };
     const done = () => {
       runId = null;
       ended = true;
@@ -153,7 +162,7 @@ export function harnessPage(plugin) {
       shown().write("Press Enter to start a new one.");
     };
     try {
-      const id = await startRun("harness.run", { harness: "shell", task: task.id }, (name, data) => {
+      const id = await startRun("harness.run", { harness: "shell" }, (name, data) => {
         switch (name) {
           case "harness.preparing":  // shown only while something downloads; otherwise the terminal just opens
             if (!data.total) break;
@@ -165,6 +174,7 @@ export function harnessPage(plugin) {
             if (!entry) break;
             if (preparing) entry.terminal.write("\r\x1b[K");
             preparing = false;
+            started = true;
             entry.terminal.write(bytes(data.data));
             break;
           }
@@ -172,10 +182,12 @@ export function harnessPage(plugin) {
             if (views.has(data.terminal) && views.size > 1) remove(data.terminal);
             break;
           case "harness.outcome":
-            shown().write(`\r\n\x1b[1m${outcomeText(data)}\x1b[0m\r\n`);
+            if (started) shown().write(`\r\n\x1b[1m${outcomeText(data)}\x1b[0m\r\n`);
+            else fail(stopped(data));
             break;
           case "harness.error":
-            shown().write(`\r\n\x1b[31m${data.message}\x1b[0m\r\n`);
+            if (started) shown().write(`\r\n\x1b[31m${data.message}\x1b[0m\r\n`);
+            else fail(data.message);
             break;
           case "harness.done":
             done();
@@ -190,7 +202,7 @@ export function harnessPage(plugin) {
         first.terminal.focus();
       }
     } catch (problem) {
-      shown().write(`\x1b[31m${problem.message}\x1b[0m\r\n`);
+      fail(problem.message);
       done();
     }
   }

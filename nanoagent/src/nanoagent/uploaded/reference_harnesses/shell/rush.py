@@ -1,5 +1,5 @@
 """`rush save <name> [-- <command>]`, in the RUSH terminal: what the member built there, saved in RUSH as a harness of theirs.
-`rush score [<name>]` scores it on the session's task through the attempt's services (the worker's `_score`). `rush help` says
+`rush score [<name>]` scores it on the first task of the plugin whose page opened the session, through the attempt's services (the worker's `_score`). `rush help` says
 what the terminal holds.
 And `rush.py cli <name>`, which bin/'s wrappers run: where the worker installed the CLI <name> (nanoagent.uploaded.clis), installed
 there the first time, with its progress on the terminal.
@@ -46,7 +46,7 @@ exit            (or Ctrl-D) ends the session; its model calls and commands are k
 rush save <name> [-- <command>]
                 save what you built here as a harness of yours that runs <command> (by default your last command).
 rush score [<name>]
-                score your harness <name> (by default the one you last saved here) on this plugin's task, as
+                score your harness <name> (by default the one you last saved here) on this plugin's first task, as
                 `nanoagent harness plugin=<plugin> harness=<name>` does; the run shows on the plugin's Leaderboard."""
 
 
@@ -181,11 +181,12 @@ def save(name: str, command: str) -> None:
     (Path(request["workspace"]) / SAVED).write_text(name, encoding="utf-8")
     packages = 0 if locked is None else sum(1 for line in locked.decode().splitlines() if "==" in line)
     print(f"saved {saved['harness']['name']}@{saved['harness']['version']}: {len(files)} files, {packages} packages, runs: {command}")
-    print(f"score it on this task with `rush score`, or run it with `nanoagent harness plugin=<plugin> harness={name} prompt=...`")
+    print(f"score it on this plugin's first task with `rush score`, or run it with `nanoagent harness plugin=<plugin> harness={name} prompt=...`")
 
 
 def score(name: str | None) -> None:
-    """Scores the harness ``name`` (by default the one this session last saved) on the session's task: RUSH runs it once, as
+    """Scores the harness ``name`` (by default the one this session last saved) on the first task of the plugin whose page opened
+    the session: RUSH runs it once, as
     `nanoagent harness` does, the task's description its request, and the plugin's verifier scores it."""
     request = json.loads(Path(os.environ["RUSH_REQUEST"]).read_text(encoding="utf-8"))
     if name is None:
@@ -196,7 +197,7 @@ def score(name: str | None) -> None:
     sent = urllib.request.Request(request["exec_url"].removesuffix("/exec") + "/score", data=json.dumps({"name": name}).encode(), method="POST", headers={
         "Content-Type": "application/json", "Authorization": f"Bearer {os.environ['RUSH_ATTEMPT_TOKEN']}",
     })  # fmt: skip
-    print(f"scoring {name} on {request['task']['plugin_name']} · {request['task']['id']}: the first run of a harness builds it", flush=True)
+    print(f"scoring {name} on this plugin's first task: the first run of a harness builds it", flush=True)
     try:
         with urllib.request.urlopen(sent, timeout=3600) as response:
             for line in response:

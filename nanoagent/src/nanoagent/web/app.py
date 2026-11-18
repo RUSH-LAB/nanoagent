@@ -655,9 +655,8 @@ def create_app(
             return JSONResponse({"error": str(error)}, status_code=422)
         return JSONResponse(publication)
 
-    async def session_request(request: Request, *, free: bool = False) -> tuple[Any, dict[str, Any] | None, JSONResponse | None]:
-        """The installed plugin and the ``{task, text, model?}`` body of a Harness tab session's request, or why it is refused;
-        ``free``: ``text`` may be absent, as a free-form Terminal session has none."""
+    async def session_request(request: Request) -> tuple[Any, dict[str, Any] | None, JSONResponse | None]:
+        """The installed plugin and the ``{task, text, model?}`` body of a Harness tab session's request, or why it is refused."""
         if not authorized(request):
             return None, None, JSONResponse({"error": "unauthorized"}, status_code=401)
         installed = installs.get(request.path_params["sha256"])
@@ -667,18 +666,18 @@ def create_app(
         if rejected is not None:
             return None, None, rejected
         texted = isinstance(body, dict) and isinstance(body.get("text"), str) and bool(body["text"].strip())
-        if not isinstance(body, dict) or not isinstance(body.get("task"), str) or not (texted or (free and "text" not in body)):
+        if not isinstance(body, dict) or not isinstance(body.get("task"), str) or not texted:
             return None, None, JSONResponse({"error": "the body is {task, text, model?}: a task id and the member's request"}, status_code=400)
         return installed, body, None
 
     async def benchmark_session_frame(request: Request) -> JSONResponse:
         """The case set of one Harness tab session but its case (`session_frame`), read from the installed plugin at once:
-        ``{task, text}``, or ``{task}`` for a free-form Terminal session, which has no request and no case."""
-        installed, body, rejected = await session_request(request, free=True)
+        ``{task, text}``. A free-form Terminal session reads nothing of its plugin, so never this."""
+        installed, body, rejected = await session_request(request)
         if rejected is not None:
             return rejected
         try:
-            return JSONResponse(session_frame(installed.manifest, request.path_params["sha256"], body["task"], body.get("text"), cfg.sessions))
+            return JSONResponse(session_frame(installed.manifest, request.path_params["sha256"], body["task"], body["text"], cfg.sessions))
         except PreparationError as error:
             return JSONResponse({"error": str(error)}, status_code=422)
 

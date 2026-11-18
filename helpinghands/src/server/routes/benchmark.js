@@ -20,10 +20,12 @@ const {checkTaskAgainstEntry} = require('../benchmark/entry-check');
 const {leaderboard} = require('../benchmark/leaderboard');
 const {CLI_PATTERNS, terminalSession} = require('../benchmark/terminal-sessions');
 const {listen, wake} = require('../benchmark/wake');
-const {MAX_SOURCE_BYTES} = require('../benchmark/limits');
+const {MAX_SOURCE_BYTES, TERMINAL_LIMITS} = require('../benchmark/limits');
 
 // The endpoint profile of the worker RUSH Lab runs (nanoagent/deploy/worker/worker.openrouter.yaml), which a Harness tab session runs on.
 const SESSION_ENDPOINT = 'openrouter';
+// The case set name of a Harness tab session (nanoagent.uploaded.case_sets.SESSION), which a Terminal session's run is kept under too.
+const SESSION_NAME = 'harness-session';
 // What a Harness tab session's request may hold: what a plugin page's prompt may (PluginFrame/protocol.js).
 const SESSION_TEXT_LIMIT = 50_000;
 const STREAM_POLL_MS = 300;
@@ -106,6 +108,15 @@ async function stream(req, res, repository, context, attemptId, after) {
   res.end();
 }
 
+/** The caller's app `pluginId`, installed and ready to run on their `computer`: its catalog entry, with its `sha256` and `tasks`. */
+async function openApp(ctx, context, pluginId, computer) {
+  if (!ctx.workspaceApps) throw new BenchmarkError(409, 'fs-disabled', 'Apps need a workspace file store');
+  const opened = await ctx.workspaceApps.open(context, pluginId, computer);
+  if (opened.error) throw new BenchmarkError(opened.status, 'app_unavailable', opened.error);
+  if (opened.value.status !== 'ready') throw new BenchmarkError(409, 'app_unavailable', `${opened.value.id} is not ready to run`);
+  return opened.value;
+}
+
 /**
  * One session of a plugin page's Harness tab, of `nanoagent harness`, or of `rush score` in a Terminal session (the worker's
  * attempts/{id}/score): the member's request `text` to task `taskId` of their installed app `pluginId`, worked once by a reference
@@ -115,14 +126,17 @@ async function stream(req, res, repository, context, attemptId, after) {
  * the model every plugin run uses and pins the case, as it pins a benchmark's; the worker then reads the case (or why it could not be
  * pinned) from the attempt. `interactive` says whether the member is at the harness's terminal (the tab, the command without a
  * prompt); `model`, when given, is the harness's model in place of the one every run uses. The Terminal (`shell`) with someone at it
- * is free-form: they run any agent and prompt it themselves, so it takes no text and its run has no case set and no case, nothing
- * filled, pinned or scored; its one attempt records the model calls and commands. `{run, attempt_id}`.
+ * is free-form: an empty shell where they run any agent and prompt it themselves, the same whatever plugin's page opened it. It takes
+ * no task and no text, and nothing of the plugin is opened, read or run for it: its run keeps `pluginId` only as the label of the page
+ * it was opened from, runs under the Terminal's own limits (TERMINAL_LIMITS), and has no case set and no case, nothing filled, pinned
+ * or scored; its one attempt records the model calls and commands. `{run, attempt_id}`.
  */
 async function startSession(ctx, context, {pluginId, taskId, harness, interactive, text, model}) {
   const {repository, service} = ctx.benchmark;
-  if (!ctx.workspaceApps) throw new BenchmarkError(409, 'fs-disabled', 'Apps need a workspace file store');
   const free = harness === 'shell' && interactive;
-  if (free && text !== undefined) throw new BenchmarkError(400, 'invalid_request', 'A Terminal session someone is at is free-form: it takes no text');
+  if (free && (text !== undefined || taskId !== undefined)) {
+    throw new BenchmarkError(400, 'invalid_request', 'A Terminal session someone is at is free-form: it takes no task and no text');
+  }
   const request = free ? null : string(text, 'text', {max: SESSION_TEXT_LIMIT});
   const harnessModel = string(model, 'model', {optional: true}) ?? aiSettings.MODEL.model;
   const reference = REFERENCE_HARNESSES.includes(harness);
@@ -132,14 +146,19 @@ async function startSession(ctx, context, {pluginId, taskId, harness, interactiv
   }
   const computer = ctx.runners.computer(context.userId);
   if (!computer) throw new BenchmarkError(503, 'runner_offline', RUNNER_OFFLINE);
-  const opened = await ctx.workspaceApps.open(context, pluginId, computer);
-  if (opened.error) throw new BenchmarkError(opened.status, 'app_unavailable', opened.error);
-  if (opened.value.status !== 'ready') throw new BenchmarkError(409, 'app_unavailable', `${opened.value.id} is not ready to run`);
-  const sha256 = opened.value.sha256;
-  const framed = await computer.benchmarkSessionFrame(sha256, JSON.stringify(free ? {task: taskId} : {task: taskId, text: request}));
-  if (framed.error) throw new BenchmarkError(framed.status, 'pin_failed', framed.error);
-  const parsed = parseJson(framed.value);
-  const frame = {...publicationFrame({...parsed, model: harnessModel, endpoint_profile: SESSION_ENDPOINT}), case_id: free ? null : string(parsed.case_id, 'case_id')};
+  let sha256, frame;
+  if (free) {
+    frame = {
+      name: SESSION_NAME, plugin_id: pluginId, plugin_name: null, version: null, package_sha256: null, task_id: null, task: null, context: '',
+      model: harnessModel, endpoint_profile: SESSION_ENDPOINT, limits: TERMINAL_LIMITS, coding_template: '', task_instructions: '', case_id: null,
+    };
+  } else {
+    ({sha256} = await openApp(ctx, context, pluginId, computer));
+    const framed = await computer.benchmarkSessionFrame(sha256, JSON.stringify({task: string(taskId, 'task_id'), text: request}));
+    if (framed.error) throw new BenchmarkError(framed.status, 'pin_failed', framed.error);
+    const parsed = parseJson(framed.value);
+    frame = {...publicationFrame({...parsed, model: harnessModel, endpoint_profile: SESSION_ENDPOINT}), case_id: string(parsed.case_id, 'case_id')};
+  }
   let source = saved;
   if (reference) {
     const built = await computer.benchmarkReferenceHarness(harness);
@@ -263,9 +282,9 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       if (req.method !== 'POST') return wrongMethod();
       write();
       const body = object(await jsonBody(req, readBody), 'The body');
-      const [pluginId, taskId, harness] = ['plugin_id', 'task_id', 'harness'].map(name => string(body[name], name));
+      const [pluginId, harness] = ['plugin_id', 'harness'].map(name => string(body[name], name));
       if (typeof body.interactive !== 'boolean') throw new BenchmarkError(400, 'invalid_request', 'interactive must be a boolean');
-      return json(res, 201, await startSession(ctx, context, {pluginId, taskId, harness, interactive: body.interactive, text: body.text, model: body.model}));
+      return json(res, 201, await startSession(ctx, context, {pluginId, taskId: body.task_id, harness, interactive: body.interactive, text: body.text, model: body.model}));
     }
     // A plugin page's Leaderboard tab: the harnesses run on the plugin, whatever task, ranked from every member's scored runs.
     if (top === 'leaderboard') {
@@ -431,3 +450,4 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
 };
 
 module.exports.startSession = startSession;
+module.exports.openApp = openApp;

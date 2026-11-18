@@ -95,7 +95,7 @@ function terminalSession(row) {
   return {
     id: row.attempt_id,
     harness,
-    title: `${harness} · ${row.task_id}`,
+    title: harness,
     createdAt: row.created_at,
     updatedAt: row.finalized_at ?? row.created_at,
     running: !final,

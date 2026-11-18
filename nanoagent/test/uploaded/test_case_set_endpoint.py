@@ -156,12 +156,10 @@ def test_a_sessions_frame_is_its_case_set_but_the_case_read_at_once_without_the_
     assert refused.status_code == 422 and "unknown task" in refused.json()["error"]
 
 
-def test_a_free_form_sessions_frame_has_no_request_and_no_case(client: TestClient) -> None:
-    reply = client.post(f"/v1/installs/{client.sha}/benchmark/session-frame", json={"task": "echo"})
-    assert reply.status_code == 200, reply.text
-    frame = reply.json()
-    assert (frame["task_id"], frame["context"]) == ("echo", "") and "case_id" not in frame and client.model.asked == []
-    assert client.post(f"/v1/installs/{client.sha}/benchmark/session", json={"task": "echo"}).status_code == 400  # a pin takes a request
+def test_a_frame_and_a_pin_take_a_request(client: TestClient) -> None:
+    # A free-form Terminal session reads nothing of its plugin: neither is ever asked for one without a request.
+    for path in ("session-frame", "session"):
+        assert client.post(f"/v1/installs/{client.sha}/benchmark/{path}", json={"task": "echo"}).status_code == 400
 
 
 def test_a_session_input_that_breaks_the_task_input_and_an_unknown_task_are_refused(client: TestClient) -> None:

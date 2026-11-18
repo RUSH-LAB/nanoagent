@@ -383,19 +383,22 @@ function createPostgresBenchmark({pool}) {
      * any attempt is claimable. `request` is the validated run request, `resolved` what it resolved to
      * (`resolve` in benchmark/plan.js), `benchmark` the benchmark it was resolved against and `harness` the source's manifest identity;
      * `session` marks a Harness tab or `nanoagent harness` run, never a benchmark result, and `interactive` one whose member works at its
-     * terminal; `free` a free-form Terminal session, with no case and one attempt of none. A session's one attempt is `attempt_id`
+     * terminal; `free` a free-form Terminal session, with no package, task or case and one attempt of none. A session's one attempt is `attempt_id`
      * in the answer; an `interactive` one ends the member's other unfinished interactive sessions first. A concurrent submission under the same key gets the first one's run: `{run_id, replayed}`.
      */
     async createRun(context, request, resolved, benchmark, harness, {session = false, interactive = false, free = false} = {}) {
       const {plan, cases} = resolved;
       return memberWrite(context, async client => {
-        await client.query(
-          `insert into benchmark_package (sha256, data)
-           select sha256, package from market_plugin_version where plugin_id = $1 and sha256 = $2 limit 1 on conflict do nothing`,
-          [benchmark.plugin.id, benchmark.plugin.sha256],
-        );
-        if (!(await client.query('select 1 from benchmark_package where sha256 = $1', [benchmark.plugin.sha256])).rowCount) {
-          throw new BenchmarkError(409, 'package_unavailable', `${benchmark.plugin.id} ${benchmark.plugin.version} is no longer published, so its benchmark cannot be run`);
+        // A free-form Terminal session runs nothing of its plugin: it keeps no package.
+        if (!free) {
+          await client.query(
+            `insert into benchmark_package (sha256, data)
+             select sha256, package from market_plugin_version where plugin_id = $1 and sha256 = $2 limit 1 on conflict do nothing`,
+            [benchmark.plugin.id, benchmark.plugin.sha256],
+          );
+          if (!(await client.query('select 1 from benchmark_package where sha256 = $1', [benchmark.plugin.sha256])).rowCount) {
+            throw new BenchmarkError(409, 'package_unavailable', `${benchmark.plugin.id} ${benchmark.plugin.version} is no longer published, so its benchmark cannot be run`);
+          }
         }
         // One terminal session per member: a new one ends their other unfinished ones (any plugin, any workspace), so it never waits behind them.
         if (interactive) await endInteractiveSessions(client, context.userId);
@@ -411,7 +414,7 @@ function createPostgresBenchmark({pool}) {
             plan.model, plan.endpoint_profile, JSON.stringify(harness.dialects), plan.policy, plan.prompt.text,
             JSON.stringify(plan.limits), JSON.stringify({case_ids: cases.map(c => c.case_id)}), plan.renderer_version,
             benchmark.benchmark_id, benchmark.name, harness.name, harness.version, benchmark.case_set_id, benchmark.case_set_digest, JSON.stringify(benchmark.publisher),
-            benchmark.plugin.id, benchmark.plugin.name, benchmark.plugin.version, benchmark.plugin.sha256, benchmark.task_id, stringifyJson(benchmark.task), benchmark.context,
+            benchmark.plugin.id, benchmark.plugin.name, benchmark.plugin.version, benchmark.plugin.sha256, benchmark.task_id, free ? null : stringifyJson(benchmark.task), benchmark.context,
             session, interactive],
         )).rows[0];
         if (!inserted) {

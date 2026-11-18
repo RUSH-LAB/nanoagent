@@ -14,8 +14,8 @@ const v = require('../benchmark/validate');
 const {MAX_SOURCE_BYTES, positiveSetting} = require('../benchmark/limits');
 const {uploadedHarnessOf} = require('../benchmark/harness');
 const {listen, wake} = require('../benchmark/wake');
-const {PIN_TIMEOUT_MS} = require('../ai');
-const {startSession} = require('./benchmark');
+const {PIN_TIMEOUT_MS, RUNNER_OFFLINE} = require('../ai');
+const {openApp, startSession} = require('./benchmark');
 
 const MAX_PAYLOAD_BYTES = positiveSetting('BENCHMARK_PAYLOAD_MAX_BYTES', 16 * 1024 * 1024);
 // A session's watch waits this long for it to be canceled, its lease lost or it sealed, looking every WATCH_POLL_MS.
@@ -152,13 +152,17 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
         const {workspaceId} = await worker.terminalSession(userId, jobId, fence);
         return json(res, 201, await services.repository.saveSource({userId, workspaceId}, data, uploadedHarnessOf(data)));
       }
-      // `rush score [<name>]` in the attempt's Terminal session: the member's harness <name> worked once on the session's task, as
-      // `nanoagent harness plugin=<p> harness=<name> prompt=<the task's description>` works it, scored and on the plugin's Leaderboard.
+      // `rush score [<name>]` in the attempt's Terminal session: the member's harness <name> worked once on the first task of the plugin
+      // whose page opened the session, as `nanoagent harness plugin=<p> harness=<name> prompt=<the task's description>` works it, scored
+      // and on the plugin's Leaderboard.
       if (jobPart === 'score') {
         wanted('POST', jobId);
         const input = v.object(await body(), 'The body');
-        const {workspaceId, pluginId, taskId, description} = await worker.terminalSession(userId, jobId, v.fenceOf(input));
-        return json(res, 201, await startSession(ctx, {userId, workspaceId}, {pluginId, taskId, harness: v.string(input.harness, 'harness'), interactive: false, text: description}));
+        const {workspaceId, pluginId} = await worker.terminalSession(userId, jobId, v.fenceOf(input));
+        const computer = ctx.runners.computer(userId);
+        if (!computer) throw new BenchmarkError(503, 'runner_offline', RUNNER_OFFLINE);
+        const [task] = (await openApp(ctx, {userId, workspaceId}, pluginId, computer)).tasks;
+        return json(res, 201, await startSession(ctx, {userId, workspaceId}, {pluginId, taskId: task.id, harness: v.string(input.harness, 'harness'), interactive: false, text: task.description}));
       }
       wanted('POST', jobId);
       const input = await body();

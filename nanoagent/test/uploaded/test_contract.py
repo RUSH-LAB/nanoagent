@@ -68,9 +68,10 @@ def test_uuid_and_uri_formats_are_enforced() -> None:
         assert field in raised.value.message
 
 
-def test_a_free_form_session_has_neither_case_nor_prompt_and_any_other_has_both() -> None:
-    validate("Request", {**request(), "free_form": True, "case": None, "prompt": None})
-    for broken in ({**request(), "free_form": True}, {**request(), "case": None}, {**request(), "free_form": True, "case": None}):
+def test_a_free_form_session_has_no_task_case_or_prompt_and_any_other_has_all_three() -> None:
+    free = {**request(), "free_form": True, "task": None, "case": None, "prompt": None}
+    validate("Request", free)
+    for broken in ({**request(), "free_form": True}, {**request(), "case": None}, {**request(), "task": None}, {**free, "task": request()["task"]}):
         with pytest.raises(ContractError):
             validate("Request", broken)
 

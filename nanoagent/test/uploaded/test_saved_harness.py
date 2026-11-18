@@ -163,7 +163,7 @@ async def test_a_score_starts_the_run_follows_it_and_ends_with_the_one_line_resu
 
 
 def test_rush_score_scores_the_harness_last_saved_and_asks_for_a_save_without_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    request = {"workspace": str(tmp_path), "exec_url": "http://relay/exec", "task": {"id": "forecast", "plugin_name": "City Weather"}}
+    request = {"workspace": str(tmp_path), "exec_url": "http://relay/exec", "task": None}
     (tmp_path / "request.json").write_text(json.dumps(request))
     monkeypatch.setenv("RUSH_REQUEST", str(tmp_path / "request.json"))
     monkeypatch.setenv("RUSH_ATTEMPT_TOKEN", "t")

@@ -86,11 +86,10 @@ function createPostgresBenchmarkWorker({pool, config}) {
           where attempt_id = $1 returning *`, [picked.attempt_id, workerId],
       )).rows[0];
       const {task} = run;
-      // A free-form Terminal session's attempt has no case: nothing is pinned for it, and nothing scores it.
+      // A free-form Terminal session's attempt has no case and no task: nothing is pinned for it, and nothing scores it. Its plugin
+      // is the page it was opened from, by id alone.
       const free = attempt.case_id === null;
       const pinned = free ? {case: null} : await caseOf(client, run, attempt.case_id);
-      // The task's instructions as this run works it: the task tools policy's prompt text, which may be the member's own.
-      const instructions = run.policy === 'task_tools' ? run.prompt_text : task.instructions;
       return {
         kind: 'attempt', attempt_id: attempt.attempt_id, attempt_no: attempt.attempt_no, fence: attempt.fence, lease_expires_at: attempt.lease_expires_at,
         lease_seconds: Number(config.leaseSeconds),
@@ -102,8 +101,11 @@ function createPostgresBenchmarkWorker({pool, config}) {
           prompt_bound: !(run.session && (run.harness_name === 'shell' || !REFERENCE_HARNESSES.includes(run.harness_name))),
         },
         plugin: {id: run.plugin_id, name: run.plugin_name, version: run.version, sha256: run.package_sha256},
-        task: {
-          id: run.task_id, kind: task.kind, description: task.description, instructions, plugin_name: run.plugin_name, tools: task.tools, egress_hosts: task.egress_hosts,
+        task: free ? null : {
+          id: run.task_id, kind: task.kind, description: task.description,
+          // The task's instructions as this run works it: the task tools policy's prompt text, which may be the member's own.
+          instructions: run.policy === 'task_tools' ? run.prompt_text : task.instructions,
+          plugin_name: run.plugin_name, tools: task.tools, egress_hosts: task.egress_hosts,
         },
         free_form: free,
         // A session's case still being pinned comes later, from GET /attempts/{id}/case.
@@ -266,13 +268,13 @@ function createPostgresBenchmarkWorker({pool, config}) {
       });
     },
 
-    /** The attempt's run, a session a member works in, who saves (`rush save`) or scores (`rush score`) a harness from it: its workspace, plugin,
-     * task and the task's description; 403 `not_a_session` for any other run. */
+    /** The attempt's run, a session a member works in, who saves (`rush save`) or scores (`rush score`) a harness from it: its workspace and
+     * plugin; 403 `not_a_session` for any other run. */
     async terminalSession(userId, attemptId, fence) {
       return fenced(userId, attemptId, fence, async (client, attempt) => {
-        const run = (await client.query('select interactive, plugin_id, task_id, task from benchmark_run where run_id = $1', [attempt.run_id])).rows[0];
+        const run = (await client.query('select interactive, plugin_id from benchmark_run where run_id = $1', [attempt.run_id])).rows[0];
         if (!run.interactive) throw new BenchmarkError(403, 'not_a_session', 'Only a session someone works in saves or scores a harness');
-        return {workspaceId: attempt.workspace_id, pluginId: run.plugin_id, taskId: run.task_id, description: run.task.description};
+        return {workspaceId: attempt.workspace_id, pluginId: run.plugin_id};
       });
     },
 

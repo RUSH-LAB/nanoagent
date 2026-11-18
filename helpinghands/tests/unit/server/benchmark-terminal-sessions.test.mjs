@@ -45,7 +45,7 @@ describe('a Harness tab session on the Dashboard', () => {
     const both = terminalSession(row({calls: [call('c1', 10, 12)], processes: [process(CLAUDE, 5, null), process(CODEX, 6, null)]}));
     assert.deepEqual([both.harness, both.calls[0].agent], ['Terminal', 'Terminal']);
     const codex = terminalSession(row({harness_name: 'codex', calls: [call('c1', 10, 12)]}));
-    assert.deepEqual([codex.harness, codex.title, terminalSession(row({harness_name: 'mine'})).harness], ['Codex', 'Codex · sum', 'mine']);
+    assert.deepEqual([codex.harness, codex.title, terminalSession(row({harness_name: 'mine'})).harness], ['Codex', 'Codex', 'mine']);
   });
 
   it('knows nothing of a running session\'s calls, and knows a finished one with none made none', () => {

@@ -78,10 +78,11 @@ def job(**overrides: Any):
 
 
 def free_job(**overrides: Any):
-    """A free-form Terminal session's job: someone at it, no case set and no case."""
+    """A free-form Terminal session's job: someone at it, no task, case set or case, and of its plugin only the id."""
     body = job_body(policy="coding", **overrides)
     body["run"] |= {"interactive": True, "prompt_bound": False}
-    return parse_job({**body, "free_form": True, "case_set": None, "case": None, "prompt": None, "private_reference": None})
+    plugin = {"id": body["plugin"]["id"], "name": None, "version": None, "sha256": None}
+    return parse_job({**body, "free_form": True, "task": None, "plugin": plugin, "case_set": None, "case": None, "prompt": None, "private_reference": None})
 
 
 def pending_job(**overrides: Any):
@@ -123,6 +124,7 @@ class FakeRush:
         self.events_after_loss = 0
         self.pinned_case: Any = None  # what GET /attempts/{id}/case answers (a body, or an exception it raises), after case_delay_s
         self.case_delay_s = 0.0
+        self.packages = 0  # how many times the plugin package was fetched
 
     def _fenced(self) -> None:
         if self.sealed:
@@ -134,6 +136,7 @@ class FakeRush:
         return self.source_bytes
 
     async def package(self, attempt_id: str, fence: int) -> bytes:
+        self.packages += 1
         return b"package"
 
     async def case(self, attempt_id: str, fence: int) -> Any:
