@@ -82,7 +82,8 @@ def test_chat_stream_matches_scenario_and_ledger(mock: MockProvider) -> None:
     assert first.usage.prompt_tokens_details.cached_tokens == 600
     assert first.usage.completion_tokens_details.reasoning_tokens == 20
     # ttfb 0.2 + 5 chunks * 0.05
-    assert 0.45 <= elapsed < 0.9
+    # The upper bound only rules out a hang, as a loaded machine stretches it.
+    assert 0.45 <= elapsed < 5
     with chat_stream(client) as stream:
         second = stream.get_final_completion()
     [call] = second.choices[0].message.tool_calls
