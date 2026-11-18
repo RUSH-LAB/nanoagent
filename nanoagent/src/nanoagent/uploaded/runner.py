@@ -70,6 +70,7 @@ from nanoagent.uploaded.rush_worker import (
     Lease,
     LeaseLost,
     RushAdmission,
+    RushError,
     RushJournal,
     RushUnavailable,
     RushWorkerClient,
@@ -93,6 +94,7 @@ from nanoagent.uploaded.sandbox import (
     WORKSPACE,
 )
 from nanoagent.uploaded.reference import build_reference
+from nanoagent.uploaded import session_result
 from nanoagent.uploaded.source import SourceLimits, extract, inspect_zip
 from nanoagent.uploaded.terminal import Terminal
 from nanoagent.uploaded.toolchains import ToolchainProfile, resolve_dependencies, toolchain
@@ -161,6 +163,7 @@ class SyncedPlugins:
 WARM_GO = json.dumps({"wait_go": True}).encode()  # a warm terminal's request until a session hands it its own (`CaseHandle.go`)
 WARM_RECIPE = "warm.json"  # under the scratch folder: the last Terminal session's limits, the warm terminal's after a start
 WARM_MAX_AGE_S = 600.0  # a warm terminal nobody took is replaced after this, well within any session's wall time
+SCORE_POLL_S = 2.0  # how often `rush score` reads how its run is going
 
 
 class LateApp:
@@ -811,6 +814,32 @@ class AttemptRunner:
             yield {"installed": cli.label, "version": version, "bytes": tree_bytes(kept), "seconds": round(time.monotonic() - started)}
         yield {"path": f"{CLIS_DIR}/{key}/harness", "key": key}
 
+    async def _score(self, job: AttemptJob, name: str) -> AsyncIterator[Mapping[str, Any]]:
+        """`rush score <name>` in the Terminal session ``job``: the run RUSH starts of the member's harness ``name`` on the session's
+        task, its state each time it changes, then its one-line result as `nanoagent harness` prints it, or why there is none."""
+        try:
+            started = await self.worker.score(job.attempt_id, job.fence, name)
+            yield {"run_id": started["run"]["run_id"]}
+            state = None
+            while not (read := await self.worker.scored(job.attempt_id, job.fence, started["attempt_id"]))["attempt"]["sealed"]:
+                if read["attempt"]["state"] != state:
+                    state = read["attempt"]["state"]
+                    yield {"state": state}
+                await asyncio.sleep(SCORE_POLL_S)
+        except RushError as error:
+            yield {"error": error.message}
+            return
+        except RushUnavailable as error:
+            yield {"error": f"RUSH could not be reached: {error}"}
+            return
+        attempt, metrics = read["attempt"], read["attempt"].get("metrics") or {}
+        result = {
+            "harness": name, "plugin": job.plugin["id"], "verdict": session_result.verdict(attempt), "cost_usd": read["totals"]["settled_usd"],
+            "elapsed_s": None if metrics.get("elapsed_ms") is None else metrics["elapsed_ms"] / 1000,
+            "input_tokens": metrics.get("input_tokens"), "output_tokens": metrics.get("output_tokens"),
+        }  # fmt: skip
+        yield {"line": session_result.summary_line(result), "explanation": attempt.get("explanation") or attempt.get("verifier_error")}
+
     def _build_now(self, attempt_id: str, run_limits: Mapping[str, Any], archive: Any, profile: ToolchainProfile, work: Path) -> BuildArtifact:
         source_root = work / "source"
         source_root.mkdir()
@@ -884,6 +913,7 @@ class AttemptRunner:
             command_runner=commands, workspace=workspace, clock_ns=self.clock_ns,
             save_harness=lambda data: self.worker.save_harness(job.attempt_id, job.fence, data),
             install_cli=lambda name, expect: self._install_cli(job, work, name, expect),
+            score_harness=lambda name: self._score(job, name),
         )
         services.attempt.lease_lapsed = lease.lapsed  # the services refuse new work once the lease's known expiry passes
         if warm is not None:

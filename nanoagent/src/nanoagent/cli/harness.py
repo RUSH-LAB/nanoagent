@@ -42,6 +42,7 @@ from slimconfig import Config
 
 from nanoagent.extensions import PACKAGED_CONFIGS
 from nanoagent.runtime.config import load_config_args
+from nanoagent.uploaded.session_result import summary_line, verdict
 
 DEFAULT_CONFIG = str(PACKAGED_CONFIGS / "harness.yaml")
 # The command's names of the reference harnesses, each the one RUSH builds; rush is NanoAgent's own. Any other name is one the
@@ -221,30 +222,10 @@ def events(rush: httpx.Client, path: str) -> list[dict[str, Any]]:
             return kept
 
 
-def verdict(attempt: dict[str, Any]) -> str:
-    """right or wrong by the plugin's verifier, or "no verdict" for an attempt with no answer (or refusal) to score, as the tab says."""
-    if attempt["execution"]["status"] == "ended":
-        return "ended"
-    if attempt["execution"]["status"] not in ("answered", "refused"):
-        return "no verdict"
-    return {"pass": "right", "fail": "wrong"}.get(attempt.get("verdict"), "no verdict")
-
-
 def answer_of(recording: list[dict[str, Any]]) -> Any:
     """The harness's answer as the worker read it (its `result.read` record), or null when it gave none."""
     reads = [event["data"]["outcome"] for event in recording if event["kind"] == "result.read"]
     return reads[-1].get("answer") if reads else None
-
-
-def thousands(count: int | None) -> str:
-    return "—" if count is None else f"{count / 1000:.0f}k" if count >= 1000 else str(count)
-
-
-def summary_line(result: dict[str, Any], path: Path) -> str:
-    cost = "—" if result["cost_usd"] is None else f"${result['cost_usd']:.4f}"
-    seconds = "—" if result["elapsed_s"] is None else f"{result['elapsed_s']:.0f} s"
-    tokens = f"{thousands(result['input_tokens'])} in / {thousands(result['output_tokens'])} out"
-    return " · ".join([result["harness"], result["plugin"], result["verdict"], seconds, tokens, cost, str(path)])
 
 
 def main(argv: list[str] | None = None) -> int:

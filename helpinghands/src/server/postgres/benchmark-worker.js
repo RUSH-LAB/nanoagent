@@ -265,12 +265,13 @@ function createPostgresBenchmarkWorker({pool, config}) {
       });
     },
 
-    /** The workspace of the attempt's run, a session a member works in, who saves a harness from it: 403 `not_a_session` for any other run. */
-    async sessionWorkspace(userId, attemptId, fence) {
+    /** The attempt's run, a session a member works in, who saves (`rush save`) or scores (`rush score`) a harness from it: its workspace, plugin,
+     * task and the task's description; 403 `not_a_session` for any other run. */
+    async terminalSession(userId, attemptId, fence) {
       return fenced(userId, attemptId, fence, async (client, attempt) => {
-        const {interactive} = (await client.query('select interactive from benchmark_run where run_id = $1', [attempt.run_id])).rows[0];
-        if (!interactive) throw new BenchmarkError(403, 'not_a_session', 'Only a session someone works in saves a harness');
-        return attempt.workspace_id;
+        const run = (await client.query('select interactive, plugin_id, task_id, task from benchmark_run where run_id = $1', [attempt.run_id])).rows[0];
+        if (!run.interactive) throw new BenchmarkError(403, 'not_a_session', 'Only a session someone works in saves or scores a harness');
+        return {workspaceId: attempt.workspace_id, pluginId: run.plugin_id, taskId: run.task_id, description: run.task.description};
       });
     },
 

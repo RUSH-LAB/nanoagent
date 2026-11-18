@@ -320,6 +320,16 @@ class RushWorkerClient:
         response = await self._send("POST", f"/attempts/{attempt_id}/harness", content=data, headers={FENCE_HEADER: str(fence), "Content-Type": "application/zip"})
         return response.json()
 
+    async def score(self, attempt_id: str, fence: int, harness: str) -> Mapping[str, Any]:
+        """Starts the run `rush score` asks for in the attempt's session: the member's saved ``harness`` worked once on the session's
+        task, scored, as `nanoagent harness` runs it. RUSH's ``{run, attempt_id}``."""
+        return await self._json("POST", f"/attempts/{attempt_id}/score", {"fence": fence, "harness": harness}, retry=False)
+
+    async def scored(self, attempt_id: str, fence: int, scored_id: str) -> Mapping[str, Any]:
+        """How the attempt ``scored_id`` of a run :meth:`score` started is going: ``{attempt, totals}`` (its accounting's)."""
+        response = await self._send("GET", f"/attempts/{attempt_id}/score/{scored_id}", headers={FENCE_HEADER: str(fence)})
+        return response.json()
+
     async def spans(self, attempt_id: str, body: Mapping[str, Any]) -> None:
         await self._json("POST", f"/attempts/{attempt_id}/spans", body)
 

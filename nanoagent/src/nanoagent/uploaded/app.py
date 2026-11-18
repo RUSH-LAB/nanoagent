@@ -38,7 +38,9 @@ class AttemptServices:
     """One service instance per attempt. ``app`` serves `/api/v1/{chat/completions,responses,messages}`, `/tools`, `/mcp`, `/exec`, `/events`,
     and, given ``save_harness``, `/harness`: a harness ZIP the attempt saves as its member's (`rush save` in the RUSH terminal),
     checked as a source is and handed to ``save_harness``, whose answer (RUSH's) it returns; and, given ``install_cli``, `/cli`:
-    {"name", "expect"} installs a terminal CLI (nanoagent.uploaded.clis), answered with ``install_cli``'s events, one JSON line each."""
+    {"name", "expect"} installs a terminal CLI (nanoagent.uploaded.clis), answered with ``install_cli``'s events, one JSON line each;
+    and, given ``score_harness``, `/score`: {"name"} scores the member's saved harness on the session's task (`rush score`), answered
+    with ``score_harness``'s events the same way."""
 
     def __init__(
         self,
@@ -55,6 +57,7 @@ class AttemptServices:
         proposal_wait_s: float = 30.0,
         save_harness: Callable[[bytes], Awaitable[Mapping[str, Any]]] | None = None,
         install_cli: Callable[[str, str | None], AsyncIterator[Mapping[str, Any]]] | None = None,
+        score_harness: Callable[[str], AsyncIterator[Mapping[str, Any]]] | None = None,
     ) -> None:
         recorder = Recorder(journal, clock_ns, [policy.token, endpoint.api_key])
         self.attempt = Attempt(policy, recorder, workspace, clock_ns)
@@ -73,6 +76,9 @@ class AttemptServices:
         self._install_cli = install_cli
         if install_cli is not None:
             routes.append(Route("/cli", self._cli, methods=["POST"]))
+        self._score_harness = score_harness
+        if score_harness is not None:
+            routes.append(Route("/score", self._score, methods=["POST"]))
         routes += [
             Route("/tools", self.broker.handle, methods=["POST"]),
             Route("/mcp", self.broker.mcp, methods=["POST", "GET", "DELETE"]),
@@ -154,6 +160,22 @@ class AttemptServices:
         except ServiceError as error:
             return error_response(error)
         events = self._install_cli(name, expect)
+        return StreamingResponse((json.dumps(dict(event)) + "\n" async for event in events), media_type="application/x-ndjson")
+
+    async def _score(self, request: Request) -> Response:
+        assert self._score_harness is not None
+        try:
+            self.attempt.require_auth(request)
+            self.attempt.require_active()
+            try:
+                name = decode_json_object(await request.body()).get("name")
+            except ContractError as error:
+                raise ServiceError(400, error.code, error.message) from error
+            if not isinstance(name, str):
+                raise ServiceError(400, "invalid_request", "a score takes the name of a harness you saved")
+        except ServiceError as error:
+            return error_response(error)
+        events = self._score_harness(name)
         return StreamingResponse((json.dumps(dict(event)) + "\n" async for event in events), media_type="application/x-ndjson")
 
     async def _event(self, request: Request) -> Response:

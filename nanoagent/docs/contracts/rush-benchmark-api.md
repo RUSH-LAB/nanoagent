@@ -520,6 +520,10 @@ Header `X-Rush-Fence`. What the member sent a session's terminal after `after`: 
 
 Header `X-Rush-Fence`, `Content-Type: application/zip`. A harness the member saved from the attempt's session (`rush save` in the Terminal, which the worker checks as a source first), kept as their own upload to the run's workspace: `201` as `POST /sources` answers, with its errors (`400 reserved_harness_name`, `409 harness_version_taken`, `413 source_too_large`, ...); `403 not_a_session` for a run nobody works in.
 
+## `POST /attempts/{id}/score` and `GET /attempts/{id}/score/{scored_attempt_id}`
+
+`rush score [<name>]` in the attempt's session. The POST body is `{fence, harness}`: the member's saved harness worked once on the session's plugin and task, as `POST /sessions` with `interactive: false` and the task's description as `text` starts it (the case filled and pinned the same way, scored, and on the plugin's Leaderboard): `201 {run, attempt_id}`, with that route's errors. The GET, with header `X-Rush-Fence`, reads how that attempt is going: `200 {attempt, totals}`, the attempt as `GET /attempts/{id}` gives it and its accounting's totals. Both answer `403 not_a_session` for a run nobody works in.
+
 ## `POST /attempts/{id}/spans`
 
 The span index and causal links, apart from events. Rejected after the seal.

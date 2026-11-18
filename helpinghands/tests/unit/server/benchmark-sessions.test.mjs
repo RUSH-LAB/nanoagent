@@ -164,9 +164,9 @@ run: {argv: [python, /harness/shell.py, "bash run.sh"]}
     const ctx = makeCtx({benchmark: {
       worker: {
         authenticate: async bearer => (bearer === 'cred' ? 'u' : null),
-        sessionWorkspace: async (userId, attemptId, fence) => {
+        terminalSession: async (userId, attemptId, fence) => {
           if (!session) throw new BenchmarkError(403, 'not_a_session', 'Only a session someone works in saves a harness');
-          return userId === 'u' && attemptId === ATTEMPT && fence === 3 ? 'w' : null;
+          return userId === 'u' && attemptId === ATTEMPT && fence === 3 ? {workspaceId: 'w'} : null;
         },
       },
       repository: {saveSource: async (context, zip, harness) => { saved.push([context, harness]); return {source_sha256: 'c'.repeat(64), size: zip.length, harness}; }},
@@ -188,6 +188,43 @@ run: {argv: [python, /harness/shell.py, "bash run.sh"]}
     assert.equal((await send(savedZip('shell'))).payload.code, 'reserved_harness_name');
     const refused = await send(savedZip('my-agent'), false);
     assert.deepEqual([refused.status, refused.payload.code, refused.saved], [403, 'not_a_session', []]);
+  });
+});
+
+describe('`rush score`: POST /api/benchmark-worker/attempts/{id}/score and GET .../score/{attempt}', () => {
+  const ATTEMPT = '00000000-0000-4000-8000-000000000009';
+  const SCORED = '00000000-0000-4000-8000-00000000000a';
+  const scoring = () => {
+    const {ctx, calls} = ctxFor();
+    ctx.benchmark.worker = {
+      authenticate: async bearer => (bearer === 'cred' ? 'u' : null),
+      terminalSession: async (userId, attemptId, fence) => {
+        assert.deepEqual([userId, attemptId, fence], ['u', ATTEMPT, 3]);
+        return {workspaceId: 'w', pluginId: 'p', taskId: 'sum', description: 'Add two numbers'};
+      },
+    };
+    ctx.benchmark.repository.attempt = async (context, id) => (id === SCORED ? {attempt_id: id, sealed: true, verdict: 'pass'} : null);
+    ctx.benchmark.repository.accounting = async () => ({totals: {calls: 2, settled_usd: 0.011}});
+    return {ctx, calls};
+  };
+
+  it('works the member\'s saved harness once on the session\'s task, as the one-shot `nanoagent harness` does, the task\'s description its request', async () => {
+    const {ctx, calls} = scoring();
+    const started = await invoke(workerRoute, {
+      method: 'POST', path: `/api/benchmark-worker/attempts/${ATTEMPT}/score`, headers: {authorization: 'Bearer cred'}, body: {fence: 3, harness: 'my-agent'}, ctx, auth: null,
+    });
+    assert.deepEqual([started.status, started.payload], [201, {run: {run_id: 'r1'}, attempt_id: 'a1'}]);
+    await settled();
+    assert.deepEqual(calls.map(([what]) => what), ['open', 'frame', 'session', 'pin', 'pinned']);
+    assert.deepEqual([calls[1][2], calls[2][2], calls[2][3], calls[2][4]], [{task: 'sum', text: 'Add two numbers'}, SAVED, 'coding', {interactive: false}]);
+  });
+
+  it('reads how the scored attempt went, and what its calls cost', async () => {
+    const {ctx} = scoring();
+    const read = await invoke(workerRoute, {
+      method: 'GET', path: `/api/benchmark-worker/attempts/${ATTEMPT}/score/${SCORED}`, headers: {authorization: 'Bearer cred', 'x-rush-fence': '3'}, ctx, auth: null,
+    });
+    assert.deepEqual([read.status, read.payload], [200, {attempt: {attempt_id: SCORED, sealed: true, verdict: 'pass'}, totals: {calls: 2, settled_usd: 0.011}}]);
   });
 });
 

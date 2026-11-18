@@ -1,5 +1,6 @@
 """`rush save <name> [-- <command>]`, in the RUSH terminal: what the member built there, saved in RUSH as a harness of theirs.
-`rush help` says what the terminal holds.
+`rush score [<name>]` scores it on the session's task through the attempt's services (the worker's `_score`). `rush help` says
+what the terminal holds.
 And `rush.py cli <name>`, which bin/'s wrappers run: where the worker installed the CLI <name> (nanoagent.uploaded.clis), installed
 there the first time, with its progress on the terminal.
 
@@ -32,8 +33,10 @@ HERE = Path(__file__).resolve().parent
 NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")  # the harness contract's HarnessName
 CASE_FILES = {"prompt.md", "request.json", "answer.json", ".rush"}
 INSTALLED = ".rush/clis"  # in the workspace: each CLI the session ran, by name, holding its install's key
+SAVED = ".rush/saved"  # in the workspace: the name of the harness this session last saved, which `rush score` scores by default
 UV = "/opt/rush-tools/uv"
-USAGE = "usage: rush save <name> [-- <command>] | rush help"
+USAGE = "usage: rush save <name> [-- <command>] | rush score [<name>] | rush help"
+STATES = {"queued": "waiting for RUSH Lab's worker", "leased": "running"}  # a scored attempt's state, as `rush score` shows it
 HELP = """\
 agents          claude, codex, pi, hermes and dsh install the first time you type them. dsh runs headless: dsh "<task>".
 model           $RUSH_MODEL, through RUSH's gateway, which records every call. These are set for any SDK:
@@ -42,7 +45,10 @@ tools           every agent has the plugin's tools, from the MCP server $RUSH_MC
 packages        pip install and npm install -g put packages in .rush/.
 exit            (or Ctrl-D) ends the session; its model calls and commands are kept with it.
 rush save <name> [-- <command>]
-                save what you built here as a harness of yours that runs <command> (by default your last command)."""
+                save what you built here as a harness of yours that runs <command> (by default your last command).
+rush score [<name>]
+                score your harness <name> (by default the one you last saved here) on this plugin's task, as
+                `nanoagent harness plugin=<plugin> harness=<name>` does; the run shows on the plugin's Leaderboard."""
 
 
 def fail(message: str) -> None:
@@ -173,9 +179,43 @@ def save(name: str, command: str) -> None:
         except (ValueError, KeyError, TypeError):
             pass
         fail(f"RUSH did not save it: {error.code} {body}")
+    (Path(request["workspace"]) / SAVED).write_text(name, encoding="utf-8")
     packages = 0 if locked is None else sum(1 for line in locked.decode().splitlines() if "==" in line)
     print(f"saved {saved['harness']['name']}@{saved['harness']['version']}: {len(files)} files, {packages} packages, runs: {command}")
-    print(f"run it again with `nanoagent harness plugin=<plugin> harness={name} prompt=...`")
+    print(f"score it on this task with `rush score`, or run it with `nanoagent harness plugin=<plugin> harness={name} prompt=...`")
+
+
+def score(name: str | None) -> None:
+    """Scores the harness ``name`` (by default the one this session last saved) on the session's task: RUSH runs it once, as
+    `nanoagent harness` does, the task's description its request, and the plugin's verifier scores it."""
+    request = json.loads(Path(os.environ["RUSH_REQUEST"]).read_text(encoding="utf-8"))
+    if name is None:
+        saved = Path(request["workspace"]) / SAVED
+        if not saved.is_file():
+            fail("no harness saved in this session to score: `rush save <name>` first, or name one with `rush score <name>`")
+        name = saved.read_text(encoding="utf-8")
+    sent = urllib.request.Request(request["exec_url"].removesuffix("/exec") + "/score", data=json.dumps({"name": name}).encode(), method="POST", headers={
+        "Content-Type": "application/json", "Authorization": f"Bearer {os.environ['RUSH_ATTEMPT_TOKEN']}",
+    })  # fmt: skip
+    print(f"scoring {name} on {request['task']['plugin_name']} · {request['task']['id']}: the first run of a harness builds it", flush=True)
+    try:
+        with urllib.request.urlopen(sent, timeout=3600) as response:
+            for line in response:
+                event = json.loads(line)
+                if "error" in event:
+                    fail(event["error"])
+                if "state" in event:
+                    print(f"  {STATES.get(event['state'], event['state'])}…", flush=True)
+                elif "line" in event:
+                    print(event["line"])
+                    if event["explanation"]:
+                        print(f"  {event['explanation']}")
+                    return
+    except urllib.error.HTTPError as error:
+        fail(f"RUSH did not score {name}: {error.code} {error.read().decode(errors='replace')}")
+    except OSError as error:
+        fail(f"scoring {name} stopped: {error}")
+    fail(f"scoring {name} ended without a result")
 
 
 def cli(name: str) -> None:
@@ -219,6 +259,9 @@ def main(argv: list[str]) -> None:
         return
     if argv == ["help"]:
         print(HELP)
+        return
+    if argv[:1] == ["score"] and len(argv) <= 2:
+        score(argv[1] if len(argv) == 2 else None)
         return
     if len(argv) < 2 or argv[0] != "save" or (len(argv) > 2 and argv[2] != "--"):
         fail(USAGE)

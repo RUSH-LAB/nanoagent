@@ -8,6 +8,7 @@ import io
 import json
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -15,6 +16,7 @@ import pytest
 from nanoagent.uploaded.clis import CLIS
 from nanoagent.uploaded.contract import parse_manifest
 from nanoagent.uploaded.reference import FOLDER
+from nanoagent.uploaded.runner import AttemptRunner
 from nanoagent.uploaded.rush_worker import RushError
 from service_fakes import make_rig
 
@@ -116,3 +118,65 @@ async def test_the_services_stream_a_cli_install_one_json_line_per_event(tmp_pat
         assert (await client.post("/cli", json={"name": 3})).status_code == 400
         assert (await client.post("/cli", json={"name": "claude"}, headers={"authorization": "Bearer nope"})).status_code == 401
     assert asked == [("claude", None)]
+
+
+async def test_the_services_stream_a_score_one_json_line_per_event(tmp_path: Path) -> None:
+    asked: list[str] = []
+
+    async def score(name: str) -> Any:
+        asked.append(name)
+        yield {"run_id": "r1"}
+        yield {"line": "my-agent · city-weather · right · 48 s · 152k in / 6k out · $0.0110", "explanation": None}
+
+    rig = make_rig(tmp_path, score_harness=score)
+    async with rig.client() as client:
+        answered = await client.post("/score", json={"name": "my-agent"})
+        assert answered.status_code == 200 and json.loads(answered.text.splitlines()[-1])["line"].startswith("my-agent · ")
+        assert (await client.post("/score", json={})).status_code == 400
+        assert (await client.post("/score", json={"name": "my-agent"}, headers={"authorization": "Bearer nope"})).status_code == 401
+    assert asked == ["my-agent"]
+
+
+async def test_a_score_starts_the_run_follows_it_and_ends_with_the_one_line_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    done = {
+        "state": "final", "sealed": True, "execution": {"status": "answered"}, "verdict": "pass", "explanation": None,
+        "metrics": {"elapsed_ms": 48_200, "input_tokens": 152_300, "output_tokens": 6_100},
+    }  # fmt: skip
+    reads = iter([{"attempt": {"state": "leased", "sealed": False}}, {"attempt": done, "totals": {"settled_usd": 0.011}}])
+
+    class Worker:
+        async def score(self, attempt_id: str, fence: int, harness: str) -> dict[str, Any]:
+            assert (attempt_id, fence, harness) == ("a0", 3, "my-agent")
+            return {"run": {"run_id": "r1"}, "attempt_id": "a1"}
+
+        async def scored(self, attempt_id: str, fence: int, scored_id: str) -> dict[str, Any]:
+            assert scored_id == "a1"
+            return next(reads)
+
+    monkeypatch.setattr("nanoagent.uploaded.runner.SCORE_POLL_S", 0)
+    job = SimpleNamespace(attempt_id="a0", fence=3, plugin={"id": "city-weather"})
+    events = [event async for event in AttemptRunner._score(SimpleNamespace(worker=Worker()), job, "my-agent")]
+    assert events == [
+        {"run_id": "r1"}, {"state": "leased"},
+        {"line": "my-agent · city-weather · right · 48 s · 152k in / 6k out · $0.0110", "explanation": None},
+    ]  # fmt: skip
+
+
+def test_rush_score_scores_the_harness_last_saved_and_asks_for_a_save_without_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    request = {"workspace": str(tmp_path), "exec_url": "http://relay/exec", "task": {"id": "forecast", "plugin_name": "City Weather"}}
+    (tmp_path / "request.json").write_text(json.dumps(request))
+    monkeypatch.setenv("RUSH_REQUEST", str(tmp_path / "request.json"))
+    monkeypatch.setenv("RUSH_ATTEMPT_TOKEN", "t")
+    with pytest.raises(SystemExit, match=r"`rush save <name>` first"):
+        rush.main(["score"])
+    (tmp_path / ".rush").mkdir()
+    (tmp_path / ".rush" / "saved").write_text("my-agent")
+    sent: list[tuple[str, dict[str, Any]]] = []
+
+    def urlopen(request: Any, timeout: float) -> Any:
+        sent.append((request.full_url, json.loads(request.data)))
+        return io.BytesIO(b'{"run_id": "r1"}\n{"state": "leased"}\n{"line": "my-agent ...", "explanation": null}\n')
+
+    monkeypatch.setattr(rush.urllib.request, "urlopen", urlopen)
+    rush.main(["score"])
+    assert sent == [("http://relay/score", {"name": "my-agent"})]

@@ -15,6 +15,7 @@ const {MAX_SOURCE_BYTES, positiveSetting} = require('../benchmark/limits');
 const {uploadedHarnessOf} = require('../benchmark/harness');
 const {listen} = require('../benchmark/wake');
 const {PIN_TIMEOUT_MS} = require('../ai');
+const {startSession} = require('./benchmark');
 
 const MAX_PAYLOAD_BYTES = positiveSetting('BENCHMARK_PAYLOAD_MAX_BYTES', 16 * 1024 * 1024);
 // A read of a terminal's input waits this long for the member to send some, looking every INPUT_POLL_MS.
@@ -28,7 +29,8 @@ const REDACTIONS = ['none', 'redacted', 'truncated'];
 const ROUTE = new RegExp([
   '^/api/benchmark-worker/(?:',
   '(claim|started)',
-  '|attempts/([^/]+)/(renew|source|package|case|admissions|events|terminal|terminal-input|harness|spans|finalize|accounting)',
+  '|attempts/([^/]+)/(renew|source|package|case|admissions|events|terminal|terminal-input|harness|score|spans|finalize|accounting)',
+  '|attempts/([^/]+)/score/([^/]+)',
   '|attempts/([^/]+)/admissions/([^/]+)/(settle)',
   '|attempts/([^/]+)/payloads/([^/]+)',
   ')$',
@@ -62,7 +64,7 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
     const match = ROUTE.exec(pathname);
     if (!match) return json(res, 404, {error: 'Not found', code: 'not_found'});
     const {worker} = services;
-    const [, claim, jobId, jobPart, settleAttempt, callId, , payloadAttempt, sha256] = match;
+    const [, claim, jobId, jobPart, scoringAttempt, scoredAttempt, settleAttempt, callId, , payloadAttempt, sha256] = match;
     const body = () => jsonBody(req, readBody);
     const wanted = (method, id) => {
       if (req.method !== method) throw new BenchmarkError(405, 'method_not_allowed', 'Method not allowed');
@@ -146,8 +148,16 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
         const fence = fenceHeader(req);
         req.setTimeout(120_000);
         const data = await rawBody(req, MAX_SOURCE_BYTES, 'source_too_large');
-        const workspaceId = await worker.sessionWorkspace(userId, jobId, fence);
+        const {workspaceId} = await worker.terminalSession(userId, jobId, fence);
         return json(res, 201, await services.repository.saveSource({userId, workspaceId}, data, uploadedHarnessOf(data)));
+      }
+      // `rush score [<name>]` in the attempt's Terminal session: the member's harness <name> worked once on the session's task, as
+      // `nanoagent harness plugin=<p> harness=<name> prompt=<the task's description>` works it, scored and on the plugin's Leaderboard.
+      if (jobPart === 'score') {
+        wanted('POST', jobId);
+        const input = v.object(await body(), 'The body');
+        const {workspaceId, pluginId, taskId, description} = await worker.terminalSession(userId, jobId, v.fenceOf(input));
+        return json(res, 201, await startSession(ctx, {userId, workspaceId}, {pluginId, taskId, harness: v.string(input.harness, 'harness'), interactive: false, text: description}));
       }
       wanted('POST', jobId);
       const input = await body();
@@ -174,6 +184,16 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
       }
       const {callId: id, version, record} = v.accountingBody(input);
       return json(res, 200, await worker.putAccounting(userId, jobId, id, version, record));
+    }
+    // How a run `rush score` started from the attempt's Terminal session is going: its attempt, and what its model calls cost.
+    if (scoringAttempt !== undefined) {
+      wanted('GET', scoringAttempt);
+      if (!UUID.test(scoredAttempt)) throw new BenchmarkError(404, 'unknown_attempt', 'No such attempt');
+      const {workspaceId} = await worker.terminalSession(userId, scoringAttempt, fenceHeader(req));
+      const context = {userId, workspaceId};
+      const attempt = await services.repository.attempt(context, scoredAttempt);
+      if (!attempt) throw new BenchmarkError(404, 'unknown_attempt', 'No such attempt');
+      return json(res, 200, {attempt, totals: (await services.repository.accounting(context, scoredAttempt)).totals});
     }
     if (settleAttempt !== undefined) {
       wanted('POST', settleAttempt);
