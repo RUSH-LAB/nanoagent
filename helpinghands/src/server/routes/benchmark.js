@@ -9,14 +9,19 @@
  * tool pins each case, and publishes it from NanoAgent's own text.
  */
 const {PIN_TIMEOUT_MS, RUNNER_OFFLINE} = require('../ai');
+const aiSettings = require('../ai-settings');
 const {BenchmarkError} = require('../benchmark/errors');
 const {parseJson, stringifyJson} = require('../benchmark/json');
 const {compareAttempts, compareRuns} = require('../benchmark/compare');
 const {UUID, jsonBody, losslessBody, rawBody, sendFailure} = require('../benchmark/http');
-const {checkReference, referenceHarnessOf, uploadedHarnessOf} = require('../benchmark/harness');
+const {checkReference, referenceHarnessOf, referencePolicy, uploadedHarnessOf} = require('../benchmark/harness');
 const {previewBody, runBody, benchmarkPublication, SHA256, object, string} = require('../benchmark/validate');
 const {positiveSetting} = require('../benchmark/limits');
 
+// The endpoint profile of the worker RUSH Lab runs (nanoagent/deploy/worker/worker.openrouter.yaml), which a Harness tab session runs on.
+const SESSION_ENDPOINT = 'openrouter';
+// What a Harness tab session's request may hold: what a plugin page's prompt may (PluginFrame/protocol.js).
+const SESSION_TEXT_LIMIT = 50_000;
 const MAX_SOURCE_BYTES = positiveSetting('BENCHMARK_SOURCE_MAX_BYTES', 50 * 1024 * 1024);
 const STREAM_POLL_MS = 300;
 const HEARTBEAT_MS = 15_000;
@@ -24,7 +29,7 @@ const PAGE = 1000;
 
 const ROUTE = new RegExp([
   '^/api/benchmark/(?:',
-  '(defaults|benchmarks|benchmarks/pinned|previews|sources|runs|compare|compare/attempts|worker-credentials)',
+  '(defaults|benchmarks|benchmarks/pinned|sessions|previews|sources|runs|compare|compare/attempts|worker-credentials)',
   '|worker-credentials/([^/]+)',
   '|benchmarks/([^/]+)(?:/(results))?',
   '|runs/([^/]+)(?:/(cancel)|/cases/([^/]+)/(rerun))?',
@@ -190,6 +195,32 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       });
       const published = await service.publish(context.userId, publication);
       return json(res, published.created ? 201 : 200, published);
+    }
+    // One session of a plugin page's Harness tab: the member's request to one task of their installed app, worked once by a reference
+    // harness. The member's computer fills the task's input from the request with the model every plugin run uses and pins the case,
+    // as it pins a benchmark's, and builds the harness; the run is queued like a benchmark run, on the endpoint RUSH Lab's worker serves.
+    if (top === 'sessions') {
+      if (req.method !== 'POST') return wrongMethod();
+      write();
+      if (!ctx.workspaceApps) return json(res, 409, {error: 'Apps need a workspace file store', code: 'fs-disabled'});
+      req.setTimeout(PIN_TIMEOUT_MS);
+      const body = object(await jsonBody(req, readBody), 'The body');
+      const [pluginId, taskId, harness] = ['plugin_id', 'task_id', 'harness'].map(name => string(body[name], name));
+      const text = string(body.text, 'text', {max: SESSION_TEXT_LIMIT});
+      checkReference(harness);
+      const computer = ctx.runners.computer(context.userId);
+      if (!computer) return json(res, 503, {error: RUNNER_OFFLINE, code: 'runner_offline'});
+      const opened = await ctx.workspaceApps.open(context, pluginId, computer);
+      if (opened.error) return json(res, opened.status, {error: opened.error, code: 'app_unavailable'});
+      if (opened.value.status !== 'ready') return json(res, 409, {error: `${opened.value.id} is not ready to run`, code: 'app_unavailable'});
+      const pinned = await computer.benchmarkSession(opened.value.sha256, JSON.stringify({task: taskId, text, model: aiSettings.MODEL}));
+      if (pinned.error) return json(res, pinned.status, {error: pinned.error, code: 'pin_failed'});
+      const publication = benchmarkPublication({...parseJson(pinned.value), model: aiSettings.MODEL.model, endpoint_profile: SESSION_ENDPOINT});
+      const built = await computer.benchmarkReferenceHarness(harness);
+      if (built.error) return json(res, built.status, {error: built.error, code: 'reference_unavailable'});
+      const source = await repository.saveSource(context, built.value, referenceHarnessOf(built.value, harness));
+      const {run_id: id} = await service.session(context, publication, source, referencePolicy(harness));
+      return json(res, 201, {run: await repository.run(context, id)});
     }
     if (top === 'previews') {
       if (req.method !== 'POST') return wrongMethod();

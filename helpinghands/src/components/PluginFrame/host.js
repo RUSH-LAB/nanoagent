@@ -1,4 +1,5 @@
 import {readEvents, SSE_CONTENT_TYPE} from '../../utils/eventStream.js';
+import {followHarness} from './harness.js';
 import {
   chatEvent, failure, invalidRequest, promptHistory, reply, requestFrom, runEvent, themeEvent,
 } from './protocol.js';
@@ -26,6 +27,10 @@ import {
  * the run starts over (`chat.restart`), as following replays it from its first
  * event, or, when it ended meanwhile, given the turn the session kept
  * (`chat.turn`). Only `cancel` stops one.
+ *
+ * The Harness tab's session (`harness.run`) is a benchmark run of one case, the page's request to one of the plugin's tasks
+ * worked by a reference harness on the member's own worker: the page hears its steps as they happen and its outcome
+ * (./harness.js), through `harness.done`; `harness.cancel` cancels the run.
  */
 // As long as the member's computer holds a run for RUSH to take up again (runner/protocol.js HOLD_MS).
 const RECONNECT_MS = 10 * 60_000;
@@ -41,6 +46,7 @@ const sleep = (ms, signal) => new Promise(resolve => {
 
 export function createBridgeHost({frameWindow, plugin, workspaceId, theme, request, onVersion, shown, onShown}) {
   const runs = new Map(); // runId -> {controller, session}, the controller of its stream now
+  const harnessRuns = new Map(); // runId -> {controller, run}, a Harness tab session's stream and its benchmark run's id
   // Each session's conversation, by id: a run left going in one session keeps its turn there.
   const turns = new Map();
   let session = null;
@@ -198,6 +204,31 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     post(runEvent('chat.done', runId, {}));
   }
 
+  async function harnessRun({harness, task, text}) {
+    const response = await request('/api/benchmark/sessions', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({plugin_id: plugin.id, task_id: task, harness, text}),
+    });
+    if (!response.ok) throw await failed(response, 'Could not start the harness');
+    const {run} = await response.json();
+    runCount += 1;
+    const runId = `harness-${runCount}`;
+    const controller = new AbortController();
+    harnessRuns.set(runId, {controller, run: run.run_id});
+    const emit = (event, data) => post(runEvent(event, runId, data));
+    const follow = async () => {
+      try {
+        await followHarness({attemptId: run.cases[0].attempts[0].attempt_id, request, read: readEvents, emit, signal: controller.signal});
+      } catch (error) {
+        emit('harness.error', {message: error.message});
+      }
+      harnessRuns.delete(runId);
+      emit('harness.done', {});
+    };
+    return {result: {runId}, after: follow};
+  }
+
   const methods = {
     'describe': async () => ({result: {plugin, workspace: {id: workspaceId}, theme: currentTheme, session: shown()}}),
     prompt,
@@ -208,6 +239,14 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
       const response = await request(`${sessionsPath}/${run.session}/run`, {method: 'DELETE'});
       if (!response.ok) throw await failed(response, 'Could not cancel the run');
       run.controller.abort();
+      return {result: {}};
+    },
+    'harness.run': harnessRun,
+    'harness.cancel': async ({runId}) => {
+      const run = harnessRuns.get(runId);
+      if (!run) throw new Error(`No harness run ${runId} is in progress`);
+      const response = await request(`/api/benchmark/runs/${run.run}/cancel`, {method: 'POST'});
+      if (!response.ok) throw await failed(response, 'Could not cancel the harness');
       return {result: {}};
     },
     'sessions.list': async () => {
@@ -268,7 +307,7 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     },
     /** Stop following every run; the frame is going away, and the runs go on. */
     close() {
-      for (const run of runs.values()) run.controller.abort();
+      for (const run of [...runs.values(), ...harnessRuns.values()]) run.controller.abort();
     },
   };
 }

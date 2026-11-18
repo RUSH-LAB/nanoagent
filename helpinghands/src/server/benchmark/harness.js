@@ -19,6 +19,9 @@ const validate = new Ajv2020({strict: false, allErrors: true}).compile({$schema:
 // Their names are reserved: a member's own upload may not take one, and a reference ZIP reaches the server only through the reference route.
 const REFERENCE_HARNESSES = Object.freeze(['claude-code', 'codex', 'dsh', 'hermes', 'nanoagent', 'pi']);
 
+/** The policy reference harness `name` works under: NanoAgent's the task's tools, every other harness the coding prompt. */
+const referencePolicy = name => (name === 'nanoagent' ? 'task_tools' : 'coding');
+
 const refused = (status, code, message) => new BenchmarkError(status, code, message);
 
 /**
@@ -68,4 +71,4 @@ function referenceHarnessOf(data, name) {
   return harness;
 }
 
-module.exports = {REFERENCE_HARNESSES, checkReference, harnessOf, referenceHarnessOf, uploadedHarnessOf};
+module.exports = {REFERENCE_HARNESSES, checkReference, referencePolicy, harnessOf, referenceHarnessOf, uploadedHarnessOf};

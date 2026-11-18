@@ -85,6 +85,8 @@ describe('nanoagent.ui/v1 requests', () => {
       ['session.shown', {id: null}],
       ['plugin.version', {version: '1.2.0'}],
       ['plugin.version', {version: null}],
+      ['harness.run', {harness: 'claude-code', task: 'save-paper-source', text: 'hi'}],
+      ['harness.cancel', {runId: 'harness-1'}],
     ];
     for (const [method, params] of valid) assert.equal(invalidRequest({method, params}), null, method);
     const invalid = [
@@ -106,6 +108,10 @@ describe('nanoagent.ui/v1 requests', () => {
       ['session.shown', {id: 'not-an-id'}],
       ['plugin.version', {}],
       ['plugin.version', {version: ''}],
+      ['harness.run', {harness: 'mine', task: 'save-paper-source', text: 'hi'}],
+      ['harness.run', {harness: 'nanoagent', task: '', text: 'hi'}],
+      ['harness.run', {harness: 'nanoagent', task: 'save-paper-source', text: ' '}],
+      ['harness.cancel', {}],
     ];
     for (const [method, params] of invalid) assert.equal(typeof invalidRequest({method, params}), 'string', method);
   });
@@ -380,5 +386,66 @@ describe('the bridge host', () => {
     const {host, posted} = await hostWith(() => assert.fail('no request'));
     host.setTheme('dark');
     assert.deepEqual(messages(posted), [{protocol: PROTOCOL, event: 'host.theme', data: {theme: 'dark'}}]);
+  });
+
+  it('runs a Harness tab session as a one-case benchmark run, telling the page each step of its attempt and then its outcome', async () => {
+    const ATTEMPT = '00000000-0000-4000-8000-0000000000aa';
+    const event = (cursor, kind, data) => sse('event', {cursor, kind, data});
+    const reply = sse('x', {choices: [{index: 0, delta: {content: 'Looking it up.'}}]});
+    const answers = {
+      '/api/benchmark/sessions': () => Response.json({run: {run_id: 'r1', cases: [{attempts: [{attempt_id: ATTEMPT}]}]}}, {status: 201}),
+      [`/api/benchmark/attempts/${ATTEMPT}/stream?after=0`]: () => eventStream([
+        event(1, 'case.launched', {}),
+        event(2, 'model_call.admitted', {call_id: 'm1', dialect: 'chat_completions'}),
+        event(3, 'model_call.response', {call_id: 'm1', stream_payload_sha256: 's'.repeat(64), proposals: [{name: 'bash', raw_arguments: '{"command":"ls"}'}]}),
+        event(4, 'exec.started', {command_sha256: 'c'.repeat(64)}),
+        event(5, 'result.read', {outcome: {status: 'answered', answer: {value: 1}}}),
+        sse('sealed', {final_cursor: 5}),
+      ].join('')),
+      [`/api/benchmark/attempts/${ATTEMPT}/payloads/${'s'.repeat(64)}`]: () => new Response(reply),
+      [`/api/benchmark/attempts/${ATTEMPT}/payloads/${'c'.repeat(64)}`]: () => Response.json({argv: ['ls', '-l'], cwd: '/rush/workspace'}),
+      [`/api/benchmark/attempts/${ATTEMPT}`]: () => Response.json({attempt: {
+        state: 'finalized', execution: {status: 'answered', reason: null}, verdict: 'pass', explanation: null,
+        metrics: {input_tokens: 120, output_tokens: 30, elapsed_ms: 4200},
+      }}),
+      [`/api/benchmark/attempts/${ATTEMPT}/accounting`]: () => Response.json({totals: {settled_usd: 0.0012}}),
+    };
+    const {posted, calls, send} = await hostWith(path => answers[path](), {started: false});
+    send('h', 'harness.run', {harness: 'claude-code', task: 'save-paper-source', text: 'Get 2401.00001'});
+    await until(() => messages(posted).some(message => message.event === 'harness.done'));
+    assert.deepEqual(JSON.parse(calls[0].init.body), {plugin_id: 'arxiv-source', task_id: 'save-paper-source', harness: 'claude-code', text: 'Get 2401.00001'});
+    assert.deepEqual(messages(posted)[0], {protocol: PROTOCOL, id: 'h', result: {runId: 'harness-1'}});
+    assert.deepEqual(eventsOf(posted, 'harness-1'), [
+      ['harness.step', {kind: 'status', text: 'The harness started'}],
+      ['harness.step', {kind: 'reply', text: 'Looking it up.', calls: [{name: 'bash', arguments: '{"command":"ls"}'}], error: null}],
+      ['harness.step', {kind: 'command', argv: ['ls', '-l']}],
+      ['harness.step', {kind: 'result', outcome: {status: 'answered', answer: {value: 1}}}],
+      ['harness.outcome', {status: 'Answered', reason: null, verdict: 'Pass', explanation: '', inputTokens: 120, outputTokens: 30, elapsedMs: 4200, cost: 0.0012}],
+      ['harness.done', {}],
+    ]);
+  });
+
+  it('cancels a Harness tab session\'s run, and says why one could not start', async () => {
+    let release;
+    const held = new Promise(resolve => { release = resolve; });
+    const answers = {
+      '/api/benchmark/sessions': () => Response.json({run: {run_id: 'r1', cases: [{attempts: [{attempt_id: 'a1'}]}]}}, {status: 201}),
+      '/api/benchmark/attempts/a1/stream?after=0': async () => { await held; return eventStream(sse('sealed', {final_cursor: 0})); },
+      '/api/benchmark/runs/r1/cancel': () => { release(); return Response.json({}); },
+      '/api/benchmark/attempts/a1': () => Response.json({attempt: {state: 'finalized', execution: {status: 'canceled', reason: null}, verdict: null, metrics: null}}),
+      '/api/benchmark/attempts/a1/accounting': () => Response.json({totals: {settled_usd: null}}),
+    };
+    const {posted, calls, send} = await hostWith(path => answers[path](), {started: false});
+    send('h', 'harness.run', {harness: 'nanoagent', task: 'save-paper-source', text: 'Get it'});
+    await until(() => posted.length);
+    send('c', 'harness.cancel', {runId: 'harness-1'});
+    await until(() => messages(posted).some(message => message.event === 'harness.done'));
+    assert.ok(calls.some(call => call.path === '/api/benchmark/runs/r1/cancel' && call.init.method === 'POST'));
+    assert.equal(eventsOf(posted, 'harness-1').find(([name]) => name === 'harness.outcome')[1].status, 'Canceled');
+
+    const refused = await hostWith(() => Response.json({error: 'Your benchmark worker is not running'}, {status: 409}), {started: false});
+    refused.send('h', 'harness.run', {harness: 'nanoagent', task: 'save-paper-source', text: 'Get it'});
+    await until(() => refused.posted.length);
+    assert.deepEqual(messages(refused.posted), [{protocol: PROTOCOL, id: 'h', error: {message: 'Your benchmark worker is not running'}}]);
   });
 });

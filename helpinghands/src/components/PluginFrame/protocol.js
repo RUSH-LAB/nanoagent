@@ -12,6 +12,8 @@ export const PROTOCOL = 'nanoagent.ui/v1';
 const PROMPT_LIMIT = 50_000;
 export const HISTORY_LIMIT = 24;
 export const MESSAGE_LIMIT = 10_000;
+// The reference harnesses a Harness tab session may run (server/benchmark/harness.js REFERENCE_HARNESSES).
+const HARNESSES = ['nanoagent', 'claude-code', 'codex', 'pi', 'dsh', 'hermes'];
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const isObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -44,6 +46,11 @@ const PARAMS = {
   'session.archive': ({id, archived}) => (SESSION_ID.test(id ?? '') && typeof archived === 'boolean'
     ? null
     : 'session.archive needs a session id and archived, true or false'),
+  'harness.run': ({harness, task, text}) => (HARNESSES.includes(harness) && typeof task === 'string' && task
+    && typeof text === 'string' && text.trim() && text.length <= PROMPT_LIMIT
+    ? null
+    : `harness.run needs a harness (${HARNESSES.join(', ')}), a task id and text of 1 to ${PROMPT_LIMIT} characters`),
+  'harness.cancel': ({runId}) => (typeof runId === 'string' && runId ? null : 'harness.cancel needs a runId'),
   'plugin.version': ({version}) => (version === null || (typeof version === 'string' && version)
     ? null
     : 'plugin.version needs version, a published version or null'),

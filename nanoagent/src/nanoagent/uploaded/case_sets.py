@@ -14,6 +14,7 @@ from typing import Any
 
 from slimconfig import Output, build_output
 
+from nanoagent.core.agent import DecisionModel
 from nanoagent.plugin.runtime import call_tool_async
 
 NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}")
@@ -196,3 +197,21 @@ def derive_case_set(name: str, cases: CaseSet, manifest, sha256: str, timeout: f
         "cases": published,
         "private": references,
     }
+
+
+# The case set of one session in a plugin page's Harness tab: one case, the member's request.
+SESSION = "harness-session"
+
+
+async def session_case_set(model: DecisionModel, manifest, sha256: str, task_id: str, text: str, timeout: float) -> dict[str, Any]:
+    """The case set of a Harness tab session: one case to answer, whose input ``model`` fills from ``text``, the member's
+    request, as the plugin's Session agent fills a task's input from theirs; ``text`` is its context, so a coding harness
+    reads the request as the member wrote it. Pinned like any case set (:func:`derive_case_set`)."""
+    try:
+        task = manifest.task(task_id)
+    except KeyError as error:
+        raise PreparationError(f"{manifest.id} has an unknown task: {error.args[0]}") from error
+    system = f"You turn a request to the {manifest.name} plugin into the input of its task: {task.description}.\n{task.instructions}"
+    answer = await model.answer([{"role": "system", "content": system}, {"role": "user", "content": text}], name=task.id, schema=task.input)
+    cases = CaseSet(plugin=manifest.id, task=task.id, context=text, answer=[answer.value], refuse=[])
+    return await asyncio.to_thread(derive_case_set, SESSION, cases, manifest, sha256, timeout)

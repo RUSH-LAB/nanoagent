@@ -47,6 +47,8 @@ const ROUTES = [
   ['POST', '/v1/runs'],
   // The case set a member publishes, its cases pinned by the plugin installed here (Publish benchmark).
   ['POST', `/v1/installs/${SEGMENT}/benchmark/case-set`],
+  // The one-case case set of a session in a plugin page's Harness tab, its input filled from the member's request here.
+  ['POST', `/v1/installs/${SEGMENT}/benchmark/session`],
   // The ZIP of a reference harness, built by the NanoAgent here (Benchmark Your Harness).
   ['GET', `/v1/benchmark/reference-harnesses/${SEGMENT}`],
   ['GET', `/v1/installs/${SEGMENT}`],

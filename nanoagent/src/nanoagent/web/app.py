@@ -41,7 +41,7 @@ from nanoagent.plugin.package import (
 from nanoagent.plugin.python import plugin_python
 from nanoagent.runtime.config import AgentConfig, load_config_args
 from nanoagent.uploaded.compare_view import compare_attempts
-from nanoagent.uploaded.case_sets import CaseSetSpec, PreparationError, derive_case_set
+from nanoagent.uploaded.case_sets import CaseSetSpec, PreparationError, derive_case_set, session_case_set
 from nanoagent.uploaded.reference import NAMES as REFERENCE_HARNESSES
 from nanoagent.uploaded.reference import build_reference
 from nanoagent.web.config import WebConfig
@@ -52,6 +52,7 @@ from nanoagent.web.runtime import (
     RunHost,
     ValidationError,
     check_choice,
+    validate_run_choice,
     validate_run_request,
 )
 from nanoagent.web.workspaces import Workspaces
@@ -654,6 +655,35 @@ def create_app(
             return JSONResponse({"error": str(error)}, status_code=422)
         return JSONResponse(publication)
 
+    async def benchmark_session(request: Request) -> JSONResponse:
+        """The case set of one Harness tab session with the installed plugin: ``{task, text, model?}``, the member's request
+        ``text`` to task ``task``, made the task's input by the plugin model (``model`` chosen as a plugin run chooses it)."""
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        installed = installs.get(request.path_params["sha256"])
+        if installed is None:
+            return JSONResponse({"error": "not installed"}, status_code=404)
+        body, rejected = await read_json(request)
+        if rejected is not None:
+            return rejected
+        if not isinstance(body, dict) or not isinstance(body.get("task"), str) or not isinstance(body.get("text"), str) or not body["text"].strip():
+            return JSONResponse({"error": "the body is {task, text, model?}: a task id and the member's request"}, status_code=400)
+        try:
+            choice = validate_run_choice({"model": body["model"]} if "model" in body else {})
+            check_choice(cfg, choice)
+            model, _name, _limits, close = await plugin_model_for(choice)
+        except ValidationError as error:
+            return JSONResponse({"error": str(error)}, status_code=400)
+        try:
+            async with plugin_slots:
+                publication = await session_case_set(model, installed.manifest, request.path_params["sha256"], body["task"], body["text"], BENCHMARK_PIN_TIMEOUT)
+        except PreparationError as error:
+            return JSONResponse({"error": str(error)}, status_code=422)
+        finally:
+            if close is not None:
+                await close()
+        return JSONResponse(publication)
+
     async def inspection(request: Request) -> JSONResponse:
         """How the package with this sha256 was checked, or 404 until one is."""
         if not authorized(request):
@@ -762,6 +792,7 @@ def create_app(
             Route("/v1/plugins", list_plugins, methods=["GET"]),
             Route("/v1/benchmark/compare", benchmark_compare, methods=["POST"]),
             Route("/v1/installs/{sha256}/benchmark/case-set", benchmark_case_set, methods=["POST"]),
+            Route("/v1/installs/{sha256}/benchmark/session", benchmark_session, methods=["POST"]),
             Route("/v1/benchmark/reference-harnesses/{name}", reference_harness, methods=["GET"]),
             Route("/v1/packages", list_packages, methods=["GET"]),
             Route("/v1/packages/inspect", inspect_upload, methods=["POST"]),

@@ -123,6 +123,38 @@ function createPostgresBenchmark({pool}) {
     };
   }
 
+  /**
+   * Keep the case set of `benchmark` (a validated publication) for its published plugin version, or reuse an identical one: its
+   * cases, and their private references.
+   */
+  async function keepCaseSet(client, userId, benchmark) {
+    const version = (await client.query(
+      'select entry from market_plugin_version where plugin_id = $1 and version = $2 and sha256 = $3', [benchmark.plugin_id, benchmark.version, benchmark.package_sha256],
+    )).rows[0];
+    if (!version) throw new BenchmarkError(404, 'unknown_plugin_version', `${benchmark.plugin_id} ${benchmark.version} with that sha256 is not published`);
+    checkTaskAgainstEntry(version.entry, benchmark);
+    const caseSetId = benchmark.case_set_digest;
+    const caseSet = await client.query(
+      `insert into benchmark_case_set (case_set_id, publisher_id, plugin_id, plugin_name, version, package_sha256, task_id, task, context, digest)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $1) on conflict do nothing`,
+      [caseSetId, userId, benchmark.plugin_id, benchmark.plugin_name, benchmark.version, benchmark.package_sha256, benchmark.task_id,
+        stringifyJson(benchmark.task), benchmark.context],
+    );
+    if (caseSet.rowCount) {
+      for (const [position, c] of benchmark.cases.entries()) {
+        await client.query(
+          `insert into benchmark_case_set_case (case_set_id, case_id, position, kind, arguments, expected_error, reference_sha256, content_digest)
+           values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [caseSetId, c.case_id, position, c.kind, stringifyJson(c.arguments), c.expected_error, c.reference_sha256, c.content_digest],
+        );
+        await client.query(
+          'insert into benchmark_case_set_private (case_set_id, case_id, reference) values ($1, $2, $3)',
+          [caseSetId, c.case_id, stringifyJson(benchmark.private[c.case_id])],
+        );
+      }
+    }
+  }
+
   return Object.freeze({
     /** At most `limit` published benchmarks (public parts of each, no cases) published before `before`, newest first, of plugin `pluginId` and its version `version` if given. */
     async benchmarks(context, {pluginId = null, version = null, limit, before = null}) {
@@ -159,31 +191,7 @@ function createPostgresBenchmark({pool}) {
      */
     async publishBenchmark(userId, benchmark) {
       return inTransaction(pool, {userId}, async client => {
-        const version = (await client.query(
-          'select entry from market_plugin_version where plugin_id = $1 and version = $2 and sha256 = $3', [benchmark.plugin_id, benchmark.version, benchmark.package_sha256],
-        )).rows[0];
-        if (!version) throw new BenchmarkError(404, 'unknown_plugin_version', `${benchmark.plugin_id} ${benchmark.version} with that sha256 is not published`);
-        checkTaskAgainstEntry(version.entry, benchmark);
-        const caseSetId = benchmark.case_set_digest;
-        const caseSet = await client.query(
-          `insert into benchmark_case_set (case_set_id, publisher_id, plugin_id, plugin_name, version, package_sha256, task_id, task, context, digest)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $1) on conflict do nothing`,
-          [caseSetId, userId, benchmark.plugin_id, benchmark.plugin_name, benchmark.version, benchmark.package_sha256, benchmark.task_id,
-            stringifyJson(benchmark.task), benchmark.context],
-        );
-        if (caseSet.rowCount) {
-          for (const [position, c] of benchmark.cases.entries()) {
-            await client.query(
-              `insert into benchmark_case_set_case (case_set_id, case_id, position, kind, arguments, expected_error, reference_sha256, content_digest)
-               values ($1, $2, $3, $4, $5, $6, $7, $8)`,
-              [caseSetId, c.case_id, position, c.kind, stringifyJson(c.arguments), c.expected_error, c.reference_sha256, c.content_digest],
-            );
-            await client.query(
-              'insert into benchmark_case_set_private (case_set_id, case_id, reference) values ($1, $2, $3)',
-              [caseSetId, c.case_id, stringifyJson(benchmark.private[c.case_id])],
-            );
-          }
-        }
+        await keepCaseSet(client, userId, benchmark);
         const benchmarkId = crypto.randomUUID();
         const inserted = await client.query(
           `insert into benchmark (benchmark_id, name, plugin_id, plugin_version, case_set_id, model, endpoint_label, limits, coding_template, task_instructions, digest, publisher_id)
@@ -199,6 +207,17 @@ function createPostgresBenchmark({pool}) {
           throw new BenchmarkError(409, 'benchmark_name_taken', `Benchmark ${benchmark.name} is published for ${benchmark.plugin_id} ${benchmark.version} with different content; a changed benchmark needs a new name`);
         }
         return {created: false, benchmark_id: existing.benchmark_id};
+      });
+    },
+
+    /**
+     * Keep the case set of a Harness tab session (a validated publication) as `userId`, as publishing does, under no benchmark:
+     * the member as its publisher, `{id, name, github}`.
+     */
+    async saveCaseSet(userId, publication) {
+      return inTransaction(pool, {userId}, async client => {
+        await keepCaseSet(client, userId, publication);
+        return (await client.query('select id, display_name as name, github_login as github from app_user where id = $1', [userId])).rows[0];
       });
     },
 

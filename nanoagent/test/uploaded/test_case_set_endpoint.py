@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from test_plugin import write_plugin  # noqa: E402
 
+from nanoagent.inference.types import Answer  # noqa: E402
 from nanoagent.plugin import install  # noqa: E402
 from nanoagent.plugin.package import pack  # noqa: E402
 from nanoagent.runtime.config import load_config_args  # noqa: E402
@@ -23,6 +24,18 @@ from nanoagent.web.config import WebConfig  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 TOKEN = "case-set-secret"
+
+
+class InputModel:
+    """The plugin model of a Harness tab session: answers every request with ``value``, keeping what it was asked."""
+
+    def __init__(self) -> None:
+        self.value: dict[str, Any] = {"value": "hi"}
+        self.asked: list[tuple[list[dict[str, Any]], str, dict[str, Any]]] = []
+
+    async def answer(self, messages: list[dict[str, Any]], *, name: str, schema: dict[str, Any]) -> Answer:
+        self.asked.append((messages, name, schema))
+        return Answer(dict(self.value))
 
 
 @pytest.fixture
@@ -38,7 +51,9 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
             f"uv_cache={tmp_path / 'u'}", f"plugin_python={sys.executable}", "host=127.0.0.1", "sandbox=none",
         ],
     )  # fmt: skip
-    app = TestClient(create_app(config), headers={"Authorization": f"Bearer {TOKEN}"})
+    model = InputModel()
+    app = TestClient(create_app(config, plugin_model=model), headers={"Authorization": f"Bearer {TOKEN}"})
+    app.model = model
     write_plugin(tmp_path / "echo")
     data = pack(tmp_path / "echo")
     app.sha = hashlib.sha256(data).hexdigest()
@@ -110,3 +125,26 @@ def test_a_malformed_body_is_a_bad_request(client: TestClient) -> None:
 def test_an_install_that_is_not_there_and_a_missing_token_are_refused(client: TestClient) -> None:
     assert client.post(f"/v1/installs/{'0' * 64}/benchmark/case-set", json=request()).status_code == 404
     assert client.post(f"/v1/installs/{client.sha}/benchmark/case-set", json=request(), headers={"Authorization": "Bearer no"}).status_code == 401
+
+
+def session(client: TestClient, **body: Any):
+    return client.post(f"/v1/installs/{client.sha}/benchmark/session", json={"task": "echo", "text": "Echo hi, please.", **body})
+
+
+def test_a_session_is_one_case_whose_input_the_plugin_model_fills_from_the_request(client: TestClient) -> None:
+    reply = session(client)
+    assert reply.status_code == 200, reply.text
+    body = reply.json()
+    assert (body["name"], body["task_id"], body["context"]) == ("harness-session", "echo", "Echo hi, please.")
+    assert body["cases"] == [{"case_id": "echo-01", "kind": "answer", "arguments": {"value": "hi"}, "expected_error": None}]
+    assert body["private"] == {"echo-01": {"value": "hi"}}
+    [(messages, name, schema)] = client.model.asked
+    assert name == "echo" and schema["properties"]["value"] and messages[1] == {"role": "user", "content": "Echo hi, please."}
+
+
+def test_a_session_input_that_breaks_the_task_input_and_an_unknown_task_are_refused(client: TestClient) -> None:
+    client.model.value = {"wrong": 1}
+    assert session(client).status_code == 422 and "do not fit the input of task echo" in session(client).json()["error"]
+    reply = session(client, task="nope")
+    assert reply.status_code == 422 and "unknown task" in reply.json()["error"]
+    assert session(client, text=" ").status_code == 400

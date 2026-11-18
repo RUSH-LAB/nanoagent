@@ -305,7 +305,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 /* The frame's tabs (kit/shell.js), over every plugin's page, and the Dashboard (kit/session.js). */
 :root { --kit-tabs-height: 44px; }
 .kit-tabs { display: flex; gap: 22px; height: var(--kit-tabs-height); box-sizing: border-box; padding: 0 var(--page-inset); border-bottom: 1px solid var(--border); }
-.kit-session > .chat-page { height: calc(100vh - var(--kit-tabs-height)); }
+.kit-session > .chat-page, .kit-harness > .chat-page { height: calc(100vh - var(--kit-tabs-height)); }
 .kit-tab { appearance: none; display: inline-flex; align-items: center; gap: 5px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 560; padding: 0 1px; cursor: pointer; max-width: 320px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kit-tab:hover { color: var(--text); }
 .kit-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
@@ -444,6 +444,14 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .chat-page > * { min-height: 0; }
 .chat-page .chat { padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
 .chat-page .chat-log:has(> .chat-intro) { align-content: center; }
+/* The Harness tab (kit/harness.js): the harness picker over the session's log, and what it came to beside it. */
+.harness-chat { grid-template-rows: auto minmax(0, 1fr) auto; }
+.harness-head { display: grid; gap: 6px; }
+.harness-head p { margin: 0; }
+.harness-pick { display: flex; flex-wrap: wrap; gap: 6px; }
+.harness-pick .button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); font-weight: 620; }
+.harness-outcome { display: grid; gap: 12px; align-content: start; }
+.harness-outcome > p { margin: 0; }
 /* Beside the chat, in two tabs (kit/result.js): a turn's graph, and a task's result. */
 .results-pane { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
 .results-tabs { display: flex; gap: 22px; height: 36px; border-bottom: 1px solid var(--border); }
