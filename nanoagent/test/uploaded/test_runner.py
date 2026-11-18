@@ -181,6 +181,7 @@ async def test_a_free_form_session_has_no_case_reads_no_result_and_ends_unscored
     # Under coding, the session still has the task's tools, for its agent CLIs (the broker's /mcp), in a tool container.
     assert [tool["name"] for tool in request["tools"]["available"]] == ["wait"] and rig.supervisor.specs[0].tool is not None
     assert rig.rush.of("attempt.started")[0]["egress_hosts"] == ["api.example.com"]
+    assert rig.supervisor.probed == ["python-3"]  # the tracer proven in the toolchain's image before the build
 
 
 async def test_any_other_harness_starts_only_once_its_case_is_pinned(tmp_path: Path) -> None:

@@ -80,7 +80,8 @@ export function harnessPage(plugin) {
     try {
       const id = await startRun("harness.run", { harness: "shell", task: task.id }, (name, data) => {
         switch (name) {
-          case "harness.preparing":
+          case "harness.preparing":  // shown only while something downloads; otherwise the terminal just opens
+            if (!data.total) break;
             preparing = true;
             terminal.write(`\r\x1b[KPreparing your computer (${Math.round(data.done / 1e6)} of ${Math.round(data.total / 1e6)} MB): the session starts once it is ready`);
             break;

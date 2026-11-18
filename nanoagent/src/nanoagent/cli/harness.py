@@ -269,9 +269,9 @@ def main(argv: list[str] | None = None) -> int:
         home = Path(cfg.home) if cfg.home else folder / "runs" / cfg.plugin / f"{datetime.now():%Y_%m_%d_%H%M%S}_{cfg.harness}"
         print(f"{cfg.harness} · {cfg.plugin} · starting: the first session of a harness builds it", file=sys.stderr, flush=True)
         body = {"plugin_id": cfg.plugin, "task_id": task, "harness": HARNESSES.get(cfg.harness, cfg.harness), "interactive": interactive} | ({} if free else {"text": text})
-        run = checked(rush.post(f"{prefix}/benchmark/sessions", json=body | ({} if cfg.model is None else {"model": cfg.model}),
-                                timeout=START_TIMEOUT_S))["run"]  # fmt: skip
-        attempt_id = run["cases"][0]["attempts"][0]["attempt_id"]
+        started = checked(rush.post(f"{prefix}/benchmark/sessions", json=body | ({} if cfg.model is None else {"model": cfg.model}),
+                                    timeout=START_TIMEOUT_S))  # fmt: skip
+        run, attempt_id = started["run"], started["attempt_id"]
         attempt_path = f"{prefix}/benchmark/attempts/{attempt_id}"
 
         def write(chunk: bytes) -> None:

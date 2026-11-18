@@ -271,9 +271,9 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
         source = await repository.saveSource(context, built.value, referenceHarnessOf(built.value, harness));
       }
       const policy = reference ? referencePolicy(harness) : 'coding';
-      const {run_id: id, session} = await service.session(context, frame, source, policy, {interactive: body.interactive});
+      const {run_id: id, attempt_id: attemptId, session} = await service.session(context, frame, source, policy, {interactive: body.interactive});
       wake(`claim:${context.userId}`);
-      if (free) return json(res, 201, {run: await repository.run(context, id)});
+      if (free) return json(res, 201, {run: await repository.run(context, id), attempt_id: attemptId});
       const pinning = async () => {
         const pinned = await computer.benchmarkSession(sha256, JSON.stringify({task: taskId, text, model: aiSettings.MODEL}));
         if (pinned.error) throw new BenchmarkError(pinned.status, 'pin_failed', pinned.error);
@@ -283,7 +283,7 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
         .catch(error => repository.failSessionCase(context, id, frame.case_id, error instanceof BenchmarkError ? error.message : `Pinning the case failed: ${error.message}`))
         .catch(error => console.error(`[benchmark] session ${id}: recording its pin's failure failed:`, error))
         .finally(() => wake(`case:${id}`));
-      return json(res, 201, {run: await repository.run(context, id)});
+      return json(res, 201, {run: await repository.run(context, id), attempt_id: attemptId});
     }
     if (top === 'previews') {
       if (req.method !== 'POST') return wrongMethod();

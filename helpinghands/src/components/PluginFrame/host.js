@@ -227,8 +227,8 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
           body: JSON.stringify({plugin_id: plugin.id, task_id: task, harness, text, interactive: true}),
         });
         if (!response.ok) throw await failed(response, 'Could not start the harness');
-        const {run} = await response.json();
-        Object.assign(entry, {run: run.run_id, attempt: run.cases[0].attempts[0].attempt_id});
+        const {run, attempt_id: attempt} = await response.json();
+        Object.assign(entry, {run: run.run_id, attempt});
         // Stopped while RUSH was queuing it: the session it queued ends too.
         if (controller.signal.aborted) {
           await cancelHarness(entry);

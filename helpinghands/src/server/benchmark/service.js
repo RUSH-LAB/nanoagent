@@ -88,7 +88,7 @@ function createBenchmarkService({repository}) {
      * under. It is a run of a benchmark nobody publishes, which the member's benchmark results never list; an `interactive` one's
      * member is at its terminal, and a one-shot one (`nanoagent harness prompt=…`) runs alone. `{run_id, session}`, where `session`
      * is what `pinSession` takes once the case is pinned. A free-form Terminal session's frame has `case_id` null: its run has no case
-     * and one attempt, which nothing pins.
+     * and one attempt, which nothing pins. `attempt_id` is the session's one attempt.
      */
     async session(context, frame, source, policy, {interactive}) {
       checkWorkers(frame.limits, frame.model, await repository.capabilities(context.userId, frame.endpoint_profile), frame.endpoint_profile);
@@ -106,10 +106,10 @@ function createBenchmarkService({repository}) {
       const cases = frame.case_id === null ? [] : [{case_id: frame.case_id, position: 0, kind: 'answer', arguments: null, expected_error: null, content_digest: null, prompt: null}];
       // The preview is kept with this id once the case is pinned, as the plan it resolves to has the case's prompt.
       const request = {benchmark_id: benchmark.benchmark_id, policy, preview_id: crypto.randomUUID(), source_sha256: source.source_sha256, idempotency_key: crypto.randomUUID()};
-      const {run_id: runId} = await repository.createRun(
+      const {run_id: runId, attempt_id: attemptId} = await repository.createRun(
         context, {...request, request_digest: sha256Hex(canonicalJson(request))}, {plan, cases}, benchmark, source.harness, {session: true, interactive, free: !cases.length},
       );
-      return {run_id: runId, session: {run_id: runId, benchmark, policy, preview_id: request.preview_id, frame}};
+      return {run_id: runId, attempt_id: attemptId, session: {run_id: runId, benchmark, policy, preview_id: request.preview_id, frame}};
     },
 
     /**

@@ -111,6 +111,8 @@ class Supervisor(Protocol):
 
     def create_network(self, attempt_id: str, *, internet: bool = False) -> AttemptNetwork: ...
 
+    def ready(self, profile: ToolchainProfile) -> None: ...
+
     def build(self, spec: BuildSpec) -> BuildArtifact: ...
 
     def create_case(self, spec: CaseSpec) -> CaseHandle: ...
@@ -467,6 +469,11 @@ class AttemptRunner:
             return await self._finalize(job, journal, "build_failed", rejection.code)
         try:
             profile = toolchain(archive.manifest.toolchain)
+        except ContractError as error:
+            LOG.warning("build of %s failed: %s: %s", job.attempt_id, error.code, error.message)
+            return await self._finalize(job, journal, "build_failed", error.code)
+        await in_thread(self.supervisor.ready, profile)  # the tracer proven in its image, once: a failure is the platform's, not the source's
+        try:
             artifact = await in_thread(self._build, job, archive, profile, work)
         except ContractError as error:
             # The build is not part of the trace or the metrics; the worker log keeps its message, the attempt its code.

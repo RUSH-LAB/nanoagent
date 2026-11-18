@@ -48,7 +48,7 @@ function ctxFor({computer, app = {value: {id: 'p', sha256: SHA, status: 'ready'}
   const ctx = makeCtx({
     benchmark: {
       service: {
-        session: async (context, sessionFrame, source, policy, options) => { calls.push(['session', sessionFrame, source, policy, options]); return {run_id: 'r1', session: {run_id: 'r1'}}; },
+        session: async (context, sessionFrame, source, policy, options) => { calls.push(['session', sessionFrame, source, policy, options]); return {run_id: 'r1', attempt_id: 'a1', session: {run_id: 'r1'}}; },
         pinSession: async (context, session, publication) => { calls.push(['pinned', session, publication]); },
       },
       repository: {
@@ -72,7 +72,7 @@ describe('POST /api/benchmark/sessions', () => {
     const {ctx, calls} = ctxFor();
     const {status, payload} = await post(ctx, BODY);
     assert.equal(status, 201);
-    assert.deepEqual(payload, {run: {run_id: 'r1'}});
+    assert.deepEqual(payload, {run: {run_id: 'r1'}, attempt_id: 'a1'});
     assert.deepEqual(calls.slice(0, 3), [['open', 'p'], ['frame', SHA, {task: 'sum', text: 'Add one and two'}], ['build', 'claude-code']]);
     const [, queued, source, policy, options] = calls[3];
     assert.deepEqual([queued.model, queued.endpoint_profile, queued.context, queued.case_id, queued.cases], [MODEL.model, 'openrouter', 'Add one and two', 'p-01', undefined]);
@@ -81,6 +81,18 @@ describe('POST /api/benchmark/sessions', () => {
     assert.deepEqual(calls[4], ['pin', SHA, {task: 'sum', text: 'Add one and two', model: MODEL}]);
     const [what, session, publication] = calls[5];
     assert.deepEqual([what, session, publication.cases.length, publication.case_set_digest.length], ['pinned', {run_id: 'r1'}, 1, 64]);
+  });
+
+  it('queues a free-form Terminal session with no request and no case, which nothing fills or pins', async () => {
+    const {ctx, calls} = ctxFor();
+    const {status, payload} = await post(ctx, {plugin_id: 'p', task_id: 'sum', harness: 'shell', interactive: true});
+    assert.equal(status, 201);
+    assert.deepEqual(payload, {run: {run_id: 'r1'}, attempt_id: 'a1'});
+    assert.deepEqual(calls[1], ['frame', SHA, {task: 'sum'}]);
+    assert.equal(calls[3][1].case_id, null);
+    await settled();
+    assert.ok(!calls.some(([what]) => what === 'pin'));
+    assert.equal((await post(ctx, {plugin_id: 'p', task_id: 'sum', harness: 'shell', interactive: true, text: 'hi'})).status, 400);
   });
 
   it('takes the harness\'s model and whether the member is at its terminal from the request', async () => {

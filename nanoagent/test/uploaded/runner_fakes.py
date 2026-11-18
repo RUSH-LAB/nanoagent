@@ -329,6 +329,7 @@ class FakeSupervisor:
         self.case: FakeCase | None = None
         self.specs: list[Any] = []
         self.prepared: list[Path] = []
+        self.probed: list[str] = []
 
     def create_network(self, attempt_id: str, *, internet: bool = False) -> FakeNetwork:
         self.networks.append(FakeNetwork(f"rush-net-{attempt_id}", internet))
@@ -350,6 +351,9 @@ class FakeSupervisor:
 
     def prepare_plugin(self, root: Path, timeout_s: float) -> None:
         self.prepared.append(root)
+
+    def ready(self, profile: Any) -> None:
+        self.probed.append(profile.id)
 
     def tool_launcher(self, name: str) -> str:
         return name

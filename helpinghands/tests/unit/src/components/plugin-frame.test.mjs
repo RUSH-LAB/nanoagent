@@ -404,7 +404,7 @@ describe('the bridge host', () => {
     const statuses = [{connected: true, worker: {state: 'starting', progress: {done: 5e6, total: 2e7}}}, READY];
     const answers = {
       '/api/runner/status': () => Response.json(statuses.shift()),
-      '/api/benchmark/sessions': () => Response.json({run: {run_id: 'r1', cases: [{attempts: [{attempt_id: ATTEMPT}]}]}}, {status: 201}),
+      '/api/benchmark/sessions': () => Response.json({run: {run_id: 'r1', cases: [{attempts: [{attempt_id: ATTEMPT}]}]}, attempt_id: ATTEMPT}, {status: 201}),
       [`/api/benchmark/attempts/${ATTEMPT}/terminal?from=0`]: () => eventStream(sse('output', {offset: 0, data: base64('\x1b[1mhello\x1b[0m ')})),
       [`/api/benchmark/attempts/${ATTEMPT}/terminal?from=14`]: async () => {
         await typed;
@@ -446,7 +446,7 @@ describe('the bridge host', () => {
     const held = new Promise(resolve => { release = resolve; });
     const answers = {
       '/api/runner/status': () => Response.json(READY),
-      '/api/benchmark/sessions': () => Response.json({run: {run_id: 'r1', cases: [{attempts: [{attempt_id: 'a1'}]}]}}, {status: 201}),
+      '/api/benchmark/sessions': () => Response.json({run: {run_id: 'r1', cases: [{attempts: [{attempt_id: 'a1'}]}]}, attempt_id: 'a1'}, {status: 201}),
       '/api/benchmark/attempts/a1/terminal?from=0': async () => { await held; return eventStream(sse('sealed', {})); },
       '/api/benchmark/runs/r1/cancel': () => { release(); return Response.json({}); },
       '/api/benchmark/attempts/a1': () => Response.json({attempt: {state: 'finalized', execution: {status: 'canceled', reason: null}, verdict: null, metrics: null}}),

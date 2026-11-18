@@ -527,7 +527,7 @@ class MicrosandboxSupervisor:
         self._clock = clock
         self._wall_clock_ns = wall_clock_ns
         self._loop = _Loop()
-        self._ready = False
+        self._probed: set[str] = set()  # the runtime images whose tracer a probe proved
 
     # -- startup ---------------------------------------------------------------------------------
 
@@ -594,7 +594,23 @@ class MicrosandboxSupervisor:
         Until this passes `build` and `create_case` refuse to run member source.
         """
         tools = self._tools or self.guest_tools()
-        return self._loop.run(self._probe(profile.runtime_image, tools))
+        evidence = self._loop.run(self._probe(profile.runtime_image, tools))
+        self._probed.add(profile.runtime_image)
+        return evidence
+
+    def ready(self, profile: ToolchainProfile) -> None:
+        """Proves the tracer in the profile's runtime image as :meth:`startup` does, once per image and guest tools: a pass is kept
+        under the guest tools' folder, both being pinned by digest, so a restart does not probe an unchanged image again."""
+        if profile.runtime_image in self._probed:
+            return
+        passed = self._tools_root / "probed" / hashlib.sha256(f"{profile.runtime_image}\0{GUEST_TOOLS_IMAGE}".encode()).hexdigest()
+        if passed.is_file():
+            self._tools = self._tools or self.guest_tools()
+            self._probed.add(profile.runtime_image)
+            return
+        self.startup(profile)
+        passed.parent.mkdir(parents=True, exist_ok=True)
+        passed.write_text(f"{profile.runtime_image}\n{GUEST_TOOLS_IMAGE}\n")
 
     async def _probe(self, image: str, tools: Path) -> ProcessEvidence:
         name = f"rush-probe-{uuid.uuid4().hex[:12]}"
@@ -613,11 +629,11 @@ class MicrosandboxSupervisor:
         root = evidence.root()
         if root is None or root.argv != ("/bin/true",) or root.exit is None or root.exit.exit_code != 0:
             raise SandboxError("collector_self_test_failed", "the probe's exec and exit were not both observed")
-        self._ready = True
         return evidence
 
-    def _require_ready(self) -> None:
-        if not self._ready:
+    def _require_ready(self, image: str | None = None) -> None:
+        """A build needs the tracer proven in some image, a case in its own runtime image."""
+        if not self._probed if image is None else image not in self._probed:
             raise SandboxError("collector_unverified", "startup() has not proven the tracer; member source is not accepted")
 
     # -- networks --------------------------------------------------------------------------------
@@ -805,7 +821,7 @@ class MicrosandboxSupervisor:
 
         The harness starts at `launch`, so a caller can open the plugin session first. `start_case` does both.
         """
-        self._require_ready()
+        self._require_ready(spec.profile.runtime_image)
         validate_argv(list(spec.run_argv))
         tools = self._require_tools()
         spec.workdir.mkdir(parents=True, exist_ok=True)

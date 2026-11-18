@@ -289,14 +289,16 @@ async def serve(config: WorkerConfig, env: dict[str, str] | None = None) -> None
         for name in await anyio.to_thread.run_sync(supervisor.reap):
             LOG.info("reaped a leftover sandbox: %s", name)  # a previous run quit mid-attempt
         LOG.info("leftover reaping passed")
-        images = [GUEST_TOOLS_IMAGE, *(profile.runtime_image for profile in TOOLCHAINS.values())]
+        # The Terminal's images, so its sessions start at once; another toolchain's come down the first time a run needs them.
+        images = [GUEST_TOOLS_IMAGE, TOOLCHAINS["shell-1"].build_image, TOOLCHAINS["shell-1"].runtime_image]
         await anyio.to_thread.run_sync(supervisor.prefetch, images, pull_progress())
         LOG.info("images ready")
         await anyio.to_thread.run_sync(supervisor.guest_tools)
         LOG.info("guest tools ready")
-        for toolchain, profile in TOOLCHAINS.items():
-            await anyio.to_thread.run_sync(supervisor.startup, profile)  # the tracer must observe a probe's exec and exit before member source runs
-            LOG.info("tracer probe passed: %s", toolchain)
+        # The tracer must observe a probe's exec and exit before member source runs: in the Terminal's image before the first claim,
+        # in each other toolchain's the first time a run needs it (AttemptRunner), and once per image, kept across restarts.
+        await anyio.to_thread.run_sync(supervisor.ready, TOOLCHAINS["shell-1"])
+        LOG.info("tracer probe passed: shell-1")
         if config.egress.enabled:
             await anyio.to_thread.run_sync(supervisor.verify_egress)  # internet access is only offered while this host stays unreachable
             LOG.info("egress fence verified")
