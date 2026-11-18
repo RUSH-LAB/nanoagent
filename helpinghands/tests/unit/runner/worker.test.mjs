@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {benchmarkWorker, hostSupport, mintCredential, workerCommand} from '../../../src/runner/worker.mjs';
 import {readConcurrency, writeConcurrency} from '../../../src/runner/lab.mjs';
-import {workerNotice} from '../../../src/components/Benchmark/worker.js';
+import {workerNotice} from '../../../src/components/PluginFrame/worker.js';
 
 const PROOF_LINES = ['plugin sandbox verified', 'leftover reaping passed', 'images ready', 'guest tools ready', 'tracer probe passed: python-3', 'egress fence verified', 'advertised capabilities: {}'];
 const CLAIMING_LINE = 'claiming from RUSH: openrouter';

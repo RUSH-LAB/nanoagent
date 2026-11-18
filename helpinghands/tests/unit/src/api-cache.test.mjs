@@ -74,7 +74,7 @@ describe('account-wide API paths on a workspace page', () => {
 
   it('reads benchmarks in the workspace the page is in, the list with its query too', async () => {
     const {installClientPlatform, resetClientPlatform} = await import('../../../src/platform/client.js');
-    installClientPlatform({runtimeConfig: () => ({}), location: {pathname: () => '/w/mine/benchmark'}});
+    installClientPlatform({runtimeConfig: () => ({}), location: {pathname: () => '/w/mine/apps'}});
     const asked = [];
     globalThis.fetch = async input => {
       const url = typeof input === 'string' ? input : input.url;

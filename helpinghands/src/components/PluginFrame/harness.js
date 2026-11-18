@@ -1,5 +1,5 @@
-import {attemptStatus, explanationText, verdictText} from '../Benchmark/runs.js';
-import {workerNotice} from '../Benchmark/worker.js';
+import {attemptStatus, explanationText, verdictText} from './attempt.js';
+import {workerNotice} from './worker.js';
 
 /**
  * A session of a plugin page's Harness tab, on the host's side: the run RUSH queued for it (POST /api/benchmark/sessions) is a

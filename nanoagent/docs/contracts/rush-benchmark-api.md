@@ -171,7 +171,7 @@ Uploading the same bytes again is a no-op with the same answer. The source is th
 The reference harnesses ship in NanoAgent's package and are built by NanoAgent under their own name, with a content-derived version, so a reference never meets `harness_version_taken` (see the design document's [reference harnesses](../plans/uploaded-harness-benchmarks.md#reference-harnesses)). Their ZIPs reach RUSH only through these routes, at the trust level of private-reference pinning. Each answers `201` as `POST /sources` does (the harness echoed, stored as the member's source with the version pin) and refuses a name that is no reference (`400 unknown_reference`) and a ZIP whose manifest names another harness (`400 reference_name_mismatch`):
 
 - `POST /sources/references/{name}`: the body is the reference's ZIP, as the CLI's `reference:` sends it (`415 unsupported_media_type`, `413 source_too_large`, as for `POST /sources`).
-- `POST /sources/references/{name}/computer`: no body. Needs `apps:use`. The app's Benchmark Your Harness uses it: the server asks the member's own NanoAgent for the ZIP (`GET /v1/benchmark/reference-harnesses/{name}`, relayed by the runner) and stores it. Extra errors: `503 runner_offline`, `reference_unavailable` (with the status the computer returned).
+- `POST /sources/references/{name}/computer`: no body. Needs `apps:use`. The server asks the member's own NanoAgent for the ZIP (`GET /v1/benchmark/reference-harnesses/{name}`, relayed by the runner) and stores it. Extra errors: `503 runner_offline`, `reference_unavailable` (with the status the computer returned).
 
 ## `POST /runs`
 
@@ -384,7 +384,7 @@ The server computes each case's `reference_sha256` (SHA-256 of the compact canon
 
 ## `POST /api/workspaces/{wid}/benchmark/benchmarks/pinned`
 
-Needs `apps:use`. The app's Create Plugin Benchmark uses it, so that the plugin's reference tool pins each case on the member's computer and the private references never reach the browser. The body is the `POST /api/benchmark/benchmarks` body without the derived case-set fields (`plugin_name`, `package_sha256`, `task_id` and `task`, which the case file names, `context`, `private`; `version` too, which is the installed one) and with the case file in place of `cases`:
+Needs `apps:use`. It publishes from the member's computer, so that the plugin's reference tool pins each case on the member's computer and the private references never reach the browser. The body is the `POST /api/benchmark/benchmarks` body without the derived case-set fields (`plugin_name`, `package_sha256`, `task_id` and `task`, which the case file names, `context`, `private`; `version` too, which is the installed one) and with the case file in place of `cases`:
 
 ```json
 {"name": "…", "plugin_id": "p", "cases": <the plugin benchmark case file>,

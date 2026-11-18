@@ -20,7 +20,7 @@ describe('core runtime workspace routes', () => {
       assert.ok(paths.includes(`/w/:workspaceSlug/${page}`));
     }
     // The shell's sections are one route, Home at the workspace's own path.
-    assert.ok(paths.includes('/w/:workspaceSlug/:section(apps|marketplace|benchmark|workspace|settings)?'));
+    assert.ok(paths.includes('/w/:workspaceSlug/:section(apps|marketplace|workspace|settings)?'));
     assert.ok(!paths.includes('/w/:workspaceSlug'));
     for (const {path} of SECTIONS.filter(section => section.path)) {
       assert.ok(!paths.includes(`/w/:workspaceSlug/${path}`));

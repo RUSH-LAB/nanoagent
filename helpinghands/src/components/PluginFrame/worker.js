@@ -1,12 +1,9 @@
-/** The benchmark worker's state as RUSH Lab reports it (GET /api/runner/status, `worker`; runner/worker.mjs): what the screens say about it. */
+/** The benchmark worker's state as RUSH Lab reports it (GET /api/runner/status, `worker`; runner/worker.mjs): what the Harness tab says about it. */
 
 /** The worker's `progress`, `{done, total}` bytes of the images it pulls as it starts, as "x of y MB". */
-export const megabytes = ({done, total}) => `${Math.round(done / 1e6)} of ${Math.round(total / 1e6)} MB`;
+const megabytes = ({done, total}) => `${Math.round(done / 1e6)} of ${Math.round(total / 1e6)} MB`;
 
-const CHECK_MARKS = {pending: '○', running: '…', pass: '✓', warn: '!', wait: '…', fail: '✗'};
-export const checkMark = state => CHECK_MARKS[state] ?? '○';
-
-/** `{tone, text}` for the banner (tone ok, wait or bad), or null while the status has not arrived. */
+/** `{tone, text}` for the notice (tone ok, wait or bad), or null while the status has not arrived. */
 export function workerNotice(status) {
   if (!status) return null;
   if (!status.connected) return {tone: 'bad', text: 'RUSH Lab is not connected on this computer. Open RUSH Lab to run benchmarks.'};
