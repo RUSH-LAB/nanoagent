@@ -54,11 +54,14 @@ The process decodes one UTF-8 JSON object from `RUSH_REQUEST`. Reject duplicate 
   "tools": {"url": "http://<host>/tools", "available": [{"name": "...", "description": "...", "input_schema": {}, "output_schema": {}}]},
   "exec_url": "http://<host>/exec",
   "events_url": "http://<host>/events",
-  "limits": {"wall_time_ms": 600000, "max_model_calls": 50, "internet_access": true, "...": "every limit of the run"}
+  "limits": {"wall_time_ms": 600000, "max_model_calls": 50, "internet_access": true, "...": "every limit of the run"},
+  "interactive": false
 }
 ```
 
 `task` and `case` are the public task and case; `case.kind` and the private reference stay on the worker. `prompt` is the run's pinned rendered prompt for the case, `sha256` its digest. `limits` are the run's effective limits (all of them, with the defaults in the API's [`GET /defaults`](rush-benchmark-api.md#get-defaults)), as the worker applies them. The guest can read its task workspace and receives no private verifier inputs.
+
+The harness runs on a terminal (a PTY, `TERM=xterm-256color`): what it writes there, its stdout and stderr together, is shown live to the member (`GET /attempts/{id}/terminal`). `interactive` is `true` when a member is at that terminal (a plugin page's Harness tab session): what they type reaches the harness's stdin, the terminal takes their window's size, and they end the session themselves, so a harness runs its CLI interactively. When it is `false` nobody types (stdin stays open with nothing on it), and the harness works the case to its end on its own.
 
 ### Participant policies and results
 

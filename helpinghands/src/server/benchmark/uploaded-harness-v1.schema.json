@@ -213,7 +213,7 @@
     },
     "Request": {
       "type": "object", "additionalProperties": false,
-      "required": ["protocol", "attempt_id", "policy", "task", "case", "prompt", "workspace", "openrouter", "tools", "exec_url", "events_url", "limits"],
+      "required": ["protocol", "attempt_id", "policy", "task", "case", "prompt", "workspace", "openrouter", "tools", "exec_url", "events_url", "limits", "interactive"],
       "properties": {
         "protocol": {"$ref": "#/$defs/Protocol"},
         "attempt_id": {"type": "string", "format": "uuid"},
@@ -226,7 +226,8 @@
         "tools": {"$ref": "#/$defs/Tools"},
         "exec_url": {"type": "string", "format": "uri"},
         "events_url": {"type": "string", "format": "uri"},
-        "limits": {"$ref": "#/$defs/Limits"}
+        "limits": {"$ref": "#/$defs/Limits"},
+        "interactive": {"type": "boolean", "description": "Whether a person is at the harness's terminal (a plugin page's Harness tab session), who types at it and ends it: the harness then runs its CLI interactively."}
       }
     },
     "Result": {

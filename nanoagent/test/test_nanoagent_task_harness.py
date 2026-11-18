@@ -282,6 +282,7 @@ def _request(gateway: _Gateway, kind: str, prompt: dict) -> dict:
         "exec_url": "http://127.0.0.1:1/exec",
         "events_url": f"http://127.0.0.1:{gateway.port}/events",
         "limits": {"wall_time_ms": 600000, "max_model_calls": 8, "max_output_tokens_per_call": 512, "max_cost_usd": 1.5},
+        "interactive": False,
     }
 
 

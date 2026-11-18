@@ -7,7 +7,7 @@ with, deny by default.
 * Build: a VM from the toolchain's pinned build image with no network, the source and the verified dependency closure
   mounted read-only, and a bounded writable `/build-out`. Only the manifest's declared `build.outputs` are accepted,
   with no links, and they become the worker-owned `/harness` of every run.
-* Case: a fresh VM from the pinned runtime image. The harness runs as an unprivileged uid beneath the worker's static
+* Case: a fresh VM from the pinned runtime image. The harness runs on a PTY, as an unprivileged uid beneath the worker's static
   `strace` (root), which records every process it starts (`nanoagent.uploaded.collector`). `/rush/request.json` is
   written into the VM read-only, `/harness` is mounted read-only, and `/rush/out` and `/rush/workspace` are bounded
   host directories. Its network reaches the attempt's services on the worker (the relay's port of
@@ -49,6 +49,8 @@ from microsandbox import (
     Destination,
     DestGroup,
     ExecEventType,
+    ExecHandle,
+    ExecSink,
     MountConfig,
     MountKind,
     Network,
@@ -60,6 +62,7 @@ from microsandbox import (
     RlimitResource,
     Rule,
     Sandbox,
+    Stdin,
 )
 
 from nanoagent.plugin.egress import egress_port
@@ -269,6 +272,7 @@ class CaseSpec:
     fixtures: Path | None = None
     limits: Limits = Limits()
     tool: ToolContainerSpec | None = None
+    on_output: Callable[[bytes], None] | None = None  # each chunk the harness writes to its terminal, as it comes
 
 
 class CaseHandle(Protocol):
@@ -284,6 +288,9 @@ class CaseHandle(Protocol):
         ...
 
     def exec_in_case(self, argv: Sequence[str], cwd: str, timeout_ms: int, limits: Limits) -> ExecOutcome: ...
+
+    def terminal_input(self, data: bytes | None, rows: int | None = None, cols: int | None = None) -> None:
+        """Types ``data`` at the harness's terminal, or resizes it to ``rows`` by ``cols``."""
 
     def stop_and_drain(self) -> WorkspaceSnapshot:
         """Reads the CPU counters, kills the tool VM, freezes the harness VM, then snapshots the workspace and diffs it
@@ -369,11 +376,17 @@ class _Run:
 async def _run(
     sandbox: Sandbox, cmd: str, args: Sequence[str], *, user: str, cwd: str, env: Mapping[str, str] | None = None,
     timeout_s: float | None = None, capture_bytes: int = 1 << 20, rlimits: Sequence[Rlimit] = (),
-    on_timeout: Callable[[], Awaitable[None]] | None = None, started: threading.Event | None = None,
+    on_timeout: Callable[[], Awaitable[None]] | None = None, started: threading.Event | None = None, tty: bool = False,
+    on_output: Callable[[bytes], None] | None = None, on_exec: Callable[[ExecHandle], None] | None = None,
 ) -> _Run:
-    """Runs a command, keeping at most ``capture_bytes`` of each stream. At ``timeout_s`` ``on_timeout`` stops it (or it
-    is killed), and what it still prints while it ends is kept."""
-    handle = await sandbox.exec_stream(cmd, list(args), user=user, cwd=cwd, env=dict(env or {}), rlimits=list(rlimits) or None)
+    """Runs a command, keeping at most ``capture_bytes`` of each stream and handing every stdout chunk to ``on_output``. At
+    ``timeout_s`` ``on_timeout`` stops it (or it is killed), and what it still prints while it ends is kept. Under ``tty``
+    it runs on a PTY, whose one stream is stdout and whose input is ``on_exec``'s handle's stdin."""
+    handle = await sandbox.exec_stream(
+        cmd, list(args), user=user, cwd=cwd, env=dict(env or {}), rlimits=list(rlimits) or None, tty=tty, stdin=Stdin.pipe() if tty else None,
+    )
+    if on_exec is not None:
+        on_exec(handle)
     out, err = bytearray(), bytearray()
     cut = {"stdout": False, "stderr": False}
     result: dict[str, Any] = {}
@@ -390,6 +403,8 @@ async def _run(
                 started.set()
             elif kind == ExecEventType.STDOUT and event.data:
                 keep(out, event.data, "stdout")
+                if on_output is not None:
+                    on_output(event.data)
             elif kind == ExecEventType.STDERR and event.data:
                 keep(err, event.data, "stderr")
             elif kind == ExecEventType.EXITED:
@@ -922,6 +937,8 @@ class _Case:
         self._out = out
         self._initial = initial
         self._future: Any = None
+        self._pty: ExecHandle | None = None  # the harness's command and its terminal's input, once it runs
+        self._keys: ExecSink | None = None
         self._outcome: CaseOutcome | None = None
         self._launched_at = 0.0
         self._deadline = 0.0
@@ -947,22 +964,40 @@ class _Case:
         limits = self.spec.limits
         env = {
             "RUSH_REQUEST": REQUEST_PATH, "RUSH_RESULT": f"{OUT_DIR}/{RESULT_NAME}", "RUSH_WORKSPACE": WORKSPACE,
-            "RUSH_ATTEMPT_TOKEN": self.spec.attempt_token, "HOME": "/tmp", "TMPDIR": "/tmp", **self.spec.profile.runtime_env,
+            "RUSH_ATTEMPT_TOKEN": self.spec.attempt_token, "HOME": "/tmp", "TMPDIR": "/tmp", "TERM": "xterm-256color",
+            **self.spec.profile.runtime_env,
         }
         self._oom_before = self._run(self._prepare_trace())
         started = threading.Event()
+        # The harness runs on a PTY, as in a person's terminal: what is typed at it reaches it there (`terminal_input`).
         cmd, args = _traced("harness", self.spec.run_argv)
         self._launched_at = self._s._clock()
         self._deadline = self._launched_at + limits.wall_s
         self._future = self._s._loop.submit(_run(
             self._sandbox, cmd, args, user="root", cwd=WORKSPACE, env=env, timeout_s=limits.wall_s, capture_bytes=limits.output_bytes,
             rlimits=[Rlimit(RlimitResource.NPROC, limits.pids, limits.pids)], on_timeout=lambda: _kill_case_processes(self._sandbox),
-            started=started,
+            started=started, tty=True, on_output=self.spec.on_output, on_exec=self._attach,
         ))
         while not started.wait(0.02):
             if self._future.done():
                 self._future.result()  # raises the start failure
                 raise SandboxError("start_failed", "the harness exited before it was observed to start")
+
+    def _attach(self, handle: ExecHandle) -> None:
+        self._pty = handle
+        self._keys = handle.take_stdin()
+
+    def terminal_input(self, data: bytes | None, rows: int | None = None, cols: int | None = None) -> None:
+        """Types ``data`` at the harness's terminal, or resizes it to ``rows`` by ``cols``. Once the harness has exited there is no
+        one to type to, and it is dropped."""
+        assert self._pty is not None and self._keys is not None
+        if self._future.done():
+            return
+        try:
+            self._run(_call(lambda: self._keys.write(data) if data is not None else self._pty.resize(rows, cols)))
+        except microsandbox.MicrosandboxError:
+            if not self._future.done():
+                raise
 
     async def _prepare_trace(self) -> int:
         await self._sandbox.exec("mkdir", ["-p", "-m", "0755", f"{TRACE_DIR}/harness"], user="root", timeout=30)

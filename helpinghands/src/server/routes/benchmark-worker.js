@@ -14,12 +14,16 @@ const v = require('../benchmark/validate');
 const {positiveSetting} = require('../benchmark/limits');
 
 const MAX_PAYLOAD_BYTES = positiveSetting('BENCHMARK_PAYLOAD_MAX_BYTES', 16 * 1024 * 1024);
+// A read of a terminal's input waits this long for the member to send some, looking every INPUT_POLL_MS.
+const INPUT_WAIT_MS = 15_000;
+const INPUT_POLL_MS = 50;
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const REDACTIONS = ['none', 'redacted', 'truncated'];
 
 const ROUTE = new RegExp([
   '^/api/benchmark-worker/(?:',
   '(claim)',
-  '|attempts/([^/]+)/(renew|source|package|admissions|events|spans|finalize|accounting)',
+  '|attempts/([^/]+)/(renew|source|package|admissions|events|terminal|terminal-input|spans|finalize|accounting)',
   '|attempts/([^/]+)/admissions/([^/]+)/(settle)',
   '|attempts/([^/]+)/payloads/([^/]+)',
   ')$',
@@ -75,12 +79,29 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
         wanted('GET', jobId);
         return sendBytes(res, await worker.artifact(userId, jobId, fenceHeader(req), jobPart));
       }
+      if (jobPart === 'terminal-input') {
+        wanted('GET', jobId);
+        const fence = fenceHeader(req);
+        const after = Number(url.searchParams.get('after') ?? 0);
+        if (!Number.isSafeInteger(after) || after < 0) throw new BenchmarkError(400, 'invalid_request', 'after is the last input seq read, a non-negative integer');
+        let closed = false;
+        req.on('close', () => { closed = true; });
+        for (const until = Date.now() + INPUT_WAIT_MS; ;) {
+          const inputs = await worker.terminalInput(userId, jobId, fence, after);
+          if (inputs.length || closed || Date.now() >= until) return json(res, 200, {inputs});
+          await sleep(INPUT_POLL_MS);
+        }
+      }
       wanted('POST', jobId);
       const input = await body();
       if (jobPart === 'renew') return json(res, 200, await worker.renew(userId, jobId, v.fenceOf(v.object(input, 'The body'))));
       if (jobPart === 'admissions') {
         const {fence, callId: id, reserveUsd} = v.admissionBody(input);
         return json(res, 201, await worker.admit(userId, jobId, fence, id, reserveUsd));
+      }
+      if (jobPart === 'terminal') {
+        const {fence, offset, data} = v.terminalBody(input);
+        return json(res, 200, await worker.appendTerminal(userId, jobId, fence, offset, data));
       }
       if (jobPart === 'events') {
         const {fence, events} = v.eventsBody(input);

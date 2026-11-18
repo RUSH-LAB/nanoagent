@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
 from nanoagent.core.agent import Agent, AgentResult, DecisionModel, Reply, StopReason, ToolCall
@@ -15,6 +16,7 @@ from nanoagent.core.messages import assistant_message
 from nanoagent.core.tool import Tool
 from nanoagent.plugin.dataflow import Answers, Decider, Question, answer_schema, check, fill, values
 from nanoagent.profiler import Profiler
+from taskharness import screen
 from taskharness.broker import CURRENT_TOOL_CALL, Broker, BrokerTool, ToolSpec
 from taskharness.events import CURRENT_SPAN
 from taskharness.schema_types import SchemaTypes, validator
@@ -81,6 +83,7 @@ class ModelDecider:
         step.finish()
         call = ToolCall(id=f"{ANSWER}-{len(self._profiler.snapshot().steps)}", name=ANSWER, arguments=json.dumps(answer.value))
         self._messages += [user, assistant_message(Reply(content=None, tool_calls=[call]))]
+        screen.decided(answer.value)
         return Answers(answer.value, model_calls=(record.to_dict(),))
 
     def record(self) -> AgentResult | None:
@@ -88,9 +91,11 @@ class ModelDecider:
 
 
 async def work_agent(
-    *, system: str, user: str, output_schema: dict[str, Any], tools: list[ToolSpec], broker: Broker, model: Any, max_steps: int
+    *, system: str, user: str, output_schema: dict[str, Any], tools: list[ToolSpec], broker: Broker, model: Any, max_steps: int,
+    ask: Callable[[], Awaitable[str | None]] | None = None,
 ) -> Outcome:
-    """The agent works the task with the broker's tools and `submit`; no submission is a refusal when it ended with text."""
+    """The agent works the task with the broker's tools and `submit`; no submission is a refusal when it ended with text. With
+    ``ask`` (a person at the terminal) each turn is followed by what ``ask`` returns, in the same conversation, until it returns None."""
     submit = SubmitTool(output_schema)
     agent = Agent(model, [*(BrokerTool(spec, broker) for spec in tools), submit], system_prompt=system, max_steps=max_steps)
 
@@ -98,7 +103,13 @@ async def work_agent(
         if event["type"] == "tool_start":
             CURRENT_TOOL_CALL.set(event["id"])
 
-    result = await agent.run(user, on_tool=on_tool)
+    transcript: list[dict[str, Any]] = [{"role": "system", "content": system}]
+    turn: str | None = user
+    while turn is not None:
+        result = await agent.run(turn, messages=transcript, on_tool=on_tool)
+        if result.stop_reason is not StopReason.ANSWER and submit.output is None:
+            break
+        turn = await ask() if ask is not None else None
     if submit.output is not None:
         return Outcome(submit.output, None)
     if result.stop_reason is StopReason.ANSWER:

@@ -15,7 +15,7 @@ const {parseJson, stringifyJson} = require('../benchmark/json');
 const {compareAttempts, compareRuns} = require('../benchmark/compare');
 const {UUID, jsonBody, losslessBody, rawBody, sendFailure} = require('../benchmark/http');
 const {checkReference, referenceHarnessOf, referencePolicy, uploadedHarnessOf} = require('../benchmark/harness');
-const {previewBody, runBody, benchmarkPublication, SHA256, object, string} = require('../benchmark/validate');
+const {previewBody, runBody, benchmarkPublication, terminalInputBody, SHA256, object, string} = require('../benchmark/validate');
 const {positiveSetting} = require('../benchmark/limits');
 
 // The endpoint profile of the worker RUSH Lab runs (nanoagent/deploy/worker/worker.openrouter.yaml), which a Harness tab session runs on.
@@ -24,6 +24,8 @@ const SESSION_ENDPOINT = 'openrouter';
 const SESSION_TEXT_LIMIT = 50_000;
 const MAX_SOURCE_BYTES = positiveSetting('BENCHMARK_SOURCE_MAX_BYTES', 50 * 1024 * 1024);
 const STREAM_POLL_MS = 300;
+// A terminal's output is read this often while its harness runs, so typing echoes promptly.
+const TERMINAL_POLL_MS = 50;
 const HEARTBEAT_MS = 15_000;
 const PAGE = 1000;
 
@@ -33,7 +35,7 @@ const ROUTE = new RegExp([
   '|worker-credentials/([^/]+)',
   '|benchmarks/([^/]+)(?:/(results))?',
   '|runs/([^/]+)(?:/(cancel)|/cases/([^/]+)/(rerun))?',
-  '|attempts/([^/]+)(?:/(events|stream|spans|accounting)|/payloads/([^/]+))?',
+  '|attempts/([^/]+)(?:/(events|stream|terminal|spans|accounting)|/payloads/([^/]+))?',
   '|sources/references/([^/]+)(?:/(computer))?',
   ')$',
 ].join(''));
@@ -97,6 +99,37 @@ async function stream(req, res, repository, context, attemptId, after) {
     quiet = page.events.length ? 0 : quiet + STREAM_POLL_MS;
     if (quiet >= HEARTBEAT_MS) { res.write(': heartbeat\n\n'); quiet = 0; }
     await sleep(STREAM_POLL_MS);
+  }
+  res.end();
+}
+
+/**
+ * Server-sent events: the attempt's terminal output from byte `start`, each chunk an `output` event (`{offset, data}`, data in
+ * base64), then `sealed` once the attempt is sealed and every chunk is sent.
+ */
+async function terminalStream(req, res, repository, context, attemptId, start) {
+  if (!(await repository.terminal(context, attemptId, start))) throw new BenchmarkError(404, 'unknown_attempt', 'No such attempt');
+  let closed = false;
+  res.on('close', () => { closed = true; });
+  res.writeHead(200, {'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no'});
+  req.setTimeout(0);
+  let offset = start;
+  let quiet = 0;
+  while (!closed) {
+    const page = await repository.terminal(context, attemptId, offset);
+    if (!page) break;
+    for (const chunk of page.chunks) {
+      res.write(`event: output\ndata: ${JSON.stringify({offset: chunk.offset, data: chunk.data.toString('base64')})}\n\n`);
+      offset = chunk.offset + chunk.data.length;
+    }
+    if (page.chunks.length) { quiet = 0; continue; }
+    if (page.sealed) {
+      res.write('event: sealed\ndata: {}\n\n');
+      break;
+    }
+    quiet += TERMINAL_POLL_MS;
+    if (quiet >= HEARTBEAT_MS) { res.write(': heartbeat\n\n'); quiet = 0; }
+    await sleep(TERMINAL_POLL_MS);
   }
   res.end();
 }
@@ -284,6 +317,11 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
     }
 
     if (!UUID.test(attemptId)) return notFound('attempt');
+    if (attemptPart === 'terminal' && req.method === 'POST') {
+      write();
+      const sent = await repository.terminalInput(context, attemptId, terminalInputBody(await jsonBody(req, readBody)));
+      return sent ? json(res, 200, {sent: true}) : json(res, 409, {error: 'The session has ended', code: 'session_ended'});
+    }
     if (req.method !== 'GET') return wrongMethod();
     read();
     if (!attemptPart && !payload) {
@@ -297,6 +335,9 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
     if (attemptPart === 'stream') {
       const after = cursorOf(url.searchParams.get('after') ?? req.headers['last-event-id'] ?? null);
       return await stream(req, res, repository, context, attemptId, after);
+    }
+    if (attemptPart === 'terminal') {
+      return await terminalStream(req, res, repository, context, attemptId, cursorOf(url.searchParams.get('from')));
     }
     if (attemptPart === 'spans') {
       const found = await repository.spans(context, attemptId, {

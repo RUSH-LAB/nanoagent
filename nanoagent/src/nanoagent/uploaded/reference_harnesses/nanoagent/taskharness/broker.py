@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 
 from nanoagent.core.tool import Tool, ToolText
+from taskharness import screen
 from taskharness.events import CURRENT_SPAN, SPAN_HEADER
 
 # The model tool call being dispatched: Agent.run's on_tool hook sets it in the call's own task, the tool reads it.
@@ -41,6 +42,7 @@ class Broker:
         headers = dict(self._headers)
         if (span := CURRENT_SPAN.get()) is not None:
             headers[SPAN_HEADER] = span
+        screen.calling(name, arguments)
         response = await self._client.post(self._url, json=body, headers=headers)
         try:
             payload = response.json()
@@ -48,7 +50,10 @@ class Broker:
             payload = {}
         if response.status_code != 200 or "output" not in payload:
             error = payload.get("error", {})
-            raise RuntimeError(f"tool {name} failed: {error.get('code', response.status_code)}: {error.get('message', response.text)}")
+            message = f"tool {name} failed: {error.get('code', response.status_code)}: {error.get('message', response.text)}"
+            screen.failed(message)
+            raise RuntimeError(message)
+        screen.answered(payload["output"])
         return payload["output"]
 
 

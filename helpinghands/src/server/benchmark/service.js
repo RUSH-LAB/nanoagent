@@ -100,7 +100,7 @@ function createBenchmarkService({repository}) {
       const {resolved} = await resolveRequest(context, benchmark, {policy});
       const previewId = await repository.savePreview(context, keptPlan(resolved.plan), resolved.digest);
       const request = {benchmark_id: benchmark.benchmark_id, policy, preview_id: previewId, source_sha256: source.source_sha256, idempotency_key: crypto.randomUUID()};
-      return repository.createRun(context, {...request, request_digest: sha256Hex(canonicalJson(request))}, resolved, benchmark, source.harness);
+      return repository.createRun(context, {...request, request_digest: sha256Hex(canonicalJson(request))}, resolved, benchmark, source.harness, {session: true});
     },
   });
 }

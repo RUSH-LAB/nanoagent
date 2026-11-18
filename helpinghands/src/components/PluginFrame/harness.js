@@ -1,68 +1,23 @@
 import {attemptStatus, explanationText, verdictText} from '../Benchmark/runs.js';
-import {followStream} from '../Benchmark/sse.js';
-import {traceMessages} from '../Benchmark/traceMessages.js';
 
 /**
  * A session of a plugin page's Harness tab, on the host's side: the run RUSH queued for it (POST /api/benchmark/sessions) is a
- * benchmark run of one case, so its attempt is followed the way the Benchmark page follows one, through its event stream, and
- * each event the page shows becomes one step (`harness.step`): a model reply with its text and the tool calls it proposed, a
- * plugin tool the broker ran, a command, the harness starting and exiting, and its answer. Once the attempt is sealed the page
- * gets its outcome (`harness.outcome`): the verifier's verdict, tokens, time and cost.
+ * benchmark run of one case whose harness runs on a terminal the member works in. What the harness writes there reaches the page
+ * as it comes (`harness.output`, from GET attempts/{id}/terminal), what the member types and the terminal's size go back
+ * (`harnessInput`, POST attempts/{id}/terminal), and once the attempt is sealed the page gets its outcome (`harness.outcome`): the
+ * verifier's verdict, tokens, time and cost.
  */
 
 const BASE = '/api/benchmark';
-
-/** A step's text from a stored payload, read as the trace does: `payload(sha)` resolves to its text. */
-async function replyText(data, dialect, payload) {
-  const sha = data.stream_payload_sha256 ?? data.response_payload_sha256;
-  if (!sha) return '';
-  const messages = traceMessages(await payload(sha), {dialect, response: true, stream: Boolean(data.stream_payload_sha256)});
-  // The tool calls it lists are the step's own `calls`.
-  return messages.filter(message => message.role === 'assistant').map(message => message.text).join('\n\n');
-}
-
-/**
- * What the Harness tab shows of one of the attempt's events, or null for one it does not. `dialects` keeps each model call's
- * dialect from its admission, which its response is read by.
- */
-export async function harnessStep({kind, data}, dialects, payload) {
-  switch (kind) {
-    case 'case.launched':
-      return {kind: 'status', text: 'The harness started'};
-    case 'case.exited':
-      return {kind: 'status', text: 'The harness exited'};
-    case 'model_call.admitted':
-      dialects.set(data.call_id, data.dialect);
-      return null;
-    case 'model_call.response':
-      return {
-        kind: 'reply',
-        text: await replyText(data, dialects.get(data.call_id), payload),
-        calls: (data.proposals ?? []).map(proposal => ({name: proposal.name, arguments: proposal.raw_arguments})),
-        error: data.error ?? null,
-      };
-    case 'model_call.rejected':
-    case 'tool.rejected':
-    case 'exec.rejected':
-      return {kind: 'error', text: data.message};
-    case 'tool.invoked':
-      return {kind: 'tool', name: data.tool};
-    case 'tool.completed':
-      return {kind: 'tool-result', name: data.tool, ok: data.ok, error: data.error?.message ?? null};
-    case 'exec.started':
-      return {kind: 'command', argv: JSON.parse(await payload(data.command_sha256)).argv};
-    case 'result.read':
-      return {kind: 'result', outcome: data.outcome};
-    default:
-      return null;
-  }
-}
+const RETRY_MS = 1500;
 
 /** The outcome the page shows of the sealed `attempt`, with what its model calls cost (`accounting`'s totals). */
 export function harnessOutcome(attempt, accounting) {
   const metrics = attempt.metrics ?? {};
   return {
     status: attemptStatus(attempt),
+    // An answer, or a refusal, is what the verifier scores; a harness that ended without one has nothing to score.
+    scored: ['answered', 'refused'].includes(attempt.execution?.status),
     reason: attempt.execution?.reason ?? null,
     verdict: verdictText(attempt),
     explanation: explanationText(attempt.explanation),
@@ -73,40 +28,62 @@ export function harnessOutcome(attempt, accounting) {
   };
 }
 
+/** Text the page's terminal sent (a JS string of what was typed) as the base64 of its UTF-8 bytes. */
+export function typedBase64(text) {
+  let binary = '';
+  for (const byte of new TextEncoder().encode(text)) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
 /**
- * Follow the attempt `attemptId` of a Harness tab session until it is sealed or `signal` aborts, telling the page each step
- * (`emit('harness.step', step)`), then its outcome (`emit('harness.outcome', outcome)`). `request(path, init)` fetches a RUSH API
- * path; `read(response, onFrame)` reads a stream's frames.
+ * Send the attempt's terminal `input`: `{data}`, what the member typed, or `{rows, cols}`, its new size. `request(path, init)`
+ * fetches a RUSH API path.
  */
-export async function followHarness({attemptId, request, read, emit, signal}) {
+export async function harnessInput({attemptId, request, input}) {
+  const body = input.data === undefined ? {rows: input.rows, cols: input.cols} : {data: typedBase64(input.data)};
+  const response = await request(`${BASE}/attempts/${attemptId}/terminal`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `The terminal did not take the input (${response.status})`);
+}
+
+/**
+ * Follow the attempt `attemptId` of a Harness tab session until it is sealed or `signal` aborts, telling the page each chunk of
+ * its terminal's output (`emit('harness.output', {data})`, data in base64), then its outcome (`emit('harness.outcome', outcome)`).
+ * A stream that ends or drops is opened again from the byte it reached. `request(path, init)` fetches a RUSH API path; `read(response,
+ * onFrame)` reads a stream's frames.
+ */
+export async function followHarness({attemptId, request, read, emit, signal, sleep = ms => new Promise(resolve => setTimeout(resolve, ms))}) {
   const json = async path => {
     const response = await request(path);
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || `Could not read ${path} (${response.status})`);
     return data;
   };
-  const payload = async sha => {
-    const response = await request(`${BASE}/attempts/${attemptId}/payloads/${sha}`);
-    if (!response.ok) throw new Error(`Could not read the payload ${sha.slice(0, 12)} (${response.status})`);
-    return response.text();
-  };
-  const dialects = new Map();
-  // Steps go out in the order their events came, each read in turn.
-  let steps = Promise.resolve();
-  await followStream({
-    attemptId,
-    open: (path, aborted) => request(path, {signal: aborted, headers: {Accept: 'text/event-stream'}}),
-    read,
-    signal,
-    onFrame: frame => {
-      if (frame.event !== 'event') return;
-      steps = steps.then(async () => {
-        const step = await harnessStep(frame.data, dialects, payload);
-        if (step) emit('harness.step', step);
-      });
-    },
-  });
-  await steps;
+  let offset = 0;
+  let sealed = false;
+  while (!sealed && !signal.aborted) {
+    let failed = false;
+    try {
+      const response = await request(`${BASE}/attempts/${attemptId}/terminal?from=${offset}`, {signal, headers: {Accept: 'text/event-stream'}});
+      if (response.status === 404) throw new Error('The session\'s attempt is gone');
+      failed = !response.ok;
+      if (response.ok) {
+        await read(response, frame => {
+          if (frame.event === 'sealed') sealed = true;
+          if (frame.event !== 'output' || frame.data.offset !== offset) return;
+          offset += atob(frame.data.data).length;
+          emit('harness.output', {data: frame.data.data});
+        });
+      }
+    } catch (error) {
+      if (signal.aborted) return;
+      if (error.message === 'The session\'s attempt is gone') throw error;
+      failed = true;
+    }
+    // A stream that ended before the seal is opened again from where it reached, at once unless it failed.
+    if (failed && !signal.aborted) await sleep(RETRY_MS);
+  }
   if (signal.aborted) return;
   const [{attempt}, accounting] = await Promise.all([json(`${BASE}/attempts/${attemptId}`), json(`${BASE}/attempts/${attemptId}/accounting`)]);
   emit('harness.outcome', harnessOutcome(attempt, accounting));

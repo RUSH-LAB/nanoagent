@@ -13,6 +13,7 @@ adapters that let the attempt-scoped services use it.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -275,6 +276,17 @@ class RushWorkerClient:
             "PUT", f"/attempts/{attempt_id}/payloads/{sha256}", content=data,
             headers={FENCE_HEADER: str(fence), REDACTION_HEADER: redaction, "Content-Type": content_type},
         )
+
+    async def terminal(self, attempt_id: str, fence: int, offset: int, data: bytes) -> None:
+        """Appends ``data``, the harness's terminal output from byte ``offset``, to what RUSH shows of it (a retried
+        offset is kept once)."""
+        await self._json("POST", f"/attempts/{attempt_id}/terminal", {"fence": fence, "offset": offset, "data": base64.b64encode(data).decode("ascii")})
+
+    async def terminal_input(self, attempt_id: str, fence: int, after: int) -> list[Mapping[str, Any]]:
+        """What the member sent the harness's terminal after input ``after``: ``[{seq, data, rows, cols}]`` (``data`` base64 keystrokes,
+        or null for a resize to ``rows`` by ``cols``). RUSH holds the request open a while for some to come, and answers [] if none did."""
+        response = await self._send("GET", f"/attempts/{attempt_id}/terminal-input", params={"after": after}, headers={FENCE_HEADER: str(fence)})
+        return response.json()["inputs"]
 
     async def spans(self, attempt_id: str, body: Mapping[str, Any]) -> None:
         await self._json("POST", f"/attempts/{attempt_id}/spans", body)

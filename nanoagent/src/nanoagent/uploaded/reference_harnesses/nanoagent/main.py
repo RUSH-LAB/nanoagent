@@ -18,7 +18,9 @@ from taskharness.run import attempt, write_result  # noqa: E402
 def main() -> None:
     with open(os.environ["RUSH_REQUEST"], encoding="utf-8") as source:
         request = json.load(source)
-    write_result(asyncio.run(attempt(request, os.environ["RUSH_ATTEMPT_TOKEN"])))
+    result = asyncio.run(attempt(request, os.environ["RUSH_ATTEMPT_TOKEN"]))
+    if result is not None:
+        write_result(result)
 
 
 if __name__ == "__main__":

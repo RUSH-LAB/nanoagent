@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 
+from taskharness import screen
 from taskharness.broker import Broker, ToolSpec
 from taskharness.events import CURRENT_SPAN, PROTOCOL, Spans
 from taskharness.model import GatewayModel
@@ -22,8 +23,9 @@ def write_result(result: dict[str, Any]) -> None:
     temporary.rename(target)
 
 
-async def attempt(request: dict[str, Any], token: str) -> dict[str, Any]:
-    """The result of the attempt; raises when the work fails, so the worker sees a failed harness."""
+async def attempt(request: dict[str, Any], token: str) -> dict[str, Any] | None:
+    """The result of the attempt; raises when the work fails, so the worker sees a failed harness. With a person at the terminal
+    (`interactive`) an agent task goes on with what they type, and ends with no result when nothing was submitted."""
     task, case, prompt, limits = request["task"], request["case"], request["prompt"], request["limits"]
     tools = [ToolSpec(t["name"], t["description"], t["input_schema"], t["output_schema"]) for t in request["tools"]["available"]]
     async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
@@ -35,6 +37,7 @@ async def attempt(request: dict[str, Any], token: str) -> dict[str, Any]:
         )
         spans = Spans(request["events_url"], token, client)
         broker = Broker(request["tools"]["url"], token, client, model.call_of)
+        screen.started(task, request["openrouter"]["model"], prompt["user"], request["interactive"])
         root = await spans.start("agent", f"nanoagent {task['id']}")
         CURRENT_SPAN.set(root)
         try:
@@ -62,16 +65,19 @@ async def attempt(request: dict[str, Any], token: str) -> dict[str, Any]:
                     broker=broker,
                     model=model,
                     max_steps=limits["max_model_calls"],
+                    ask=screen.ask if request["interactive"] else None,
                 )
-                result = (
+                result = None if request["interactive"] and outcome.output is None else (
                     {"protocol": PROTOCOL, "status": "answered", "answer": outcome.output}
                     if outcome.output is not None
                     else {"protocol": PROTOCOL, "status": "refused", "reason": outcome.refusal}
                 )
-        except BaseException:
+        except BaseException as error:
+            screen.crashed(error)
             await spans.end(root, "error")
             raise
         finally:
             await model.aclose()
         await spans.end(root)
+        screen.result(result)
         return result

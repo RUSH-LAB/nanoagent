@@ -166,6 +166,7 @@ def test_uploaded_python_wire_contract_with_mock_provider_and_real_verifier(
         "exec_url": mock_provider.root + "/exec",
         "events_url": mock_provider.root + "/events",
         "limits": limits,
+        "interactive": False,
     }
     validator("Request").validate(request)
     assert task.instructions and task.reference not in task.tools

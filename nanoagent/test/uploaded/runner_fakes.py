@@ -52,7 +52,7 @@ def job_body(policy: str = "task_tools", limits: dict[str, Any] | None = None, t
         "kind": "attempt", "attempt_id": ATTEMPT_ID, "attempt_no": 1, "fence": 1, "lease_expires_at": "later", "lease_seconds": 60,
         "run": {
             "run_id": "r", "model": "test/model", "endpoint_profile": "mock", "dialects": ["chat_completions"], "source_sha256": "b" * 64,
-            "policy": policy, "limits": {**LIMITS, **(limits or {})},
+            "policy": policy, "limits": {**LIMITS, **(limits or {})}, "interactive": False,
         },
         "task": {
             "id": "probe", "kind": "agent", "description": "Sum the numbers.", "instructions": "Be exact.", "plugin_name": "Acceptance probe",
@@ -83,6 +83,7 @@ class FakeRush:
     """The worker API: records everything, and loses the lease, cancels or seals on cue."""
 
     def __init__(self, source: bytes | None = None) -> None:
+        self.screen = b""  # what the harness wrote to its terminal
         self.source_bytes = source if source is not None else source_zip()
         self.events: list[dict[str, Any]] = []
         self.event_ids: set[str] = set()
@@ -154,6 +155,11 @@ class FakeRush:
     async def put_payload(self, attempt_id: str, fence: int, sha256: str, data: bytes, redaction: str, content_type: str = "") -> None:
         self._fenced()
         self.payloads[sha256] = data
+
+    async def terminal(self, attempt_id: str, fence: int, offset: int, data: bytes) -> None:
+        self._fenced()
+        assert offset == len(self.screen)
+        self.screen += data
 
     async def spans(self, attempt_id: str, body: dict[str, Any]) -> None:
         self._fenced()

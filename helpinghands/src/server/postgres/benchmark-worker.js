@@ -4,7 +4,7 @@ const {BenchmarkError} = require('../benchmark/errors');
 const {canonicalJson, sha256Hex} = require('../benchmark/prompt');
 const {overBudget} = require('../benchmark/rules');
 const {
-  capabilitiesOf, exceeded, MAX_ATTEMPT_EVENTS, MAX_ATTEMPT_SPANS, MAX_ATTEMPT_LINKS, MAX_SPAN_ATTRIBUTES_BYTES, MAX_LINK_ATTRIBUTES_BYTES, SETTLE_RESERVE_FACTOR,
+  capabilitiesOf, exceeded, MAX_ATTEMPT_EVENTS, MAX_ATTEMPT_TERMINAL_BYTES, MAX_ATTEMPT_SPANS, MAX_ATTEMPT_LINKS, MAX_SPAN_ATTRIBUTES_BYTES, MAX_LINK_ATTRIBUTES_BYTES, SETTLE_RESERVE_FACTOR,
 } = require('../benchmark/limits');
 const {chargeAttemptStorage, chargeStorage, inTransaction} = require('./benchmark-context');
 const {sweepExpired} = require('./benchmark-sweep');
@@ -93,7 +93,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
         lease_seconds: Number(config.leaseSeconds),
         run: {
           run_id: run.run_id, model: run.model, endpoint_profile: run.endpoint_label, dialects: run.dialects, source_sha256: run.source_sha256,
-          policy: run.policy, limits: run.limits, prompt_source: 'benchmark', renderer_version: run.renderer_version,
+          policy: run.policy, limits: run.limits, prompt_source: 'benchmark', renderer_version: run.renderer_version, interactive: run.session,
         },
         plugin: {id: run.plugin_id, name: run.plugin_name, version: run.version, sha256: run.package_sha256},
         case_set: {case_set_id: run.case_set_id, digest: run.case_set_digest},
@@ -321,6 +321,35 @@ function createPostgresBenchmarkWorker({pool, config}) {
         if (stored) await chargeAttemptStorage(client, userId, attemptId, stored);
         return {receipts, high_water_cursor: next - 1};
       });
+    },
+
+    /**
+     * Append `data`, what the attempt's harness wrote to its terminal from byte `offset`: a retried offset is kept once, and the next
+     * offset is the bytes held so far. The attempt keeps MAX_ATTEMPT_TERMINAL_BYTES of it at most.
+     */
+    async appendTerminal(userId, attemptId, fence, offset, data) {
+      return fenced(userId, attemptId, fence, async client => {
+        const held = Number((await client.query(
+          'select coalesce(sum(octet_length(data)), 0) as held from benchmark_terminal where attempt_id = $1', [attemptId],
+        )).rows[0].held);
+        if (offset < held) {
+          const kept = (await client.query('select data from benchmark_terminal where attempt_id = $1 and byte_offset = $2', [attemptId, offset])).rows[0];
+          if (!kept || !kept.data.equals(data)) throw new BenchmarkError(409, 'conflicting_duplicate', `Terminal output at byte ${offset} was kept with different bytes`);
+          return {next_offset: held};
+        }
+        if (offset > held) throw new BenchmarkError(409, 'terminal_gap', `The terminal holds ${held} bytes; output at byte ${offset} leaves a gap`);
+        if (held + data.length > MAX_ATTEMPT_TERMINAL_BYTES) throw new BenchmarkError(413, 'too_large', `An attempt's terminal keeps ${MAX_ATTEMPT_TERMINAL_BYTES} bytes at most`);
+        await client.query('insert into benchmark_terminal (attempt_id, byte_offset, data) values ($1, $2, $3)', [attemptId, offset, data]);
+        await chargeAttemptStorage(client, userId, attemptId, data.length);
+        return {next_offset: held + data.length};
+      });
+    },
+
+    /** What the member sent the attempt's terminal after `after`, in order: `[{seq, data, rows, cols}]`, `data` base64 or null. */
+    async terminalInput(userId, attemptId, fence, after) {
+      return fenced(userId, attemptId, fence, async client => (await client.query(
+        'select seq, data, rows, cols from benchmark_terminal_input where attempt_id = $1 and seq > $2 order by seq limit 500', [attemptId, after],
+      )).rows.map(row => ({seq: Number(row.seq), data: row.data === null ? null : row.data.toString('base64'), rows: row.rows, cols: row.cols})));
     },
 
     async putPayload(userId, attemptId, fence, {sha256, data, redaction, contentType}) {

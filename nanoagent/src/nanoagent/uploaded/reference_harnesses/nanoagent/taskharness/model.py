@@ -10,6 +10,7 @@ import httpx
 from nanoagent.core.agent import Reply, ToolCall
 from nanoagent.inference.backends.sglang import ChatBackend
 from nanoagent.inference.types import Answer
+from taskharness import screen
 from taskharness.events import CALL_HEADER, CURRENT_SPAN, SPAN_HEADER
 
 
@@ -62,6 +63,7 @@ class GatewayModel:
         for call in response.tool_calls:
             if self._last_call is not None:
                 self._call_of_tool_call[call.id] = self._last_call
+        screen.said(response.text or "")  # shown as it comes, before the tools it calls run
         return Reply(
             content=response.text,
             tool_calls=[ToolCall(id=call.id, name=call.name, arguments=call.arguments) for call in response.tool_calls],

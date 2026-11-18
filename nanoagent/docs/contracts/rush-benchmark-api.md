@@ -195,7 +195,7 @@ The server, in this order:
 
 ## `GET /runs?limit=&before=`
 
-The caller's own runs in this workspace, as **run summaries** (see Run summary above), newest first. `limit` 1 to 200 (default 50); `before` an ISO timestamp (runs created earlier). Metrics sum the newest attempt of each case with the same code as `GET /runs/{run_id}`, so a list row's `metrics`, `status` and `score` equal the detail's.
+The caller's own runs in this workspace but Harness tab sessions (`POST /sessions`), as **run summaries** (see Run summary above), newest first. `limit` 1 to 200 (default 50); `before` an ISO timestamp (runs created earlier). Metrics sum the newest attempt of each case with the same code as `GET /runs/{run_id}`, so a list row's `metrics`, `status` and `score` equal the detail's.
 
 ```json
 {"runs": [<run summary>]}
@@ -271,6 +271,14 @@ data: <the event object above>
 ```
 
 When the attempt is sealed and every event up to its final cursor was sent: `event: sealed` with `data: {"final_cursor": N}`, then the stream ends. `: heartbeat` comments arrive while idle. A sealed attempt streams what remains, then `sealed`. `404` for an attempt the caller cannot see.
+
+## `GET /attempts/{attempt_id}/terminal?from=<byte>`
+
+Server-sent events: what the attempt's harness wrote to its terminal from byte `from` (default 0), in order, each chunk `event: output` with `data: {"offset": N, "data": "<base64>"}`, then `event: sealed` once the attempt is sealed and every chunk was sent. A reconnect resumes from the byte it reached. An attempt keeps 4 MiB of it at most. `404` for an attempt the caller cannot see.
+
+## `POST /attempts/{attempt_id}/terminal`
+
+What the member sends the terminal of their own running Harness tab session: `{"data": "<base64>"}`, keystrokes, or `{"rows": R, "cols": C}`, its new size (1 to 1000 each). `200 {"sent": true}`; `409 session_ended` when the attempt is not a running session's.
 
 ## `GET /attempts/{attempt_id}/spans?kind=&status=&q=&limit=`
 
@@ -416,7 +424,8 @@ Job (`200`):
 {
   "kind": "attempt", "attempt_id": "…", "attempt_no": 1, "fence": 1, "lease_expires_at": "…", "lease_seconds": 60,
   "run": {"run_id": "…", "model": "…", "endpoint_profile": "…", "dialects": [], "source_sha256": "…", "policy": "coding|task_tools",
-          "limits": {"wall_time_ms": 600000, "…": 0, "internet_access": true}, "prompt_source": "benchmark", "renderer_version": "rush.prompt.v1"},
+          "limits": {"wall_time_ms": 600000, "…": 0, "internet_access": true}, "prompt_source": "benchmark", "renderer_version": "rush.prompt.v1",
+          "interactive": false},
   "plugin": {"id": "…", "name": "…", "version": "…", "sha256": "…"},
   "case_set": {"case_set_id": "…", "digest": "…"},
   "task": {"id": "sum", "kind": "agent|decide|tool", "description": "…", "instructions": "…", "plugin_name": "…", "tools": [{"name": "…", "description": "…", "input_schema": {}, "output_schema": {}, "writes": false}], "egress_hosts": ["api.example.com"]},
@@ -426,7 +435,7 @@ Job (`200`):
 }
 ```
 
-`task.instructions` is the instructions the run works: under `task_tools` the benchmark's pinned `task_instructions`, under `coding` the task's default. `task.egress_hosts` is the tool container's network under `task_tools`; the worker applies it only for that policy. `case.input_schema` / `output_schema` are the task's. `case.kind` and `private_reference` stay on the worker, which is the member's own computer; the claim hands them to the member's machine, so the references are not private from the member running the benchmark. `private_reference` is the pinned output object (or `null`) of an answer case and the pinned error string of a refusal case. A run's scoring is computed by the server from the attempts' verdicts; there are no scoring jobs.
+`run.interactive` is `true` for a Harness tab session's run, whose member works at the harness's terminal (the worker reads what they type from `GET /attempts/{id}/terminal-input`). `task.instructions` is the instructions the run works: under `task_tools` the benchmark's pinned `task_instructions`, under `coding` the task's default. `task.egress_hosts` is the tool container's network under `task_tools`; the worker applies it only for that policy. `case.input_schema` / `output_schema` are the task's. `case.kind` and `private_reference` stay on the worker, which is the member's own computer; the claim hands them to the member's machine, so the references are not private from the member running the benchmark. `private_reference` is the pinned output object (or `null`) of an answer case and the pinned error string of a refusal case. A run's scoring is computed by the server from the attempts' verdicts; there are no scoring jobs.
 
 ## `POST /attempts/{id}/renew`
 
@@ -480,6 +489,14 @@ An event with a known `event_id` and identical canonical content (`source, kind,
 ## `PUT /attempts/{id}/payloads/{sha256}`
 
 Raw bytes. Headers: `X-Rush-Fence`, `X-Rush-Redaction: none|redacted|truncated` (required), `Content-Type` (stored). `200 {"sha256", "size", "created"}`; storing the same payload again is `created: false`. Errors: `400 digest_mismatch` (bytes do not hash to the path), `413 payload_too_large`, `409 sealed|lease_lost`. Events reference payloads by digest; the server does not require a payload to exist first.
+
+## `POST /attempts/{id}/terminal`
+
+`{"fence": N, "offset": <byte>, "data": "<base64>"}`: what the harness wrote to its terminal from byte `offset`, at most 256 KiB a request. `offset` is the bytes held so far: `200 {"next_offset"}`; a retried offset with the same bytes is kept once, other bytes `409 conflicting_duplicate`, a later offset `409 terminal_gap`, past 4 MiB `413 too_large`.
+
+## `GET /attempts/{id}/terminal-input?after=<seq>`
+
+Header `X-Rush-Fence`. What the member sent a session's terminal after `after`: `200 {"inputs": [{"seq", "data": "<base64>|null", "rows", "cols"}]}`, keystrokes or a resize, in order. RUSH holds the request up to 15 s for some to come, then answers `[]`.
 
 ## `POST /attempts/{id}/spans`
 

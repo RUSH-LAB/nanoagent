@@ -53,6 +53,7 @@ def request() -> dict[str, Any]:
             "cpus": 1, "memory_mb": 512, "pids": 64, "workspace_bytes": 1 << 20, "workspace_files": 100, "tmp_bytes": 1 << 20, "build_wall_ms": 1000,
             "build_memory_mb": 512, "build_output_bytes": 1 << 20, "build_files": 100, "build_tmp_bytes": 1 << 20,
         },
+        "interactive": False,
     }
 
 

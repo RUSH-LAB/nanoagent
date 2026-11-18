@@ -1,4 +1,5 @@
-// Codex, non-interactively in the workspace: the prompt on stdin, the model reached through the gateway's Responses dialect.
+// Codex in the workspace as a person sees it on a terminal, the model reached through the gateway's Responses dialect: its own
+// interactive screen when someone is at the terminal (`interactive`), otherwise `codex exec` with the prompt on stdin.
 import {spawn} from "node:child_process";
 import {mkdtempSync, readFileSync} from "node:fs";
 import {tmpdir} from "node:os";
@@ -11,24 +12,20 @@ const {base_url: baseUrl, model} = request.openrouter;
 const codex = join(dirname(fileURLToPath(import.meta.url)), "node_modules/@openai/codex/bin/codex.js");
 const provider = `{name="rush",base_url=${JSON.stringify(baseUrl)},env_key="RUSH_ATTEMPT_TOKEN",wire_api="responses"}`;
 
-const child = spawn(
-  process.execPath,
-  [
-    codex, "exec", "--json", "--color", "never", "--skip-git-repo-check",
-    // The container is the sandbox.
-    "--sandbox", "danger-full-access", "--cd", request.workspace,
-    // The gateway only passes function tools: no web search, and no multi-agent tool namespace.
-    "--disable", "plugins", "--disable", "multi_agent", "-c", 'web_search="disabled"', "--model", model,
-    "-c", 'model_provider="rush"', "-c", `model_providers.rush=${provider}`,
-    "-",
-  ],
-  {
-    cwd: request.workspace,
-    stdio: ["pipe", "inherit", "inherit"],
-    env: {...process.env, CODEX_HOME: mkdtempSync(join(tmpdir(), "codex-home-"))},
-  },
-);
-child.stdin.end(request.prompt.user);
+// The gateway only passes function tools: no web search, and no multi-agent tool namespace. The container is the sandbox.
+const common = [
+  "--sandbox", "danger-full-access", "--cd", request.workspace, "--disable", "plugins", "--disable", "multi_agent", "-c", 'web_search="disabled"',
+  "--model", model, "-c", 'model_provider="rush"', "-c", `model_providers.rush=${provider}`,
+];
+const env = {...process.env, CODEX_HOME: mkdtempSync(join(tmpdir(), "codex-home-"))};
+const child = request.interactive
+  // Someone is at the terminal: Codex's own screen, started with the prompt, the workspace trusted as after a person's first run.
+  ? spawn(process.execPath, [codex, ...common, "-c", `projects.${JSON.stringify(request.workspace)}.trust_level="trusted"`, request.prompt.user], {
+      cwd: request.workspace, stdio: "inherit", env,
+    })
+  : spawn(process.execPath, [codex, "exec", "--color", "always", "--skip-git-repo-check", ...common, "-"], {cwd: request.workspace, stdio: ["pipe", "inherit", "inherit"], env});
+if (request.interactive) process.on("SIGINT", () => {}); // Ctrl-C is Codex's to handle
+else child.stdin.end(request.prompt.user);
 child.on("error", (error) => {
   console.error(`codex failed to start: ${error.message}`);
   process.exit(1);

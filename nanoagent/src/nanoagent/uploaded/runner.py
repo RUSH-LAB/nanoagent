@@ -82,6 +82,7 @@ from nanoagent.uploaded.sandbox import (
     WORKSPACE,
 )
 from nanoagent.uploaded.source import SourceLimits, extract, inspect_zip
+from nanoagent.uploaded.terminal import Terminal
 from nanoagent.uploaded.toolchains import ToolchainProfile, resolve_dependencies, toolchain
 
 LOG = logging.getLogger(__name__)
@@ -503,7 +504,10 @@ class AttemptRunner:
         relay = await self.relay.start(job.attempt_id, network, services.app, work)
         stack.push_async_callback(shielded, relay.aclose)
         request = self._request(job, tools, relay.base_url)
-        spec = CaseSpec(job.attempt_id, profile, run_argv, artifact, json.dumps(request).encode(), token, network, work / "case", None, limits, tool_container)
+        terminal = Terminal(self.worker, job.attempt_id, job.fence)
+        spec = CaseSpec(
+            job.attempt_id, profile, run_argv, artifact, json.dumps(request).encode(), token, network, work / "case", None, limits, tool_container, terminal.write,
+        )
         offset = self.wall_clock_ns() - self.clock_ns()
         handle = await in_thread(self.supervisor.create_case, spec)
         stack.push_async_callback(shielded, lambda: in_thread(handle.close))
@@ -516,12 +520,13 @@ class AttemptRunner:
 
         recorded: list[bool] = []  # set once the collector's process evidence is committed
         try:
-            outcome = await self._wait(lease, handle, services)
+            outcome = await self._wait(lease, handle, services, terminal, interactive=run["interactive"])
             await self._revoke(services)
             lease.lapsed()  # a lease that ran out while the computer slept is dropped on waking, not finalized late
             if lease.reason in ("lease_lost", "sealed"):
                 return AttemptResult("lease_lost")
             if outcome is not None:  # a canceled attempt has no observed exit
+                await terminal.flush()
                 await emit.emit(rec.CaseExited(termination_wire(outcome.termination), int(outcome.exited_at * NS)), occurred_ns=int(outcome.exited_at * NS))
             # Quiescence (no call or tool left in flight) is reached after the exit, so it is recorded after it.
             await emit.emit(rec.CaseQuiesced(self.clock_ns()))
@@ -587,12 +592,14 @@ class AttemptRunner:
             "exec_url": f"{base}/exec",
             "events_url": f"{base}/events",
             "limits": dict(run["limits"]),
+            "interactive": run["interactive"],
         }
         validate("Request", request)
         return request
 
-    async def _wait(self, lease: Lease, handle: CaseHandle, services: AttemptServices) -> Any:
-        """The case's outcome, or None if the lease was lost or canceled first (the case is killed and drained)."""
+    async def _wait(self, lease: Lease, handle: CaseHandle, services: AttemptServices, terminal: Terminal, *, interactive: bool) -> Any:
+        """The case's outcome, or None if the lease was lost or canceled first (the case is killed and drained). The
+        harness's terminal output goes to RUSH as it comes meanwhile, and, when someone is at it, what they type comes back."""
         done = anyio.Event()
         box: list[Any] = []
 
@@ -608,6 +615,9 @@ class AttemptRunner:
 
         async with anyio.create_task_group() as group:
             group.start_soon(waiter)
+            group.start_soon(terminal.pump)
+            if interactive:
+                group.start_soon(terminal.feed, handle)
             await first_of(done, lease.revoked)
             if not done.is_set():
                 await self._revoke(services)

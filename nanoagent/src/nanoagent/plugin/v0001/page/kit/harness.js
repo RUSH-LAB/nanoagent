@@ -1,12 +1,12 @@
-// The Harness tab every plugin's page has (kit/shell.js): the person picks a harness and asks as in a Session, and one of
-// the plugin's tasks is worked once by that harness on their own computer, as a benchmark case is.
+// The Harness tab every plugin's page has (kit/shell.js): the person picks a harness and asks, and one of the plugin's tasks
+// is worked by that harness on their own computer, as a benchmark case is, on a terminal they work in: the harness's own
+// screen, live, which they type at until it ends.
 
 import { startRun, request } from "./bridge.js";
 import { h } from "./dom.js";
-import { partRow } from "./loop.js";
-import { PARTS, TYPES } from "./parts.js";
-import { resultCard } from "./result.js";
-import { runStats } from "./session.js";
+import { formatCost, formatSeconds, thousands } from "./session.js";
+import { Terminal } from "./vendor/xterm/xterm.mjs";
+import { FitAddon } from "./vendor/xterm/addon-fit.mjs";
 
 /**
  * The harnesses the tab runs, NanoAgent's reference harness first: each one's id (the reference harness RUSH builds), its name
@@ -22,66 +22,25 @@ export const HARNESSES = [
   ["hermes", "Hermes", "Codes its answer with its own tools from the task's prompt."],
 ];
 
-// Rows of what a harness does that no run graph part names.
-const ROW = {
-  status: { label: "Harness", hue: "quiet", font: "plain" },
-  tool: { label: "Plugin tool", hue: "task", font: "code" },
-  command: { label: "Command", hue: "plain", font: "code" },
-  answer: { label: "Answer", hue: "answer", font: "plain" },
-};
-const pre = (text) => h("pre", { class: "part-stream", text });
+// Leaving the alternate screen (DEC private modes 47, 1047 and 1049): a full-screen program's last screen stays shown when it ends.
+const ALTERNATE_SCREEN = new Set([47, 1047, 1049]);
+const bytes = (base64) => Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
 
-/** The rows a step (PluginFrame/harness.js `harnessStep`) shows. */
-function stepRows(step) {
-  switch (step.kind) {
-    case "status":
-      return [partRow(ROW.status, { text: step.text })];
-    case "reply":
-      return [
-        step.text ? partRow(PARTS[TYPES.ASSISTANT], { whole: step.text }) : null,
-        ...step.calls.map((call) => partRow(PARTS[TYPES.TOOL_CALL], { text: call.name, full: pre(call.arguments) })),
-        step.error ? h("li", { class: "error-text", text: `The model call failed: ${typeof step.error === "string" ? step.error : JSON.stringify(step.error)}` }) : null,
-      ];
-    case "tool":
-      return [partRow(ROW.tool, { text: step.name })];
-    case "tool-result":
-      return [partRow(PARTS[TYPES.TOOL_RESULT], { text: step.ok ? `${step.name} answered` : `${step.name} failed: ${step.error}` })];
-    case "command":
-      return [partRow(ROW.command, { text: step.argv.join(" ") })];
-    case "result":
-      return [
-        step.outcome.status === "answered"
-          ? partRow(ROW.answer, { text: "Gave its answer", full: pre(JSON.stringify(step.outcome.answer, null, 2)) })
-          : partRow(ROW.answer, { text: step.outcome.status === "refused" ? `Refused: ${step.outcome.reason}` : `No answer: ${step.outcome.reason}` }),
-      ];
-    case "error":
-      return [h("li", { class: "error-text", text: step.text })];
-  }
-  return [];
+/** The status line of an ended session: right or wrong by the plugin's verifier when it gave an answer, then time, tokens and cost. */
+export function outcomeText(outcome) {
+  const verdict = !outcome.scored
+    ? `No answer to score (${outcome.status}${outcome.reason ? `: ${outcome.reason}` : ""})`
+    : outcome.verdict === "Pass" ? "Right" : outcome.verdict === "Fail" ? "Wrong" : outcome.verdict;
+  const tokens = outcome.inputTokens === null ? "—" : thousands((outcome.inputTokens ?? 0) + (outcome.outputTokens ?? 0));
+  return [verdict, formatSeconds(outcome.elapsedMs === null ? null : outcome.elapsedMs / 1000), `${tokens} tokens`, formatCost(outcome.cost)].join(" · ");
 }
 
 /**
- * What the session came to: the verifier's verdict on the answer, drawn as a Session's task result is (the plugin's renderer
- * or its output's JSON Schema), how the run ended, and its time, tokens and cost.
- */
-function outcomeView(outcome, answer, task, renderer, send) {
-  const pass = outcome.verdict === "Pass";
-  const ended = h("p", { class: "muted", text: `${outcome.status}${outcome.reason ? ` (${outcome.reason})` : ""} · Verdict: ${pass ? "right" : outcome.verdict === "Fail" ? "wrong" : outcome.verdict}` });
-  const stats = runStats({
-    duration_s: outcome.elapsedMs === null ? null : outcome.elapsedMs / 1000,
-    usage: { prompt_tokens: outcome.inputTokens, completion_tokens: outcome.outputTokens },
-    cost: outcome.cost,
-  });
-  const verdict = { valid: pass, message: outcome.explanation || (pass ? "The plugin's verifier passed the answer." : `The plugin's verifier gave ${outcome.verdict}.`) };
-  return h("div", { class: "harness-outcome" }, ended, stats, answer === null ? null : resultCard(task, { output: answer, verdict }, renderer, send));
-}
-
-/**
- * The Harness tab: a harness picker (and, for a plugin of several tasks, the task), the session's log as it runs, and what it
- * came to beside it. One session at a time: a new message starts a new session in place of the one shown.
+ * The Harness tab: a harness picker (and, for a plugin of several tasks, the task) and the request that opens a session, the
+ * harness's terminal, and one status line. One session at a time; Stop ends it, as the harness exiting does.
  * @returns {HTMLElement}
  */
-export function harnessPage(plugin, renderers) {
+export function harnessPage(plugin) {
   let harness = HARNESSES[0][0];
   let task = plugin.tasks[0];
   let runId = null;
@@ -97,59 +56,75 @@ export function harnessPage(plugin, renderers) {
     plugin.tasks.length > 1
       ? h("select", { class: "input", "aria-label": "Task", onchange: (event) => (task = plugin.tasks.find((one) => one.id === event.target.value)) }, plugin.tasks.map((one) => h("option", { value: one.id, text: one.description })))
       : null;
-  const intro = h("div", { class: "chat-intro" }, h("img", { src: plugin.product.icon, alt: "" }), h("h1", { text: "Run a harness" }), h("p", { class: "muted", text: `Pick a harness and ask as in a Session: it works ${plugin.name}'s task once on your computer, and the plugin's verifier checks its answer.` }));
-  const log = h("div", { class: "chat-log", role: "log", "aria-live": "polite" }, intro);
-  const placeholder = `Tell ${plugin.name} what you need`;
-  const input = h("textarea", { class: "input", rows: 2, placeholder, "aria-label": placeholder });
-  const runButton = h("button", { type: "button", class: "button primary", text: "Run" });
+  const placeholder = `What to ask ${plugin.name} first; then type in the terminal`;
+  const input = h("textarea", { class: "input", rows: 1, placeholder, "aria-label": placeholder });
+  const runButton = h("button", { type: "button", class: "button primary", text: "Start" });
   const stop = h("button", { type: "button", class: "button", text: "Stop", hidden: true });
-  const empty = h("div", { class: "results-empty" }, h("p", { text: "The answer shows here" }), h("p", { class: "muted", text: "When the harness ends: its answer, right or wrong by the plugin's verifier, and its time, tokens and cost." }));
-  const side = h("section", { class: "results-panel", "aria-label": "Outcome" }, empty);
+  const status = h("p", { class: "harness-status muted small-text", role: "status", text: `Pick a harness and ask: it works ${plugin.name}'s task on your computer, on the terminal below, where you go on typing.` });
+  const screen = h("div", { class: "harness-terminal" });
 
-  async function submit(typed) {
-    const text = (typed ?? input.value).trim();
+  const terminal = new Terminal({ cursorBlink: true, fontSize: 13, scrollback: 5000, theme: { background: "#14161b" } });
+  const fit = new FitAddon();
+  terminal.loadAddon(fit);
+  terminal.parser.registerCsiHandler({ prefix: "?", final: "l" }, (params) => params.some((mode) => ALTERNATE_SCREEN.has(mode)));
+  // What the person types, and the terminal's size, go to the harness while its session runs.
+  const send = (method, params) => runId && request(method, { runId, ...params }).catch((problem) => (status.textContent = problem.message));
+  terminal.onData((data) => send("harness.input", { data }));
+  terminal.onResize(({ rows, cols }) => send("harness.resize", { rows, cols }));
+  // The terminal opens once its tab is first shown, the size it measures by, and fits its box from then on.
+  let opened = false;
+  new ResizeObserver(() => {
+    if (!screen.offsetParent) return;
+    if (!opened) terminal.open(screen);
+    opened = true;
+    fit.fit();
+  }).observe(screen);
+
+  async function submit() {
+    const text = input.value.trim();
     if (!text || runButton.disabled) return;
-    if (typed === undefined) input.value = "";
-    const rows = h("ol", { class: "loop" }, partRow(PARTS[TYPES.USER_MESSAGE], { whole: text }));
-    const waiting = h("p", { class: "typing", "aria-label": "Preparing the case" }, h("span"), h("span"), h("span"));
     const label = HARNESSES.find(([id]) => id === harness)[1];
-    log.replaceChildren(h("p", { class: "muted small-text", text: `${label} · ${task.description}` }), rows, waiting);
-    side.replaceChildren(empty);
+    terminal.reset();
+    status.textContent = `${label} · ${task.description} · starting: the first session of a harness builds it`;
     runButton.disabled = true;
     for (const button of choices) button.disabled = true;
-    const fail = (message) => log.append(h("p", { class: "error-text", role: "alert", text: message }));
-    const ran = task;
-    let answer = null;
+    let started = false;
     const done = () => {
       runId = null;
-      waiting.remove();
       runButton.disabled = false;
       for (const button of choices) button.disabled = false;
       stop.hidden = true;
       stop.disabled = false;
     };
     try {
-      runId = await startRun("harness.run", { harness, task: ran.id, text }, (name, data) => {
+      runId = await startRun("harness.run", { harness, task: task.id, text }, (name, data) => {
         switch (name) {
-          case "harness.step":
-            if (data.kind === "result" && data.outcome.status === "answered") answer = data.outcome.answer;
-            rows.append(...stepRows(data).filter(Boolean));
+          case "harness.output":
+            if (!started) {
+              started = true;
+              status.textContent = `${label} · ${task.description} · running: type in the terminal; Stop ends the session`;
+            }
+            terminal.write(bytes(data.data));
             break;
           case "harness.outcome":
-            side.replaceChildren(outcomeView(data, answer, ran, renderers[ran.output], (more) => submit(more)));
+            status.textContent = `${label} · ${outcomeText(data)}`;
             break;
           case "harness.error":
-            fail(data.message);
+            status.textContent = data.message;
             break;
           case "harness.done":
             done();
             break;
         }
-        log.scrollTop = log.scrollHeight;
       });
-      if (runButton.disabled) stop.hidden = false;
+      if (runButton.disabled) {
+        input.value = "";
+        stop.hidden = false;
+        send("harness.resize", { rows: terminal.rows, cols: terminal.cols });
+        terminal.focus();
+      }
     } catch (problem) {
-      fail(problem.message);
+      status.textContent = problem.message;
       done();
     }
   }
@@ -168,11 +143,11 @@ export function harnessPage(plugin, renderers) {
       await request("harness.cancel", { runId });
     } catch (problem) {
       stop.disabled = false;
-      log.append(h("p", { class: "error-text", role: "alert", text: `Stop failed: ${problem.message}` }));
+      status.textContent = `Stop failed: ${problem.message}`;
     }
   });
 
   const head = h("div", { class: "harness-head" }, h("div", { class: "harness-pick", role: "group", "aria-label": "Harness" }, choices), about, taskPick);
-  const chat = h("section", { class: "chat harness-chat", "aria-label": "Harness" }, head, log, h("div", { class: "chat-input" }, input, h("div", { class: "chat-buttons" }, stop, runButton)));
-  return h("div", { class: "chat-page" }, chat, side);
+  const ask = h("div", { class: "harness-ask" }, input, stop, runButton);
+  return h("section", { class: "harness-page", "aria-label": "Harness" }, head, ask, screen, status);
 }

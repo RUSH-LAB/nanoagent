@@ -100,14 +100,15 @@ describe('a session\'s run', () => {
         cpus: 8, memory_mb: 64_000, pids: 10_000, workspace_bytes: 1e12, workspace_files: 1e9, tmp_bytes: 1e12, build_wall_ms: 1e9, build_memory_mb: 64_000,
         build_output_bytes: 1e12, build_files: 1e9, build_tmp_bytes: 1e12, internet_access: true}),
       savePreview: async (context, plan, digest) => { kept.push(['preview', plan.policy, digest.length]); return '00000000-0000-4000-8000-000000000001'; },
-      createRun: async (context, request, resolved, benchmark, harness) => { kept.push(['run', request, resolved.cases.length, benchmark, harness]); return {run_id: 'r1', replayed: false}; },
+      createRun: async (context, request, resolved, benchmark, harness, options) => { kept.push(['run', request, resolved.cases.length, benchmark, harness, options]); return {run_id: 'r1', replayed: false}; },
     };
     const publication = benchmarkPublication({...pinned, model: MODEL.model, endpoint_profile: 'openrouter'});
     const source = {source_sha256: 'b'.repeat(64), harness: {name: 'claude-code', version: 'abc', dialects: ['anthropic_messages']}};
     const result = await createBenchmarkService({repository}).session(CONTEXT, publication, source, 'coding');
     assert.deepEqual(result, {run_id: 'r1', replayed: false});
     assert.deepEqual(kept.slice(0, 2), [['case set', 'u', publication.case_set_digest], ['preview', 'coding', 64]]);
-    const [, request, cases, benchmark, harness] = kept[2];
+    const [, request, cases, benchmark, harness, options] = kept[2];
+    assert.deepEqual(options, {session: true}); // a session's run, which the member's results do not list
     assert.deepEqual([request.policy, request.source_sha256, request.preview_id, request.request_digest.length], ['coding', 'b'.repeat(64), '00000000-0000-4000-8000-000000000001', 64]);
     assert.equal(cases, 1);
     assert.deepEqual([benchmark.case_set_id, benchmark.publisher.name, benchmark.plugin.sha256, benchmark.context], [publication.case_set_digest, 'Ada', SHA, 'Add one and two']);

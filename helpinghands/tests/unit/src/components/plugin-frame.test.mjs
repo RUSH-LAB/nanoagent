@@ -87,6 +87,8 @@ describe('nanoagent.ui/v1 requests', () => {
       ['plugin.version', {version: null}],
       ['harness.run', {harness: 'claude-code', task: 'save-paper-source', text: 'hi'}],
       ['harness.cancel', {runId: 'harness-1'}],
+      ['harness.input', {runId: 'harness-1', data: '\x03'}],
+      ['harness.resize', {runId: 'harness-1', rows: 40, cols: 120}],
     ];
     for (const [method, params] of valid) assert.equal(invalidRequest({method, params}), null, method);
     const invalid = [
@@ -112,6 +114,8 @@ describe('nanoagent.ui/v1 requests', () => {
       ['harness.run', {harness: 'nanoagent', task: '', text: 'hi'}],
       ['harness.run', {harness: 'nanoagent', task: 'save-paper-source', text: ' '}],
       ['harness.cancel', {}],
+      ['harness.input', {runId: 'harness-1', data: ''}],
+      ['harness.resize', {runId: 'harness-1', rows: 0, cols: 120}],
     ];
     for (const [method, params] of invalid) assert.equal(typeof invalidRequest({method, params}), 'string', method);
   });
@@ -388,39 +392,43 @@ describe('the bridge host', () => {
     assert.deepEqual(messages(posted), [{protocol: PROTOCOL, event: 'host.theme', data: {theme: 'dark'}}]);
   });
 
-  it('runs a Harness tab session as a one-case benchmark run, telling the page each step of its attempt and then its outcome', async () => {
+  it('runs a Harness tab session as a one-case benchmark run, showing its terminal as it comes, sending what is typed, and then its outcome', async () => {
     const ATTEMPT = '00000000-0000-4000-8000-0000000000aa';
-    const event = (cursor, kind, data) => sse('event', {cursor, kind, data});
-    const reply = sse('x', {choices: [{index: 0, delta: {content: 'Looking it up.'}}]});
+    const base64 = text => Buffer.from(text).toString('base64');
+    let release;
+    const typed = new Promise(resolve => { release = resolve; });
     const answers = {
       '/api/benchmark/sessions': () => Response.json({run: {run_id: 'r1', cases: [{attempts: [{attempt_id: ATTEMPT}]}]}}, {status: 201}),
-      [`/api/benchmark/attempts/${ATTEMPT}/stream?after=0`]: () => eventStream([
-        event(1, 'case.launched', {}),
-        event(2, 'model_call.admitted', {call_id: 'm1', dialect: 'chat_completions'}),
-        event(3, 'model_call.response', {call_id: 'm1', stream_payload_sha256: 's'.repeat(64), proposals: [{name: 'bash', raw_arguments: '{"command":"ls"}'}]}),
-        event(4, 'exec.started', {command_sha256: 'c'.repeat(64)}),
-        event(5, 'result.read', {outcome: {status: 'answered', answer: {value: 1}}}),
-        sse('sealed', {final_cursor: 5}),
-      ].join('')),
-      [`/api/benchmark/attempts/${ATTEMPT}/payloads/${'s'.repeat(64)}`]: () => new Response(reply),
-      [`/api/benchmark/attempts/${ATTEMPT}/payloads/${'c'.repeat(64)}`]: () => Response.json({argv: ['ls', '-l'], cwd: '/rush/workspace'}),
+      [`/api/benchmark/attempts/${ATTEMPT}/terminal?from=0`]: () => eventStream(sse('output', {offset: 0, data: base64('\x1b[1mhello\x1b[0m ')})),
+      [`/api/benchmark/attempts/${ATTEMPT}/terminal?from=14`]: async () => {
+        await typed;
+        return eventStream(sse('output', {offset: 14, data: base64('é')}) + sse('sealed', {}));
+      },
+      [`/api/benchmark/attempts/${ATTEMPT}/terminal`]: (init) => {
+        if (JSON.parse(init.body).data) release();
+        return Response.json({sent: true});
+      },
       [`/api/benchmark/attempts/${ATTEMPT}`]: () => Response.json({attempt: {
         state: 'finalized', execution: {status: 'answered', reason: null}, verdict: 'pass', explanation: null,
         metrics: {input_tokens: 120, output_tokens: 30, elapsed_ms: 4200},
       }}),
       [`/api/benchmark/attempts/${ATTEMPT}/accounting`]: () => Response.json({totals: {settled_usd: 0.0012}}),
     };
-    const {posted, calls, send} = await hostWith(path => answers[path](), {started: false});
+    const {posted, calls, send} = await hostWith((path, init) => answers[path](init), {started: false});
     send('h', 'harness.run', {harness: 'claude-code', task: 'save-paper-source', text: 'Get 2401.00001'});
+    await until(() => eventsOf(posted, 'harness-1').length);
+    send('r', 'harness.resize', {runId: 'harness-1', rows: 30, cols: 100});
+    send('i', 'harness.input', {runId: 'harness-1', data: 'é\r'});
     await until(() => messages(posted).some(message => message.event === 'harness.done'));
     assert.deepEqual(JSON.parse(calls[0].init.body), {plugin_id: 'arxiv-source', task_id: 'save-paper-source', harness: 'claude-code', text: 'Get 2401.00001'});
     assert.deepEqual(messages(posted)[0], {protocol: PROTOCOL, id: 'h', result: {runId: 'harness-1'}});
+    assert.deepEqual(calls.filter(call => call.path === `/api/benchmark/attempts/${ATTEMPT}/terminal`).map(call => JSON.parse(call.init.body)), [
+      {rows: 30, cols: 100}, {data: base64('é\r')},
+    ]);
     assert.deepEqual(eventsOf(posted, 'harness-1'), [
-      ['harness.step', {kind: 'status', text: 'The harness started'}],
-      ['harness.step', {kind: 'reply', text: 'Looking it up.', calls: [{name: 'bash', arguments: '{"command":"ls"}'}], error: null}],
-      ['harness.step', {kind: 'command', argv: ['ls', '-l']}],
-      ['harness.step', {kind: 'result', outcome: {status: 'answered', answer: {value: 1}}}],
-      ['harness.outcome', {status: 'Answered', reason: null, verdict: 'Pass', explanation: '', inputTokens: 120, outputTokens: 30, elapsedMs: 4200, cost: 0.0012}],
+      ['harness.output', {data: base64('\x1b[1mhello\x1b[0m ')}],
+      ['harness.output', {data: base64('é')}],
+      ['harness.outcome', {status: 'Answered', scored: true, reason: null, verdict: 'Pass', explanation: '', inputTokens: 120, outputTokens: 30, elapsedMs: 4200, cost: 0.0012}],
       ['harness.done', {}],
     ]);
   });
@@ -430,7 +438,7 @@ describe('the bridge host', () => {
     const held = new Promise(resolve => { release = resolve; });
     const answers = {
       '/api/benchmark/sessions': () => Response.json({run: {run_id: 'r1', cases: [{attempts: [{attempt_id: 'a1'}]}]}}, {status: 201}),
-      '/api/benchmark/attempts/a1/stream?after=0': async () => { await held; return eventStream(sse('sealed', {final_cursor: 0})); },
+      '/api/benchmark/attempts/a1/terminal?from=0': async () => { await held; return eventStream(sse('sealed', {})); },
       '/api/benchmark/runs/r1/cancel': () => { release(); return Response.json({}); },
       '/api/benchmark/attempts/a1': () => Response.json({attempt: {state: 'finalized', execution: {status: 'canceled', reason: null}, verdict: null, metrics: null}}),
       '/api/benchmark/attempts/a1/accounting': () => Response.json({totals: {settled_usd: null}}),

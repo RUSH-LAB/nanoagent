@@ -1,7 +1,7 @@
 // The page frame: `mountApp` (run by kit/boot.js) connects to the host and shows the tabs every
 // plugin has: its Dashboard; its Session, a chat with the plugin's agent in which each task
 // the agent runs shows its result, drawn by kit/result.js or the plugin's renderer; and its
-// Harness, where a harness the person picks works the plugin's task once (kit/harness.js).
+// Harness, where a harness the person picks works the plugin's task on a terminal they work in (kit/harness.js).
 
 import { hasHost, on, request } from "./bridge.js";
 import { chatPanel } from "./chat.js";
@@ -197,7 +197,7 @@ export async function mountApp(renderers) {
   const board = dashboard({ onOpen: (opened) => openSession(opened), closed });
   const home = homePage(plugin, board.element);
   const page = h("div", { class: "kit-session", hidden: true });
-  const harness = h("div", { class: "kit-harness", hidden: true }, closed ? null : harnessPage(plugin, renderers));
+  const harness = h("div", { class: "kit-harness", hidden: true }, closed ? null : harnessPage(plugin));
   let open = false;
   let tab = null;
   // The session shown, null on the Dashboard or in a new session not started yet.
