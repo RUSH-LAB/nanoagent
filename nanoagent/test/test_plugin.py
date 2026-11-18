@@ -1614,3 +1614,14 @@ def test_verifier_sources_that_are_not_small_regular_files_are_refused_unread(tm
     assert any(p.startswith("verifier/zz.py:") for p in problems)
     with pytest.raises(ValueError, match="verifier/zz.py"):
         load_manifest(tmp_path)
+
+
+def test_a_published_contract_whose_fields_share_their_annotated_text_passes(tmp_path):
+    """city-weather, as RUSH's marketplace publishes it: `DATE = "..."` is the Annotated text of two fields."""
+    from nanoagent.plugin.v0001.contract import contract_problems
+
+    assert contract_problems(Path(__file__).with_name("fixtures") / "city_weather_contract.py") == []
+    contract = tmp_path / "contract.py"
+    for value in ('["a"]', "Tool", "1"):
+        contract.write_text(f"from typing import Annotated\nfrom enum import Enum\nclass Tool(Enum):\n    A = 'a'\nTEXT = {value}\nclass Input:\n    x: Annotated[str, TEXT]\n")
+        assert any("Annotated text is a constant" in problem for problem in contract_problems(contract)), value

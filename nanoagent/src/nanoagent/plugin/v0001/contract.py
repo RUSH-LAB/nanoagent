@@ -55,7 +55,7 @@ CONTRACT_IMPORTS = {
 _SUBSCRIPTABLE = frozenset({"typing.Annotated", "typing.Literal", "typing.Optional", "typing.Union"})
 _BUILTIN_GENERICS = frozenset({"dict", "frozenset", "list", "set", "tuple"})
 _BUILTIN_TYPES = _BUILTIN_GENERICS | {"bool", "bytes", "float", "int", "str"}
-_MODULE, _IMPORTED, _CLASS, _VALUE = "module", "import", "class", "value"
+_MODULE, _IMPORTED, _CLASS, _VALUE, _TEXT = "module", "import", "class", "value", "text"  # _TEXT: NAME = "a string"
 # Every contract is the one module `contract` while it loads, so two plugins never load at once.
 _LOADING = threading.Lock()
 
@@ -73,6 +73,7 @@ def contract_problems(path: Path) -> list[str]:
     the names in :data:`CONTRACT_IMPORTS`; classes (bare ``@dataclass`` or none, bases that are
     imported or earlier classes) whose bodies are a docstring, annotated fields without defaults
     and ``NAME = <constant>`` members; and ``NAME = <names, constants, containers, Class.MEMBER>``.
+    ``Annotated`` text is a constant, or the name of a top-level ``NAME = \"<text>\"``.
     Only an annotation is subscripted, and only by ``Annotated``, ``Literal``, ``Optional``,
     ``Union`` or a builtin container. No name or attribute starts with ``_``, none is rebound,
     and none is in the verifier's denylists.
@@ -105,7 +106,8 @@ def _statement(node: ast.stmt, bound: dict[str, tuple[str, str]], *, top: bool) 
         name = node.targets[0].id
         if not top:
             return _target(name) + _member(node.value)
-        return _target(name) + (_value(node.value, bound) or _bind(bound, name, (_VALUE, name)))
+        kind = _TEXT if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str) else _VALUE
+        return _target(name) + (_value(node.value, bound) or _bind(bound, name, (kind, name)))
     return [f"holds a {type(node).__name__}: a contract holds only declarations"]
 
 
@@ -165,7 +167,7 @@ def _reference(node: ast.expr, bound: dict[str, tuple[str, str]]) -> str | None:
         kind, what = bound.get(node.id, (None, node.id if node.id in _BUILTIN_TYPES else ""))
         if kind == _IMPORTED:
             return what
-        if kind in (_CLASS, _VALUE):
+        if kind in (_CLASS, _VALUE, _TEXT):
             return f"{kind}:{what}"
         return f"builtins.{what}" if what and kind is None else None
     if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
@@ -188,6 +190,11 @@ def _name_or_member(node: ast.expr, bound: dict[str, tuple[str, str]]) -> list[s
 
 def _plain(node: ast.expr) -> bool:
     return isinstance(node, ast.Constant) and (node.value is None or type(node.value) in (str, int, float, bool))
+
+
+def _text(node: ast.expr, bound: dict[str, tuple[str, str]]) -> bool:
+    """A name the contract bound to a string constant (`DATE = "..."`), which several fields' Annotated text may share."""
+    return isinstance(node, ast.Name) and bound.get(node.id, ("",))[0] == _TEXT
 
 
 def _member(node: ast.expr) -> list[str]:
@@ -223,7 +230,7 @@ def _annotation(node: ast.expr, bound: dict[str, tuple[str, str]]) -> list[str]:
         args = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
         if reference == "typing.Annotated" and len(args) >= 2:
             return _annotation(args[0], bound) + [
-                p for arg in args[1:] for p in ([] if _plain(arg) else [f"uses a {type(arg).__name__}: Annotated text is a constant"])
+                p for arg in args[1:] for p in ([] if _plain(arg) or _text(arg, bound) else [f"uses a {type(arg).__name__}: Annotated text is a constant"])
             ]
         if reference == "typing.Literal":
             return [p for arg in args for p in ([] if _plain(arg) else [f"uses a {type(arg).__name__}: Literal holds constants"])]
