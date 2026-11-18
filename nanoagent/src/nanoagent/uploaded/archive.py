@@ -7,9 +7,12 @@ while copying.
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import hashlib
 import os
 import stat
+import struct
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,6 +21,42 @@ from nanoagent.uploaded.contract import ContractError
 
 class ArchiveError(ContractError):
     """A tree that breaks a bound (`snapshot_too_large`) or a path rule (`unsafe_path`)."""
+
+
+# Where microsandbox keeps the stat a guest gave a file it wrote through a bind mount when the host cannot (macOS): version 1,
+# then uid, gid, mode and rdev, each a little-endian u32. The host file's own mode is not the guest's.
+GUEST_STAT = "user.msb.override_stat"
+_NO_ATTRIBUTE = (getattr(errno, "ENOATTR", errno.ENODATA), errno.ENODATA, errno.ENOTSUP)
+
+
+def _guest_stat(fd: int) -> bytes | None:
+    """The GUEST_STAT attribute of the open file ``fd``, or None when the file has none."""
+    if hasattr(os, "getxattr"):
+        try:
+            return os.getxattr(fd, GUEST_STAT)
+        except OSError as error:
+            if error.errno in _NO_ATTRIBUTE:
+                return None
+            raise
+    buffer = ctypes.create_string_buffer(64)
+    size = ctypes.CDLL(None, use_errno=True).fgetxattr(fd, GUEST_STAT.encode(), buffer, len(buffer), 0, 0)
+    if size < 0:
+        code = ctypes.get_errno()
+        if code in _NO_ATTRIBUTE:
+            return None
+        raise OSError(code, os.strerror(code))
+    return buffer.raw[:size]
+
+
+def file_mode(fd: int) -> int:
+    """The mode of the open file ``fd`` as the sandbox that wrote it sees it: microsandbox's GUEST_STAT where it keeps one."""
+    kept = _guest_stat(fd)
+    if kept is None:
+        return os.fstat(fd).st_mode
+    version, _uid, _gid, mode = struct.unpack_from("<4I", kept)
+    if version != 1:
+        raise ArchiveError("unsafe_path", f"{GUEST_STAT} is version {version}, not 1")
+    return mode
 
 
 @dataclass(frozen=True)
@@ -62,6 +101,7 @@ def copy_tree(source: Path, destination: Path, *, max_files: int, max_bytes: int
                 handle = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
                 digest = hashlib.sha256()
                 try:
+                    mode = file_mode(handle)
                     with os.fdopen(handle, "rb", closefd=False) as reader, open(destination / path, "wb") as out:
                         while chunk := reader.read(1 << 16):
                             total += len(chunk)

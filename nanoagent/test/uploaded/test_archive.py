@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import os
+import struct
+import subprocess
 
 import pytest
 
-from nanoagent.uploaded.archive import ArchiveError, copy_tree
+from nanoagent.uploaded.archive import GUEST_STAT, ArchiveError, copy_tree
 
 
 def test_regular_files_and_directories_are_copied_and_links_and_specials_only_listed(tmp_path):
@@ -44,3 +46,24 @@ def test_a_root_that_is_a_link_is_refused(tmp_path):
     (tmp_path / "link").symlink_to(tmp_path / "real")
     with pytest.raises(OSError):
         copy_tree(tmp_path / "link", tmp_path / "out", max_files=10, max_bytes=1 << 20)
+
+
+def _keep_guest_mode(path, mode):
+    """Give ``path`` the stat microsandbox keeps for a file its guest wrote, as it does where the host cannot hold it."""
+    value = struct.pack("<5I", 1, 10001, 10001, mode, 0)
+    if hasattr(os, "setxattr"):
+        os.setxattr(path, GUEST_STAT, value)
+    else:
+        subprocess.run(["xattr", "-wx", GUEST_STAT, value.hex(), str(path)], check=True)
+
+
+def test_a_file_keeps_the_mode_its_sandbox_gave_it_not_the_host_files(tmp_path):
+    source = tmp_path / "build-out"
+    source.mkdir()
+    for name, mode in (("claude", 0o100755), ("main.mjs", 0o100644)):
+        (source / name).write_text(name)
+        (source / name).chmod(0o600)
+        _keep_guest_mode(source / name, mode)
+    copy_tree(source, tmp_path / "out", max_files=10, max_bytes=1 << 20)
+    assert (tmp_path / "out" / "claude").stat().st_mode & 0o777 == 0o755
+    assert (tmp_path / "out" / "main.mjs").stat().st_mode & 0o777 == 0o644

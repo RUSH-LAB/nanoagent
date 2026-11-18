@@ -17,7 +17,8 @@ async function replyText(data, dialect, payload) {
   const sha = data.stream_payload_sha256 ?? data.response_payload_sha256;
   if (!sha) return '';
   const messages = traceMessages(await payload(sha), {dialect, response: true, stream: Boolean(data.stream_payload_sha256)});
-  return messages.map(message => message.text).join('\n\n');
+  // The tool calls it lists are the step's own `calls`.
+  return messages.filter(message => message.role === 'assistant').map(message => message.text).join('\n\n');
 }
 
 /**
