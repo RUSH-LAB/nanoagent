@@ -26,13 +26,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import io
 import math
 import os
-import platform
 import shutil
 import socket
-import tarfile
 import threading
 import time
 import uuid
@@ -58,6 +55,7 @@ from microsandbox import (
     PatchConfig,
     PatchKind,
     Protocol as NetProtocol,
+    PullEventType,
     Rlimit,
     RlimitResource,
     Rule,
@@ -70,7 +68,7 @@ from nanoagent.plugin.install import INSTALL_HOSTS
 from nanoagent.uploaded.archive import ArchiveError, Extracted, copy_tree
 from nanoagent.uploaded.collector import STRACE_FLAGS, CollectorError, ProcessEvent, ProcessEvidence, TraceSession, launch_argv, launched_processes, parse_trace
 from nanoagent.uploaded.contract import ContractError, HarnessManifest, is_canonical_relative_path, path_problem, read_result_file, validate_argv
-from nanoagent.uploaded.toolchains import _GCC_14, DependencyClosure, ToolchainProfile, read_url
+from nanoagent.uploaded.toolchains import DependencyClosure, ToolchainProfile
 
 UID = 10001
 GID = 10001
@@ -97,25 +95,14 @@ MIB = 1 << 20
 # dependencies. Plugins are synced here so their virtual environment matches the tool VM's runtime.
 PLUGIN_PREP_IMAGE = "python@sha256:cad37dd20c7cac861af9003af8796d03ea7a998ec1e3a664429740fc9d7d2691"
 # Every sandbox the supervisor creates is named `rush-…` (rush-case-, rush-tool-, rush-build-, rush-prep-, rush-probe-,
-# rush-strace-), so that prefix is exactly what a dead run leaves behind.
+# rush-pull-, rush-tools-), so that prefix is exactly what a dead run leaves behind.
 RESOURCE_PREFIX = "rush-"
 
-# The guest tools, pinned. strace is built static from its release tarball in the pinned gcc image (no network), so one
-# binary runs in every runtime image; uv is the static (musl) Linux release.
-STRACE_VERSION = "7.3"
-STRACE_URL = f"https://github.com/strace/strace/releases/download/v{STRACE_VERSION}/strace-{STRACE_VERSION}.tar.xz"
-STRACE_SHA256 = "529634c40910895a9a1f3c5c1e65da2ca9ed72fb158dfc4bcc89efdf05e39b72"
-STRACE_BUILD = (
-    f"set -e; mkdir /b; cd /b; tar -xJf /in/strace.tar.xz; cd strace-{STRACE_VERSION};"
-    " ./configure -q --enable-mpers=no --disable-gcc-Werror --without-libdw --without-libunwind --without-libselinux LDFLAGS=-static >/tmp/log 2>&1"
-    " && make -s -j\"$(nproc)\" >>/tmp/log 2>&1 && strip -o /out/strace src/strace || { tail -40 /tmp/log >&2; exit 1; }"
-)
-UV_VERSION = "0.10.9"
-UV_SHA256 = {
-    "aarch64": "05b0d3087e913ebe11756365a90dd47c05d6728752fdbe129ad4c3ccd769826d",
-    "x86_64": "433e56874739e92c7cfd661ba9e5f287b376ca612c08c8194a41a98a13158aea",
-}
-GUEST_ARCH = {"arm64": "aarch64", "aarch64": "aarch64", "x86_64": "x86_64", "amd64": "x86_64"}
+# The guest tools, RUSH's own image (nanoagent/images/guest-tools, published by .github/workflows/nanoagent-images.yml): a
+# static strace and uv's static Linux release at its root, one binary of each for every runtime image. Pinned by the digest
+# of its multi-arch index, and copied out once per worker (the image has no shell: microsandbox's agent copies them).
+GUEST_TOOLS_IMAGE = "ghcr.io/rush-lab/guest-tools@sha256:6d29aace475e4e70e7838c2b6369fc0a2c29cc3e69217501ea046f3c18af67cc"
+GUEST_TOOLS = ("strace", "uv")
 
 
 class SandboxError(ContractError):
@@ -330,13 +317,6 @@ class _Loop:
         return asyncio.run_coroutine_threadsafe(coroutine, self._loop)
 
 
-def guest_arch() -> str:
-    machine = platform.machine().lower()
-    if machine not in GUEST_ARCH:
-        raise SandboxError("unsupported_host", f"no guest tools for this machine ({platform.machine()})")
-    return GUEST_ARCH[machine]
-
-
 def _mib(size: int) -> int:
     return max(1, math.ceil(size / MIB))
 
@@ -533,7 +513,7 @@ class MicrosandboxSupervisor:
         wall_clock_ns: Callable[[], int] = time.time_ns,
         internet: bool = False,
     ) -> None:
-        self._tools_root = tools.resolve()  # where the guest tools are built and cached, per architecture (mounts may not pass a link)
+        self._tools_root = tools.resolve()  # where the guest tools are cached, per image digest (mounts may not pass a link)
         self._tools: Path | None = None
         self._internet = internet
         self._tool_cases: dict[str, _Case] = {}
@@ -547,58 +527,59 @@ class MicrosandboxSupervisor:
     def reap(self) -> list[str]:
         return self._loop.run(reap_leftovers())
 
+    def prefetch(self, images: Sequence[str], report: Callable[[int, int], None]) -> None:
+        """Pulls ``images`` into microsandbox's image cache, all at once, telling ``report(done, total)`` the bytes as they
+        arrive (a cached image counts as done when it resolves). Every image is pinned by digest, which microsandbox verifies."""
+        self._loop.run(self._prefetch(tuple(dict.fromkeys(images)), report))
+
+    async def _prefetch(self, images: tuple[str, ...], report: Callable[[int, int], None]) -> None:
+        totals = dict.fromkeys(images, 0)
+        layers: dict[str, dict[int, int]] = {image: {} for image in images}
+
+        async def pull(image: str) -> None:
+            session = Sandbox.create_with_progress(f"rush-pull-{uuid.uuid4().hex[:12]}", image=image, memory=128, network=Network.none(), replace=True)
+            try:
+                async for event in session.progress:
+                    if event.event_type == PullEventType.RESOLVED:
+                        totals[image] = event.total_download_bytes or 0
+                    elif event.event_type == PullEventType.LAYER_DOWNLOAD_PROGRESS:
+                        layers[image][event.layer_index or 0] = event.downloaded_bytes or 0
+                    elif event.event_type == PullEventType.COMPLETE:
+                        layers[image] = {0: totals[image]}
+                    else:
+                        continue
+                    report(sum(sum(done.values()) for done in layers.values()), sum(totals.values()))
+                sandbox = await session.result()
+            except microsandbox.MicrosandboxError as error:
+                raise SandboxError("pull_failed", f"could not pull {image}: {error}") from error
+            await self._destroy(sandbox)
+
+        await asyncio.gather(*(pull(image) for image in images))
+
     def guest_tools(self) -> Path:
-        """The guest tools for this machine's architecture: built or downloaded once, verified, then cached."""
-        arch = guest_arch()
-        folder = self._tools_root / arch
-        stamp = f"strace {STRACE_VERSION} {STRACE_SHA256} {_GCC_14}\nuv {UV_VERSION} {UV_SHA256[arch]}\n"
-        if (folder / "stamp").exists() and (folder / "stamp").read_text() == stamp:
-            self._tools = folder
-            return folder
-        staging = self._tools_root / f".{arch}-{uuid.uuid4().hex[:8]}"
-        (staging / "in").mkdir(parents=True)
-        try:
-            source = read_url(STRACE_URL, 300, 64 << 20)
-            if hashlib.sha256(source).hexdigest() != STRACE_SHA256:
-                raise SandboxError("guest_tools_failed", f"{STRACE_URL} does not match its pinned sha256")
-            (staging / "in" / "strace.tar.xz").write_bytes(source)
-            self._loop.run(self._build_strace(staging))
-            url = f"https://github.com/astral-sh/uv/releases/download/{UV_VERSION}/uv-{arch}-unknown-linux-musl.tar.gz"
-            archive = read_url(url, 300, 128 << 20)
-            if hashlib.sha256(archive).hexdigest() != UV_SHA256[arch]:
-                raise SandboxError("guest_tools_failed", f"{url} does not match its pinned sha256")
-            with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
-                member = tar.getmember(f"uv-{arch}-unknown-linux-musl/uv")
-                reader = tar.extractfile(member)
-                assert reader is not None
-                (staging / "uv").write_bytes(reader.read())
-            for name in ("strace", "uv"):
-                (staging / name).chmod(0o755)
-            shutil.rmtree(staging / "in")
-            (staging / "stamp").write_text(stamp)
-            shutil.rmtree(folder, ignore_errors=True)
-            staging.rename(folder)
-        finally:
-            shutil.rmtree(staging, ignore_errors=True)
+        """The guest tools, copied out of their pinned image once, then cached under its digest."""
+        folder = self._tools_root / GUEST_TOOLS_IMAGE.rsplit(":", 1)[1]
+        if not folder.is_dir():
+            staging = self._tools_root / f".{uuid.uuid4().hex[:8]}"
+            staging.mkdir(parents=True)
+            try:
+                self._loop.run(self._copy_guest_tools(staging))
+                staging.rename(folder)
+            finally:
+                shutil.rmtree(staging, ignore_errors=True)
         self._tools = folder
         return folder
 
-    async def _build_strace(self, staging: Path) -> None:
-        name = f"rush-strace-{uuid.uuid4().hex[:12]}"
-        out = staging / "out"
-        out.mkdir()
-        sandbox = await Sandbox.create(
-            name, image=_GCC_14, network=Network.none(), cpus=max(1, min(os.cpu_count() or 1, 8)), memory=4096, replace=True,
-            volumes={"/in": MountConfig(kind=MountKind.BIND, bind=str(staging / "in"), readonly=True), "/out": MountConfig(kind=MountKind.BIND, bind=str(out))},
-        )
+    async def _copy_guest_tools(self, staging: Path) -> None:
+        sandbox = await self._create(f"rush-tools-{uuid.uuid4().hex[:12]}", GUEST_TOOLS_IMAGE, Limits(), Network.none(), {})
         try:
-            run = await _run(sandbox, "sh", ["-c", STRACE_BUILD], user="root", cwd="/", timeout_s=900)
-            if run.code != 0:
-                raise SandboxError("guest_tools_failed", f"building strace failed: {run.stderr[-2000:].decode('utf-8', 'replace')}")
+            for name in GUEST_TOOLS:
+                await sandbox.fs.copy_to_host(f"/{name}", str(staging / name))
+                (staging / name).chmod(0o755)
+        except microsandbox.MicrosandboxError as error:
+            raise SandboxError("guest_tools_failed", f"could not copy the guest tools out of {GUEST_TOOLS_IMAGE}: {error}") from error
         finally:
             await self._destroy(sandbox)
-        (out / "strace").rename(staging / "strace")
-        out.rmdir()
 
     def startup(self, profile: ToolchainProfile) -> ProcessEvidence:
         """Proves the tracer end to end in the profile's runtime image: a probe's exec and exit must be observed.

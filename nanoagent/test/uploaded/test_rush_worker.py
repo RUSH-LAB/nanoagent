@@ -466,3 +466,13 @@ async def test_a_large_response_keeps_the_identifiers_needed_to_reconcile_failed
     response = journal.records[0]["data"]
     assert response["data_truncated"] and response["generation_id"] == "gen-1"
     assert journal.redactions[response["data_payload_sha256"]] == ("none" if payload_limit > 100 else "truncated")
+
+
+def test_pulled_image_bytes_are_logged_at_most_once_per_interval_in_the_form_rush_lab_reads(caplog: pytest.LogCaptureFixture) -> None:
+    from nanoagent.uploaded.worker import pull_progress
+
+    report = pull_progress(interval_s=3600)
+    with caplog.at_level("INFO"):
+        report(0, 20_000_000)
+        report(5_000_000, 20_000_000)
+    assert [record.getMessage() for record in caplog.records] == ["pulling images: 0 of 20000000 bytes"]  # helpinghands/src/runner/worker.mjs PULLING

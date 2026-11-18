@@ -1,4 +1,5 @@
 import {attemptStatus, explanationText, verdictText} from '../Benchmark/runs.js';
+import {workerNotice} from '../Benchmark/worker.js';
 
 /**
  * A session of a plugin page's Harness tab, on the host's side: the run RUSH queued for it (POST /api/benchmark/sessions) is a
@@ -45,6 +46,24 @@ export async function harnessInput({attemptId, request, input}) {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `The terminal did not take the input (${response.status})`);
+}
+
+/**
+ * Wait until the member's benchmark worker is ready (GET /api/runner/status), telling the page what it prepares meanwhile
+ * (`emit('harness.preparing', {done, total})`, the bytes of the images it pulls as it starts), so a session is queued only for a
+ * worker that can take it. One that cannot start (no key, unsupported, failed, RUSH Lab not connected) fails with why.
+ */
+export async function awaitWorker({request, emit, signal, sleep = ms => new Promise(resolve => setTimeout(resolve, ms))}) {
+  while (!signal.aborted) {
+    const response = await request('/api/runner/status', {signal});
+    const status = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(status.error || `Could not read your benchmark worker's state (${response.status})`);
+    const notice = workerNotice(status);
+    if (notice.tone === 'ok') return;
+    if (notice.tone === 'bad') throw new Error(notice.text);
+    emit('harness.preparing', status.worker?.progress ?? {done: 0, total: 0});
+    await sleep(RETRY_MS);
+  }
 }
 
 /**

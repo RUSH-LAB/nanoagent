@@ -1,5 +1,5 @@
 import {readEvents, SSE_CONTENT_TYPE} from '../../utils/eventStream.js';
-import {followHarness, harnessInput} from './harness.js';
+import {awaitWorker, followHarness, harnessInput} from './harness.js';
 import {
   chatEvent, failure, invalidRequest, promptHistory, reply, requestFrom, runEvent, themeEvent,
 } from './protocol.js';
@@ -45,7 +45,7 @@ const sleep = (ms, signal) => new Promise(resolve => {
   }, {once: true});
 });
 
-export function createBridgeHost({frameWindow, plugin, workspaceId, theme, request, onVersion, shown, onShown}) {
+export function createBridgeHost({frameWindow, plugin, workspaceId, theme, request, onVersion, shown, onShown, pause = sleep}) {
   const runs = new Map(); // runId -> {controller, session}, the controller of its stream now
   // runId -> {controller, run, attempt, sending}: a Harness tab session's stream, its benchmark run's and attempt's ids, and its input
   // in flight, which goes to the terminal in order.
@@ -208,39 +208,53 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
   }
 
   async function harnessRun({harness, task, text}) {
-    const response = await request('/api/benchmark/sessions', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({plugin_id: plugin.id, task_id: task, harness, text, interactive: true}),
-    });
-    if (!response.ok) throw await failed(response, 'Could not start the harness');
-    const {run} = await response.json();
     runCount += 1;
     const runId = `harness-${runCount}`;
     const controller = new AbortController();
-    const attemptId = run.cases[0].attempts[0].attempt_id;
-    harnessRuns.set(runId, {controller, run: run.run_id, attempt: attemptId, sending: Promise.resolve()});
+    // `run` and `attempt` once RUSH has queued the session, which waits for the member's worker to be ready.
+    let queued;
+    const entry = {controller, run: null, attempt: null, queued: new Promise(resolve => (queued = resolve)), sending: Promise.resolve()};
+    harnessRuns.set(runId, entry);
     const emit = (event, data) => post(runEvent(event, runId, data));
     const follow = async () => {
       try {
-        await followHarness({attemptId, request, read: readEvents, emit, signal: controller.signal});
+        await awaitWorker({request, emit, signal: controller.signal, sleep: ms => pause(ms, controller.signal)});
+        if (controller.signal.aborted) return;
+        const response = await request('/api/benchmark/sessions', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({plugin_id: plugin.id, task_id: task, harness, text, interactive: true}),
+        });
+        if (!response.ok) throw await failed(response, 'Could not start the harness');
+        const {run} = await response.json();
+        Object.assign(entry, {run: run.run_id, attempt: run.cases[0].attempts[0].attempt_id});
+        // Stopped while RUSH was queuing it: the session it queued ends too.
+        if (controller.signal.aborted) {
+          await cancelHarness(entry);
+          return;
+        }
+        queued();
+        await followHarness({attemptId: entry.attempt, request, read: readEvents, emit, signal: controller.signal});
       } catch (error) {
-        emit('harness.error', {message: error.message});
+        if (!controller.signal.aborted) emit('harness.error', {message: error.message});
+      } finally {
+        harnessRuns.delete(runId);
+        emit('harness.done', {});
       }
-      harnessRuns.delete(runId);
-      emit('harness.done', {});
     };
     return {result: {runId}, after: follow};
   }
 
-  /** Send a Harness tab session's terminal `input`, after what was sent before it. */
+  /** Send a Harness tab session's terminal `input`, after what was sent before it and once RUSH has queued the session. */
   function toTerminal(runId, input) {
     const run = harnessRuns.get(runId);
     if (!run) throw new Error(`No harness run ${runId} is in progress`);
-    run.sending = run.sending.catch(() => {}).then(() => harnessInput({attemptId: run.attempt, request, input}));
+    run.sending = run.sending.catch(() => {}).then(() => run.queued).then(() => harnessInput({attemptId: run.attempt, request, input}));
     return run.sending.then(() => ({result: {}}));
   }
+  /** End a Harness tab session: its run, or, before RUSH has queued it, the wait for the worker. */
   const cancelHarness = async run => {
+    if (!run.run) return run.controller.abort();
     const response = await request(`/api/benchmark/runs/${run.run}/cancel`, {method: 'POST'});
     if (!response.ok) throw await failed(response, 'Could not cancel the harness');
   };

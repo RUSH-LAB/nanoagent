@@ -79,6 +79,9 @@ export function harnessPage(plugin) {
     try {
       runId = await startRun("harness.run", { harness: "shell", task: task.id, text: task.description }, (name, data) => {
         switch (name) {
+          case "harness.preparing":
+            status.textContent = `${label} · ${task.description} · preparing your computer (${Math.round(data.done / 1e6)} of ${Math.round(data.total / 1e6)} MB): the session starts once it is ready`;
+            break;
           case "harness.output":
             if (!started) {
               started = true;

@@ -1,0 +1,63 @@
+name: NanoAgent images
+
+# RUSH's own OCI images (nanoagent/images/<name>/Dockerfile), which the benchmark worker boots by the digest the code pins
+# (ghcr.io/rush-lab/<name>@sha256:…). Each builds reproducibly: pinned inputs, SOURCE_DATE_EPOCH=0 and rewritten
+# timestamps, no attestations. A pull request into production that changes one fails unless it builds, from its sources,
+# to exactly the digest the code pins. A push to devmode or production publishes those same bytes to GHCR, where RUSH Lab
+# and RUSH Lab Dev pull them, and fails the same way on a mismatch, before publishing anything.
+on:
+  pull_request:
+    branches: [production]
+    paths: &sources
+      - '.github/workflows/nanoagent-images.yml'
+      - 'nanoagent/images/**'
+      # Where the code pins the digests.
+      - 'nanoagent/src/nanoagent/uploaded/sandbox.py'
+      - 'nanoagent/src/nanoagent/uploaded/toolchains.py'
+  push:
+    branches: [production, devmode]
+    paths: *sources
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: guest-tools
+            dockerfile: nanoagent/images/guest-tools/Dockerfile
+            context: nanoagent/images/guest-tools
+    env:
+      IMAGE: ghcr.io/rush-lab/${{ matrix.name }}
+      SOURCE_DATE_EPOCH: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+        with:
+          # The buildkit every digest is built with (v0.25.2); another version may lay the image out differently.
+          driver-opts: image=moby/buildkit@sha256:0f63d66f8d2de0bd16438284831a3e9ee6ca7cd57b6eb3ed6e38a7a456590fa7
+      - name: Build
+        run: |
+          docker buildx build --platform linux/arm64,linux/amd64 --provenance=false --sbom=false \
+            --build-arg SOURCE_DATE_EPOCH --file "${{ matrix.dockerfile }}" \
+            --output type=oci,dest=image.tar,rewrite-timestamp=true --metadata-file built.json "${{ matrix.context }}"
+          built="$IMAGE@$(jq -r '."containerimage.digest"' built.json)"
+          echo "built $built" | tee -a "$GITHUB_STEP_SUMMARY"
+          pinned="$(grep -rhoE "$IMAGE@sha256:[0-9a-f]{64}" nanoagent/src | sort -u)"
+          if [ "$pinned" != "$built" ]; then
+            echo "::error::the code pins ${pinned:-nothing} for ${{ matrix.name }}, but its sources build $built: pin that digest"
+            exit 1
+          fi
+      - name: Publish
+        if: github.event_name != 'pull_request'
+        run: |
+          skopeo copy --all --preserve-digests --dest-creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
+            oci-archive:image.tar "docker://$IMAGE:${{ github.ref_name }}"
+          skopeo inspect --raw --creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" "docker://$IMAGE@$(jq -r '."containerimage.digest"' built.json)" > /dev/null

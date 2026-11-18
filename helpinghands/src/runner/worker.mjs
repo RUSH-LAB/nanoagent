@@ -8,7 +8,7 @@
  *
  * Starting it is a chain of health checks (CHECKS), each with a clear pass, warn or fail and a fix the member can act on;
  * the first failure stops the chain, and later checks stay pending. Every change is handed to `report` as one object,
- * {state, message, platform, concurrency, progress, checks, log}: lab.mjs gives it to the relay, which sends it to RUSH in its `hello`, and the
+ * {state, message, platform, concurrency, progress, checks, log}, `progress` the bytes of images pulled ({done, total}) while it pulls them: lab.mjs gives it to the relay, which sends it to RUSH in its `hello`, and the
  * Benchmark screens read it from GET /api/runner/status. `state` is ready, starting, no-key, unsupported or failed.
  */
 import {spawn} from 'node:child_process';
@@ -33,11 +33,14 @@ const CHECKS = [
 const PROOFS = [
   ['plugin sandbox verified', 'plugin sandbox'],
   ['leftover reaping passed', 'leftover cleanup'],
+  ['images ready', 'images'],
   ['guest tools ready', 'guest tools'],
   ['tracer probe passed', 'toolchain probes'],
   ['egress fence verified', 'egress fence'],
 ];
 const PROOFS_DONE = 'advertised capabilities';
+// What the worker logs while it pulls its pinned images (the guest tools, every toolchain's runtime image), until `images ready`.
+const PULLING = /pulling images: (\d+) of (\d+) bytes/;
 // The worker logs this once on its first answer from RUSH (a claim answered, with or without a job), and again after an outage.
 const CLAIMING = 'claiming from RUSH';
 
@@ -136,6 +139,8 @@ export function benchmarkWorker({
   let concurrencySetting = null;
   // What the worker advertised once its proofs passed (its concurrency is already clamped to the machine's CPUs), null until then.
   let advertised = null;
+  // The startup images' bytes pulled so far, {done, total}, while the worker pulls them; null otherwise.
+  let progress = null;
   let autoRestarts = 0;
   let stopped = false;
 
@@ -148,7 +153,7 @@ export function benchmarkWorker({
     return {state: 'starting', message: null};
   };
   const concurrency = () => ({setting: concurrencySetting, cpus: os.availableParallelism(), effective: advertised?.concurrency ?? null});
-  const snapshot = () => ({...summary(), platform, concurrency: concurrency(), progress: null, checks, log: logTail});
+  const snapshot = () => ({...summary(), platform, concurrency: concurrency(), progress, checks, log: logTail});
   const publish = () => report(snapshot());
   const mark = (checkId, state, message = null, fix = null) => {
     Object.assign(check(checkId), {state, message, fix});
@@ -223,6 +228,7 @@ export function benchmarkWorker({
     fs.writeFileSync(logFile, '');
     logTail = [];
     advertised = null;
+    progress = null;
     concurrencySetting = concurrencyInUse = readConcurrency();
     const [program, args] = workerCommand({
       python, folder, site, worker: `lab-${device.replace(/[^A-Za-z0-9_-]/g, '-')}`, concurrency: concurrencyInUse,
@@ -240,12 +246,14 @@ export function benchmarkWorker({
   function follower(mine) {
     const seen = new Set();
     let proofsDone = false;
-    const proofText = () => `Passed: ${[...seen].join(', ') || 'none yet'}.`;
+    const proofText = () => `Passed: ${[...seen].join(', ') || 'none yet'}.${progress ? ` Pulling images: ${progress.done} of ${progress.total} bytes.` : ''}`;
     return {
       onLine(line) {
         if (mine !== generation) return;
         appendLog(line);
         for (const [needle, label] of PROOFS) if (line.includes(needle)) seen.add(label);
+        const pulled = !seen.has('images') && line.match(PULLING);
+        progress = pulled ? {done: Number(pulled[1]), total: Number(pulled[2])} : seen.has('images') ? null : progress;
         if (!proofsDone && line.includes(PROOFS_DONE)) {
           proofsDone = true;
           try {
@@ -271,6 +279,7 @@ export function benchmarkWorker({
         const exited = await started.exited;
         if (mine !== generation) return;
         worker = null;
+        progress = null;
         const status = exited.error?.message ?? (exited.signal ? `signal ${exited.signal}` : `status ${exited.code}`);
         const unauthorized = logTail.some(line => /\b401\b|unauthori[sz]ed|revoked/i.test(line));
         const reason = unauthorized ? 'RUSH rejected the worker\'s credential' : `The worker exited (${status})`;

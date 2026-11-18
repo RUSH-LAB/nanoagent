@@ -7,7 +7,7 @@ import {benchmarkWorker, hostSupport, mintCredential, workerCommand} from '../..
 import {readConcurrency, writeConcurrency} from '../../../src/runner/lab.mjs';
 import {workerNotice} from '../../../src/components/Benchmark/worker.js';
 
-const PROOF_LINES = ['plugin sandbox verified', 'leftover reaping passed', 'guest tools ready', 'tracer probe passed: python-3', 'egress fence verified', 'advertised capabilities: {}'];
+const PROOF_LINES = ['plugin sandbox verified', 'leftover reaping passed', 'images ready', 'guest tools ready', 'tracer probe passed: python-3', 'egress fence verified', 'advertised capabilities: {}'];
 const CLAIMING_LINE = 'claiming from RUSH: openrouter';
 const settle = () => new Promise(resolve => setTimeout(resolve, 20));
 
@@ -76,7 +76,7 @@ test('the worker reaches RUSH only when it says it claimed: proofs alone leave t
   await t.worker.start();
   await settle();
   assert.equal(states(t.last()).proofs, 'pass');
-  assert.match(t.last().checks.find(check => check.id === 'proofs').message, /plugin sandbox, leftover cleanup, guest tools, toolchain probes, egress fence/);
+  assert.match(t.last().checks.find(check => check.id === 'proofs').message, /plugin sandbox, leftover cleanup, images, guest tools, toolchain probes, egress fence/);
   assert.equal(states(t.last()).claims, 'running');
   assert.equal(t.last().state, 'starting');
   assert.equal(t.last().platform, 'darwin');
@@ -89,6 +89,21 @@ test('the worker reaches RUSH only when it says it claimed: proofs alone leave t
   await settle();
   assert.equal(states(recovered.last()).claims, 'pass');
   assert.equal(recovered.last().state, 'ready');
+});
+
+test('the images the worker pulls as it starts are its progress, in bytes, until they are ready', async () => {
+  const pulling = ['plugin sandbox verified', 'leftover reaping passed', 'INFO:nanoagent:pulling images: 0 of 0 bytes', 'INFO:nanoagent:pulling images: 5000000 of 20000000 bytes'];
+  const t = setup({logLines: pulling});
+  await t.worker.start();
+  await settle();
+  assert.deepEqual(t.last().progress, {done: 5000000, total: 20000000});
+  assert.equal(t.last().state, 'starting');
+  assert.match(t.last().checks.find(check => check.id === 'proofs').message, /Pulling images: 5000000 of 20000000 bytes/);
+  assert.match(workerNotice({connected: true, worker: t.last()}).text, /preparing: 5 of 20 MB/);
+  const ready = setup({logLines: [...pulling, ...PROOF_LINES.slice(2)]});
+  await ready.worker.start();
+  await settle();
+  assert.equal(ready.last().progress, null);
 });
 
 test('a computer the sandboxes cannot run on is unsupported, says why, and runs nothing', async () => {

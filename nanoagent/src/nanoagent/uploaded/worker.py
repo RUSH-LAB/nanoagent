@@ -20,6 +20,7 @@ import os
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
@@ -36,7 +37,7 @@ from nanoagent.uploaded.reconcile import HttpxGenerationLookup, reconcile
 from nanoagent.uploaded.relay import HostRelay
 from nanoagent.uploaded.runner import AttemptRunner, RunnerConfig, SyncedPlugins
 from nanoagent.uploaded.rush_worker import AttemptJob, RushUnavailable, RushWorkerClient
-from nanoagent.uploaded.sandbox import Limits, MicrosandboxSupervisor
+from nanoagent.uploaded.sandbox import GUEST_TOOLS_IMAGE, Limits, MicrosandboxSupervisor
 from nanoagent.uploaded.timing import DEFAULT_CLOCK_TOLERANCE_NS
 from nanoagent.uploaded.toolchains import TOOLCHAINS
 
@@ -250,6 +251,19 @@ def runner_config(config: WorkerConfig, env: dict[str, str], machine: Machine) -
     )
 
 
+def pull_progress(interval_s: float = 1.0) -> Callable[[int, int], None]:
+    """Logs the bytes of the startup images pulled so far, at most once per ``interval_s``: RUSH Lab shows it as the worker's progress."""
+    last = -math.inf
+
+    def report(done: int, total: int) -> None:
+        nonlocal last
+        if time.monotonic() - last >= interval_s:
+            last = time.monotonic()
+            LOG.info("pulling images: %d of %d bytes", done, total)
+
+    return report
+
+
 async def serve(config: WorkerConfig, env: dict[str, str] | None = None) -> None:
     env = dict(os.environ if env is None else env)
     token = env.get(config.rush.token_env, "")
@@ -274,6 +288,9 @@ async def serve(config: WorkerConfig, env: dict[str, str] | None = None) -> None
         for name in await anyio.to_thread.run_sync(supervisor.reap):
             LOG.info("reaped a leftover sandbox: %s", name)  # a previous run quit mid-attempt
         LOG.info("leftover reaping passed")
+        images = [GUEST_TOOLS_IMAGE, *(profile.runtime_image for profile in TOOLCHAINS.values())]
+        await anyio.to_thread.run_sync(supervisor.prefetch, images, pull_progress())
+        LOG.info("images ready")
         await anyio.to_thread.run_sync(supervisor.guest_tools)
         LOG.info("guest tools ready")
         for toolchain, profile in TOOLCHAINS.items():
