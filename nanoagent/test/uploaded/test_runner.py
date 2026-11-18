@@ -608,11 +608,18 @@ async def test_managed_commands_use_a_small_thread_limit_of_their_own() -> None:
         gate.set()
 
 
-async def test_a_crash_that_overflows_the_collector_is_still_scored(tmp_path: Path) -> None:
-    script = fx.CaseScript(termination=Termination(TerminationKind.NONZERO_EXIT, 3, None), evidence=fx.evidence(False, ("journal_overflow",)))
+@pytest.mark.parametrize(("losses", "verdict"), [
+    (("journal_overflow",), "fail"),
+    (("journal_overflow", "root_exit_missing"), "fail"),
+    (("root_exit_missing",), None),
+    (("journal_overflow", "root_exit_missing", "connection_lost"), None),
+])
+async def test_a_crash_that_overflows_the_collector_is_scored_unless_other_evidence_is_lost(tmp_path: Path, losses: tuple[str, ...], verdict: str | None) -> None:
+    script = fx.CaseScript(termination=Termination(TerminationKind.NONZERO_EXIT, 3, None), evidence=fx.evidence(False, losses))
     rig = Rig(tmp_path, script=script, verify=CaseVerdict("fail", 0.0, None))
     await rig.run()
-    assert rig.rush.finalized[0]["verdict"] == "fail"
+    assert rig.rush.finalized[0]["verdict"] == verdict
+    assert len(rig.verified) == (verdict is not None)
 
 
 @pytest.mark.parametrize("policy", ["task_tools", "coding"])

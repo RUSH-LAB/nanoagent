@@ -689,8 +689,11 @@ class AttemptRunner:
         self, manifest: PluginManifest, job: AttemptJob, outcome: dict[str, Any], workspace: Path, evidence: ProcessEvidence
     ) -> dict[str, Any] | None:
         """The plugin verifier's verdict on the frozen outcome, or None when the score stays unavailable."""
-        if outcome["status"] == "execution_failed" and outcome["reason"] in ("nonzero_exit", "signaled") and not evidence.complete and set(evidence.loss_reasons) - {"journal_overflow"}:
-            return None  # the exit could not be observed reliably; the harness's own overflow of the collector does not count, or it could unscore its crash
+        losses = set(evidence.loss_reasons)
+        if "journal_overflow" in losses:
+            losses -= {"journal_overflow", "root_exit_missing"}  # overflow can drop the root exit too; neither may unscore the harness's crash
+        if outcome["status"] == "execution_failed" and outcome["reason"] in ("nonzero_exit", "signaled") and not evidence.complete and losses:
+            return None  # the exit could not be observed reliably for a reason independent of the harness's journal overflow
         try:
             verdict = await in_thread(
                 self.verify_task_case, manifest, job.task["id"], dict(job.case["arguments"]), outcome, job.private_reference, workspace
