@@ -73,7 +73,7 @@ function ctxFor(published = {entry: ENTRY, sha256: SHA}) {
       repository: {
         leaderboard: async (context, pluginId, taskId) => { calls.push(['board', pluginId, taskId]); return [row('pi', 'pass')]; },
         marketVersion: async (context, pluginId, version) => { calls.push(['market', pluginId, version]); return published; },
-        importRun: async (context, frame, record) => { calls.push(['import', frame, record]); return {run_id: 'r1', created: calls.length < 3}; },
+        importRun: async (context, frame, record) => { calls.push(['import', frame, record]); return {run_id: 'r1', created: calls.length < 3, filled: calls.length < 3}; },
       },
     },
   });
@@ -97,7 +97,7 @@ describe('POST /api/benchmark/imports', () => {
   it('keeps the run on the package of its plugin version as published, once', async () => {
     const {ctx, calls} = ctxFor();
     const first = await post(ctx, RECORD);
-    assert.deepEqual([first.status, first.payload], [201, {run_id: 'r1', created: true}]);
+    assert.deepEqual([first.status, first.payload], [201, {run_id: 'r1', created: true, filled: true}]);
     const [, frame, record] = calls[1];
     assert.deepEqual([calls[0], frame.package_sha256, frame.task_instructions, record.started_at], [['market', 'p', '1.0.0'], SHA, 'i', '2026-11-12T20:16:11.000Z']);
     assert.deepEqual([record.case.arguments, record.case.reference, record.case.content_digest.length, record.trajectory.length], [{a: 1}, {sum: 1}, 64, 1]);

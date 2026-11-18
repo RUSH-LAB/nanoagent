@@ -305,8 +305,8 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       if (!published) throw new BenchmarkError(404, 'unknown_plugin_version', `${pluginId} ${version} is not published`);
       const frame = publicationFrame({...record.frame, package_sha256: published.sha256});
       checkTaskAgainstEntry(published.entry, frame);
-      const {run_id: id, created} = await repository.importRun(context, frame, record);
-      return json(res, created ? 201 : 200, {run_id: id, created});
+      const kept = await repository.importRun(context, frame, record);
+      return json(res, kept.created ? 201 : 200, kept);
     }
     if (top === 'previews') {
       if (req.method !== 'POST') return wrongMethod();
