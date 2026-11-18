@@ -112,11 +112,12 @@ def run_harness(name: str, rush: RushServer, benchmark: tuple[str, Path, Cli]) -
                 index="https://pypi.org/simple",
                 socket=gate.SOCKET,
                 scratch=f"{worker.home}/scratch",
+                concurrency=1,
             )
         )
         worker.start()
         try:
-            # One attempt at a time, in case order: the answer case, then the refusal case, so each takes its own scripted turns.
+            # One attempt at a time (concurrency 1), in case order: the answer case, then the refusal case, so each takes its own scripted turns.
             report = gate.submit(
                 cli, run_dir / f"step2-{name}", benchmark_name, plugin=PLUGIN, key=f"reference-{name}", source=None, reference=name, policy="coding",
                 follow_timeout=2400,

@@ -197,10 +197,11 @@ def container_unavailable() -> str | None:
     return None
 
 
-def worker_yaml(*, base_url: str, upstream: str, index: str, socket: str, scratch: str, egress: bool = False, models: tuple[str, ...] = ()) -> str:
+def worker_yaml(*, base_url: str, upstream: str, index: str, socket: str, scratch: str, egress: bool = False, models: tuple[str, ...] = (), concurrency: int = 4) -> str:
     """deploy/gvisor/worker.mock.yaml with this run's endpoints; ``egress`` turns on internet access for harnesses (the worker then
     advertises it and proves the host filter of deploy/gvisor/egress.sh at startup); ``models`` are priced beside ``test/model``, at its
-    rates (the worker advertises every model it prices, and the server refuses a benchmark for any other)."""
+    rates (the worker advertises every model it prices, and the server refuses a benchmark for any other); ``concurrency`` is how many
+    attempts the worker runs at once (1 for a scenario whose scripted turns must be taken in case order)."""
     text = (NANOAGENT / "deploy" / "gvisor" / "worker.mock.yaml").read_text()
     for old, new in (
         ("scratch: /home/worker/rush-worker/scratch/attempts", f"scratch: {scratch}"),
@@ -209,6 +210,7 @@ def worker_yaml(*, base_url: str, upstream: str, index: str, socket: str, scratc
         ("mock_hosts: [openrouter-mock]", f"mock_hosts: [{HOST}]"),
         ("socket: /run/rush-gvisor/seccheck.sock", f"socket: {socket}"),
         ("python-3: /home/worker/rush-worker/wheels", f"python-3: {index}"),
+        ("concurrency: 4", f"concurrency: {concurrency}"),
         ("  test/model:\n    input: 0.000001\n    output: 0.000004\n", "".join(f"  {model}:\n    input: 0.000001\n    output: 0.000004\n" for model in (MODEL, *models))),
     ):
         assert old in text, old
