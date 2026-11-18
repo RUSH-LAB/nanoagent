@@ -9,8 +9,10 @@ member's source of it (POST benchmark/sources/references/<name>). The runs are o
 as `nanoagent harness` signs in, and go only to the RUSH `site` names, a local one: a connection to another RUSH stops the step.
 RUSH keeps a run once per plugin, task, case and harness, so the step runs again without keeping any twice."""
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import httpx
 from omegaconf import MISSING
@@ -21,7 +23,7 @@ from nanoagent.plugin import load_manifest
 from nanoagent.uploaded.case_sets import case_set_frame
 from nanoagent.uploaded.reference import build_reference
 from step1_make_cases import PluginBugs
-from step2_single_run import Cases, Harness, SingleRun, logged
+from step2_single_run import Cases, Harness, logged
 
 # The only RUSH the runs may go to.
 LOCAL_SITES = ("http://localhost:3000", "http://127.0.0.1:3000")
@@ -56,9 +58,9 @@ class ImportLayout(Layout):
     imported: Imported
 
 
-def execution(result: SingleRun) -> str:
+def execution(result: dict[str, Any]) -> str:
     """How the run ended, as RUSH records it: it answered, refused, or failed before either."""
-    return "answered" if result.output is not None else "refused" if result.refused is not None else "execution_failed"
+    return "answered" if result["output"] is not None else "refused" if result["refused"] is not None else "execution_failed"
 
 
 class ImportRuns(Run):
@@ -90,27 +92,29 @@ class ImportRuns(Run):
             }  # fmt: skip
             manifests = {}
             for path in sorted(Path(config.runs).glob("*/*/*/*/result.json")):
-                result = load_output(path, SingleRun)
-                if result.plugin in buggy:
+                # The fields kept, read as JSON: step 2's SingleRun has changed since some batches were run.
+                result = json.loads(path.read_text(encoding="utf-8"))
+                plugin = result["plugin"]
+                if plugin in buggy:
                     continue
-                if result.plugin not in manifests:
-                    manifests[result.plugin] = load_manifest(path.parent / "plugin" / result.plugin)
-                manifest = manifests[result.plugin]
-                frame = case_set_frame(config.name, manifest, "", manifest.task(result.task), cases[result.plugin].context)
+                if plugin not in manifests:
+                    manifests[plugin] = load_manifest(path.parent / "plugin" / plugin)
+                manifest = manifests[plugin]
+                frame = case_set_frame(config.name, manifest, "", manifest.task(result["task"]), cases[plugin].context)
                 del frame["package_sha256"]  # RUSH pins the package of the version it publishes
                 body = {
-                    "frame": frame | {"model": result.model, "endpoint_profile": config.endpoint_profile},
-                    "source_sha256": sources[Harness(result.harness)],
-                    "case_id": result.case,
-                    "kind": result.expected,
+                    "frame": frame | {"model": result["model"], "endpoint_profile": config.endpoint_profile},
+                    "source_sha256": sources[Harness(result["harness"])],
+                    "case_id": result["case"],
+                    "kind": result["expected"],
                     "started_at": load_output(path.parent / "metadata.json", Metadata).started,
                     "execution": execution(result),
-                    "correct": result.correct,
-                    "verdict": result.verdict,
-                    "elapsed_ms": round(result.latency_seconds * 1000),
-                    "input_tokens": result.input_tokens,
-                    "output_tokens": result.output_tokens,
-                    "cost_usd": result.cost,
+                    "correct": result["correct"],
+                    "verdict": result["verdict"],
+                    "elapsed_ms": round(result["latency_seconds"] * 1000),
+                    "input_tokens": result["input_tokens"],
+                    "output_tokens": result["output_tokens"],
+                    "cost_usd": result["cost"],
                 }
                 if checked(rush.post(f"{prefix}/imports", json=body))["created"]:
                     kept += 1

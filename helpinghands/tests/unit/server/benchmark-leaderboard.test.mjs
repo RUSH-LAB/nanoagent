@@ -60,7 +60,7 @@ function ctxFor(published = {entry: ENTRY, sha256: SHA}) {
       service: {},
       repository: {
         leaderboard: async (context, pluginId, taskId) => { calls.push(['board', pluginId, taskId]); return [row('pi', 'pass')]; },
-        marketVersion: async (pluginId, version) => { calls.push(['market', pluginId, version]); return published; },
+        marketVersion: async (context, pluginId, version) => { calls.push(['market', pluginId, version]); return published; },
         importRun: async (context, frame, record) => { calls.push(['import', frame, record]); return {run_id: 'r1', created: calls.length < 3}; },
       },
     },

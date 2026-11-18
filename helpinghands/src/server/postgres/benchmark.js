@@ -646,8 +646,8 @@ function createPostgresBenchmark({pool}) {
     },
 
     /** Published plugin version `version` of `pluginId`: `{entry, sha256}`, or null. */
-    async marketVersion(pluginId, version) {
-      return inTransaction(pool, {system: true}, async client => (await client.query(
+    async marketVersion(context, pluginId, version) {
+      return member(context, async client => (await client.query(
         'select entry, sha256 from market_plugin_version where plugin_id = $1 and version = $2', [pluginId, version],
       )).rows[0] ?? null);
     },

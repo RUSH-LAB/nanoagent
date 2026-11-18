@@ -301,7 +301,7 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       write();
       const record = importBody(await jsonBody(req, readBody));
       const {plugin_id: pluginId, version} = record.frame;
-      const published = await repository.marketVersion(string(pluginId, 'frame.plugin_id'), string(version, 'frame.version', {max: 64}));
+      const published = await repository.marketVersion(context, string(pluginId, 'frame.plugin_id'), string(version, 'frame.version', {max: 64}));
       if (!published) throw new BenchmarkError(404, 'unknown_plugin_version', `${pluginId} ${version} is not published`);
       const frame = publicationFrame({...record.frame, package_sha256: published.sha256});
       checkTaskAgainstEntry(published.entry, frame);
