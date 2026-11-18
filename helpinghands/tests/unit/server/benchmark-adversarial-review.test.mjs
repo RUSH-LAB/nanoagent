@@ -8,7 +8,7 @@ const {createPostgresBenchmarkWorker} = require('../../../src/server/postgres/be
 const {createPostgresBenchmark} = require('../../../src/server/postgres/benchmark.js');
 const limits = require('../../../src/server/benchmark/limits.js');
 const {benchmarkPublication, accountingBody, admissionBody, eventsBody, fenceOf, finalizeBody, settleBody, spansBody} = require('../../../src/server/benchmark/validate.js');
-const {pythonFormat, renderTaskTools} = require('../../../src/server/benchmark/prompt.js');
+const {canonicalJson, pythonFormat, renderTaskTools, sha256Hex} = require('../../../src/server/benchmark/prompt.js');
 
 const config = {leaseSeconds: 60, uncertainDeadlineSeconds: 3600, memberBudgetUsd: 25, workspaceBudgetUsd: 100};
 const HEX = 'a'.repeat(64);
@@ -96,12 +96,25 @@ describe('what the worker API stores is bounded', () => {
 
   test('an attempt refuses events past its count cap, 413 too_many_events', async () => {
     const pool = recordingPool({
-      'select a.*, r.canceled_at': [{fence: 1, state: 'leased', execution_status: null, lease_expires_at: new Date(), next_cursor: limits.MAX_ATTEMPT_EVENTS}],
+      'select a.*, r.canceled_at': [{fence: 1, state: 'leased', execution_status: null, lease_expires_at: new Date(), next_cursor: limits.MAX_ATTEMPT_EVENTS + 1}],
       'select $1::timestamptz < now()': [{expired: false}],
     });
     const worker = createPostgresBenchmarkWorker({pool, config});
     const make = n => ({event_id: `e${n}`, source: 's', kind: 'k', sequence: n, occurred_ns: '1', data: {}, payload_sha256s: []});
     await assert.rejects(worker.appendEvents('u', 'a', 1, [make(1), make(2)]), {status: 413, code: 'too_many_events'});
+    assert.ok(!pool.statements.some(s => s.text.startsWith('insert into benchmark_event')));
+  });
+
+  test('an identical event can be replayed after the count cap is reached', async () => {
+    const event = {event_id: 'e', source: 's', kind: 'k', sequence: 1, occurred_ns: '1', data: {}, payload_sha256s: []};
+    const {event_id, ...content} = event;
+    const pool = recordingPool({
+      'select a.*, r.canceled_at': [{fence: 1, state: 'leased', lease_expires_at: new Date(), next_cursor: limits.MAX_ATTEMPT_EVENTS + 1}],
+      'select $1::timestamptz < now()': [{expired: false}],
+      'select cursor, digest from benchmark_event': [{cursor: '1', digest: sha256Hex(canonicalJson(content))}],
+    });
+    const result = await createPostgresBenchmarkWorker({pool, config}).appendEvents('u', 'a', 1, [event]);
+    assert.deepEqual(result, {receipts: [{event_id, cursor: 1, duplicate: true}], high_water_cursor: limits.MAX_ATTEMPT_EVENTS});
     assert.ok(!pool.statements.some(s => s.text.startsWith('insert into benchmark_event')));
   });
 
@@ -112,10 +125,23 @@ describe('what the worker API stores is bounded', () => {
     };
     const span = {id: 's', kind: 'k', name: 'n', parent: null, scope: null, status: null, start_ns: '1', end_ns: '2', provenance: null, target: null, attributes: {}};
     const link = {kind: 'k', from: 'a', to: 'b', method: null, attributes: {}};
-    for (const [held, spans, links] of [[{spans: limits.MAX_ATTEMPT_SPANS, links: 0}, [span], []], [{spans: 0, links: limits.MAX_ATTEMPT_LINKS}, [], [link]]]) {
+    for (const [held, spans, links] of [[{spans: limits.MAX_ATTEMPT_SPANS + 1, links: 0}, [span], []], [{spans: 0, links: limits.MAX_ATTEMPT_LINKS + 1}, [], [link]]]) {
       const pool = recordingPool({...answers, 'select (select count(*) from benchmark_span': [held]});
       await assert.rejects(createPostgresBenchmarkWorker({pool, config}).putSpans('u', 'a', 1, spans, links), {status: 413, code: 'too_many_spans'});
     }
+  });
+
+  test('existing spans and links can be updated at their count caps', async () => {
+    const pool = recordingPool({
+      'select a.*, r.canceled_at': [{fence: 1, state: 'leased', lease_expires_at: new Date(), next_cursor: 1}],
+      'select $1::timestamptz < now()': [{expired: false}],
+      'select (select count(*) from benchmark_span': [{spans: limits.MAX_ATTEMPT_SPANS, links: limits.MAX_ATTEMPT_LINKS}],
+      'select coalesce(current_setting': [{prior: 'on'}], 'select (select coalesce(sum(size)': [{used: 0}],
+    });
+    const result = await createPostgresBenchmarkWorker({pool, config}).putSpans('u', 'a', 1,
+      [{id: 's', kind: 'tool', name: 'n', end_ns: '2', status: 'ok', attributes: {done: true}}],
+      [{kind: 'caused_by', from: 's', to: 'root', method: 'recorded', attributes: {done: true}}]);
+    assert.deepEqual(result, {spans: 1, links: 1});
   });
 
   test('span and link attributes are checked after the merge too', async () => {

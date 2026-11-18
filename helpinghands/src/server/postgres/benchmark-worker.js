@@ -292,7 +292,6 @@ function createPostgresBenchmarkWorker({pool, config}) {
     async appendEvents(userId, attemptId, fence, events) {
       return fenced(userId, attemptId, fence, async (client, attempt) => {
         let next = Number(attempt.next_cursor);
-        if (next - 1 + events.length > MAX_ATTEMPT_EVENTS) throw new BenchmarkError(413, 'too_many_events', `An attempt keeps ${MAX_ATTEMPT_EVENTS} events at most`);
         const receipts = [];
         let stored = 0;
         for (const event of events) {
@@ -308,6 +307,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
             receipts.push({event_id: event.event_id, cursor: Number(existing.cursor), duplicate: true});
             continue;
           }
+          if (next > MAX_ATTEMPT_EVENTS) throw new BenchmarkError(413, 'too_many_events', `An attempt keeps ${MAX_ATTEMPT_EVENTS} events at most`);
           await client.query(
             `insert into benchmark_event (attempt_id, cursor, event_id, source, kind, sequence, occurred_ns, data, payload_sha256s, digest)
              values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
@@ -336,12 +336,6 @@ function createPostgresBenchmarkWorker({pool, config}) {
 
     async putSpans(userId, attemptId, fence, spans, links) {
       return fenced(userId, attemptId, fence, async client => {
-        const held = (await client.query(
-          `select (select count(*) from benchmark_span where attempt_id = $1)::int as spans, (select count(*) from benchmark_link where attempt_id = $1)::int as links`, [attemptId],
-        )).rows[0];
-        if (held.spans + spans.length > MAX_ATTEMPT_SPANS || held.links + links.length > MAX_ATTEMPT_LINKS) {
-          throw new BenchmarkError(413, 'too_many_spans', `An attempt keeps ${MAX_ATTEMPT_SPANS} spans and ${MAX_ATTEMPT_LINKS} links at most`);
-        }
         for (const span of spans) {
           // A later report of a span fills what the earlier one lacked and keeps what it had.
           await client.query(
@@ -362,6 +356,13 @@ function createPostgresBenchmarkWorker({pool, config}) {
                attributes = benchmark_link.attributes || excluded.attributes`,
             [attemptId, link.kind, link.from, link.to, link.method, JSON.stringify(link.attributes)],
           );
+        }
+        // Count the stored rows after upserts: reporting an existing span or link does not use another slot.
+        const held = (await client.query(
+          `select (select count(*) from benchmark_span where attempt_id = $1)::int as spans, (select count(*) from benchmark_link where attempt_id = $1)::int as links`, [attemptId],
+        )).rows[0];
+        if (held.spans > MAX_ATTEMPT_SPANS || held.links > MAX_ATTEMPT_LINKS) {
+          throw new BenchmarkError(413, 'too_many_spans', `An attempt keeps ${MAX_ATTEMPT_SPANS} spans and ${MAX_ATTEMPT_LINKS} links at most`);
         }
         // A later report merges its attributes into the earlier ones, so the merged object is what is bounded.
         const grown = await client.query(

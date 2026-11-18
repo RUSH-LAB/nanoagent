@@ -1000,9 +1000,33 @@ try {
     && fatTrace.body.spans.length > 0 && fatTrace.body.spans.length < 400 && fatTrace.text.length < 9 * 1024 * 1024);
   await asSystem("delete from benchmark_span where attempt_id = $1 and span_id like 'fat-%'", [bounded.attempt_id]);
   check('a trace under the budget is not truncated', (await api(`${base}/attempts/${bounded.attempt_id}/spans`, {cookie: alice.cookie})).body.truncated === false);
-  await asSystem('update benchmark_attempt set next_cursor = 100000 where attempt_id = $1', [bounded.attempt_id]);
-  check('an attempt keeps a bounded number of events', (await post(bounded.attempt_id, 1, [event('over-1', 1), event('over-2', 2)])).body.code === 'too_many_events');
+  await asSystem(`insert into benchmark_event (attempt_id, cursor, event_id, source, kind, sequence, data, digest)
+    select $1, g, 'cap-' || g, 'worker', 'cap', g, '{}'::jsonb, 'seed' from generate_series(41, 100000) g`, [bounded.attempt_id]);
+  await asSystem('update benchmark_attempt set next_cursor = 100001 where attempt_id = $1', [bounded.attempt_id]);
+  const capReplay = await post(bounded.attempt_id, 1, bigEvents(1, 1));
+  check('an identical event is replayed at the count cap without using another slot', capReplay.status === 200 && capReplay.body.receipts[0].duplicate === true
+    && capReplay.body.receipts[0].cursor === 1 && capReplay.body.high_water_cursor === 100000);
+  check('an attempt keeps a bounded number of events', (await post(bounded.attempt_id, 1, [event('over-1', 1), event('over-2', 2)])).body.code === 'too_many_events'
+    && (await asSystem('select count(*)::int as n from benchmark_event where attempt_id = $1', [bounded.attempt_id])).rows[0].n === 100000);
+  await asSystem("delete from benchmark_event where attempt_id = $1 and event_id like 'cap-%'", [bounded.attempt_id]);
   await asSystem('update benchmark_attempt set next_cursor = 41 where attempt_id = $1', [bounded.attempt_id]);
+  await asSystem(`insert into benchmark_span (attempt_id, span_id, kind, name)
+    select $1, 'cap-' || g, 'tool', 'n' from generate_series(1, 10000) g`, [bounded.attempt_id]);
+  await asSystem(`insert into benchmark_link (attempt_id, kind, from_id, to_id)
+    select $1, 'cap', 's' || g, 'root' from generate_series(1, 20000) g`, [bounded.attempt_id]);
+  const cappedSpan = {id: 'cap-1', kind: 'tool', name: 'n', status: 'ok', end_ns: '2', attributes: {done: true}};
+  const cappedLink = {kind: 'cap', from: 's1', to: 'root', method: 'recorded', attributes: {done: true}};
+  const cappedTrace = body => worker(`attempts/${bounded.attempt_id}/spans`, {method: 'POST', body: {fence: 1, ...body}});
+  check('existing spans and links can be updated at their count caps', (await cappedTrace({spans: [cappedSpan], links: [cappedLink]})).status === 200
+    && (await asSystem("select status, end_ns::text, attributes from benchmark_span where attempt_id = $1 and span_id = 'cap-1'", [bounded.attempt_id])).rows[0].end_ns === '2'
+    && (await asSystem("select method from benchmark_link where attempt_id = $1 and kind = 'cap' and from_id = 's1' and to_id = 'root'", [bounded.attempt_id])).rows[0].method === 'recorded');
+  check('new spans and links past their count caps are refused atomically',
+    (await cappedTrace({spans: [{...cappedSpan, status: 'changed'}, {...cappedSpan, id: 'over'}]})).body.code === 'too_many_spans'
+    && (await cappedTrace({links: [{...cappedLink, from: 'over'}]})).body.code === 'too_many_spans'
+    && (await asSystem("select count(*)::int as n from benchmark_span where attempt_id = $1 and (span_id = 'over' or status = 'changed')", [bounded.attempt_id])).rows[0].n === 0
+    && (await asSystem('select count(*)::int as n from benchmark_link where attempt_id = $1', [bounded.attempt_id])).rows[0].n === 20000);
+  await asSystem("delete from benchmark_span where attempt_id = $1 and span_id like 'cap-%'", [bounded.attempt_id]);
+  await asSystem("delete from benchmark_link where attempt_id = $1 and kind = 'cap'", [bounded.attempt_id]);
   const putSpan = attributes => worker(`attempts/${bounded.attempt_id}/spans`, {method: 'POST', body: {fence: 1, spans: [{id: 'grow', kind: 'tool', name: 'n', attributes}]}});
   check('span attributes are bounded by what each report sends and by what they merge to',
     (await putSpan({a: 'x'.repeat(40_000)})).status === 413 && (await putSpan({a: 'x'.repeat(20_000)})).status === 200
