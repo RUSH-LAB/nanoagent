@@ -91,6 +91,8 @@ describe('nanoagent.ui/v1 requests', () => {
       ['harness.cancel', {runId: 'harness-1'}],
       ['harness.input', {runId: 'harness-1', data: '\x03'}],
       ['harness.resize', {runId: 'harness-1', rows: 40, cols: 120}],
+      ['leaderboard', {task: 'save-paper-source'}],
+      ['leaderboard.trace', {attemptId: SESSION}],
     ];
     for (const [method, params] of valid) assert.equal(invalidRequest({method, params}), null, method);
     const invalid = [
@@ -118,6 +120,8 @@ describe('nanoagent.ui/v1 requests', () => {
       ['harness.cancel', {}],
       ['harness.input', {runId: 'harness-1', data: ''}],
       ['harness.resize', {runId: 'harness-1', rows: 0, cols: 120}],
+      ['leaderboard', {}],
+      ['leaderboard.trace', {attemptId: 'not-an-id'}],
     ];
     for (const [method, params] of invalid) assert.equal(typeof invalidRequest({method, params}), 'string', method);
   });
@@ -351,6 +355,20 @@ describe('the bridge host', () => {
     assert.deepEqual(byId, {l: {sessions: [{id: SESSION}]}, g: {session: sessionWith()}, n: {session: sessionWith()}});
     assert.deepEqual(calls.map(({path, init}) => [path, init?.method ?? 'GET']), [
       [SESSIONS, 'GET'], [`${SESSIONS}/${SESSION}`, 'GET'], [SESSIONS, 'POST'],
+    ]);
+  });
+
+  it('reads the leaderboard of one of the plugin\'s tasks, and the trace of one of the member\'s runs on it', async () => {
+    const {posted, calls, send} = await hostWith(path => (path.includes('/events')
+      ? Response.json({events: [{kind: 'verifier.verdict', data: {correct: true}}], sealed: true})
+      : Response.json({harnesses: [{rank: 1, harness: 'RUSH'}]})));
+    send('b', 'leaderboard', {task: 'save-paper-source'});
+    send('t', 'leaderboard.trace', {attemptId: SESSION});
+    await until(() => posted.length === 2);
+    const byId = Object.fromEntries(messages(posted).map(message => [message.id, message.result]));
+    assert.deepEqual(byId, {b: {harnesses: [{rank: 1, harness: 'RUSH'}]}, t: {events: [{kind: 'verifier.verdict', data: {correct: true}}]}});
+    assert.deepEqual(calls.map(({path}) => path), [
+      '/api/benchmark/leaderboard?plugin_id=arxiv-source&task_id=save-paper-source', `/api/benchmark/attempts/${SESSION}/events?limit=1000`,
     ]);
   });
 

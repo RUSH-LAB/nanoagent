@@ -449,6 +449,16 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 /* The padding is the terminal's own, which the fit add-on measures it by. */
 .harness-terminal { min-height: 0; background: #14161b; border-radius: var(--radius-sm); overflow: hidden; }
 .harness-terminal .xterm { height: 100%; box-sizing: border-box; padding: 8px; }
+/* The Leaderboard tab (kit/leaderboard.js): the ranked harnesses, then the picked one's runs and a run's trace. */
+.leaderboard-page { display: grid; gap: 14px; max-width: 880px; }
+.leaderboard-page > :empty { display: none; }
+.leaderboard-page h3 { font-size: 14px; }
+.leaderboard-runs, .leaderboard-trace { display: grid; gap: 10px; }
+.leaderboard-pick { appearance: none; border: 0; padding: 0; background: none; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; text-align: left; }
+.leaderboard-pick:hover { text-decoration: underline; }
+.leaderboard-events { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.leaderboard-event { display: grid; gap: 4px; }
+.leaderboard-event pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Beside the chat, in two tabs (kit/result.js): a turn's graph, and a task's result. */
 .results-pane { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
 .results-tabs { display: flex; gap: 22px; height: 36px; border-bottom: 1px solid var(--border); }

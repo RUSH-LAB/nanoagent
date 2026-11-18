@@ -356,7 +356,29 @@ function claimBody(body) {
   };
 }
 
+// What a run kept from outside RUSH (`importBody`) may have ended as: the plugin's verifier saw each.
+const IMPORTED_STATUSES = ['answered', 'refused', 'execution_failed'];
+
+/**
+ * A run of a reference harness made outside RUSH, to keep as a scored run (POST imports): its case set's frame but the package (`frame`,
+ * NanoAgent's `case_set_frame` with the model and endpoint profile), the caller's source of the harness, and the one case it ran: when,
+ * how it ended, whether the verifier found it right and its word, its time, tokens and cost.
+ */
+function importBody(body) {
+  only(body, ['frame', 'source_sha256', 'case_id', 'kind', 'started_at', 'execution', 'correct', 'verdict', 'elapsed_ms', 'input_tokens', 'output_tokens', 'cost_usd']);
+  if (!CASE_KINDS.includes(body.kind)) throw bad('invalid_request', `kind must be one of ${CASE_KINDS.join(', ')}`);
+  if (!IMPORTED_STATUSES.includes(body.execution)) throw bad('invalid_request', `execution must be one of ${IMPORTED_STATUSES.join(', ')}`);
+  if (typeof body.started_at !== 'string' || Number.isNaN(Date.parse(body.started_at))) throw bad('invalid_request', 'started_at must be a timestamp');
+  return {
+    frame: object(body.frame, 'frame'), source_sha256: sha256(body.source_sha256, 'source_sha256'), case_id: string(body.case_id, 'case_id'),
+    kind: body.kind, started_at: new Date(body.started_at).toISOString(), execution: body.execution, correct: boolean(body.correct, 'correct'),
+    verdict: string(body.verdict, 'verdict', {max: 100_000}), elapsed_ms: integer(body.elapsed_ms, 'elapsed_ms', {max: MAX_INTEGER}),
+    input_tokens: integer(body.input_tokens, 'input_tokens', {max: MAX_INTEGER}), output_tokens: integer(body.output_tokens, 'output_tokens', {max: MAX_INTEGER}),
+    cost_usd: finite(body.cost_usd, 'cost_usd'),
+  };
+}
+
 module.exports = {
-  benchmarkPublication, publicationFrame, previewBody, runBody, eventsBody, terminalBody, terminalInputBody, spansBody, finalizeBody, admissionBody, settleBody, accountingBody,
+  benchmarkPublication, importBody, publicationFrame, previewBody, runBody, eventsBody, terminalBody, terminalInputBody, spansBody, finalizeBody, admissionBody, settleBody, accountingBody,
   claimBody, SHA256, fenceOf, object, string,
 };

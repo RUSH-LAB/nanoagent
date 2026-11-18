@@ -17,7 +17,7 @@ const TYPED_LIMIT = 40_000;
 // What a Harness tab session may run: a reference harness (server/benchmark/harness.js REFERENCE_HARNESSES) or one the member saved
 // from a Terminal session, each named as the harness contract names a harness; RUSH says which names it knows.
 const HARNESS_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
-const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const isObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
@@ -42,11 +42,11 @@ const PARAMS = {
   'follow': () => null,
   'cancel': ({runId}) => (typeof runId === 'string' && runId ? null : 'cancel needs a runId'),
   'sessions.list': () => null,
-  'session.get': ({id}) => (SESSION_ID.test(id ?? '') ? null : 'session.get needs a session id'),
+  'session.get': ({id}) => (UUID.test(id ?? '') ? null : 'session.get needs a session id'),
   'session.start': () => null,
-  'session.resume': ({id}) => (SESSION_ID.test(id ?? '') ? null : 'session.resume needs a session id'),
-  'session.shown': ({id}) => (id === null || SESSION_ID.test(id ?? '') ? null : 'session.shown needs a session id or null'),
-  'session.archive': ({id, archived}) => (SESSION_ID.test(id ?? '') && typeof archived === 'boolean'
+  'session.resume': ({id}) => (UUID.test(id ?? '') ? null : 'session.resume needs a session id'),
+  'session.shown': ({id}) => (id === null || UUID.test(id ?? '') ? null : 'session.shown needs a session id or null'),
+  'session.archive': ({id, archived}) => (UUID.test(id ?? '') && typeof archived === 'boolean'
     ? null
     : 'session.archive needs a session id and archived, true or false'),
   // The Terminal (`shell`) is free-form, so it takes no text; any other harness works the text.
@@ -61,6 +61,8 @@ const PARAMS = {
   'harness.resize': ({runId, rows, cols}) => (typeof runId === 'string' && runId && [rows, cols].every(n => Number.isInteger(n) && n >= 1 && n <= 1000)
     ? null
     : 'harness.resize needs a runId and the terminal\'s rows and cols, each 1 to 1000'),
+  'leaderboard': ({task}) => (typeof task === 'string' && task ? null : 'leaderboard needs a task id'),
+  'leaderboard.trace': ({attemptId}) => (UUID.test(attemptId ?? '') ? null : 'leaderboard.trace needs an attempt id'),
   'plugin.version': ({version}) => (version === null || (typeof version === 'string' && version)
     ? null
     : 'plugin.version needs version, a published version or null'),

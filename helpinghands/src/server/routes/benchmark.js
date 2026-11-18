@@ -15,7 +15,9 @@ const {parseJson, stringifyJson} = require('../benchmark/json');
 const {compareAttempts, compareRuns} = require('../benchmark/compare');
 const {UUID, jsonBody, losslessBody, rawBody, sendFailure} = require('../benchmark/http');
 const {REFERENCE_HARNESSES, checkReference, referenceHarnessOf, referencePolicy, uploadedHarnessOf} = require('../benchmark/harness');
-const {previewBody, runBody, benchmarkPublication, publicationFrame, terminalInputBody, SHA256, object, string} = require('../benchmark/validate');
+const {previewBody, runBody, benchmarkPublication, importBody, publicationFrame, terminalInputBody, SHA256, object, string} = require('../benchmark/validate');
+const {checkTaskAgainstEntry} = require('../benchmark/entry-check');
+const {leaderboard} = require('../benchmark/leaderboard');
 const {wake} = require('../benchmark/wake');
 const {MAX_SOURCE_BYTES} = require('../benchmark/limits');
 
@@ -31,7 +33,7 @@ const PAGE = 1000;
 
 const ROUTE = new RegExp([
   '^/api/benchmark/(?:',
-  '(defaults|benchmarks|benchmarks/pinned|sessions|previews|sources|runs|compare|compare/attempts|worker-credentials)',
+  '(defaults|benchmarks|benchmarks/pinned|sessions|previews|sources|runs|compare|compare/attempts|worker-credentials|leaderboard|imports)',
   '|worker-credentials/([^/]+)',
   '|benchmarks/([^/]+)(?:/(results))?',
   '|runs/([^/]+)(?:/(cancel)|/cases/([^/]+)/(rerun))?',
@@ -284,6 +286,27 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
         .catch(error => console.error(`[benchmark] session ${id}: recording its pin's failure failed:`, error))
         .finally(() => wake(`case:${id}`));
       return json(res, 201, {run: await repository.run(context, id), attempt_id: attemptId});
+    }
+    // A plugin page's Leaderboard tab: the harnesses run on one of its tasks, ranked from every member's scored runs.
+    if (top === 'leaderboard') {
+      if (req.method !== 'GET') return wrongMethod();
+      read();
+      const [pluginId, taskId] = ['plugin_id', 'task_id'].map(name => string(url.searchParams.get(name), name));
+      return json(res, 200, {harnesses: leaderboard(await repository.leaderboard(context, pluginId, taskId), context.userId)});
+    }
+    // A run of a reference harness made outside RUSH (examples/benchmark in the NanoAgent project), kept as the member's scored run, on
+    // the package of its plugin version as published: its task must be that version's.
+    if (top === 'imports') {
+      if (req.method !== 'POST') return wrongMethod();
+      write();
+      const record = importBody(await jsonBody(req, readBody));
+      const {plugin_id: pluginId, version} = record.frame;
+      const published = await repository.marketVersion(string(pluginId, 'frame.plugin_id'), string(version, 'frame.version', {max: 64}));
+      if (!published) throw new BenchmarkError(404, 'unknown_plugin_version', `${pluginId} ${version} is not published`);
+      const frame = publicationFrame({...record.frame, package_sha256: published.sha256});
+      checkTaskAgainstEntry(published.entry, frame);
+      const {run_id: id, created} = await repository.importRun(context, frame, record);
+      return json(res, created ? 201 : 200, {run_id: id, created});
     }
     if (top === 'previews') {
       if (req.method !== 'POST') return wrongMethod();

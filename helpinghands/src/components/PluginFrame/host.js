@@ -33,6 +33,9 @@ import {
  * terminal the member works in: the page hears the terminal's
  * output as it comes and the outcome (./harness.js), through `harness.done`, and sends what is typed (`harness.input`) and the
  * terminal's size (`harness.resize`); `harness.cancel` cancels the run, as the frame going away does.
+ *
+ * The Leaderboard tab reads the harnesses ranked on one of the plugin's tasks (`leaderboard`) and the trace of one of the member's
+ * own runs on it (`leaderboard.trace`, its attempt's events).
  */
 // As long as the member's computer holds a run for RUSH to take up again (runner/protocol.js HOLD_MS).
 const RECONNECT_MS = 10 * 60_000;
@@ -281,6 +284,16 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     },
     'harness.input': async ({runId, data}) => toTerminal(runId, {data}),
     'harness.resize': async ({runId, rows, cols}) => toTerminal(runId, {rows, cols}),
+    'leaderboard': async ({task}) => {
+      const response = await request(`/api/benchmark/leaderboard?${new URLSearchParams({plugin_id: plugin.id, task_id: task})}`);
+      if (!response.ok) throw await failed(response, 'Could not read the leaderboard');
+      return {result: await response.json()};
+    },
+    'leaderboard.trace': async ({attemptId}) => {
+      const response = await request(`/api/benchmark/attempts/${attemptId}/events?limit=1000`);
+      if (!response.ok) throw await failed(response, 'Could not read the run\'s trace');
+      return {result: {events: (await response.json()).events}};
+    },
     'sessions.list': async () => {
       const response = await request(sessionsPath);
       if (!response.ok) throw await failed(response, 'Could not list the sessions');

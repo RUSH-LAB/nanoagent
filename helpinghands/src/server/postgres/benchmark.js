@@ -4,7 +4,8 @@ const {BenchmarkError} = require('../benchmark/errors');
 const {checkTaskAgainstEntry} = require('../benchmark/entry-check');
 const {CAPABILITY_WINDOW_S} = require('../benchmark/limits');
 const {stringifyJson} = require('../benchmark/json');
-const {RENDERER_VERSION, sha256Hex} = require('../benchmark/prompt');
+const {RENDERER_VERSION, canonicalJson, sha256Hex} = require('../benchmark/prompt');
+const {checkReference, referencePolicy} = require('../benchmark/harness');
 const {latestByCase, runScore, sumMetrics} = require('../benchmark/rules');
 const {MAX_ATTEMPT_LINKS, MAX_ATTEMPTS_PER_CASE, MAX_EVENT_PAGE_BYTES, MAX_TERMINAL_PAGE_BYTES, MAX_TRACE_PAGE_BYTES} = require('../benchmark/limits');
 const {chargeStorage, inTransaction} = require('./benchmark-context');
@@ -636,6 +637,87 @@ function createPostgresBenchmark({pool}) {
            case when bool_and(d.status = 'settled' and d.cost_usd is not null) then sum(d.cost_usd)::float8 end as cost_usd
            from benchmark_admission d join benchmark_attempt a on a.attempt_id = d.attempt_id where a.run_id = $1 group by d.attempt_id`, [runId],
       )).rows.map(row => [row.attempt_id, {cost_usd: row.cost_usd, calls: row.calls, uncertain_calls: row.uncertain_calls}])));
+    },
+
+    /** Every member's scored attempts on task `taskId` of plugin `pluginId` (`benchmark_leaderboard`), newest first. */
+    async leaderboard(context, pluginId, taskId) {
+      await sweep();
+      return member(context, async client => (await client.query('select * from benchmark_leaderboard($1, $2)', [pluginId, taskId])).rows);
+    },
+
+    /** Published plugin version `version` of `pluginId`: `{entry, sha256}`, or null. */
+    async marketVersion(pluginId, version) {
+      return inTransaction(pool, {system: true}, async client => (await client.query(
+        'select entry, sha256 from market_plugin_version where plugin_id = $1 and version = $2', [pluginId, version],
+      )).rows[0] ?? null);
+    },
+
+    /**
+     * Keep a run of a reference harness made outside RUSH (examples/benchmark in the NanoAgent project) as the caller's own scored run:
+     * `frame` is its case set but the case (`publicationFrame`, checked against its plugin version's entry), `record` the case it ran
+     * (`importBody`, whose own frame is `frame` before the check), worked by the harness of the caller's source `record.source_sha256`. Like a session's, its run is of a benchmark
+     * nobody publishes; its one attempt is final as the run ended, with its verdict, its time and tokens (metrics), its cost (one
+     * settled admission) and the verifier's word (its one event, the trace it keeps). `{run_id, created}`: the same plugin, task, case
+     * and harness kept again is the run kept before, and a different record under them is refused (409 idempotency_conflict).
+     */
+    async importRun(context, frame, record) {
+      return memberWrite(context, async client => {
+        const source = (await client.query(
+          'select harness_name, harness_version, dialects from benchmark_source where workspace_id = $1 and user_id = $2 and sha256 = $3',
+          [context.workspaceId, context.userId, record.source_sha256],
+        )).rows[0];
+        if (!source) throw new BenchmarkError(404, 'unknown_source', 'Upload the source first');
+        checkReference(source.harness_name);
+        const key = `import:${frame.plugin_id}/${frame.task_id}/${record.case_id}/${source.harness_name}`;
+        const digest = sha256Hex(canonicalJson(record));
+        const existing = (await client.query(
+          'select run_id, request_digest from benchmark_run where workspace_id = $1 and user_id = $2 and idempotency_key = $3', [context.workspaceId, context.userId, key],
+        )).rows[0];
+        if (existing) {
+          if (existing.request_digest !== digest) throw new BenchmarkError(409, 'idempotency_conflict', `${key} was kept with a different record`);
+          return {run_id: existing.run_id, created: false};
+        }
+        await client.query(
+          'insert into benchmark_package (sha256, data) select sha256, package from market_plugin_version where plugin_id = $1 and sha256 = $2 limit 1 on conflict do nothing',
+          [frame.plugin_id, frame.package_sha256],
+        );
+        const policy = referencePolicy(source.harness_name);
+        const [runId, attemptId] = [crypto.randomUUID(), crypto.randomUUID()];
+        const ended = new Date(Date.parse(record.started_at) + record.elapsed_ms).toISOString();
+        await client.query(
+          `insert into benchmark_run (run_id, workspace_id, user_id, idempotency_key, request_digest, preview_id, source_sha256,
+             model, endpoint_label, dialects, policy, prompt_text, limits, selection, renderer_version,
+             benchmark_id, benchmark_name, harness_name, harness_version, publisher,
+             plugin_id, plugin_name, version, package_sha256, task_id, task, context, created_at)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)`,
+          [runId, context.workspaceId, context.userId, key, digest, crypto.randomUUID(), record.source_sha256,
+            frame.model, frame.endpoint_profile, JSON.stringify(source.dialects), policy, policy === 'coding' ? frame.coding_template : frame.task_instructions,
+            JSON.stringify(frame.limits), JSON.stringify({case_ids: [record.case_id]}), RENDERER_VERSION,
+            crypto.randomUUID(), frame.name, source.harness_name, source.harness_version, JSON.stringify(await publisherOf(client, context.userId)),
+            frame.plugin_id, frame.plugin_name, frame.version, frame.package_sha256, frame.task_id, stringifyJson(frame.task), frame.context, record.started_at],
+        );
+        await client.query('insert into benchmark_run_case (run_id, case_id, position, kind) values ($1, $2, 0, $3)', [runId, record.case_id, record.kind]);
+        const metrics = {elapsed_ms: record.elapsed_ms, input_tokens: record.input_tokens, output_tokens: record.output_tokens, total_tokens: record.input_tokens + record.output_tokens};
+        await client.query(
+          `insert into benchmark_attempt (attempt_id, run_id, case_id, attempt_no, state, execution_status, verdict, explanation, metrics,
+             sealed, next_cursor, final_cursor, created_at, claimed_at, finalized_at)
+           values ($1, $2, $3, 1, 'final', $4, $5, $6, $7, true, 2, 1, $8, $8, $9)`,
+          [attemptId, runId, record.case_id, record.execution, record.correct ? 'pass' : 'fail',
+            record.execution === 'execution_failed' ? 'execution_failed' : null, JSON.stringify(metrics), record.started_at, ended],
+        );
+        const said = {correct: record.correct, verdict: record.verdict};
+        await client.query(
+          `insert into benchmark_event (attempt_id, cursor, event_id, source, kind, sequence, data, digest, received_at)
+           values ($1, 1, 'verdict', 'import', 'verifier.verdict', 1, $2, $3, $4)`,
+          [attemptId, JSON.stringify(said), sha256Hex(canonicalJson(said)), ended],
+        );
+        await client.query(
+          `insert into benchmark_admission (attempt_id, call_id, reserve_usd, status, cost_usd, day, created_at, settled_at, deadline_at)
+           values ($1, 'import', $2, 'settled', $2, $3::timestamptz::date, $3, $4, $4)`,
+          [attemptId, record.cost_usd, record.started_at, ended],
+        );
+        return {run_id: runId, created: true};
+      });
     },
   });
 }
