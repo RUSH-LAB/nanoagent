@@ -518,7 +518,7 @@ class MicrosandboxSupervisor:
         wall_clock_ns: Callable[[], int] = time.time_ns,
         internet: bool = False,
     ) -> None:
-        self._tools_root = tools  # where the guest tools are built and cached, per architecture
+        self._tools_root = tools.resolve()  # where the guest tools are built and cached, per architecture (mounts may not pass a link)
         self._tools: Path | None = None
         self._internet = internet
         self._tool_cases: dict[str, _Case] = {}
