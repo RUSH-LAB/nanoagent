@@ -229,3 +229,6 @@ KEY
 .claude/settings.local.json
 
 plugin-cases/
+
+# Local data kept out of git: benchmark runs and reports (db/benchmark/).
+/db/
