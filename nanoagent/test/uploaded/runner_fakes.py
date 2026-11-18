@@ -77,9 +77,9 @@ def job(**overrides: Any):
     return parse_job(job_body(**overrides))
 
 
-def free_job():
+def free_job(**overrides: Any):
     """A free-form Terminal session's job: someone at it, no case set and no case."""
-    body = job_body(policy="coding")
+    body = job_body(policy="coding", **overrides)
     body["run"] |= {"interactive": True, "prompt_bound": False}
     return parse_job({**body, "free_form": True, "case_set": None, "case": None, "prompt": None, "private_reference": None})
 

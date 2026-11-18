@@ -38,6 +38,7 @@ HELP = """\
 agents          claude, codex, pi, hermes and dsh install the first time you type them. dsh runs headless: dsh "<task>".
 model           $RUSH_MODEL, through RUSH's gateway, which records every call. These are set for any SDK:
                 OPENAI_BASE_URL, OPENAI_API_KEY, ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY.
+tools           every agent has the plugin's tools, from the MCP server $RUSH_MCP_NAME at $RUSH_MCP_URL; RUSH records each call.
 packages        pip install and npm install -g put packages in .rush/.
 exit            (or Ctrl-D) ends the session; its model calls and commands are kept with it.
 rush save <name> [-- <command>]
@@ -112,7 +113,7 @@ def requirements() -> bytes | None:
 
 
 # The terminal's own files, which build and run a saved harness as they build and run the terminal (build.sh).
-TERMINAL = ("shell.py", "bashrc", "rush.py", "build.sh")
+TERMINAL = ("shell.py", "bashrc", "rush.py", "build.sh", "pi-mcp.ts")
 CLIS = ("claude", "codex", "pi", "hermes", "dsh")
 
 

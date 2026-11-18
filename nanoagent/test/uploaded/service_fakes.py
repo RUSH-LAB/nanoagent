@@ -171,8 +171,8 @@ class FakeCommandRunner:
 
 
 TOOLS = (
-    ToolPolicy("read", False, {"type": "object", "properties": {"n": {"type": "number"}}, "required": ["n"], "additionalProperties": False}, {"type": "object", "required": ["ok"]}),
-    ToolPolicy("write", True, {"type": "object"}, {"type": "object", "required": ["ok"]}),
+    ToolPolicy("read", False, {"type": "object", "properties": {"n": {"type": "number"}}, "required": ["n"], "additionalProperties": False}, {"type": "object", "required": ["ok"]}, "Read the n-th entry."),
+    ToolPolicy("write", True, {"type": "object"}, {"type": "object", "required": ["ok"]}, "Write the workspace."),
 )
 
 

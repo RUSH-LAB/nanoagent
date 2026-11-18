@@ -457,7 +457,7 @@ class AttemptRunner:
             rec.AttemptStarted(
                 job.attempt_id, cfg.worker_id, {"label": cfg.endpoint.label, "mode": cfg.endpoint.mode}, run["model"], list(run["dialects"]),
                 None if job.prompt is None else job.prompt["sha256"], policy, None if archive is None else archive.manifest.toolchain, run["source_sha256"], cfg.harness_revision,
-                dict(limits), list(job.task["egress_hosts"]) if policy == "task_tools" else None,
+                dict(limits), list(job.task["egress_hosts"]) if self._tooled(job) else None,
                 {"reference_tokens_per_second": cfg.reference_tokens_per_second, "clock_tolerance_ns": cfg.clock_tolerance_ns},
                 [*EXPECTED_SOURCES, *(["tool_broker"] if tools else [])],
             )
@@ -499,9 +499,15 @@ class AttemptRunner:
         return AttemptResult("lease_lost")
 
     @staticmethod
-    def _tools(job: AttemptJob) -> tuple[Mapping[str, Any], ...]:
-        """The plugin tools the attempt may call: the task's, under the task tools policy; none under the coding policy."""
-        return tuple(job.task["tools"]) if job.run["policy"] == "task_tools" else ()
+    def _tooled(job: AttemptJob) -> bool:
+        """Whether the attempt has the task's tool container: under the task tools policy, and in a free-form Terminal session, whose
+        agent CLIs reach the tools through the broker's MCP server (`/mcp`)."""
+        return job.run["policy"] == "task_tools" or job.free_form
+
+    @classmethod
+    def _tools(cls, job: AttemptJob) -> tuple[Mapping[str, Any], ...]:
+        """The plugin tools the attempt may call: the task's when it is [_tooled], else none."""
+        return tuple(job.task["tools"]) if cls._tooled(job) else ()
 
     def _build(self, job: AttemptJob, archive: Any, profile: ToolchainProfile, work: Path) -> BuildArtifact:
         """The source's built harness: the one an earlier attempt built of the same source, build image and architecture, kept under
@@ -613,7 +619,7 @@ class AttemptRunner:
             prompt_user=None if job.prompt is None else job.prompt["user"], prompt_system=None if job.prompt is None else job.prompt["system"],
             max_model_calls=run_limits["max_model_calls"],
             max_output_tokens_per_call=run_limits["max_output_tokens_per_call"], input_price_bound=input_price, output_price_bound=output_price,
-            tools=tuple(ToolPolicy(tool["name"], bool(tool["writes"]), tool["input_schema"], tool["output_schema"]) for tool in tools),
+            tools=tuple(ToolPolicy(tool["name"], bool(tool["writes"]), tool["input_schema"], tool["output_schema"], tool["description"]) for tool in tools),
             prompt_bound=run["prompt_bound"],
         )
         limits = case_limits(run_limits, cfg.limits)

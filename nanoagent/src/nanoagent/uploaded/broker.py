@@ -1,9 +1,9 @@
-"""The hosted tool broker (`POST /tools`) and the plugin-backed [ToolRunner] behind it."""
+"""The hosted tool broker (`POST /tools`, and `/mcp` for MCP clients) and the plugin-backed [ToolRunner] behind it."""
 
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Protocol
@@ -14,12 +14,21 @@ from jsonschema.exceptions import best_match
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from nanoagent import __version__
 from nanoagent.plugin.manifest import PluginManifest
 from nanoagent.plugin.runtime import PluginLauncher, PluginSession
 from nanoagent.uploaded.attempt import CALL_HEADER, Attempt, ServiceError, ToolPolicy, error_response, from_contract, new_call_id
 from nanoagent.uploaded.contract import _FORMATS, ContractError, decode_and_validate, validate
 from nanoagent.uploaded.evidence import json_bytes
 from nanoagent.uploaded.gateway import ProposalRegistry
+
+
+# The MCP revisions `/mcp` answers in: the client's when it asks for one of these, else the latest.
+MCP_VERSIONS = ("2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25")
+
+
+def _rpc_error(rpc_id: Any, code: int, message: str, status: int = 200) -> JSONResponse:
+    return JSONResponse({"jsonrpc": "2.0", "id": rpc_id, "error": {"code": code, "message": message}}, status_code=status)
 
 
 class ToolError(Exception):
@@ -110,16 +119,77 @@ class ToolBroker:
         self._validators = {tool.name: (_validator(tool.input_schema), _validator(tool.output_schema)) for tool in attempt.policy.tools}
 
     async def handle(self, request: Request) -> Response:
+        """`POST /tools`: one ToolCall, answered with its ToolResult."""
+
+        async def read() -> dict[str, Any]:
+            try:
+                return decode_and_validate("ToolCall", await self.attempt.read_body(request), self.attempt.policy.max_request_bytes)
+            except ContractError as error:
+                raise from_contract(error) from error
+
+        return await self._call(request, read)
+
+    async def mcp(self, request: Request) -> Response:
+        """`/mcp`: the attempt's tools as an MCP server (Streamable HTTP, stateless, each answer one JSON body), for an agent CLI
+        in the RUSH terminal. A `tools/call` is a call to this broker, admitted, validated and recorded as a `POST /tools` is."""
+        if request.method != "POST":
+            return Response(status_code=405, headers={"Allow": "POST"})  # no server-initiated stream, no session to end
+        try:
+            self.attempt.require_auth(request)
+            body = await self.attempt.read_body(request)
+        except ServiceError as error:
+            return error_response(error)
+        try:
+            message = json.loads(body)
+        except ValueError:
+            return _rpc_error(None, -32700, "the body is not JSON", 400)
+        if not isinstance(message, dict) or message.get("jsonrpc") != "2.0" or not isinstance(message.get("method"), str):
+            return _rpc_error(message.get("id") if isinstance(message, dict) else None, -32600, "not a JSON-RPC 2.0 request", 400)
+        if "id" not in message:
+            return Response(status_code=202)  # a notification: nothing to answer
+        rpc_id, method, params = message["id"], message["method"], message.get("params", {})
+        if not isinstance(params, dict):
+            return _rpc_error(rpc_id, -32602, "params must be an object")
+        if method == "initialize":
+            asked = params.get("protocolVersion")
+            version = asked if asked in MCP_VERSIONS else MCP_VERSIONS[-1]
+            result: dict[str, Any] = {"protocolVersion": version, "capabilities": {"tools": {}}, "serverInfo": {"name": "rush", "version": __version__}}
+        elif method == "ping":
+            result = {}
+        elif method == "tools/list":
+            result = {
+                "tools": [
+                    {"name": tool.name, "description": tool.description, "inputSchema": tool.input_schema, "outputSchema": tool.output_schema}
+                    for tool in self.attempt.policy.tools
+                ]
+            }
+        elif method == "tools/call":
+            call = {"name": params.get("name"), "arguments": params.get("arguments", {})}
+
+            async def read() -> dict[str, Any]:
+                try:
+                    validate("ToolCall", call)
+                except ContractError as error:
+                    raise from_contract(error) from error
+                return call
+
+            envelope = json.loads((await self._call(request, read)).body)
+            if "output" in envelope:
+                result = {"content": [{"type": "text", "text": json.dumps(envelope["output"])}], "structuredContent": envelope["output"]}
+            else:
+                result = {"content": [{"type": "text", "text": f"{envelope['error']['code']}: {envelope['error']['message']}"}], "isError": True}
+        else:
+            return _rpc_error(rpc_id, -32601, f"no method {method!r}")
+        return JSONResponse({"jsonrpc": "2.0", "id": rpc_id, "result": result})
+
+    async def _call(self, request: Request, read: Callable[[], Awaitable[dict[str, Any]]]) -> Response:
         call_id, context = new_call_id(), {"span_id": None, "tool": None, "cause": None}
         received_ns = self.attempt.clock_ns()  # the harness's call starts here, before verification and journaling queue it
         try:
             self.attempt.require_auth(request)
             context["span_id"] = self.attempt.span_id(request)
             self.attempt.require_active()
-            try:
-                call = decode_and_validate("ToolCall", await self.attempt.read_body(request), self.attempt.policy.max_request_bytes)
-            except ContractError as error:
-                raise from_contract(error) from error
+            call = await read()
             context["tool"], context["cause"] = call["name"], call.get("cause")
             return await self._run(call_id, call, context["span_id"], received_ns)
         except ServiceError as error:

@@ -460,7 +460,7 @@ async def test_a_failed_settlement_still_records_the_paid_response(tmp_path: Pat
 # ---- end to end: the real transport and uvicorn against a scripted upstream over loopback ------------------------------
 
 
-WAIT_TOOL = ToolPolicy("wait", False, {"type": "object"}, {"type": "object"})
+WAIT_TOOL = ToolPolicy("wait", False, {"type": "object"}, {"type": "object"}, "wait a while")
 TOOL_DECLARATIONS = {
     "chat_completions": {"tools": [{"type": "function", "function": {"name": "wait", "parameters": {"type": "object"}}}]},
     "responses": {"tools": [{"type": "function", "name": "wait", "parameters": {"type": "object"}}]},

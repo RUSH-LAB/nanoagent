@@ -172,12 +172,15 @@ async def test_cancel_woken_wait_that_fails_as_closed_is_still_a_cancel(tmp_path
 
 async def test_a_free_form_session_has_no_case_reads_no_result_and_ends_unscored(tmp_path: Path) -> None:
     rig = Rig(tmp_path, script=fx.CaseScript(result=SandboxError("missing_result", "ignored"), workspace=answer_file('{"sum": 3}')))
-    result = await rig.run(fx.free_job())
+    result = await rig.run(fx.free_job(tools=[fx.WAIT_TOOL]))
     request = json.loads(rig.supervisor.specs[0].request_json)
     assert (request["free_form"], request["case"], request["prompt"]) == (True, None, None)
     assert rig.services[0].attempt.policy.prompt_user is None
     assert result.execution == {"status": "ended", "reason": None} and rig.verified == []
     assert rig.rush.finalized[0]["verdict"] is None and rig.rush.of("result.read") == [] and rig.rush.of("collector.health")
+    # Under coding, the session still has the task's tools, for its agent CLIs (the broker's /mcp), in a tool container.
+    assert [tool["name"] for tool in request["tools"]["available"]] == ["wait"] and rig.supervisor.specs[0].tool is not None
+    assert rig.rush.of("attempt.started")[0]["egress_hosts"] == ["api.example.com"]
 
 
 async def test_any_other_harness_starts_only_once_its_case_is_pinned(tmp_path: Path) -> None:

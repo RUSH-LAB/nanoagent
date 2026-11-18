@@ -66,6 +66,7 @@ class ToolPolicy:
     writes: bool
     input_schema: Mapping[str, Any]
     output_schema: Mapping[str, Any]
+    description: str  # the plugin's, which an MCP client shows its agent
 
 
 @dataclass(frozen=True)

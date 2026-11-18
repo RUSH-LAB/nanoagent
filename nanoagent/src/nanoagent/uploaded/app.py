@@ -35,7 +35,7 @@ MAX_HARNESS_BYTES = 50 << 20
 
 
 class AttemptServices:
-    """One service instance per attempt. ``app`` serves `/api/v1/{chat/completions,responses,messages}`, `/tools`, `/exec`, `/events`,
+    """One service instance per attempt. ``app`` serves `/api/v1/{chat/completions,responses,messages}`, `/tools`, `/mcp`, `/exec`, `/events`,
     and, given ``save_harness``, `/harness`: a harness ZIP the attempt saves as its member's (`rush save` in the RUSH terminal),
     checked as a source is and handed to ``save_harness``, whose answer (RUSH's) it returns; and, given ``install_cli``, `/cli`:
     {"name", "expect"} installs a terminal CLI (nanoagent.uploaded.clis), answered with ``install_cli``'s events, one JSON line each."""
@@ -75,6 +75,7 @@ class AttemptServices:
             routes.append(Route("/cli", self._cli, methods=["POST"]))
         routes += [
             Route("/tools", self.broker.handle, methods=["POST"]),
+            Route("/mcp", self.broker.mcp, methods=["POST", "GET", "DELETE"]),
             Route("/exec", self.exec.handle, methods=["POST"]),
             Route("/events", self._event, methods=["POST"]),
             Route("/{path:path}", self.gateway.unsupported, methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]),

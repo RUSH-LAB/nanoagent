@@ -1,11 +1,15 @@
 #!/bin/sh
 # Hermes Agent on RUSH's gateway (its chat completions dialect), as the hermes reference harness runs it: its openrouter route
 # pointed at the gateway and keyed by the attempt token, the session's model and provider in its home's config.yaml (which Hermes
-# reads in place of flags), its shell and file tools in the current directory, and nothing to approve: the VM is the sandbox.
+# reads in place of flags), its shell and file tools in the current directory, the plugin's tools (shell.py's MCP server), and
+# nothing to approve: the VM is the sandbox.
 home="${TMPDIR:-/tmp}/rush-hermes"
 if [ ! -d "$home" ]; then
   mkdir -p "$home"
   printf 'model:\n  provider: openrouter\n  default: "%s"\n' "$RUSH_MODEL" > "$home/config.yaml"
+  if [ -n "$RUSH_MCP_URL" ]; then  # the plugin's tools (shell.py)
+    printf 'mcp_servers:\n  %s:\n    url: "%s"\n    headers:\n      Authorization: "Bearer %s"\n' "$RUSH_MCP_NAME" "$RUSH_MCP_URL" "$RUSH_ATTEMPT_TOKEN" >> "$home/config.yaml"
+  fi
 fi
 install="$(python /harness/rush.py cli hermes)" || exit 1  # installed the first time it is typed (rush.py cli)
 HERMES_HOME="$home" TERMINAL_CWD="$PWD" HERMES_YOLO_MODE=1 HERMES_ACCEPT_HOOKS=1 HERMES_MAX_TOKENS="$RUSH_MAX_OUTPUT_TOKENS" \

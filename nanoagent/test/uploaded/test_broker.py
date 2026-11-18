@@ -109,6 +109,33 @@ async def test_token_and_revocation_gate_the_broker(tmp_path: Path) -> None:
     assert rig.tools.calls == []
 
 
+async def test_mcp_lists_the_tools_and_calls_them_through_the_broker(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, ScriptedTransport())
+
+    async def rpc(client: httpx.AsyncClient, method: str, params: dict[str, Any] | None = None, **kwargs: Any) -> httpx.Response:
+        return await client.post("/mcp", json={"jsonrpc": "2.0", "id": 7, "method": method, **({"params": params} if params is not None else {})}, **kwargs)
+
+    async with rig.client() as client:
+        hello = (await rpc(client, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}})).json()
+        initialized = await client.post("/mcp", json={"jsonrpc": "2.0", "method": "notifications/initialized"})
+        listed = (await rpc(client, "tools/list")).json()["result"]["tools"]
+        called = (await rpc(client, "tools/call", {"name": "read", "arguments": {"n": 2}})).json()["result"]
+        refused = (await rpc(client, "tools/call", {"name": "read", "arguments": {"n": "x"}})).json()["result"]
+        unknown = (await rpc(client, "resources/list")).json()
+        stream = await client.get("/mcp")
+        unauthorized = await rpc(client, "tools/list", headers={"authorization": "Bearer x"})
+    assert hello["result"]["protocolVersion"] == "2025-06-18" and hello["result"]["capabilities"] == {"tools": {}}
+    assert initialized.status_code == 202 and stream.status_code == 405 and unauthorized.status_code == 401
+    assert [(tool["name"], tool["description"]) for tool in listed] == [("read", "Read the n-th entry."), ("write", "Write the workspace.")]
+    assert listed[0]["inputSchema"] == fakes.TOOLS[0].input_schema and listed[0]["outputSchema"] == fakes.TOOLS[0].output_schema
+    assert called == {"content": [{"type": "text", "text": '{"ok": true, "echo": {"n": 2}}'}], "structuredContent": {"ok": True, "echo": {"n": 2}}}
+    assert refused["isError"] is True and refused["content"][0]["text"].startswith("invalid_arguments: ")
+    assert unknown["error"]["code"] == -32601
+    # Each call is the broker's: recorded as a POST /tools call is.
+    assert rig.tools.calls == [("read", {"n": 2})] and last(rig, "tool.invoked")["tool"] == "read" and last(rig, "tool.completed")["ok"] is True
+    assert last(rig, "tool.rejected")["code"] == "invalid_arguments"
+
+
 async def test_writing_tools_are_exclusive_and_readers_run_together(tmp_path: Path) -> None:
     rig = make_rig(tmp_path, ScriptedTransport())
     rig.tools.delay = 0.05
@@ -177,6 +204,7 @@ WAIT = ToolPolicy(
     False,
     {"type": "object", "properties": {"wait_seconds": {"type": "number"}}, "required": ["wait_seconds"]},
     {"type": "object", "properties": {"waited": {"type": "number"}}, "required": ["waited"]},
+    "wait a while",
 )
 
 
