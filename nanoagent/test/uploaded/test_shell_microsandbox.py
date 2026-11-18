@@ -15,6 +15,7 @@ import asyncio
 import base64
 import hashlib
 import io
+import json
 import os
 import shutil
 import sys
@@ -50,7 +51,7 @@ AGENT = 'import json, hashlib; a = json.load(open("request.json")); json.dump({"
 TYPED = [
     "node --version; npm --version; git --version; curl --version | head -n 1",
     "npm install -g --silent is-number && ls .rush/npm/lib/node_modules",
-    "claude --version; codex --version; pi --version; hermes --version; dsh --version",
+    "time claude --version",
     "pip install --quiet --disable-pip-version-check openai",
     "python -c \"import os; from openai import OpenAI; r = OpenAI().chat.completions.create(model=os.environ['RUSH_MODEL'], "
     "messages=[{'role': 'user', 'content': 'say ok'}]); print('MODEL SAID:', r.choices[0].message.content)\"",
@@ -133,7 +134,8 @@ async def scenario(root: Path, package: bytes) -> None:
         assert final["execution"] == {"status": "answered", "reason": None} and final["verdict"] == "pass", final
         assert "MODEL SAID: ok" in screen and "/api/v1 " in screen and "prompt.md" in screen and "request.json" in screen
         assert "v22." in screen and "git version" in screen and "curl " in screen and "is-number" in screen
-        assert "2.1.325 (Claude Code)" in screen and "codex-cli 0.167.0" in screen and "Hermes Agent v0.19.0" in screen and "0.2.2-rc.1" in screen
+        # Claude Code is installed the first time it is typed, its progress on the terminal; the saved harness records it.
+        assert "installing Claude Code 2.1.325" in screen and "installed Claude Code 2.1.325" in screen and "2.1.325 (Claude Code)" in screen
         # The SDK's call and Claude Code's, neither carrying the case's prompt, both recorded.
         responses = rush.of("model_call.response")
         assert len(handle.ledger.calls) >= 2 and len(responses) == len(handle.ledger.calls) and all(r["terminal"] == "completed" for r in responses)
@@ -141,9 +143,10 @@ async def scenario(root: Path, package: bytes) -> None:
         [saved] = rush.saved
         archive = zipfile.ZipFile(io.BytesIO(saved))
         names = set(archive.namelist())
-        assert {"harness.yaml", "shell.py", "build.sh", "bin/claude", "package-lock.json", "clis.txt", "executables", "workspace/agent.py", "requirements.txt"} <= names, names
+        assert {"harness.yaml", "shell.py", "build.sh", "bin/claude", "executables", "workspace/agent.py", "requirements.txt"} <= names, names
         assert not names & {"workspace/answer.json", "workspace/prompt.md", "workspace/request.json"}
         assert "openai==" in archive.read("requirements.txt").decode()
+        assert set(json.loads(archive.read("clis.json"))) == {"claude"}
         manifest = yaml.safe_load(archive.read("harness.yaml"))
         assert manifest["run"]["argv"] == ["python", "/harness/shell.py", 'python agent.py "$RUSH_PROMPT"']
         print(archive.read("harness.yaml").decode())
@@ -154,7 +157,11 @@ async def scenario(root: Path, package: bytes) -> None:
         [final] = again.finalized
         assert final["execution"] == {"status": "answered", "reason": None} and final["verdict"] == "pass", final
 
-        # The next terminal opens on the build the first kept; one left without an answer has no verdict.
-        cached, opened, _ = await attempt(root, build_reference("shell"), package, True, provider, ["exit"])
+        # The next terminal opens on the build the first kept and runs the install it made at once; one left without an answer
+        # has no verdict.
+        cached, opened, _ = await attempt(root, build_reference("shell"), package, True, provider, ["time claude --version", "exit"])
+        screen = cached.screen.decode(errors="replace")
+        print(screen)
+        assert "2.1.325 (Claude Code)" in screen and "installing" not in screen
         assert opened.outcome == "finalized" and cached.finalized[0]["execution"] == {"status": "execution_failed", "reason": "missing_result"}
         assert len(list((root / "builds").iterdir())) == 2  # the terminal's build and the saved harness's

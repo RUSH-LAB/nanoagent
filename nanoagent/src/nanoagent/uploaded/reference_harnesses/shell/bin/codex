@@ -29,4 +29,5 @@ command = "true"
 enabled = false
 EOF
 fi
-CODEX_HOME="$home" exec node /harness/node_modules/@openai/codex/bin/codex.js "$@"
+install="$(python /harness/rush.py cli codex)" || exit 1  # installed the first time it is typed (rush.py cli)
+CODEX_HOME="$home" exec node "$install"/node_modules/@openai/codex/bin/codex.js "$@"

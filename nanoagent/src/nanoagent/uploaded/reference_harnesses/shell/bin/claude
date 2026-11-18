@@ -8,7 +8,8 @@ if [ ! -d "$home" ]; then
   printf '{"hasCompletedOnboarding":true,"theme":"dark","bypassPermissionsModeAccepted":true,"projects":{"%s":{"hasTrustDialogAccepted":true,"hasCompletedProjectOnboarding":true}}}' "$RUSH_WORKSPACE" > "$home/.claude.json"
   printf '{"skipDangerousModePermissionPrompt":true}' > "$home/.claude/settings.json"
 fi
+install="$(python /harness/rush.py cli claude)" || exit 1  # installed the first time it is typed (rush.py cli)
 HOME="$home" ANTHROPIC_BASE_URL="$ANTHROPIC_BASE_URL" ANTHROPIC_AUTH_TOKEN="$RUSH_ATTEMPT_TOKEN" ANTHROPIC_API_KEY= \
   ANTHROPIC_MODEL="$RUSH_MODEL" ANTHROPIC_SMALL_FAST_MODEL="$RUSH_MODEL" ANTHROPIC_DEFAULT_HAIKU_MODEL="$RUSH_MODEL" \
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 CLAUDE_CODE_MAX_OUTPUT_TOKENS="$RUSH_MAX_OUTPUT_TOKENS" \
-  exec "/harness/node_modules/@anthropic-ai/claude-code-linux-$(node -p process.arch)/claude" "$@"
+  exec "$install/node_modules/@anthropic-ai/claude-code-linux-$(node -p process.arch)/claude" "$@"

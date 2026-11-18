@@ -5,12 +5,14 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import zipfile
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from nanoagent.uploaded.clis import CLIS
 from nanoagent.uploaded.contract import parse_manifest
 from nanoagent.uploaded.reference import FOLDER
 from nanoagent.uploaded.rush_worker import RushError
@@ -49,7 +51,7 @@ def test_the_manifest_is_a_valid_harness_that_runs_the_command_through_the_shell
         manifest = parse_manifest(rush.manifest("my-agent", "0123456789ab", 'aider --message "$RUSH_PROMPT"', locked).encode())
         assert (manifest.name, manifest.version, manifest.toolchain) == ("my-agent", "0123456789ab", "shell-1")
         assert manifest.run_argv == ("python", "/harness/shell.py", 'aider --message "$RUSH_PROMPT"')
-        assert manifest.lockfiles == ("package-lock.json", "clis.txt", *(("requirements.txt",) if locked else ()))
+        assert manifest.lockfiles == (("requirements.txt",) if locked else ())
         assert manifest.build_argv == ("sh", "build.sh") and ("packages" in manifest.build_outputs) is locked
 
 
@@ -57,7 +59,7 @@ def saved_zip(**extra: bytes) -> bytes:
     archive = io.BytesIO()
     with zipfile.ZipFile(archive, "w") as out:
         out.writestr("harness.yaml", rush.manifest("my-agent", "0123456789ab", "bash run.sh", False))
-        for path, data in {"shell.py": b"print()", "package-lock.json": b"{}", "clis.txt": b"", "executables": b"", "workspace/run.sh": b"echo", **extra}.items():
+        for path, data in {"shell.py": b"print()", "executables": b"", "workspace/run.sh": b"echo", **extra}.items():
             out.writestr(path, data)
     return archive.getvalue()
 
@@ -82,3 +84,35 @@ async def test_the_services_check_a_saved_harness_as_a_source_and_hand_it_to_rus
         assert (refused.status_code, refused.json()["error"]["code"]) == (400, "reserved_harness_name")
         assert (await client.post("/harness", content=saved_zip(), headers={"authorization": "Bearer nope"})).status_code == 401
     assert make_rig(tmp_path / "plain").services.app.routes[0].path != "/harness"
+
+
+def test_a_harness_saved_after_installing_clis_records_those_installs() -> None:
+    manifest = parse_manifest(rush.manifest("my-agent", "0123456789ab", "claude -p hi", False, True).encode())
+    assert "clis.json" in manifest.build_outputs and manifest.lockfiles == ()
+
+
+def test_each_terminal_cli_is_its_reference_harness_at_the_version_its_lock_pins() -> None:
+    assert {name: (cli.reference, cli.version()) for name, cli in CLIS.items()} == {
+        "claude": ("claude-code", "2.1.325"), "codex": ("codex", "0.167.0"), "pi": ("pi", "0.84.4"), "dsh": ("dsh", "0.2.2-rc.1"), "hermes": ("hermes", "0.19.0"),
+    }  # fmt: skip
+    claude = CLIS["claude"]
+    assert claude.key("node@sha256:a") == claude.key("node@sha256:a") != claude.key("node@sha256:b")  # one install per lock, image and machine
+
+
+async def test_the_services_stream_a_cli_install_one_json_line_per_event(tmp_path: Path) -> None:
+    asked: list[tuple[str, str | None]] = []
+
+    async def install(name: str, expect: str | None) -> Any:
+        asked.append((name, expect))
+        yield {"installing": "Claude Code", "version": "2.1.325"}
+        yield {"path": "/opt/rush/clis/k/harness", "key": "k"}
+
+    rig = make_rig(tmp_path, install_cli=install)
+    async with rig.client() as client:
+        answered = await client.post("/cli", json={"name": "claude", "expect": None})
+        assert answered.status_code == 200 and [json.loads(line) for line in answered.text.splitlines()] == [
+            {"installing": "Claude Code", "version": "2.1.325"}, {"path": "/opt/rush/clis/k/harness", "key": "k"},
+        ]  # fmt: skip
+        assert (await client.post("/cli", json={"name": 3})).status_code == 400
+        assert (await client.post("/cli", json={"name": "claude"}, headers={"authorization": "Bearer nope"})).status_code == 401
+    assert asked == [("claude", None)]

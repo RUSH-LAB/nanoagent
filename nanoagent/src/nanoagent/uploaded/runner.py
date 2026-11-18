@@ -23,6 +23,7 @@ unavailable. The worker goes on to its next job.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -32,7 +33,7 @@ import secrets
 import shutil
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
@@ -50,6 +51,7 @@ from nanoagent.uploaded.answer import read_answer
 from nanoagent.uploaded.app import AttemptServices
 from nanoagent.uploaded.attempt import AttemptPolicy, ToolPolicy
 from nanoagent.uploaded.broker import PluginToolRunner, ToolError
+from nanoagent.uploaded.clis import CLIS
 from nanoagent.uploaded.collector import ProcessEvent, ProcessEventKind, ProcessEvidence, launched_processes
 from nanoagent.uploaded.contract import Answered, ContractError, Refused, validate, validate_result
 from nanoagent.uploaded.endpoint import EndpointProfile
@@ -72,6 +74,7 @@ from nanoagent.uploaded.rush_worker import (
 from nanoagent.uploaded.sandbox import (
     AttemptNetwork,
     BuildArtifact,
+    CLIS_DIR,
     BuildSpec,
     CaseHandle,
     CaseSpec,
@@ -84,6 +87,7 @@ from nanoagent.uploaded.sandbox import (
     ToolLauncher,
     WORKSPACE,
 )
+from nanoagent.uploaded.reference import build_reference
 from nanoagent.uploaded.source import SourceLimits, extract, inspect_zip
 from nanoagent.uploaded.terminal import Terminal
 from nanoagent.uploaded.toolchains import ToolchainProfile, resolve_dependencies, toolchain
@@ -95,6 +99,7 @@ EXEC_THREADS = 4  # concurrent managed commands per attempt
 MISSING_ANSWER = "wrote no answer.json"  # read_answer's failure for an absent file
 SNAPSHOT_EVENT_DIFF_BYTES = 128 * 1024  # of the diff a snapshot.taken event carries; the snapshot payload has all of it
 BUILDS = "builds"  # under the scratch folder: each source's built harness, kept for the next attempt of it
+CLIS_FOLDER = "clis"  # under the scratch folder: the terminal's CLI installs (nanoagent.uploaded.clis), mounted into every case
 BUILT = "built.json"  # beside a kept build's harness/: its outputs and digest, written last
 
 
@@ -226,6 +231,11 @@ class CaseCommands:
             raise ExecError(error.code, error.message, 400 if error.code == "invalid_cwd" else 500) from error
         self.outcomes.append(outcome)
         return exec_result(outcome), outcome.launch_id
+
+
+def tree_bytes(folder: Path) -> int:
+    """The bytes of the regular files under ``folder``, links not followed."""
+    return sum(entry.stat().st_size for entry in folder.rglob("*") if entry.is_file() and not entry.is_symlink())
 
 
 async def in_thread(function: Callable[..., Any], *args: Any) -> Any:
@@ -455,8 +465,12 @@ class AttemptRunner:
         if (kept / BUILT).is_file():
             built = json.loads((kept / BUILT).read_text())
             return BuildArtifact(kept / "harness", tuple(built["outputs"]), built["digest"], b"", b"", 0.0)
-        artifact = self._build_now(job, archive, profile, work)
-        staging = builds / f".{key}-{uuid.uuid4().hex[:8]}"
+        return self._keep(self._build_now(job, archive, profile, work), kept)
+
+    @staticmethod
+    def _keep(artifact: BuildArtifact, kept: Path) -> BuildArtifact:
+        """Moves a fresh build to ``kept`` (its harness/, and BUILT written last), where later attempts find it."""
+        staging = kept.parent / f".{kept.name}-{uuid.uuid4().hex[:8]}"
         staging.mkdir(parents=True)
         shutil.move(artifact.directory, staging / "harness")
         (staging / BUILT).write_text(json.dumps({"outputs": list(artifact.outputs), "digest": artifact.digest, "duration_s": artifact.duration_s}))
@@ -465,6 +479,40 @@ class AttemptRunner:
         except OSError:  # an attempt beside this one kept the same build first: theirs serves
             shutil.rmtree(staging, ignore_errors=True)
         return replace(artifact, directory=kept / "harness")
+
+    async def _install_cli(self, job: AttemptJob, work: Path, name: str, expect: str | None) -> AsyncIterator[Mapping[str, Any]]:
+        """Installs the terminal's CLI ``name`` (its reference harness, built as any harness is), once per lockfile: what the
+        wrapper shows while it waits, then where the install is in the case VM, or why there is none."""
+        cli = CLIS.get(name)
+        if cli is None:
+            yield {"error": f"{name} is not a CLI the terminal installs; they are {', '.join(CLIS)}"}
+            return
+        archive = inspect_zip(build_reference(cli.reference), self.config.source_limits)
+        profile = toolchain(archive.manifest.toolchain)
+        key, version = cli.key(profile.build_image), cli.version()
+        if expect is not None and expect != key:
+            yield {"error": f"this harness was saved with another {cli.label} than this RUSH Lab installs ({version}): save it again"}
+            return
+        kept = self.config.scratch / CLIS_FOLDER / key
+        if not (kept / BUILT).is_file():
+            yield {"installing": cli.label, "version": version}
+            scratch = work / f"cli-{uuid.uuid4().hex[:8]}"
+            scratch.mkdir(parents=True)
+            started = time.monotonic()
+            install = asyncio.ensure_future(in_thread(lambda: self._keep(self._build_now(job, archive, profile, scratch), kept)))
+            while not install.done():
+                await asyncio.wait({install}, timeout=1)
+                yield {"bytes": tree_bytes(scratch / "deps")}  # the verified downloads so far
+            try:
+                install.result()
+            except ContractError as error:
+                LOG.warning("installing %s for %s failed: %s: %s", name, job.attempt_id, error.code, error.message)
+                yield {"error": f"installing {cli.label} {version} failed: {error.code}: {error.message}"}
+                return
+            finally:
+                shutil.rmtree(scratch, ignore_errors=True)
+            yield {"installed": cli.label, "version": version, "bytes": tree_bytes(kept), "seconds": round(time.monotonic() - started)}
+        yield {"path": f"{CLIS_DIR}/{key}/harness", "key": key}
 
     def _build_now(self, job: AttemptJob, archive: Any, profile: ToolchainProfile, work: Path) -> BuildArtifact:
         source_root = work / "source"
@@ -526,14 +574,18 @@ class AttemptRunner:
             policy=policy, endpoint=cfg.endpoint, admission=RushAdmission(self.worker, lease), journal=journal, tool_runner=runner,
             command_runner=commands, workspace=workspace, clock_ns=self.clock_ns,
             save_harness=lambda data: self.worker.save_harness(job.attempt_id, job.fence, data),
+            install_cli=lambda name, expect: self._install_cli(job, work, name, expect),
         )
         services.attempt.lease_lapsed = lease.lapsed  # the services refuse new work once the lease's known expiry passes
         relay = await self.relay.start(job.attempt_id, network, services.app, work)
         stack.push_async_callback(shielded, relay.aclose)
         request = self._request(job, tools, relay.base_url)
         terminal = Terminal(self.worker, job.attempt_id, job.fence)
+        clis = cfg.scratch / CLIS_FOLDER
+        clis.mkdir(parents=True, exist_ok=True)
         spec = CaseSpec(
             job.attempt_id, profile, run_argv, artifact, json.dumps(request).encode(), token, network, work / "case", None, limits, tool_container, terminal.write,
+            clis,
         )
         offset = self.wall_clock_ns() - self.clock_ns()
         handle = await in_thread(self.supervisor.create_case, spec)

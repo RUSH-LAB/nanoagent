@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
@@ -12,7 +13,7 @@ from typing import Any
 import anyio
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 
 from nanoagent.uploaded.attempt import CALL_HEADER, Attempt, AttemptPolicy, ServiceError, error_response, from_contract, new_call_id
@@ -36,7 +37,8 @@ MAX_HARNESS_BYTES = 50 << 20
 class AttemptServices:
     """One service instance per attempt. ``app`` serves `/api/v1/{chat/completions,responses,messages}`, `/tools`, `/exec`, `/events`,
     and, given ``save_harness``, `/harness`: a harness ZIP the attempt saves as its member's (`rush save` in the RUSH terminal),
-    checked as a source is and handed to ``save_harness``, whose answer (RUSH's) it returns."""
+    checked as a source is and handed to ``save_harness``, whose answer (RUSH's) it returns; and, given ``install_cli``, `/cli`:
+    {"name", "expect"} installs a terminal CLI (nanoagent.uploaded.clis), answered with ``install_cli``'s events, one JSON line each."""
 
     def __init__(
         self,
@@ -52,6 +54,7 @@ class AttemptServices:
         clock_ns: Callable[[], int] = time.monotonic_ns,
         proposal_wait_s: float = 30.0,
         save_harness: Callable[[bytes], Awaitable[Mapping[str, Any]]] | None = None,
+        install_cli: Callable[[str, str | None], AsyncIterator[Mapping[str, Any]]] | None = None,
     ) -> None:
         recorder = Recorder(journal, clock_ns, [policy.token, endpoint.api_key])
         self.attempt = Attempt(policy, recorder, workspace, clock_ns)
@@ -67,6 +70,9 @@ class AttemptServices:
         self._save_harness = save_harness
         if save_harness is not None:
             routes.append(Route("/harness", self._harness, methods=["POST"]))
+        self._install_cli = install_cli
+        if install_cli is not None:
+            routes.append(Route("/cli", self._cli, methods=["POST"]))
         routes += [
             Route("/tools", self.broker.handle, methods=["POST"]),
             Route("/exec", self.exec.handle, methods=["POST"]),
@@ -131,6 +137,23 @@ class AttemptServices:
         except ServiceError as error:
             return error_response(error)
         return JSONResponse(dict(saved))
+
+    async def _cli(self, request: Request) -> Response:
+        assert self._install_cli is not None
+        try:
+            self.attempt.require_auth(request)
+            self.attempt.require_active()
+            try:
+                body = decode_json_object(await request.body())
+            except ContractError as error:
+                raise ServiceError(400, error.code, error.message) from error
+            name, expect = body.get("name"), body.get("expect")
+            if not isinstance(name, str) or not (expect is None or isinstance(expect, str)):
+                raise ServiceError(400, "invalid_request", "a CLI install takes a name and, from a saved harness, the install it expects")
+        except ServiceError as error:
+            return error_response(error)
+        events = self._install_cli(name, expect)
+        return StreamingResponse((json.dumps(dict(event)) + "\n" async for event in events), media_type="application/x-ndjson")
 
     async def _event(self, request: Request) -> Response:
         received_ns = self.attempt.clock_ns()  # before anything is journaled: the event's time is when it arrived

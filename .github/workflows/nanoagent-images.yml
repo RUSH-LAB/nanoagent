@@ -11,9 +11,8 @@ on:
     paths: &sources
       - '.github/workflows/nanoagent-images.yml'
       - 'nanoagent/images/**'
-      # Where the code pins the digests.
+      # Where the code pins the digest.
       - 'nanoagent/src/nanoagent/uploaded/sandbox.py'
-      - 'nanoagent/src/nanoagent/uploaded/toolchains.py'
   push:
     branches: [production, devmode]
     paths: *sources

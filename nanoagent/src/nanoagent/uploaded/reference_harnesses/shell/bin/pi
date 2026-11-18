@@ -8,5 +8,6 @@ if [ ! -d "$home" ]; then
   printf '{"providers":{"openrouter":{"baseUrl":"%s","apiKey":"$RUSH_ATTEMPT_TOKEN","modelOverrides":{"%s":{"maxTokens":%s}}}}}' \
     "$OPENAI_BASE_URL" "$RUSH_MODEL" "$RUSH_MAX_OUTPUT_TOKENS" > "$home/models.json"
 fi
-PI_CODING_AGENT_DIR="$home" exec node /harness/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js \
+install="$(python /harness/rush.py cli pi)" || exit 1  # installed the first time it is typed (rush.py cli)
+PI_CODING_AGENT_DIR="$home" exec node "$install"/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js \
   --provider openrouter --model "$RUSH_MODEL" --offline "$@"

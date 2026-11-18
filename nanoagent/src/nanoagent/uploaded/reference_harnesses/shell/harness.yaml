@@ -3,13 +3,13 @@ name: shell
 version: "1"
 dialects: [chat_completions, responses, anthropic_messages]
 toolchain: shell-1
-lockfiles: [package-lock.json, clis.txt]
+lockfiles: []
 # The member's own terminal: bash in the case workspace, the gateway preset (shell.py), with the reference CLIs on its PATH (bin/:
-# claude, codex, pi, hermes, dsh) at the versions the reference harnesses lock. package-lock.json: reproduced by
-# `.venv/bin/python src/nanoagent/uploaded/reference_harnesses/regenerate_locks.py shell`; clis.txt is hermes's requirements.txt.
+# claude, codex, pi, hermes, dsh) at the versions the reference harnesses lock, each installed by the worker the first time it is
+# typed and kept for every session after (nanoagent.uploaded.clis), so this build only copies these files.
 # `rush save` (rush.py) makes what the member built a harness of its own, built by this same build.sh and run by this shell.py.
 build:
   argv: [sh, build.sh]
-  outputs: [shell.py, bashrc, rush.py, build.sh, bin, package.json, package-lock.json, clis.txt, node_modules, site]
+  outputs: [shell.py, bashrc, rush.py, build.sh, bin]
 run:
   argv: [python, /harness/shell.py]

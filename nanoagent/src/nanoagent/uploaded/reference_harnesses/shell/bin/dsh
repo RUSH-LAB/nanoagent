@@ -27,8 +27,9 @@ if [ ! -d "$home" ]; then
     reasoningEffort: "medium"
 EOF
 fi
+install="$(python /harness/rush.py cli dsh)" || exit 1  # installed the first time it is typed (rush.py cli)
 # Its version is an option of dsh itself, before the profile's.
-case "$1" in -V | --version) exec node /harness/node_modules/@deepseek-ai/dsh/lib/bin.js "$1" ;; esac
+case "$1" in -V | --version) exec node "$install"/node_modules/@deepseek-ai/dsh/lib/bin.js "$1" ;; esac
 # The loader of dsh's native addons copies each into /tmp to load it, which is mounted noexec.
 DSH_HOME="$home" DSH_PERMISSION_MODE=danger-full-access NARB_DISABLE_NATIVE_CACHE=1 \
-  exec node /harness/node_modules/@deepseek-ai/dsh/lib/bin.js --profile headless --patch "$home/run.patch.yml" --approval-policy never "$@"
+  exec node "$install"/node_modules/@deepseek-ai/dsh/lib/bin.js --profile headless --patch "$home/run.patch.yml" --approval-policy never "$@"

@@ -1,10 +1,12 @@
 """`rush save <name> [-- <command>]`, in the RUSH terminal: what the member built there, saved in RUSH as a harness of theirs.
+And `rush.py cli <name>`, which bin/'s wrappers run: where the worker installed the CLI <name> (nanoagent.uploaded.clis), installed
+there the first time, with its progress on the terminal.
 
 The snapshot is the case workspace as it is: every file in it but the case's own (prompt.md, request.json, answer.json) and
 .rush/, the terminal's own folder (packages installed with npm -g are not kept). A link in it fails the save, as a source holds
 none. The Python packages the member installed (`pip install`, which lands in .rush/python) are saved as a hashed requirements.txt
-for this VM's platform, which the harness's build installs from the worker's verified wheels, never from the network, as it
-installs the reference CLIs from this terminal's own locks. The harness runs <command>, as typed after `--`, or
+for this VM's platform, which the harness's build installs from the worker's verified wheels, never from the network. The CLIs the session installed
+are recorded (clis.json), and the harness runs those same installs. The harness runs <command>, as typed after `--`, or
 the last command typed before `rush save`, in a workspace holding the saved files and the next case's prompt.md and
 request.json, with the same environment. It is sent to RUSH through the attempt's services, which check it as any source is
 checked, and becomes the member's harness <name>, at a version of its content.
@@ -28,6 +30,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")  # the harness contract's HarnessName
 CASE_FILES = {"prompt.md", "request.json", "answer.json", ".rush"}
+INSTALLED = ".rush/clis"  # in the workspace: each CLI the session ran, by name, holding its install's key
 UV = "/opt/rush-tools/uv"
 USAGE = "usage: rush save <name> [-- <command>]"
 
@@ -100,19 +103,19 @@ def requirements() -> bytes | None:
 
 
 # The terminal's own files, which build and run a saved harness as they build and run the terminal (build.sh).
-TERMINAL = ("shell.py", "bashrc", "rush.py", "build.sh", "package.json", "package-lock.json", "clis.txt")
+TERMINAL = ("shell.py", "bashrc", "rush.py", "build.sh")
 CLIS = ("claude", "codex", "pi", "hermes", "dsh")
 
 
-def manifest(name: str, version: str, command: str, locked: bool) -> str:
-    outputs = [*TERMINAL, "bin", "node_modules", "site", "workspace", "executables", *(["packages"] if locked else [])]
+def manifest(name: str, version: str, command: str, locked: bool, clis: bool = False) -> str:
+    outputs = [*TERMINAL, "bin", "workspace", "executables", *(["packages"] if locked else []), *(["clis.json"] if clis else [])]
     return "\n".join([
         "protocol: rush.harness.v1",
         f"name: {name}",
         f"version: {json.dumps(version)}",
         "dialects: [chat_completions, responses, anthropic_messages]",
         "toolchain: shell-1",
-        f"lockfiles: {json.dumps(['package-lock.json', 'clis.txt', *(['requirements.txt'] if locked else [])])}",
+        f"lockfiles: {json.dumps(['requirements.txt'] if locked else [])}",
         "# Saved by `rush save` in the RUSH terminal: the files built there (workspace/) and the packages installed (requirements.txt).",
         "build:",
         "  argv: [sh, build.sh]",
@@ -127,16 +130,20 @@ def save(name: str, command: str) -> None:
     request = json.loads(Path(os.environ["RUSH_REQUEST"]).read_text(encoding="utf-8"))
     files, executables = workspace_files(Path(request["workspace"]))
     locked = requirements()
+    installed = Path(request["workspace"]) / INSTALLED
+    clis = {entry.name: entry.read_text(encoding="utf-8") for entry in sorted(installed.iterdir())} if installed.is_dir() else {}
     parts = {f"workspace/{path}": data for path, data in files.items()}
     parts |= {path: (HERE / path).read_bytes() for path in TERMINAL} | {f"bin/{cli}": (HERE / "bin" / cli).read_bytes() for cli in CLIS}
     parts["executables"] = "".join(f"{path}\n" for path in executables).encode()
     if locked is not None:
         parts["requirements.txt"] = locked
+    if clis:
+        parts["clis.json"] = (json.dumps(clis, indent=2) + "\n").encode()
     digest = hashlib.sha256(command.encode())
     for path in sorted(parts):
         digest.update(b"\0" + path.encode() + b"\0" + hashlib.sha256(parts[path]).digest())
     version = digest.hexdigest()[:12]
-    parts["harness.yaml"] = manifest(name, version, command, locked is not None).encode()
+    parts["harness.yaml"] = manifest(name, version, command, locked is not None, bool(clis)).encode()
     archive = io.BytesIO()
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as out:
         out.writestr(zipfile.ZipInfo("workspace/"), b"")
@@ -161,7 +168,45 @@ def save(name: str, command: str) -> None:
     print(f"run it again with `nanoagent harness plugin=<plugin> harness={name} prompt=...`")
 
 
+def cli(name: str) -> None:
+    """Prints where the CLI ``name`` is installed, installing it first if it is not yet (its progress on stderr, the terminal)."""
+    request = json.loads(Path(os.environ["RUSH_REQUEST"]).read_text(encoding="utf-8"))
+    recorded = HERE / "clis.json"  # a saved harness runs the installs its session ran
+    expect = json.loads(recorded.read_text(encoding="utf-8")).get(name) if recorded.is_file() else None
+    sent = urllib.request.Request(request["exec_url"].removesuffix("/exec") + "/cli", data=json.dumps({"name": name, "expect": expect}).encode(), method="POST", headers={
+        "Content-Type": "application/json", "Authorization": f"Bearer {os.environ['RUSH_ATTEMPT_TOKEN']}",
+    })  # fmt: skip
+    label = name
+    try:
+        with urllib.request.urlopen(sent, timeout=3600) as response:
+            for line in response:
+                event = json.loads(line)
+                if "error" in event:
+                    fail(event["error"])
+                if "installing" in event:
+                    label = f"{event['installing']} {event['version']}"
+                    print(f"installing {label}…", end="", file=sys.stderr, flush=True)
+                elif "bytes" in event and "installed" not in event:
+                    print(f"\rinstalling {label}… {event['bytes'] / 1e6:.0f} MB downloaded", end="", file=sys.stderr, flush=True)
+                elif "installed" in event:
+                    print(f"\rinstalled {label} ({event['bytes'] / 1e6:.0f} MB) in {event['seconds']} s", file=sys.stderr, flush=True)
+                elif "path" in event:
+                    installed = Path(request["workspace"]) / INSTALLED
+                    installed.mkdir(parents=True, exist_ok=True)
+                    (installed / name).write_text(event["key"], encoding="utf-8")
+                    print(event["path"])
+                    return
+    except urllib.error.HTTPError as error:
+        fail(f"RUSH Lab did not install {label}: {error.code} {error.read().decode(errors='replace')}")
+    except OSError as error:
+        fail(f"installing {label} stopped: {error}")
+    fail(f"installing {label} ended without saying where it is")
+
+
 def main(argv: list[str]) -> None:
+    if len(argv) == 2 and argv[0] == "cli":
+        cli(argv[1])
+        return
     if len(argv) < 2 or argv[0] != "save" or (len(argv) > 2 and argv[2] != "--"):
         fail(USAGE)
     if not NAME.match(argv[1]):

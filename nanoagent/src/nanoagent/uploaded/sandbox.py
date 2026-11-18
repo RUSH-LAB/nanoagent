@@ -81,6 +81,7 @@ PLUGIN_DIR = "/plugin"
 PLUGIN_SOURCE_DIR = "/plugin-source"  # the prep VM's read-only view of the plugin, copied into PLUGIN_DIR to build
 FIXTURES_DIR = "/fixtures"
 TOOLS_DIR = "/opt/rush-tools"  # the worker's guest tools (strace, uv), read-only in every VM
+CLIS_DIR = "/opt/rush/clis"  # the worker's installs of the reference CLIs (nanoagent.uploaded.clis), read-only in a case VM
 TRACE_DIR = "/rush-trace"  # root-owned: the case user cannot write the evidence
 UV_BIN = f"{TOOLS_DIR}/uv"
 STRACE_BIN = f"{TOOLS_DIR}/strace"
@@ -260,6 +261,7 @@ class CaseSpec:
     limits: Limits = Limits()
     tool: ToolContainerSpec | None = None
     on_output: Callable[[bytes], None] | None = None  # each chunk the harness writes to its terminal, as it comes
+    clis: Path | None = None  # the worker's CLI installs, at CLIS_DIR: ones installed while the case runs appear there too
 
 
 class CaseHandle(Protocol):
@@ -821,7 +823,7 @@ class MicrosandboxSupervisor:
                 {
                     WORKSPACE: _bind(workspace, readonly=False, quota=spec.limits.workspace_bytes), OUT_DIR: _bind(out, readonly=False, quota=spec.limits.out_bytes),
                     HARNESS_DIR: _bind(spec.artifact.directory), TOOLS_DIR: MountConfig(kind=MountKind.BIND, bind=str(tools), readonly=True),
-                    "/tmp": _tmpfs(spec.limits.tmp_bytes),
+                    "/tmp": _tmpfs(spec.limits.tmp_bytes), **({} if spec.clis is None else {CLIS_DIR: _bind(spec.clis)}),
                 },
                 patches=[PatchConfig(kind=PatchKind.FILE, path=REQUEST_PATH, content=spec.request_json, mode=0o444)],
                 labels={"rush.attempt": spec.attempt_id},
