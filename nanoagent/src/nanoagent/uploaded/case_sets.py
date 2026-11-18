@@ -222,11 +222,22 @@ class SessionsConfig(Config):
     # install): a person installs and runs agents there, which a benchmark case's 64 MiB and 256 MiB do not hold.
     tmp_bytes: int = 4 << 30
     workspace_bytes: int = 10 << 30
+    # The case VM's memory, which its tmpfs /tmp is charged to: room for that and an agent's process (Claude Code's node) beside it.
+    memory_mb: int = 4096
     # The output tokens the plugin's model may spend filling a session's case from the request, its reasoning included.
     fill_max_tokens: int = 16_384
 
     def __post_init__(self) -> None:
-        for name in ("max_model_calls", "wall_time_ms", "build_output_bytes", "build_wall_ms", "tmp_bytes", "workspace_bytes", "fill_max_tokens"):
+        for name in (
+            "max_model_calls",
+            "wall_time_ms",
+            "build_output_bytes",
+            "build_wall_ms",
+            "tmp_bytes",
+            "workspace_bytes",
+            "memory_mb",
+            "fill_max_tokens",
+        ):
             if getattr(self, name) < 1:
                 raise ValueError(f"sessions.{name} must be >= 1, got {getattr(self, name)}")
 
@@ -246,6 +257,7 @@ def session_frame(manifest, sha256: str, task_id: str, text: str | None, session
     limits = {
         "max_model_calls": sessions.max_model_calls, "wall_time_ms": sessions.wall_time_ms, "build_output_bytes": sessions.build_output_bytes,
         "build_wall_ms": sessions.build_wall_ms, "tmp_bytes": sessions.tmp_bytes, "workspace_bytes": sessions.workspace_bytes,
+        "memory_mb": sessions.memory_mb,
     }  # fmt: skip
     frame = {**case_set_frame(SESSION, manifest, sha256, task, text or ""), "limits": limits}
     if text is None:
