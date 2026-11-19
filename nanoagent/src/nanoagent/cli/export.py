@@ -5,7 +5,8 @@
 
 A line is a run (a Harness tab Terminal session under any CLI, a Harness tab or `nanoagent harness` session, a scored run: its
 member, plugin, harness by its CLI command, model, times, outcome and score, and each attempt's model calls with their request and
-response bodies, accounting, events, spans and terminal transcripts) or a NanoAgent chat of a plugin page (its turns, each with its
+response bodies, accounting, events, spans and terminal transcripts, and for a Terminal session `workspace.url`, where on RUSH to
+download its files as a tar.zst, signed in as the export is) or a NanoAgent chat of a plugin page (its turns, each with its
 ATIF trajectory, and its calls). `member` is whose: yours by default; a member's id, or `all`, only for a platform administrator.
 
 It reads GET /api/traces/export from the RUSH that RUSH Lab on this computer is connected to, signed in with RUSH Lab's connection,

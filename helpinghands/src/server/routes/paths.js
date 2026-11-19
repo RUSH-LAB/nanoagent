@@ -19,6 +19,6 @@ const BENCHMARK_PUBLISH_ROUTE = /^\/api\/benchmark\/benchmarks$/;
 const BENCHMARK_CREDENTIAL_ROUTE = /^\/api\/benchmark\/worker-credentials(?:\/[^/]+)?$/;
 const BENCHMARK_WORKER_ROUTE = /^\/api\/benchmark-worker\/.+$/;
 // A member's traces, or for a platform administrator every member's, from all their workspaces (trace-export.js).
-const TRACE_EXPORT_ROUTE = /^\/api\/traces\/export$/;
+const TRACE_EXPORT_ROUTE = /^\/api\/traces\/(?:export|workspaces\/[^/]+)$/;
 
 module.exports = {MARKET_ROUTE, LAB_ROUTE, APP_UI_ROUTE, BENCHMARK_PUBLISH_ROUTE, BENCHMARK_CREDENTIAL_ROUTE, BENCHMARK_WORKER_ROUTE, TRACE_EXPORT_ROUTE};

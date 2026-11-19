@@ -68,6 +68,9 @@ dependencies = [
     # The uploaded-harness worker's sandboxes: one microVM per build, case and tool server (nanoagent.uploaded.sandbox),
     # on macOS, Linux and Windows, with no Docker. Pinned: its network policy and exec API are what the sandbox relies on.
     "microsandbox==0.7.15",
+    # The archive a Terminal session's workspace goes to RUSH as, when it ends (nanoagent.uploaded.workspace_upload): tar.zst, on
+    # Python 3.12, which has no zstd of its own.
+    "zstandard>=0.23",
 ]
 authors = [
     {name = "Zeyu Yang"},

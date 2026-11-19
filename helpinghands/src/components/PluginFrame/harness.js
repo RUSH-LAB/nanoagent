@@ -45,6 +45,8 @@ export function harnessOutcome(attempt, accounting) {
     outputTokens: metrics.output_tokens ?? null,
     elapsedMs: metrics.elapsed_ms ?? null,
     cost: accounting.totals.settled_usd,
+    // Why a Terminal session's files did not go to RUSH when it ended, or null.
+    uploadError: attempt.workspace?.error ?? null,
   };
 }
 

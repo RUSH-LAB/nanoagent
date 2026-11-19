@@ -24,6 +24,8 @@ function attemptView(row) {
     coverage: row.coverage, metrics: row.metrics, sealed: row.sealed, final_cursor: row.final_cursor === null ? null : Number(row.final_cursor),
     high_water_cursor: Number(row.next_cursor) - 1, cancel_requested: row.cancel_requested,
     created_at: row.created_at, claimed_at: row.claimed_at, finalized_at: row.finalized_at,
+    // A Terminal session's files in RUSH: their bytes, or why its worker uploaded none (`error`); null for an attempt that uploads none.
+    workspace: row.workspace && (row.workspace.error ? {error: row.workspace.error} : {bytes: row.workspace.bytes}),
   };
 }
 

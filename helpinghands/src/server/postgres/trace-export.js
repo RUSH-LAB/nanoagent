@@ -25,17 +25,20 @@ function createPostgresTraceExport({pool, fs}) {
     const caseIds = (await client.query('select case_id from benchmark_run_case where run_id = $1 order by position', [runId])).rows.map(row => row.case_id);
     const attempts = (await client.query('select * from benchmark_attempt where run_id = $1 order by created_at, attempt_no', [runId])).rows;
     const recorded = [];
-    for (const row of attempts) recorded.push({row, recorded: await attemptRecord(client, row.attempt_id)});
+    for (const row of attempts) recorded.push({row, recorded: await attemptRecord(client, row.attempt_id, row.workspace?.chunks ?? [])});
     return runLine(run, recorded, caseIds);
   }
 
-  async function attemptRecord(client, attemptId) {
+  /** What attempt `attemptId` recorded: its payloads but the `workspace` chunks of its uploaded files, which the export links instead. */
+  async function attemptRecord(client, attemptId, workspace) {
     const rows = async (sql) => (await client.query(sql, [attemptId])).rows;
     const events = (await rows(
       `select cursor, event_id, source, kind, sequence, occurred_ns::text as occurred_ns, data, payload_sha256s, received_at
          from benchmark_event where attempt_id = $1 order by cursor`,
     )).map(event => ({...event, cursor: Number(event.cursor), sequence: Number(event.sequence)}));
-    const payloads = new Map((await rows('select sha256, redaction, data from benchmark_payload where attempt_id = $1')).map(row => [row.sha256, row]));
+    const payloads = new Map((await client.query(
+      'select sha256, redaction, data from benchmark_payload where attempt_id = $1 and sha256 <> all($2::text[])', [attemptId, workspace],
+    )).rows.map(row => [row.sha256, row]));
     const spans = await rows(
       `select span_id as id, kind, name, parent_id as parent, scope, status, start_ns::text, end_ns::text, provenance, target, attributes
          from benchmark_span where attempt_id = $1 order by start_ns nulls last, span_id`,
@@ -68,6 +71,23 @@ function createPostgresTraceExport({pool, fs}) {
     /** Run `runId`'s line, read whole in one transaction. */
     async runLine(callerId, runId) {
       return asCaller(callerId, client => runLineOf(client, runId));
+    },
+    /**
+     * Attempt `attemptId`'s uploaded files, if caller `callerId` may read its run: `{workspace, member}`, its `workspace` (`{sha256,
+     * bytes, chunks}`) and whose it is; else null.
+     */
+    async workspace(callerId, attemptId) {
+      return asCaller(callerId, async client => (await client.query(
+        `select a.workspace, r.user_id as member from benchmark_attempt a join benchmark_run r on r.run_id = a.run_id
+          where a.attempt_id = $1 and a.workspace ? 'chunks' and ${READABLE}`, [attemptId],
+      )).rows[0] ?? null);
+    },
+    /** One chunk of attempt `attemptId`'s uploaded files, read as `workspace` reads them. */
+    async workspaceChunk(callerId, attemptId, sha256) {
+      return asCaller(callerId, async client => (await client.query(
+        `select p.data from benchmark_payload p join benchmark_attempt a on a.attempt_id = p.attempt_id join benchmark_run r on r.run_id = a.run_id
+          where p.attempt_id = $1 and p.sha256 = $2 and ${READABLE}`, [attemptId, sha256],
+      )).rows[0].data);
     },
     /** The NanoAgent chats caller `callerId` may read that match, as runIds takes them. */
     async chats(callerId, {member, plugin, since, until}) {

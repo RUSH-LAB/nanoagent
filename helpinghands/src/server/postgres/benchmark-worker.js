@@ -512,8 +512,19 @@ function createPostgresBenchmarkWorker({pool, config}) {
         if (free ? ['answered', 'refused'].includes(body.execution.status) : body.execution.status === 'ended') {
           throw new BenchmarkError(422, 'invalid_status', free ? `A free-form session has no case to have ${body.execution.status}` : 'Only a free-form session ends with no case');
         }
-        if (!free && (body.resumable !== null || body.chats !== null || body.evicted.length)) {
-          throw new BenchmarkError(422, 'invalid_request', 'Only a free-form session is kept to resume and holds chats');
+        if (!free && (body.resumable !== null || body.chats !== null || body.evicted.length || body.workspace !== null)) {
+          throw new BenchmarkError(422, 'invalid_request', 'Only a free-form session is kept to resume, holds chats and uploads its files');
+        }
+        if (body.workspace?.chunks) {
+          const stored = (await client.query(
+            'select sha256, size from benchmark_payload where attempt_id = $1 and sha256 = any($2::text[])', [attemptId, body.workspace.chunks],
+          )).rows;
+          const sizes = new Map(stored.map(row => [row.sha256, Number(row.size)]));
+          const missing = body.workspace.chunks.filter(chunk => !sizes.has(chunk));
+          if (missing.length) throw new BenchmarkError(422, 'invalid_request', `The workspace's chunk ${missing[0]} was never uploaded`);
+          if (body.workspace.chunks.reduce((sum, chunk) => sum + sizes.get(chunk), 0) !== body.workspace.bytes) {
+            throw new BenchmarkError(422, 'invalid_request', 'The workspace\'s chunks do not add up to its bytes');
+          }
         }
         const highWater = Number(attempt.next_cursor) - 1;
         if (highWater !== body.final_cursor_expected) {
@@ -522,11 +533,11 @@ function createPostgresBenchmarkWorker({pool, config}) {
         await client.query(
           `update benchmark_attempt set state = 'final', execution_status = $2, execution_reason = $3, verdict = $4, verifier_error = $5,
              coverage = $6, metrics = $7, finalized_at = now(), sealed = true, final_cursor = $8, finalize_digest = $9, explanation = $10,
-             resumable = $11, chats = $12
+             resumable = $11, chats = $12, workspace = $13
            where attempt_id = $1`,
           [attemptId, body.execution.status, body.execution.reason, body.verdict, body.verifier_error,
             JSON.stringify(body.coverage), JSON.stringify(body.metrics), highWater, digest, body.explanation, body.resumable === true,
-            body.chats === null ? null : JSON.stringify(body.chats)],
+            body.chats === null ? null : JSON.stringify(body.chats), body.workspace === null ? null : JSON.stringify(body.workspace)],
         );
         // The member's older sessions the worker removed to keep this one: their chats' files are no longer on the computer.
         if (body.evicted.length) {

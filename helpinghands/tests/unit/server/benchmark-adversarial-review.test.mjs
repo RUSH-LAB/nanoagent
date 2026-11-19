@@ -88,6 +88,17 @@ describe('what the worker API stores is bounded', () => {
     rejects(() => finalizeBody({...body, resumable: 'yes'}), 400);
   });
 
+  test('finalize names a free-form session\'s uploaded files by their chunks, or why none were uploaded', () => {
+    const body = {fence: 1, execution: {status: 'ended'}, coverage: {}, metrics: {}, final_cursor_expected: 0};
+    const uploaded = {sha256: 'a'.repeat(64), bytes: 10, chunks: ['b'.repeat(64), 'c'.repeat(64)]};
+    assert.deepEqual(finalizeBody({...body, workspace: uploaded}).final.workspace, uploaded);
+    assert.deepEqual(finalizeBody({...body, workspace: {error: 'too large'}}).final.workspace, {error: 'too large'});
+    assert.equal(finalizeBody(body).final.workspace, null);
+    rejects(() => finalizeBody({...body, workspace: {...uploaded, chunks: ['B'.repeat(64)]}}), 400);
+    rejects(() => finalizeBody({...body, workspace: {...uploaded, bytes: 0}}), 400);
+    rejects(() => finalizeBody({...body, workspace: {error: ''}}), 400);
+  });
+
   test('an event\'s data, a span\'s and a link\'s attributes and an accounting record each have a byte cap', () => {
     eventsBody({fence: 1, events: [event(big(1000))]});
     rejects(() => eventsBody({fence: 1, events: [event(big(limits.MAX_EVENT_DATA_BYTES))]}));

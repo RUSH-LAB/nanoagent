@@ -29,6 +29,7 @@ function run(id, user, plugin, createdAt) {
   const attempt = {
     attempt_id: `${id}-a`, case_id: 'c1', attempt_no: 1, rerun_of: null, state: 'final', created_at: createdAt, claimed_at: createdAt, finalized_at: createdAt,
     execution_status: 'answered', execution_reason: null, verdict: 'pass', explanation: null, verifier_error: null, metrics: {elapsed_ms: 10}, chats: null,
+    workspace: WORKSPACE,
   };
   const events = [
     {kind: 'process.exec', data: {argv: ['claude', '-p', 'Add one and two']}},
@@ -42,6 +43,10 @@ function run(id, user, plugin, createdAt) {
   return {row, line: () => runLine(row, [{row: attempt, recorded}], ['c1'])};
 }
 
+// r1's attempt uploaded its files in two chunks; only its member and an administrator read them.
+const CHUNKS = new Map([[sha('tar-'), Buffer.from('tar-')], [sha('zst'), Buffer.from('zst')]]);
+const WORKSPACE = {sha256: sha('tar-zst'), bytes: 7, chunks: [...CHUNKS.keys()]};
+const UPLOADED = '00000000-0000-4000-8000-000000000001';
 const RUNS = [run('r1', 'alice', 'p', '2026-11-01T00:00:00Z'), run('r2', 'bob', 'p', '2026-11-02T00:00:00Z'), run('r3', 'alice', 'q', '2026-11-03T00:00:00Z')];
 const CHATS = [{id: 's1', workspace_id: 'w', user_id: 'alice', user_name: 'ALICE', user_github: 'alice', plugin_id: 'p', title: 'Sum', created_at: '2026-11-04T00:00:00Z'}];
 
@@ -57,6 +62,8 @@ function ctxFor({admins = []} = {}) {
       runLine: async (caller, id) => RUNS.find(({row}) => row.run_id === id).line(),
       chats: async (caller, filter) => CHATS.filter(chat => matches(chat, filter)),
       chatLine: async chat => chatLine(chat, [{prompt: 'Add one and two', answer: '3', messages: {steps: []}}], [{model: 'm', input_tokens: 5}]),
+      workspace: async (caller, id) => (id === UPLOADED && (caller === 'alice' || admins.includes(caller)) ? {workspace: WORKSPACE, member: 'alice'} : null),
+      workspaceChunk: async (caller, id, chunk) => CHUNKS.get(chunk),
     },
   });
   return {ctx, seen};
@@ -101,6 +108,7 @@ describe('GET /api/traces/export', () => {
     assert.deepEqual(attempt.events.filter(event => event.kind.startsWith('process.')).map(event => event.data), [{argv: ['claude', '-p', 'Add one and two']}, {exit_code: 0}]);
     assert.deepEqual(attempt.accounting, [{call_id: 'k1', status: 'settled', cost_usd: 0.01}]);
     assert.deepEqual(attempt.terminals, [{terminal: 0, text: '$ claude\n3\n'}]);
+    assert.deepEqual(attempt.workspace, {url: '/api/traces/workspaces/r1-a', bytes: 7, sha256: sha('tar-zst')});
     assert.equal(lines[2].type, 'chat');
     assert.deepEqual(lines[2].turns[0].messages, {steps: []});
   });
@@ -146,6 +154,37 @@ describe('GET /api/traces/export', () => {
     const {ctx} = ctxFor();
     const {status} = await invoke(route, {path: PATH, ctx, auth: null});
     assert.equal(status, 401);
+  });
+});
+
+describe('GET /api/traces/workspaces/<attempt id>', () => {
+  const download = async (userId, id = UPLOADED, admins = [], headers = {}) => invoke(route, {path: `/api/traces/workspaces/${id}`, ctx: ctxFor({admins}).ctx, auth: {userId}, headers});
+
+  it('answers outside any workspace', () => {
+    assert.equal(isGlobalApiPath(`/api/traces/workspaces/${UPLOADED}`), true);
+  });
+
+  it('gives the session\'s member its files, the chunks joined in order, and an administrator any member\'s from the CLI', async () => {
+    for (const [userId, admins, headers] of [['alice', [], {}], ['admin', ['admin'], CLI]]) {
+      const {res} = await download(userId, UPLOADED, admins, headers);
+      assert.equal(res.written.status, 200);
+      assert.equal(res.written.headers['Content-Type'], 'application/zstd');
+      assert.equal(res.written.headers['Content-Length'], 7);
+      assert.match(res.written.headers['Content-Disposition'], new RegExp(`workspace-${UPLOADED}\\.tar\\.zst`));
+      assert.equal(res.writes.join(''), 'tar-zst');
+    }
+  });
+
+  it('refuses an administrator another member\'s files from a browser session', async () => {
+    const {status, payload} = await download('admin', UPLOADED, ['admin']);
+    assert.equal(status, 403);
+    assert.match(payload.error, /only from the CLI/);
+  });
+
+  it('is not found for another member, or a session that uploaded none', async () => {
+    assert.equal((await download('bob')).status, 404);
+    assert.equal((await download('alice', '00000000-0000-4000-8000-000000000002')).status, 404);
+    assert.equal((await download('alice', 'not-an-id')).status, 404);
   });
 });
 

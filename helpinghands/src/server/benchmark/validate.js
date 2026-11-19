@@ -331,6 +331,19 @@ function chatOf(value) {
   };
 }
 
+/**
+ * A Terminal session's files as finalize names them (nanoagent.uploaded.workspace_upload): `{sha256, bytes, chunks}`, a tar.zst the
+ * attempt's payloads `chunks` hold in order, or `{error}`, why the worker uploaded none.
+ */
+function workspaceOf(workspace) {
+  object(workspace, 'workspace');
+  if (workspace.error !== undefined) return {error: string(workspace.error, 'workspace.error', {max: 500})};
+  return {
+    sha256: sha256(workspace.sha256, 'workspace.sha256'), bytes: integer(workspace.bytes, 'workspace.bytes', {min: 1}),
+    chunks: array(workspace.chunks, 'workspace.chunks', {max: 1000}).map(chunk => sha256(chunk, 'A workspace chunk')),
+  };
+}
+
 function finalizeBody(body) {
   object(body, 'The body');
   const execution = object(body.execution, 'execution');
@@ -362,7 +375,7 @@ function finalizeBody(body) {
       verdict, explanation, verifier_error: verifierError,
       coverage: bounded(body.coverage, 'coverage', MAX_RESULT_BYTES), metrics: bounded(body.metrics, 'metrics', MAX_RESULT_BYTES),
       final_cursor_expected: integer(body.final_cursor_expected, 'final_cursor_expected'),
-      resumable: body.resumable ?? null, chats, evicted,
+      resumable: body.resumable ?? null, chats, evicted, workspace: body.workspace === undefined ? null : workspaceOf(body.workspace),
     },
   };
 }

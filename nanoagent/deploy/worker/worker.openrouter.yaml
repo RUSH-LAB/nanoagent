@@ -39,6 +39,8 @@ sandbox > nanoagent.uploaded.worker.SandboxConfig:
   build_output_bytes: 4294967296
   # The ended Terminal sessions kept on this computer to resume them from the Dashboard, in all; the oldest go first.
   resume_bytes: 4294967296
+  # The most of an ended Terminal session's files uploaded to RUSH when it ends, as a tar.zst; a larger one is not uploaded at all.
+  workspace_upload_bytes: 209715200
 
 # Internet access for harnesses, on by default for benchmarks: public addresses only, which the worker proves at startup.
 egress > nanoagent.uploaded.worker.EgressConfig:

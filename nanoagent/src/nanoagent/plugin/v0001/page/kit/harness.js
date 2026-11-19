@@ -18,7 +18,7 @@ const stopped = (outcome) => `${outcome.status}${outcome.reason ? `: ${outcome.r
 
 /**
  * The line a Terminal session that ran prints in its terminal once it is over: that it ended (or ran out of its time, or why it
- * stopped otherwise), then its time, tokens and cost.
+ * stopped otherwise), then its time, tokens and cost, and why its files did not go to RUSH when they did not.
  */
 export function outcomeText(outcome) {
   const end = outcome.reason === "timed_out"
@@ -27,7 +27,8 @@ export function outcomeText(outcome) {
     ? "Session ended"
     : `Session ended (${stopped(outcome)})`;
   const tokens = outcome.inputTokens === null ? "—" : thousands((outcome.inputTokens ?? 0) + (outcome.outputTokens ?? 0));
-  return [end, formatSeconds(outcome.elapsedMs === null ? null : outcome.elapsedMs / 1000), `${tokens} tokens`, formatCost(outcome.cost)].join(" · ");
+  const upload = outcome.uploadError ? [`Files not uploaded to RUSH: ${outcome.uploadError}`] : [];
+  return [end, formatSeconds(outcome.elapsedMs === null ? null : outcome.elapsedMs / 1000), `${tokens} tokens`, formatCost(outcome.cost), ...upload].join(" · ");
 }
 
 /** The one plain line of a Terminal that could not start, with why. */

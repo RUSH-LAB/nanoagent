@@ -123,6 +123,9 @@ class SandboxConfig(Config):
     plugin_sync_timeout_s: float = 600.0
     # The ended Terminal sessions this computer keeps to resume, in all (nanoagent.uploaded.resume): the oldest go first.
     resume_bytes: int = 4 << 30
+    # The most of an ended Terminal session's workspace uploaded to RUSH, compressed (nanoagent.uploaded.workspace_upload): one over it
+    # is not uploaded, and its end says so.
+    workspace_upload_bytes: int = 200 << 20
 
 
 @dataclass
@@ -233,7 +236,7 @@ def runner_config(config: WorkerConfig, env: dict[str, str], machine: Machine) -
         raise WorkerConfigError("timing.reference_tokens_per_second must be positive and finite and clock_tolerance_ns non-negative")
     box = config.sandbox
     maxima = config.limits
-    if not all(math.isfinite(v) and v > 0 for v in (maxima.max_cost_usd, box.cpus)) or min(maxima.wall_time_ms, maxima.max_model_calls, maxima.max_output_tokens_per_call, maxima.concurrency, box.pids, box.workspace_files, box.build_memory_bytes, box.build_output_bytes, box.build_files, box.build_tmp_bytes, box.resume_bytes) < 1:
+    if not all(math.isfinite(v) and v > 0 for v in (maxima.max_cost_usd, box.cpus)) or min(maxima.wall_time_ms, maxima.max_model_calls, maxima.max_output_tokens_per_call, maxima.concurrency, box.pids, box.workspace_files, box.build_memory_bytes, box.build_output_bytes, box.build_files, box.build_tmp_bytes, box.resume_bytes, box.workspace_upload_bytes) < 1:
         raise WorkerConfigError("limits and sandbox maxima must be positive")
     if any(v is not None and v <= 0 for v in (maxima.max_cpus, maxima.max_memory_mb)):
         raise WorkerConfigError("limits.max_cpus and limits.max_memory_mb must be positive")
@@ -257,7 +260,7 @@ def runner_config(config: WorkerConfig, env: dict[str, str], machine: Machine) -
         index_urls={key.value: url for key, url in config.dependencies.index_urls.items()},
         reference_tokens_per_second=timing.reference_tokens_per_second, clock_tolerance_ns=timing.clock_tolerance_ns,
         drain_timeout_s=box.drain_timeout_s, plugin_sync_timeout_s=box.plugin_sync_timeout_s, renew_interval_s=config.poll.renew_interval_s,
-        resume_bytes=box.resume_bytes,
+        resume_bytes=box.resume_bytes, workspace_upload_bytes=box.workspace_upload_bytes,
     )
 
 

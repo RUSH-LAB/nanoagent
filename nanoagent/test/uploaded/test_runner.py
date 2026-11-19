@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 import threading
 import time
@@ -26,6 +27,7 @@ from nanoagent.uploaded.runner import EXEC_THREADS, AttemptRunner, CaseCommands,
 from nanoagent.uploaded.sandbox import CLIS_DIR, BuildArtifact, SandboxError, Termination, TerminationKind
 from nanoagent.uploaded.toolchains import DependencyClosure
 from nanoagent.uploaded.worker import runner_config  # noqa: F401  (imported so the worker module stays importable)
+from test_workspace_upload import members
 
 
 class Rig:
@@ -236,6 +238,10 @@ async def test_a_free_form_session_is_kept_to_resume_and_a_resuming_one_starts_o
     finalized = rig.rush.finalized[0]
     assert finalized["resumable"] is True and finalized["evicted"] == [] and rig.supervisor.case.found == {}
     assert [(chat["agent"], chat["title"]) for chat in finalized["chats"]] == [("claude", "say ok"), ("claude", "List the files in this folder")]
+    uploaded = finalized["workspace"]  # its files went to RUSH too, without the agents' state
+    archive = tmp_path / "uploaded.tar.zst"
+    archive.write_bytes(b"".join(rig.rush.payloads[sha] for sha in uploaded["chunks"]))
+    assert uploaded["bytes"] == archive.stat().st_size and set(members(archive)) == {"notes.txt"}
 
     def later(name: str) -> Rig:  # another session on the same computer
         rig = Rig(tmp_path / name)
@@ -260,6 +266,15 @@ async def test_a_free_form_session_is_kept_to_resume_and_a_resuming_one_starts_o
     rig = Rig(tmp_path / "fourth")
     await rig.run(fx.free_job(attempt_id="11111111-1111-4111-8111-000000000005", start="codex"))
     assert json.loads(rig.supervisor.case.found[".rush/resume-0.json"]) == {"run": "codex"}
+
+
+async def test_a_free_form_session_over_the_upload_cap_uploads_nothing_and_says_so(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, script=fx.CaseScript(made={"noise.bin": os.urandom(256 << 10)}))
+    rig.runner.config = replace(rig.runner.config, workspace_upload_bytes=64 << 10)
+    await rig.run(fx.free_job())
+    finalized = rig.rush.finalized[0]
+    assert finalized["workspace"] == {"error": "its files are larger than the 0.0625 MB a session uploads, compressed"}
+    assert not any(data.startswith(b"\x28\xb5\x2f\xfd") for data in rig.rush.payloads.values())  # no piece of a zstd archive went
 
 
 async def test_a_free_form_session_its_member_left_is_recorded_whole_and_kept_to_resume_and_a_scored_one_never_is(tmp_path: Path) -> None:

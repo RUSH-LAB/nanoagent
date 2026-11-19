@@ -540,7 +540,7 @@ describe('the bridge host', () => {
       assert.deepEqual(of(1), [['harness.output', {terminal: 1, data: base64('$ ')}], ['harness.closed', {terminal: 1}]]);
       assert.deepEqual(events[0], ['harness.preparing', {done: 5e6, total: 2e7}]);
       assert.deepEqual(events.slice(-2), [
-        ['harness.outcome', {status: 'Answered', ended: false, scored: true, reason: null, verdict: 'Pass', explanation: '', inputTokens: 120, outputTokens: 30, elapsedMs: 4200, cost: 0.0012}],
+        ['harness.outcome', {status: 'Answered', ended: false, scored: true, reason: null, verdict: 'Pass', explanation: '', inputTokens: 120, outputTokens: 30, elapsedMs: 4200, cost: 0.0012, uploadError: null}],
         ['harness.done', {}],
       ]);
     } finally {

@@ -4,8 +4,9 @@
  * The trace export (routes/trace-export.js), pure so it is tested without a database: one JSON object per run or chat, which the route
  * writes as a line of JSON Lines. A run (a Harness tab Terminal session, a Harness tab or `nanoagent harness` session, a scored run)
  * carries its attempts, each with every model call (its request and response bodies, from the attempt's payloads, and the response's
- * text), what each call cost (accounting), its events (the processes it ran and their exits among them), spans and links, and what
- * each of its terminals wrote. A chat (a plugin page's NanoAgent session) carries its turns, each with what its model saw and did, and
+ * text), what each call cost (accounting), its events (the processes it ran and their exits among them), spans and links, what
+ * each of its terminals wrote, and for a Terminal session where to download its files (workspaceLine). A chat (a plugin page's
+ * NanoAgent session) carries its turns, each with what its model saw and did, and
  * its calls.
  */
 const {REFERENCE_LABELS} = require('./harness');
@@ -99,6 +100,17 @@ function modelCalls(events, payloads) {
   });
 }
 
+/**
+ * A Terminal session's uploaded files as the export carries them: where to download the tar.zst (`url`, on RUSH, signed in as the
+ * export is), its bytes and SHA-256; or `{error}`, why its worker uploaded none; null for an attempt that uploads none.
+ */
+function workspaceLine(attempt) {
+  const {workspace} = attempt;
+  if (!workspace) return null;
+  if (workspace.error) return {error: workspace.error};
+  return {url: `/api/traces/workspaces/${attempt.attempt_id}`, bytes: workspace.bytes, sha256: workspace.sha256};
+}
+
 /** An attempt as the export carries it, from its row and what it recorded. */
 function attemptLine(attempt, {events, payloads, spans, links, accounting, terminals}) {
   return {
@@ -106,7 +118,7 @@ function attemptLine(attempt, {events, payloads, spans, links, accounting, termi
     created_at: attempt.created_at, claimed_at: attempt.claimed_at, ended_at: attempt.finalized_at,
     outcome: attempt.execution_status ? {status: attempt.execution_status, reason: attempt.execution_reason} : null,
     verdict: attempt.verdict, explanation: attempt.explanation, verifier_error: attempt.verifier_error, metrics: attempt.metrics,
-    chats: attempt.chats, model_calls: modelCalls(events, payloads), accounting, events, spans, links,
+    chats: attempt.chats, workspace: workspaceLine(attempt), model_calls: modelCalls(events, payloads), accounting, events, spans, links,
     terminals: terminals.map(({terminal, data}) => ({terminal, text: data.toString('utf8')})),
   };
 }

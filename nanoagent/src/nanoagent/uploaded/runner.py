@@ -17,7 +17,7 @@ verifier, the services factory, the plugin loader and projection. The lifecycle 
    session (``free_form``: its member runs any agent and prompts it themselves) has no case: it reads no result, runs no verifier and
    finalizes `ended`, keeping its model calls, commands and snapshot. Its workspace, which holds the agent CLIs' state, is kept on
    this computer to resume (nanoagent.uploaded.resume), however it ended, and a session that resumes one gets it back before its
-   shell starts.
+   shell starts. Its files, less the agents' state and caches, are also uploaded to RUSH (nanoagent.uploaded.workspace_upload).
 
 Faults of the platform itself (a sandbox that will not start, a plugin that will not install, a tool container that fails
 to launch) are logged and end only that attempt: its services are revoked, its sandbox and network removed, the process
@@ -103,6 +103,7 @@ from nanoagent.uploaded import chats
 from nanoagent.uploaded.resume import keep, restore, start_cli
 from nanoagent.uploaded.source import SourceLimits, extract, inspect_zip
 from nanoagent.uploaded.terminal import MAX_TERMINALS, Terminal
+from nanoagent.uploaded.workspace_upload import TooLarge, pack, upload
 from nanoagent.uploaded.toolchains import CLOSURE_ARCHIVE, ToolchainProfile, resolve_dependencies, toolchain
 
 LOG = logging.getLogger(__name__)
@@ -321,6 +322,7 @@ class RunnerConfig:
     renew_interval_s: float = 15.0
     harness_revision: str = __version__
     resume_bytes: int = 4 << 30  # the Terminal sessions kept on this computer to resume, in all (nanoagent.uploaded.resume)
+    workspace_upload_bytes: int = 200 << 20  # the most of an ended Terminal session's workspace uploaded to RUSH, compressed (workspace_upload)
 
 
 @dataclass(frozen=True)
@@ -1126,10 +1128,11 @@ class AttemptRunner:
                 recorded.append(True)
                 held = chats.report(chats.talked(restored, await in_thread(chats.read, handle.workspace)), offset)
                 kept = await self._keep_session(job, handle)
+                uploaded = await self._upload_workspace(job, handle, work / "workspace.tar.zst")
                 if lease.reason == "canceled":
-                    return await self._finalize(job, journal, "canceled", None, result=AttemptResult("canceled"), kept=kept, held=held)
+                    return await self._finalize(job, journal, "canceled", None, result=AttemptResult("canceled"), kept=kept, held=held, uploaded=uploaded)
                 timed_out = outcome.termination.kind is TerminationKind.TIMED_OUT  # it ran to the session's wall time
-                return await self._finalize(job, journal, "ended", "timed_out" if timed_out else None, kept=kept, held=held)
+                return await self._finalize(job, journal, "ended", "timed_out" if timed_out else None, kept=kept, held=held, uploaded=uploaded)
             if snapshot is None:
                 status, case_outcome = "execution_failed", {"status": "execution_failed", "reason": "invalid_result"}
                 frozen = work / "overflow"  # the verifier gets an empty workspace: nothing was frozen
@@ -1188,6 +1191,28 @@ class AttemptRunner:
         kept, evicted = await in_thread(keep, self.config.scratch, job.attempt_id, handle.workspace, datetime.now(timezone.utc), self.config.resume_bytes)
         LOG.info("attempt %s: %s", job.attempt_id, "kept to resume" if kept else "not kept to resume: larger than resume_bytes")
         return kept, evicted
+
+    async def _upload_workspace(self, job: AttemptJob, handle: CaseHandle, archive: Path) -> dict:
+        """Uploads the ended free-form session's workspace to RUSH (nanoagent.uploaded.workspace_upload) and returns finalize's
+        ``workspace``: what was uploaded, or ``{error}``, why nothing was: an archive over ``workspace_upload_bytes``, a file it could not
+        read, or RUSH refusing it (in the 500 characters RUSH keeps of it)."""
+        try:
+            await in_thread(pack, handle.workspace, archive, self.config.workspace_upload_bytes)
+            try:
+                uploaded = await upload(self.worker, job.attempt_id, job.fence, archive)
+            finally:
+                archive.unlink()
+        except TooLarge:
+            error = f"its files are larger than the {self.config.workspace_upload_bytes / (1 << 20):g} MB a session uploads, compressed"
+        except OSError as failure:
+            error = f"its files could not be packed: {failure}"
+        except RushError as failure:
+            error = f"RUSH refused it: {failure.message}"
+        else:
+            LOG.info("attempt %s: workspace uploaded (%d bytes)", job.attempt_id, uploaded["bytes"])
+            return uploaded
+        LOG.warning("attempt %s: workspace not uploaded: %s", job.attempt_id, error)
+        return {"error": error[:500]}
 
     async def _record_fault_evidence(self, emit: Emitter, handle: CaseHandle, to_monotonic_ns: Callable[[int], int], commands: Sequence[ExecOutcome]) -> None:
         """After a platform fault: stop the case and commit the process evidence the collector has, so the interrupted
@@ -1407,10 +1432,11 @@ class AttemptRunner:
 
     async def _finalize(
         self, job: AttemptJob, journal: RushJournal, status: str, reason: str | None, *, verdict: Mapping[str, Any] | None = None,
-        result: AttemptResult | None = None, kept: tuple[bool, list[str]] | None = None, held: list[dict] | None = None,
+        result: AttemptResult | None = None, kept: tuple[bool, list[str]] | None = None, held: list[dict] | None = None, uploaded: dict | None = None,
     ) -> AttemptResult:
         """Seals the attempt. For a free-form session that ran: ``kept``, whether this computer kept it to resume and the older sessions
-        that went to make room (``resumable``, ``evicted``), and ``held``, the conversations its agents held (chats.report)."""
+        that went to make room (``resumable``, ``evicted``), ``held``, the conversations its agents held (chats.report), and
+        ``uploaded``, its workspace's archive in RUSH or why it is not there (``workspace``)."""
         coverage, metrics = await self._trace(job, journal, status)
         body: dict[str, Any] = {
             "fence": job.fence,
@@ -1425,7 +1451,7 @@ class AttemptRunner:
         if verdict is not None:
             body |= {key: verdict.get(key) for key in ("verdict", "explanation", "verifier_error")}
         if kept is not None:
-            body |= {"resumable": kept[0], "evicted": kept[1], "chats": held}
+            body |= {"resumable": kept[0], "evicted": kept[1], "chats": held, "workspace": uploaded}
         await self.worker.finalize(job.attempt_id, body)
         journal.close()
         return result or AttemptResult("finalized", {"status": status, "reason": reason})
