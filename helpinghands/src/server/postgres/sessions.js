@@ -69,9 +69,9 @@ function createPostgresSessions({pool, fs}) {
     startedAt: row.started_at,
   });
 
-  async function owned(client, pluginId, id) {
+  async function owned(client, userId, pluginId, id) {
     const row = (await client.query(
-      `select ${SUMMARY} where s.id = $1 and s.plugin_id = $2 group by s.id`, [id, pluginId],
+      `select ${SUMMARY} where s.id = $1 and s.plugin_id = $2 and s.user_id = $3 group by s.id`, [id, pluginId, userId],
     )).rows[0];
     if (!row) throw new SessionError(404, `No session ${id} for ${pluginId}`);
     return row;
@@ -81,7 +81,7 @@ function createPostgresSessions({pool, fs}) {
     /** The caller's sessions with `pluginId`, the latest first. */
     async list(context, pluginId) {
       return run(context, async client => (await client.query(
-        `select ${SUMMARY} where s.plugin_id = $1 group by s.id order by s.updated_at desc`, [pluginId],
+        `select ${SUMMARY} where s.plugin_id = $1 and s.user_id = $2 group by s.id order by s.updated_at desc`, [pluginId, context.userId],
       )).rows.map(session));
     },
 
@@ -92,14 +92,14 @@ function createPostgresSessions({pool, fs}) {
           'insert into plugin_session(id, workspace_id, user_id, plugin_id) values ($1, $2, $3, $4)',
           [id, context.workspaceId, context.userId, pluginId],
         );
-        return {...session(await owned(client, pluginId, id)), chat: [], running: null};
+        return {...session(await owned(client, context.userId, pluginId, id)), chat: [], running: null};
       });
     },
 
     /** One session with its conversation, the message it is still answering, `{prompt}` or null, and every call it made. */
     async get(context, pluginId, id) {
       return withChat(context, async (client, tree) => {
-        const summary = session(await owned(client, pluginId, id));
+        const summary = session(await owned(client, context.userId, pluginId, id));
         const {chat_file: chatFile} = (await client.query('select chat_file from plugin_session where id = $1', [id])).rows[0];
         const chat = await latestTurns(tree, chatFile, CHAT_TURNS);
         const going = (await client.query('select prompt from plugin_run where session_id = $1', [id])).rows[0];
@@ -131,18 +131,18 @@ function createPostgresSessions({pool, fs}) {
     /** Archive the caller's session `id` with `pluginId`, or with `archived` false restore it. */
     async archive(context, pluginId, id, archived) {
       return run(context, async client => {
-        await owned(client, pluginId, id);
+        await owned(client, context.userId, pluginId, id);
         await client.query(
           `update plugin_session set archived_at = case when $2 then coalesce(archived_at, now()) end where id = $1`,
           [id, archived],
         );
-        return session(await owned(client, pluginId, id));
+        return session(await owned(client, context.userId, pluginId, id));
       });
     },
 
     /** Throws unless `id` is the caller's session with `pluginId`. */
     async assertOwned(context, pluginId, id) {
-      await run(context, client => owned(client, pluginId, id));
+      await run(context, client => owned(client, context.userId, pluginId, id));
     },
 
     /**
@@ -151,7 +151,7 @@ function createPostgresSessions({pool, fs}) {
      */
     async startRun(context, pluginId, sessionId, {id, prompt, install}) {
       return run(context, async client => {
-        await owned(client, pluginId, sessionId);
+        await owned(client, context.userId, pluginId, sessionId);
         try {
           await client.query(
             `insert into plugin_run(id, workspace_id, user_id, session_id, plugin_id, prompt, install)

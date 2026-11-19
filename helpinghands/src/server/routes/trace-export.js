@@ -6,7 +6,9 @@
  * what a line holds). Outside any workspace: `rushlab nanoagent export` and the plugin page's Dashboard both download it.
  *
  *   plugin  only the runs and chats of this plugin
- *   member  whose: absent, the caller's own; a member's id, or `all` for every member, which only a platform administrator may ask
+ *   member  whose: absent, the caller's own; a member's id, or `all` for every member, which only a platform administrator may ask,
+ *           and only from the CLI (`nanoagent export`, signed in with RUSH Lab's bearer token), never from a page, whose browser
+ *           session sends a cookie: the plugin page's Dashboard downloads the member's own traces and nobody else's
  *   since   created at or after this time; until  created before this time
  *
  * Each line is read and written in turn, so the export streams. One that cannot be read ends the response before its end, which the
@@ -29,11 +31,17 @@ function timeOf(url, name) {
   return new Date(time).toISOString();
 }
 
-/** Whose traces the caller asks for: their own id, another member's, or null for every member, which only an administrator may. */
-async function memberOf(url, userId, roles) {
+/**
+ * Whose traces the caller asks for: their own id, another member's, or null for every member, which only an administrator may, from
+ * the CLI's bearer connection.
+ */
+async function memberOf(req, url, userId, roles) {
   const raw = url.searchParams.get('member');
   if (raw === null || raw === userId) return userId;
   if (!await roles.isAdmin(userId)) throw new ExportRequestError(403, 'Only platform administrators export other members\' traces');
+  if (!/^Bearer\s/i.test(req.headers.authorization ?? '')) {
+    throw new ExportRequestError(403, 'Other members\' traces are exported only from the CLI: nanoagent export member=all');
+  }
   return raw === 'all' ? null : raw;
 }
 
@@ -60,7 +68,7 @@ module.exports = async function traceExport(req, res, url, pathname, ctx) {
   const {userId} = req.auth;
   let filter;
   try {
-    filter = {member: await memberOf(url, userId, roles), plugin: url.searchParams.get('plugin'), since: timeOf(url, 'since'), until: timeOf(url, 'until')};
+    filter = {member: await memberOf(req, url, userId, roles), plugin: url.searchParams.get('plugin'), since: timeOf(url, 'since'), until: timeOf(url, 'until')};
   } catch (error) {
     if (error instanceof ExportRequestError) return json(res, error.status, {error: error.message});
     throw error;

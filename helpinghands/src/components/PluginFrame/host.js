@@ -47,8 +47,8 @@ import {
  *
  * The Dashboard lists the chats the member's Harness tab sessions on the plugin held beside their own chats (`sessions.list`'s
  * `terminals`, each a conversation of an agent CLI), and archives or restores one as it does a chat (`terminal.archive`, by its key).
- * Its Download traces (JSON) downloads the plugin's traces as JSON Lines (`traces.download`): the member's own, or every member's for a
- * platform administrator (`traces.scope`), from GET /api/traces/export.
+ * Its Download traces (JSON) downloads the member's own traces of the plugin as JSON Lines (`traces.download`), from GET
+ * /api/traces/export, which gives a page nobody else's (every member's is the CLI's, `nanoagent export member=all`).
  */
 // As long as the member's computer holds a run for RUSH to take up again (runner/protocol.js HOLD_MS).
 const RECONNECT_MS = 10 * 60_000;
@@ -301,14 +301,9 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     'harness.close': async ({runId, terminal}) => toTerminal(runId, {terminal, close: true}),
     // A chat clicked on the Dashboard, in the next terminal of the session, whose output comes over the link as the others' does.
     'harness.reopen': async ({runId, rows, cols, reopen}) => toTerminal(runId, {reopen, rows, cols}),
-    'traces.scope': async () => {
-      const response = await request('/api/users/me');
-      if (!response.ok) throw await failed(response, 'Could not read your role');
-      return {result: {admin: (await response.json()).role === 'admin'}};
-    },
     // The browser downloads the export (GET /api/traces/export) as it downloads a file, signed in with the member's session.
-    'traces.download': async ({all}) => {
-      save(`/api/traces/export?${new URLSearchParams({plugin: plugin.id, ...(all ? {member: 'all'} : {})})}`);
+    'traces.download': async () => {
+      save(`/api/traces/export?${new URLSearchParams({plugin: plugin.id})}`);
       return {result: {}};
     },
     'sessions.list': async () => {

@@ -104,8 +104,7 @@ describe('nanoagent.ui/v1 requests', () => {
       ['harness.resize', {runId: 'harness-1', terminal: 2, rows: 40, cols: 120}],
       ['harness.open', {runId: 'harness-1', terminal: 1, rows: 40, cols: 120}],
       ['harness.close', {runId: 'harness-1', terminal: 0}],
-      ['traces.scope', {}],
-      ['traces.download', {all: false}],
+      ['traces.download', {}],
       ['terminal.archive', {attemptId: SESSION, chat: 'claude:aaaa', archived: true}],
     ];
     for (const [method, params] of valid) assert.equal(invalidRequest({method, params}), null, method);
@@ -148,7 +147,6 @@ describe('nanoagent.ui/v1 requests', () => {
       ['harness.open', {runId: 'harness-1', terminal: 0, rows: 40, cols: 120}],
       ['harness.open', {runId: 'harness-1', terminal: 32, rows: 40, cols: 120}],
       ['harness.close', {runId: 'harness-1', terminal: -1}],
-      ['traces.download', {all: 'yes'}],
       ['terminal.archive', {attemptId: SESSION, chat: 'claude:aaaa'}],
       ['terminal.archive', {attemptId: SESSION, archived: true}],
       ['terminal.archive', {attemptId: 'not-an-id', chat: 'claude:aaaa', archived: false}],
@@ -394,16 +392,18 @@ describe('the bridge host', () => {
     ]);
   });
 
-  it('downloads the plugin\'s traces, the member\'s or every member\'s, and says whether they may download every member\'s', async () => {
+  it('downloads only the member\'s own traces of the plugin, whatever the page asks', async () => {
     const saved = [];
-    const {posted, calls, send} = await hostWith(() => Response.json({userId: 'u', role: 'admin'}), {save: path => saved.push(path)});
-    send('s', 'traces.scope', {});
-    send('m', 'traces.download', {all: false});
+    const {posted, calls, send} = await hostWith(() => Response.json({}), {save: path => saved.push(path)});
+    send('m', 'traces.download', {});
     send('a', 'traces.download', {all: true});
+    send('s', 'traces.scope', {});
     await until(() => posted.length === 3);
-    assert.deepEqual(Object.fromEntries(messages(posted).map(message => [message.id, message.result])), {s: {admin: true}, m: {}, a: {}});
-    assert.deepEqual(calls.map(({path}) => path), ['/api/users/me']);
-    assert.deepEqual(saved, ['/api/traces/export?plugin=arxiv-source', '/api/traces/export?plugin=arxiv-source&member=all']);
+    const byId = Object.fromEntries(messages(posted).map(message => [message.id, message]));
+    assert.deepEqual([byId.m.result, byId.a.result], [{}, {}]);
+    assert.ok(byId.s.error);
+    assert.deepEqual(calls, []);
+    assert.deepEqual(saved, ['/api/traces/export?plugin=arxiv-source', '/api/traces/export?plugin=arxiv-source']);
   });
 
   it('archives and restores a session through its route', async () => {

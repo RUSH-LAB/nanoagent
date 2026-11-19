@@ -62,9 +62,12 @@ function ctxFor({admins = []} = {}) {
   return {ctx, seen};
 }
 
-async function exportAs(userId, query, options) {
+// How `nanoagent export` signs in: RUSH Lab's connection, a bearer token. A page's browser session sends a cookie instead.
+const CLI = {authorization: 'Bearer token'};
+
+async function exportAs(userId, query, options, headers = {}) {
   const {ctx, seen} = ctxFor(options);
-  const reply = await invoke(route, {path: PATH, query, ctx, auth: {userId}});
+  const reply = await invoke(route, {path: PATH, query, ctx, auth: {userId}, headers});
   const lines = reply.res.written ? reply.res.writes.join('').split('\n').filter(Boolean).map(line => JSON.parse(line)) : null;
   return {...reply, lines, seen};
 }
@@ -110,16 +113,28 @@ describe('GET /api/traces/export', () => {
     }
   });
 
-  it('gives an administrator every member\'s with member=all, or one member\'s', async () => {
-    const all = await exportAs('admin', {member: 'all'}, {admins: ['admin']});
+  it('gives an administrator every member\'s with member=all, or one member\'s, from the CLI', async () => {
+    const all = await exportAs('admin', {member: 'all'}, {admins: ['admin']}, CLI);
     assert.equal(all.seen[0].member, null);
     assert.deepEqual(all.lines.map(line => line.member.id), ['alice', 'bob', 'alice', 'alice']);
-    const bob = await exportAs('admin', {member: 'bob'}, {admins: ['admin']});
+    const bob = await exportAs('admin', {member: 'bob'}, {admins: ['admin']}, CLI);
     assert.deepEqual(bob.lines.map(line => line.run_id), ['r2']);
   });
 
+  it('gives a page, signed in by cookie, only the caller\'s own traces, an administrator\'s too', async () => {
+    for (const member of ['bob', 'all']) {
+      const {status, payload, lines} = await exportAs('admin', {member}, {admins: ['admin']}, {cookie: 'session=1'});
+      assert.equal(status, 403);
+      assert.match(payload.error, /only from the CLI/);
+      assert.equal(lines, null);
+    }
+    const own = await exportAs('bob', {plugin: 'p'}, {}, {cookie: 'session=1'});
+    assert.equal(own.seen[0].member, 'bob');
+    assert.deepEqual(own.lines.map(line => line.member.id), ['bob']);
+  });
+
   it('filters by plugin and by since and until', async () => {
-    const {lines, seen} = await exportAs('admin', {member: 'all', plugin: 'p', since: '2026-11-02', until: '2026-11-04'}, {admins: ['admin']});
+    const {lines, seen} = await exportAs('admin', {member: 'all', plugin: 'p', since: '2026-11-02', until: '2026-11-04'}, {admins: ['admin']}, CLI);
     assert.deepEqual(seen[0], {member: null, plugin: 'p', since: '2026-11-02T00:00:00.000Z', until: '2026-11-04T00:00:00.000Z'});
     assert.deepEqual(lines.map(line => line.run_id), ['r2']);
     const bad = await exportAs('alice', {since: 'yesterday-ish'});

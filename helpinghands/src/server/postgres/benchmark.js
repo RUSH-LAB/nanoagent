@@ -673,8 +673,8 @@ function createPostgresBenchmark({pool}) {
            coalesce((select jsonb_object_agg(d.call_id, d.cost_usd::float8) from benchmark_admission d
               where d.attempt_id = a.attempt_id and d.status = 'settled'), '{}') as costs
            from benchmark_run r join benchmark_attempt a on a.run_id = r.run_id
-          where r.session and ($1::text is null or r.plugin_id = $1) and ($2::uuid is null or a.attempt_id = $2)
-          order by r.created_at desc, a.attempt_no desc`, [pluginId, attemptId, atCalls],
+          where r.user_id = $4 and r.session and ($1::text is null or r.plugin_id = $1) and ($2::uuid is null or a.attempt_id = $2)
+          order by r.created_at desc, a.attempt_no desc`, [pluginId, attemptId, atCalls, context.userId],
       )).rows);
     },
     /** The member's free-form Terminal session on plugin `pluginId` that still runs, `{run_id, attempt_id}`, or null. */
@@ -690,8 +690,9 @@ function createPostgresBenchmark({pool}) {
     /** Everything each terminal of attempt `attemptId` wrote, by terminal: `[{terminal, data}]`, data a Buffer. */
     async terminalTranscripts(context, attemptId) {
       return member(context, async client => (await client.query(
-        `select terminal, string_agg(data, ''::bytea order by byte_offset) as data from benchmark_terminal
-          where attempt_id = $1 group by terminal order by terminal`, [attemptId],
+        `select t.terminal, string_agg(t.data, ''::bytea order by t.byte_offset) as data from benchmark_terminal t
+          join benchmark_attempt a on a.attempt_id = t.attempt_id join benchmark_run r on r.run_id = a.run_id
+          where t.attempt_id = $1 and r.user_id = $2 group by t.terminal order by t.terminal`, [attemptId, context.userId],
       )).rows);
     },
     /**
@@ -701,7 +702,7 @@ function createPostgresBenchmark({pool}) {
     async archiveChat(context, attemptId, chat, archived) {
       return member(context, async client => {
         const [run] = (await client.query(
-          'select r.run_id from benchmark_run r join benchmark_attempt a on a.run_id = r.run_id where a.attempt_id = $1 and r.session', [attemptId],
+          'select r.run_id from benchmark_run r join benchmark_attempt a on a.run_id = r.run_id where a.attempt_id = $1 and r.user_id = $2 and r.session', [attemptId, context.userId],
         )).rows;
         if (!run) return false;
         await client.query("select set_config('app.benchmark_system', 'on', true)");

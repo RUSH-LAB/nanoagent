@@ -173,8 +173,8 @@ export function reopening(chat) {
  * they resume one; under any other agent it starts a Harness session running that agent's CLI,
  * and clicking a chat always opens it in a terminal of the Harness tab (reopening). They archive a chat; archived ones
  * leave the agent's list for that agent's Archived view, where they can be opened or restored;
- * talking in one again restores it. Download traces (JSON) downloads the plugin's traces as JSON Lines: theirs, or for a platform
- * administrator, who picks All members, every member's.
+ * talking in one again restores it. Download traces (JSON) downloads their own traces of the plugin as JSON Lines, never another
+ * member's, an administrator's too (every member's is `nanoagent export member=all`).
  * @param {object} options
  * @param {(session: object|null) => void} options.onOpen With what `session.resume` answered,
  *   or null for a new session.
@@ -192,18 +192,15 @@ export function dashboard({ onOpen, onChat, onStart, closed = false }) {
   const newButton = h("button", { type: "button", class: "button small", hidden: closed, onclick: () => (chosen === NANOAGENT ? onOpen(null) : onStart(chosen)) }, icon("plus", { size: 16 }), "New session");
   const viewButton = h("button", { type: "button", class: "button small ghost", hidden: true });
   const chips = h("div", { class: "harness-chips", role: "group", "aria-label": "Harness" });
-  // Download traces (JSON): the plugin's traces as JSON Lines, the member's own, or for a platform administrator every member's.
-  const whose = h("select", { class: "trace-scope", "aria-label": "Whose traces", hidden: true },
-    h("option", { value: "me", text: "My traces" }), h("option", { value: "all", text: "All members" }));
+  // Download traces (JSON): the member's own traces of the plugin as JSON Lines.
   const download = h("button", { type: "button", class: "button small ghost", text: "Download traces (JSON)", onclick: async () => {
     status.textContent = "";
     try {
-      await request("traces.download", { all: whose.value === "all" });
+      await request("traces.download");
     } catch (problem) {
       status.textContent = problem.message;
     }
   } });
-  request("traces.scope").then(({ admin }) => { whose.hidden = !admin; }, (problem) => { status.textContent = problem.message; });
   let archivedView = false;
   let chosen = NANOAGENT;
   viewButton.addEventListener("click", () => {
@@ -327,7 +324,7 @@ export function dashboard({ onOpen, onChat, onStart, closed = false }) {
   const element = h(
     "section",
     { class: "dashboard" },
-    h("header", { class: "dashboard-head" }, heading, h("div", { class: "dashboard-actions" }, whose, download, viewButton, newButton)),
+    h("header", { class: "dashboard-head" }, heading, h("div", { class: "dashboard-actions" }, download, viewButton, newButton)),
     status,
     chips,
     stats,
