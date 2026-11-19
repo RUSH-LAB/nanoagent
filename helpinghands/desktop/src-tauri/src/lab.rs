@@ -21,7 +21,6 @@ use serde::Deserialize;
 use tauri::{AppHandle, Manager};
 
 // lab.mjs takes up to 10s to stop each service of each connection.
-#[cfg(unix)]
 const STOP_TIMEOUT: Duration = Duration::from_secs(60);
 const RESTART: Duration = Duration::from_secs(30);
 const POLL: Duration = Duration::from_millis(250);
