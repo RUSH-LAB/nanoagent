@@ -615,3 +615,81 @@ def test_unreachable_upstream_never_dispatched_settles_at_zero(tmp_path: Path) -
     assert response.status_code == 502 and response.json()["error"]["code"] == "upstream_unreachable"
     assert rig.admission.settled[response.headers["x-rush-call-id"]] == (Decimal(0), "not_dispatched") and rig.admission.uncertain == []
 
+
+# ---- Codex: a Responses stream the client leaves at response.completed -------------------------------------------------
+
+# Codex 0.167's `codex exec "say ok"` through OpenRouter: the Responses events up to response.completed, which carries the usage.
+# Codex hangs up on that event, before OpenRouter's closing `[DONE]`.
+CODEX_USAGE = {
+    "input_tokens": 6185,
+    "input_tokens_details": {"cached_tokens": 5888},
+    "output_tokens": 24,
+    "output_tokens_details": {"reasoning_tokens": 16},
+    "total_tokens": 6209,
+    "cost": 0.00123,
+}
+_CODEX_RESPONSE = {"id": "gen-codex", "object": "response", "model": fakes.MODEL, "status": "in_progress", "output": [], "usage": None}
+_CODEX_MESSAGE = {"id": "msg_1", "type": "message", "role": "assistant", "status": "completed", "content": [{"type": "output_text", "text": "ok", "annotations": []}]}
+CODEX_STREAM = [
+    f"event: {event['type']}\ndata: {json.dumps(event)}\n\n".encode()
+    for event in (
+        {"type": "response.created", "sequence_number": 0, "response": _CODEX_RESPONSE},
+        {"type": "response.in_progress", "sequence_number": 1, "response": _CODEX_RESPONSE},
+        {"type": "response.output_item.added", "sequence_number": 2, "output_index": 0, "item": {"id": "rs_1", "type": "reasoning", "summary": []}},
+        {"type": "response.output_item.done", "sequence_number": 3, "output_index": 0, "item": {"id": "rs_1", "type": "reasoning", "summary": []}},
+        {"type": "response.output_item.added", "sequence_number": 4, "output_index": 1, "item": {**_CODEX_MESSAGE, "status": "in_progress", "content": []}},
+        {"type": "response.content_part.added", "sequence_number": 5, "item_id": "msg_1", "output_index": 1, "content_index": 0, "part": {"type": "output_text", "text": ""}},
+        {"type": "response.output_text.delta", "sequence_number": 6, "item_id": "msg_1", "output_index": 1, "content_index": 0, "delta": "ok"},
+        {"type": "response.output_text.done", "sequence_number": 7, "item_id": "msg_1", "output_index": 1, "content_index": 0, "text": "ok"},
+        {"type": "response.output_item.done", "sequence_number": 8, "output_index": 1, "item": _CODEX_MESSAGE},
+        {"type": "response.completed", "sequence_number": 9, "response": {**_CODEX_RESPONSE, "status": "completed", "output": [_CODEX_MESSAGE], "usage": CODEX_USAGE}},
+    )
+]
+
+
+class _HeldStream:
+    """The recorded stream, then the connection held open, so only the client's leaving ends the call."""
+
+    status = 200
+    headers = {"content-type": "text/event-stream"}
+
+    async def chunks(self):
+        for chunk in CODEX_STREAM:
+            yield chunk
+        await anyio.sleep_forever()
+
+    async def aclose(self) -> None:
+        pass
+
+
+class _HeldTransport:
+    async def send(self, request) -> _HeldStream:
+        return _HeldStream()
+
+
+def test_a_responses_stream_left_at_response_completed_records_its_usage_and_settles(tmp_path: Path) -> None:
+    server, rig = served(tmp_path, "http://mock.test/api/v1", transport=_HeldTransport())
+    with server:
+        with httpx.stream("POST", server.base_url + PATHS["responses"], json=REQUESTS["responses"](stream=True), headers={"authorization": f"Bearer {TOKEN}"}, timeout=30) as response:
+            received = b""
+            for chunk in response.iter_raw():
+                received += chunk
+                if b'"response.completed"' in received:
+                    break  # Codex is done with the call here
+        data = recorded(rig, "model_call.response")[0].data
+    usage = data["usage"]
+    assert data["terminal"] == "completed" and data["response_id"] == "gen-codex"
+    assert (usage["input"], usage["cache_read"], usage["output"], usage["reasoning"], usage["total"]) == (6185, 5888, 24, 16, 6209)
+    assert usage["cost_usd"] == "0.00123" and usage["provenance"] == "responses:stream"
+    assert rig.admission.settled[data["call_id"]] == (Decimal("0.00123"), "responses:stream") and rig.admission.uncertain == []
+
+
+async def test_a_responses_body_records_its_usage_and_settles(tmp_path: Path) -> None:
+    body = {"id": "gen-codex", "object": "response", "model": fakes.MODEL, "status": "completed", "output": [_CODEX_MESSAGE], "usage": CODEX_USAGE}
+    rig = make_rig(tmp_path, ScriptedTransport(Scripted(chunks=[json.dumps(body).encode()])))
+    async with rig.client() as client:
+        response = await client.post(PATHS["responses"], json=REQUESTS["responses"]())
+    usage = last(rig, "model_call.response")["usage"]
+    assert (usage["input"], usage["cache_read"], usage["output"], usage["reasoning"], usage["total"]) == (6185, 5888, 24, 16, 6209)
+    assert rig.admission.settled[response.headers["x-rush-call-id"]] == (Decimal("0.00123"), "responses:body")
+

@@ -615,10 +615,16 @@ class _Relay:
         while True:
             chunk = await self._read(chunks)
             if chunk is ABORTED or call.abort_reason:
-                state.terminal = self._aborted_terminal()
                 state.completed_ns = self._clock()
+                assembled = assemble_stream(call.dialect, state.frames, upstream.headers, self.gateway.attempt.policy.model) if state.parse_error is None else None
+                if assembled is not None and assembled.terminal_frame is not None:
+                    # Its terminal event had arrived, so the response is whole: Codex hangs up on response.completed, before
+                    # the stream's end.
+                    state.assembled, state.terminal = assembled, assembled.status
+                else:
+                    state.terminal = self._aborted_terminal()
                 self.gateway.publish(call, state)
-                # End the truncated stream; the harness sees no terminal event and treats it as cut.
+                # End the stream; one cut before its terminal event the harness treats as cut.
                 await self._send(send, {"type": "http.response.body", "body": b""})
                 state.delivered_ns = self._clock()
                 await self._conclude()
