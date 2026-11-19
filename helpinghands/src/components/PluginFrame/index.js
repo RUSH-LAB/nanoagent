@@ -51,6 +51,7 @@ export default function PluginFrame({app, workspace, onVersion, session, onSessi
       workspaceId: workspace.id,
       theme: colorMode,
       request: (path, init) => apiFetch(`${API_BASE}${path}`, init),
+      save: path => window.open(`${API_BASE}${path}`, '_self'),
       onVersion: changed => onVersion?.(changed),
       shown: () => shown.current,
       onShown: id => onSession(id),

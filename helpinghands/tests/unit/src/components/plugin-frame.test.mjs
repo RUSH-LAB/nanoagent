@@ -19,7 +19,7 @@ const sessionWith = (chat = []) => ({id: SESSION, pluginId: 'arxiv-source', titl
  * session already started (with `chat` as its conversation); every message
  * posted and every request made after that is in `posted` and `calls`.
  */
-async function hostWith(request, {chat = [], started = true, onVersion = () => {}, shown = null, onShown = () => {}} = {}) {
+async function hostWith(request, {chat = [], started = true, onVersion = () => {}, shown = null, onShown = () => {}, save = () => {}} = {}) {
   const posted = [];
   const frame = {postMessage: (message, origin) => posted.push({message, origin})};
   const calls = [];
@@ -32,6 +32,7 @@ async function hostWith(request, {chat = [], started = true, onVersion = () => {
       calls.push({path, init});
       return request(path, init);
     },
+    save,
     onVersion,
     shown: () => shown,
     onShown,
@@ -105,6 +106,8 @@ describe('nanoagent.ui/v1 requests', () => {
       ['harness.close', {runId: 'harness-1', terminal: 0}],
       ['leaderboard', {}],
       ['leaderboard.trace', {attemptId: SESSION}],
+      ['traces.scope', {}],
+      ['traces.download', {all: false}],
       ['terminal.archive', {attemptId: SESSION, chat: 'claude:aaaa', archived: true}],
     ];
     for (const [method, params] of valid) assert.equal(invalidRequest({method, params}), null, method);
@@ -148,6 +151,7 @@ describe('nanoagent.ui/v1 requests', () => {
       ['harness.open', {runId: 'harness-1', terminal: 32, rows: 40, cols: 120}],
       ['harness.close', {runId: 'harness-1', terminal: -1}],
       ['leaderboard.trace', {attemptId: 'not-an-id'}],
+      ['traces.download', {all: 'yes'}],
       ['terminal.archive', {attemptId: SESSION, chat: 'claude:aaaa'}],
       ['terminal.archive', {attemptId: SESSION, archived: true}],
       ['terminal.archive', {attemptId: 'not-an-id', chat: 'claude:aaaa', archived: false}],
@@ -410,6 +414,18 @@ describe('the bridge host', () => {
       '/api/benchmark/leaderboard?plugin_id=arxiv-source',
       `/api/benchmark/attempts/${SESSION}/events?limit=1000&after=0`, `/api/benchmark/attempts/${SESSION}/events?limit=1000&after=1`,
     ]);
+  });
+
+  it('downloads the plugin\'s traces, the member\'s or every member\'s, and says whether they may download every member\'s', async () => {
+    const saved = [];
+    const {posted, calls, send} = await hostWith(() => Response.json({userId: 'u', role: 'admin'}), {save: path => saved.push(path)});
+    send('s', 'traces.scope', {});
+    send('m', 'traces.download', {all: false});
+    send('a', 'traces.download', {all: true});
+    await until(() => posted.length === 3);
+    assert.deepEqual(Object.fromEntries(messages(posted).map(message => [message.id, message.result])), {s: {admin: true}, m: {}, a: {}});
+    assert.deepEqual(calls.map(({path}) => path), ['/api/users/me']);
+    assert.deepEqual(saved, ['/api/traces/export?plugin=arxiv-source', '/api/traces/export?plugin=arxiv-source&member=all']);
   });
 
   it('archives and restores a session through its route', async () => {

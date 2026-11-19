@@ -95,6 +95,10 @@ const PARAMS = {
     ? null
     : 'harness.reopen needs a runId, rows and cols (each 1 to 1000) and reopen: {resume, chat} or {start, line}'),
   'leaderboard': () => null,
+  // The Dashboard's Download traces (JSON): whether the member may download every member's (`traces.scope`), and the download itself,
+  // of the plugin's traces, theirs or with `all` every member's.
+  'traces.scope': () => null,
+  'traces.download': ({all}) => (typeof all === 'boolean' ? null : 'traces.download needs all, true or false'),
   'leaderboard.trace': ({attemptId}) => (UUID.test(attemptId ?? '') ? null : 'leaderboard.trace needs an attempt id'),
   'plugin.version': ({version}) => (version === null || (typeof version === 'string' && version)
     ? null

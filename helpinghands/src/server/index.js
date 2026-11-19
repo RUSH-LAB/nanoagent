@@ -614,6 +614,8 @@ const ctx = {
     worker: postgresServices.benchmarkWorker,
     service: createBenchmarkService({repository: postgresServices.benchmark}),
   } : null,
+  // What the trace export reads (routes/trace-export.js); PostgreSQL only.
+  traceExport: postgresServices?.traceExport ?? null,
   // The plugins each member installed from the marketplace, run from NanoAgent's installs; PostgreSQL only.
   workspaceApps: postgresServices
     ? createWorkspaceApps({ai, market: postgresServices.market, plugins: postgresServices.userPlugins})
@@ -666,6 +668,7 @@ const routeModules = [
   require('./routes/lab'),
   require('./routes/benchmark'),
   require('./routes/benchmark-worker'),
+  require('./routes/trace-export'),
   require('./routes/submissions'),
   // Plugin endpoints run after the core ones. A plugin extends the site; it
   // does not get to shadow the routes the site is made of. Each is wrapped so

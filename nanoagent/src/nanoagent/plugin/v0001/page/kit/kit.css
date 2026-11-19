@@ -316,6 +316,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .dashboard-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .dashboard-head h2 { font-size: 15px; }
 .dashboard-actions { display: flex; align-items: center; gap: 6px; }
+.trace-scope { min-height: 30px; padding: 4px 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--surface); font-size: 13px; }
+.trace-scope[hidden] { display: none; }
 /* Stats (display.js statItems), a small label over each value: a run's over its graph, a model request's. */
 .stats { margin: 0; }
 .stat { display: grid; gap: 2px; min-width: 0; }

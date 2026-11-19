@@ -11,6 +11,7 @@ const {createPostgresUserPlugins} = require('./user-plugins');
 const {createPostgresSubmissions} = require('./submissions');
 const {createPostgresBenchmark} = require('./benchmark');
 const {createPostgresBenchmarkWorker} = require('./benchmark-worker');
+const {createPostgresTraceExport} = require('./trace-export');
 const {createObjectDeletionQueue} = require('../object-deletions');
 const {auth, tenancy, workspaceProvisioning} = require('../auth');
 const {createPostgresFs, createPublicFsReader} = require('../fs/store');
@@ -70,5 +71,6 @@ module.exports = Object.freeze({
   submissions: createPostgresSubmissions({pool: database.pool}),
   benchmark: createPostgresBenchmark({pool: database.pool}),
   benchmarkWorker: createPostgresBenchmarkWorker({pool: database.pool, config: benchmarkConfig}),
+  traceExport: createPostgresTraceExport({pool: database.pool, fs}),
   objectDeletions: createObjectDeletionQueue({pool: database.pool}),
 });

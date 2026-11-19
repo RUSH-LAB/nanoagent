@@ -18,5 +18,7 @@ const BENCHMARK_PUBLISH_ROUTE = /^\/api\/benchmark\/benchmarks$/;
 // A member's worker credentials (benchmark.js), which belong to the member and no workspace.
 const BENCHMARK_CREDENTIAL_ROUTE = /^\/api\/benchmark\/worker-credentials(?:\/[^/]+)?$/;
 const BENCHMARK_WORKER_ROUTE = /^\/api\/benchmark-worker\/.+$/;
+// A member's traces, or for a platform administrator every member's, from all their workspaces (trace-export.js).
+const TRACE_EXPORT_ROUTE = /^\/api\/traces\/export$/;
 
-module.exports = {MARKET_ROUTE, LAB_ROUTE, APP_UI_ROUTE, BENCHMARK_PUBLISH_ROUTE, BENCHMARK_CREDENTIAL_ROUTE, BENCHMARK_WORKER_ROUTE};
+module.exports = {MARKET_ROUTE, LAB_ROUTE, APP_UI_ROUTE, BENCHMARK_PUBLISH_ROUTE, BENCHMARK_CREDENTIAL_ROUTE, BENCHMARK_WORKER_ROUTE, TRACE_EXPORT_ROUTE};

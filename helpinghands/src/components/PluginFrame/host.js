@@ -11,8 +11,9 @@ import {
  *
  * `frameWindow()` is the frame's window, the only one whose messages are
  * accepted; `request(path, init)` fetches a RUSH API path with the user's
- * session; `onVersion(app)` hears that the member chose another version of the
- * plugin, or to follow its latest (`plugin.version`), with the app as they now run it.
+ * session; `save(path)` has the browser download one, as it downloads a file;
+ * `onVersion(app)` hears that the member chose another version of the plugin,
+ * or to follow its latest (`plugin.version`), with the app as they now run it.
  * `shown()` is the session the page's address names, which the page opens on
  * (`describe`), and `onShown(id)` hears the session the page shows, or null
  * for its Dashboard (`session.shown`), so that reloading opens it again.
@@ -49,6 +50,8 @@ import {
  *
  * The Dashboard lists the chats the member's Harness tab sessions on the plugin held beside their own chats (`sessions.list`'s
  * `terminals`, each a conversation of an agent CLI), and archives or restores one as it does a chat (`terminal.archive`, by its key).
+ * Its Download traces (JSON) downloads the plugin's traces as JSON Lines (`traces.download`): the member's own, or every member's for a
+ * platform administrator (`traces.scope`), from GET /api/traces/export.
  */
 // As long as the member's computer holds a run for RUSH to take up again (runner/protocol.js HOLD_MS).
 const RECONNECT_MS = 10 * 60_000;
@@ -62,7 +65,7 @@ const sleep = (ms, signal) => new Promise(resolve => {
   }, {once: true});
 });
 
-export function createBridgeHost({frameWindow, plugin, workspaceId, theme, request, onVersion, shown, onShown, pause = sleep}) {
+export function createBridgeHost({frameWindow, plugin, workspaceId, theme, request, save, onVersion, shown, onShown, pause = sleep}) {
   const runs = new Map(); // runId -> {controller, session}, the controller of its stream now
   // runId -> {controller, run, attempt, link, sending}: a Harness tab session's controller, its benchmark run's and attempt's ids, the
   // link to its terminals once made, and its input in flight, which goes to the terminals in order.
@@ -316,6 +319,16 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
         more = page.has_more;
       }
       return {result: {events}};
+    },
+    'traces.scope': async () => {
+      const response = await request('/api/users/me');
+      if (!response.ok) throw await failed(response, 'Could not read your role');
+      return {result: {admin: (await response.json()).role === 'admin'}};
+    },
+    // The browser downloads the export (GET /api/traces/export) as it downloads a file, signed in with the member's session.
+    'traces.download': async ({all}) => {
+      save(`/api/traces/export?${new URLSearchParams({plugin: plugin.id, ...(all ? {member: 'all'} : {})})}`);
+      return {result: {}};
     },
     'sessions.list': async () => {
       const [chats, terminals] = await Promise.all([

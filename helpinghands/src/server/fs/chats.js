@@ -60,18 +60,23 @@ async function appendTurn(tree, {chatFile, userId, pluginId, sessionId, title, a
   return node.id;
 }
 
-/** The latest `limit` turns of the chat in `chatFile`, each with its graph, or none when it is gone. */
-async function latestTurns(tree, chatFile, limit) {
+/** The turns of the chat in `chatFile` from the `first`th (0 the first), each with its `file` (graph.json, messages.json) as `key`, or null when it has none. */
+async function turnsWith(tree, chatFile, first, file, key) {
   const opened = await open(tree, chatFile);
   if (!opened) return [];
-  const first = Math.max(0, opened.chat.turns.length - limit);
+  const from = Math.max(0, first(opened.chat.turns.length));
   const folder = folderOf(opened.node.path);
-  const graphs = new Map((await tree.readMany({paths: opened.chat.turns.slice(first)
-    .map((_turn, offset) => `${turnFolder(folder, first + offset + 1)}/graph.json`)}))
-    .map(file => [file.path, JSON.parse(file.body.toString('utf8'))]));
-  return opened.chat.turns.slice(first).map((turn, offset) => ({
-    ...turn, graph: graphs.get(`${turnFolder(folder, first + offset + 1)}/graph.json`) ?? null,
-  }));
+  const pathOf = offset => `${turnFolder(folder, from + offset + 1)}/${file}`;
+  const turns = opened.chat.turns.slice(from);
+  const files = new Map((await tree.readMany({paths: turns.map((_turn, offset) => pathOf(offset))}))
+    .map(one => [one.path, JSON.parse(one.body.toString('utf8'))]));
+  return turns.map((turn, offset) => ({...turn, [key]: files.get(pathOf(offset)) ?? null}));
 }
 
-module.exports = {appendTurn, chatName, latestTurns};
+/** The latest `limit` turns of the chat in `chatFile`, each with its graph, or none when it is gone. */
+const latestTurns = (tree, chatFile, limit) => turnsWith(tree, chatFile, count => count - limit, 'graph.json', 'graph');
+
+/** Every turn of the chat in `chatFile`, each with what its model saw and did (`messages`, an ATIF trajectory), or none when it is gone. */
+const allTurns = (tree, chatFile) => turnsWith(tree, chatFile, () => 0, 'messages.json', 'messages');
+
+module.exports = {allTurns, appendTurn, chatName, latestTurns};
