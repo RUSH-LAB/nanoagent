@@ -46,15 +46,18 @@ function outermost(processes) {
 }
 
 /**
- * The agent whose process ran at `at` (ns), when the outermost agent processes running then are all one agent; otherwise null (no
- * process the record shows ran then, as in a session recorded before process records, or two agents could have made the call).
+ * The outermost agent process running at `at` (ns), when those running then are all one agent (the latest started of them); otherwise
+ * null (no process the record shows ran then, as in a session recorded before process records, or two agents could have made the call).
  */
-function agentAt(processes, at) {
+function processAt(processes, at) {
   if (at === null) return null;
-  const running = processes.filter(process => process.start !== null && process.start <= at && (process.end === null || process.end >= at));
-  const agents = new Set(outermost(running).map(process => process.agent));
-  return agents.size === 1 ? [...agents][0] : null;
+  const running = outermost(processes.filter(process => process.start !== null && process.start <= at && (process.end === null || process.end >= at)));
+  if (new Set(running.map(process => process.agent)).size !== 1) return null;
+  return running.reduce((latest, process) => (process.start > latest.start ? process : latest));
 }
+
+/** The agent whose process ran at `at` (processAt), or null. */
+const agentAt = (processes, at) => processAt(processes, at)?.agent ?? null;
 
 /** What `calls` took, read and cost, in the figures a chat's usage has, with `elapsed` (s) as its End-to-End Latency when it is its own. */
 function usageOf(calls, final, elapsed) {
@@ -116,14 +119,107 @@ function terminalSession(row) {
     createdAt: row.created_at,
     updatedAt: row.finalized_at ?? row.created_at,
     running: !final,
-    // A free-form Terminal session resumes from the Dashboard (whether its worker kept it is checked there); `resumedFrom` is the one it resumed.
-    freeForm: shell && row.task_id === null,
-    resumable: row.resumable === true,
     resumedFrom: row.resumed_from ?? null,
-    archivedAt: row.archived_at ?? null,
     harnesses,
     usage: usageOf(calls.filter(call => call.agent === null), final, agents.length ? null : elapsed),
   };
 }
 
-module.exports = {terminalSession};
+// The agents whose chats the worker reads from their own state when a session ends (nanoagent.uploaded.chats), by their CLI's
+// conversation id, which each reopens (claude --resume, codex resume, pi --session, hermes --resume). Any other agent's chat is one run
+// of it, as the recording shows it, and so is theirs while the session runs.
+const READABLE = new Set(['claude', 'codex', 'pi', 'hermes']);
+const TITLE_CHARS = 120;
+
+/** "claude -p say hi": what the member typed to run agent process `process`, from its argv after its program. */
+function typed(process) {
+  const {argv, agent} = process;
+  const line = argv.join(' ');
+  const marker = CLI_MARKERS.find(([name]) => name === agent)?.[1];
+  const at = argv.findIndex(arg => (marker && arg.includes(marker)) || WRAPPER.test(arg) || arg.endsWith(`/${agent}`) || arg === agent);
+  const text = [agent, ...(at === -1 || !line ? [] : argv.slice(at + 1))].join(' ').replace(/\s+/g, ' ');
+  return text.length <= TITLE_CHARS ? text : `${text.slice(0, TITLE_CHARS - 1)}…`;
+}
+
+/**
+ * The chats of one of the member's Harness tab sessions (a `benchmark_run` with `session`, its attempt's row as `terminalRows` reads
+ * it): each conversation of an agent CLI it held, which the Dashboard lists under that agent. An ended free-form Terminal session holds
+ * the chats its worker read from the CLIs' own state (READABLE; `row.chats`), each its CLI's conversation, titled by its first prompt;
+ * every other agent's chat, and every agent's while the session runs or in a session from before chats were read, is one run of it
+ * (an outermost agent process that made a model call), titled by what the member typed. A session of a harness of its own is one chat
+ * of it. Each model call goes to the chat of its agent whose time holds it, or the nearest; a call no process ties to one agent is no
+ * chat's. A chat has `key` ("<agent>:<id>"), its `conversation` id (null for a run, which nothing reopens by id), its session's
+ * `attemptId`, whether that one is `running`, `resumable` (kept on the member's computer) and `freeForm`, when it was archived, and its
+ * figures (`usage`, as a chat's), its End-to-End Latency its own span.
+ */
+function terminalChats(row) {
+  const final = row.state === 'final';
+  const label = harnessLabel(row.harness_name);
+  const session = {
+    attemptId: row.attempt_id, running: !final, resumable: row.resumable === true, freeForm: row.harness_name === 'shell' && row.task_id === null,
+    startedAt: row.created_at, updatedAt: row.finalized_at ?? row.created_at,
+  };
+  const archived = key => row.archived_chats?.[key] ?? null;
+  const processes = row.processes.map(process => ({
+    id: process.span_id, parent: process.parent_id, start: ns(process.start_ns), end: ns(process.end_ns), argv: process.argv ?? [], agent: agentOf(process.argv ?? []),
+  }));
+  const calls = row.calls.filter(call => call.status !== 'rejected').map(call => {
+    const start = ns(call.start_ns);
+    const end = ns(call.end_ns);
+    return {
+      start, process: row.harness_name === 'shell' ? processAt(processes, start) : null, durationS: seconds(start, end),
+      inputTokens: call.usage?.input ?? null, outputTokens: call.usage?.output ?? null,
+      cost: typeof row.costs[call.call_id] === 'number' ? row.costs[call.call_id] : null,
+    };
+  });
+  if (row.harness_name !== 'shell') {
+    const key = `${label}:${row.attempt_id}`;
+    const elapsed = typeof row.elapsed_ms === 'number' ? row.elapsed_ms / 1000 : null;
+    return [{...session, key, agent: label, conversation: null, title: label, archivedAt: archived(key), usage: usageOf(calls, final, elapsed)}];
+  }
+  const reported = final && Array.isArray(row.chats) ? row.chats : [];
+  const read = agent => final && Array.isArray(row.chats) && READABLE.has(agent);
+  // How far call `call` started from `chat`'s span (0 within it): each call is the nearest chat's of its agent.
+  const away = (chat, call) => Math.max(ns(chat.started_ns) - call.start, call.start - ns(chat.ended_ns), 0);
+  const nearest = call => reported.filter(chat => chat.agent === call.process?.agent).reduce((best, chat) => (best && away(best, call) <= away(chat, call) ? best : chat), null);
+  const owner = new Map(calls.filter(call => call.start !== null).map(call => [call, nearest(call)]));
+  const chats = reported.map(chat => {
+    const key = `${chat.agent}:${chat.id}`;
+    return {
+      ...session, key, agent: chat.agent, conversation: chat.id, title: chat.title, startedAt: chat.started_at, updatedAt: chat.ended_at,
+      archivedAt: archived(key), usage: usageOf(calls.filter(call => owner.get(call) === chat), final, seconds(ns(chat.started_ns), ns(chat.ended_ns))),
+    };
+  });
+  const runs = new Map();
+  for (const call of calls) {
+    if (call.process === null || read(call.process.agent)) continue;
+    runs.set(call.process, [...(runs.get(call.process) ?? []), call]);
+  }
+  for (const [process, made] of runs) {
+    const key = `${process.agent}:${row.attempt_id}/${process.id}`;
+    chats.push({...session, key, agent: process.agent, conversation: null, title: typed(process), archivedAt: archived(key), usage: usageOf(made, final, seconds(process.start, process.end))});
+  }
+  return chats;
+}
+
+/** Add two of a chat's figures (`{sum, count}`), known when either is. */
+const plus = (x, y) => ({sum: x.sum + y.sum, count: Math.max(x.count, y.count)});
+
+/**
+ * The member's chats across `sessions` (each `terminalChats`), one per conversation: a conversation resumed in a later session is one
+ * chat, titled and started as it first was, its figures summed, and reopened from the session that last held it (whose `attemptId`,
+ * `resumable` and `archivedAt` it takes, so talking in it again brings it back from the archive).
+ */
+function memberChats(sessions) {
+  const byKey = new Map();
+  for (const chat of sessions.flat().sort((x, y) => new Date(x.updatedAt) - new Date(y.updatedAt))) {
+    const seen = byKey.get(chat.key);
+    byKey.set(chat.key, seen ? {
+      ...chat, title: seen.title, startedAt: seen.startedAt,
+      usage: Object.fromEntries(Object.keys(chat.usage).map(figure => [figure, plus(seen.usage[figure], chat.usage[figure])])),
+    } : chat);
+  }
+  return [...byKey.values()];
+}
+
+module.exports = {terminalSession, terminalChats, memberChats};

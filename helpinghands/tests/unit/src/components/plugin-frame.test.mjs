@@ -91,6 +91,8 @@ describe('nanoagent.ui/v1 requests', () => {
       ['harness.run', {harness: 'shell'}],
       ['harness.run', {harness: 'shell', resume: SESSION}],
       ['harness.run', {harness: 'shell', start: 'claude'}],
+      ['harness.run', {harness: 'shell', resume: SESSION, chat: {agent: 'claude', id: 'aaaa-1'}}],
+      ['harness.run', {harness: 'shell', resume: SESSION, chat: {agent: 'dsh', id: null}}],
       ['harness.cancel', {runId: 'harness-1'}],
       ['harness.input', {runId: 'harness-1', terminal: 0, data: '\x03'}],
       ['harness.resize', {runId: 'harness-1', terminal: 2, rows: 40, cols: 120}],
@@ -98,7 +100,7 @@ describe('nanoagent.ui/v1 requests', () => {
       ['harness.close', {runId: 'harness-1', terminal: 0}],
       ['leaderboard', {}],
       ['leaderboard.trace', {attemptId: SESSION}],
-      ['terminal.archive', {attemptId: SESSION, archived: true}],
+      ['terminal.archive', {attemptId: SESSION, chat: 'claude:aaaa', archived: true}],
     ];
     for (const [method, params] of valid) assert.equal(invalidRequest({method, params}), null, method);
     const invalid = [
@@ -136,8 +138,11 @@ describe('nanoagent.ui/v1 requests', () => {
       ['harness.open', {runId: 'harness-1', terminal: 32, rows: 40, cols: 120}],
       ['harness.close', {runId: 'harness-1', terminal: -1}],
       ['leaderboard.trace', {attemptId: 'not-an-id'}],
-      ['terminal.archive', {attemptId: SESSION}],
-      ['terminal.archive', {attemptId: 'not-an-id', archived: false}],
+      ['terminal.archive', {attemptId: SESSION, chat: 'claude:aaaa'}],
+      ['terminal.archive', {attemptId: SESSION, archived: true}],
+      ['terminal.archive', {attemptId: 'not-an-id', chat: 'claude:aaaa', archived: false}],
+      ['harness.run', {harness: 'shell', start: 'claude', chat: {agent: 'claude', id: 'aaaa'}}],
+      ['harness.run', {harness: 'shell', resume: SESSION, chat: {agent: 'claude', id: '$(reboot)'}}],
     ];
     for (const [method, params] of invalid) assert.equal(typeof invalidRequest({method, params}), 'string', method);
   });
@@ -361,7 +366,7 @@ describe('the bridge host', () => {
   it('lists, starts and reads sessions through the sessions routes', async () => {
     const {posted, calls, send} = await hostWith((path, init = {}) => {
       if (path === SESSIONS && !init.method) return Response.json({sessions: [{id: SESSION}]});
-      if (path.startsWith('/api/benchmark/terminal-sessions')) return Response.json({sessions: [{id: 'a1', harness: 'Codex'}]});
+      if (path.startsWith('/api/benchmark/terminal-sessions')) return Response.json({chats: [{key: 'codex:c-9', agent: 'codex'}]});
       return Response.json({session: sessionWith()});
     });
     send('l', 'sessions.list');
@@ -371,7 +376,7 @@ describe('the bridge host', () => {
     await until(() => posted.length === 3);
     const byId = Object.fromEntries(messages(posted).map(message => [message.id, message.result ?? message.error]));
     assert.deepEqual(byId, {
-      l: {sessions: [{id: SESSION}], terminals: [{id: 'a1', harness: 'Codex'}]}, g: {session: sessionWith()}, n: {session: sessionWith()},
+      l: {sessions: [{id: SESSION}], terminals: [{key: 'codex:c-9', agent: 'codex'}]}, g: {session: sessionWith()}, n: {session: sessionWith()},
     });
     assert.deepEqual(calls.map(({path, init}) => [path, init?.method ?? 'GET']), [
       [SESSIONS, 'GET'], ['/api/benchmark/terminal-sessions?plugin_id=arxiv-source', 'GET'], [`${SESSIONS}/${SESSION}`, 'GET'], [SESSIONS, 'POST'],
@@ -407,12 +412,12 @@ describe('the bridge host', () => {
     ]);
   });
 
-  it('archives and restores a Harness session through its attempt\'s route', async () => {
+  it('archives and restores a chat of a Harness session through its attempt\'s route', async () => {
     const {posted, calls, send} = await hostWith(() => Response.json({archived: true}));
-    send('a', 'terminal.archive', {attemptId: SESSION, archived: true});
+    send('a', 'terminal.archive', {attemptId: SESSION, chat: 'claude:aaaa', archived: true});
     await until(() => posted.length === 1);
     assert.deepEqual(messages(posted)[0].result, {archived: true});
-    assert.deepEqual(calls.map(({path, init}) => [path, init.method, JSON.parse(init.body)]), [[`/api/benchmark/attempts/${SESSION}/archive`, 'POST', {archived: true}]]);
+    assert.deepEqual(calls.map(({path, init}) => [path, init.method, JSON.parse(init.body)]), [[`/api/benchmark/attempts/${SESSION}/archive`, 'POST', {archived: true, chat: 'claude:aaaa'}]]);
   });
 
   it('ends a failed prompt with chat.error and chat.done, and leaves it out of the conversation', async () => {
@@ -543,13 +548,14 @@ describe('the bridge host', () => {
       '/api/benchmark/runs/r1/cancel': () => Response.json({}),
     };
     const {posted, calls, send} = await hostWith(path => answers[path](), {started: false});
-    send('h', 'harness.run', {harness: 'shell', resume: SESSION});  // a session the Dashboard resumes is queued as resuming it
+    send('h', 'harness.run', {harness: 'shell', resume: SESSION, chat: {agent: 'claude', id: 'aaaa'}});  // a chat the Dashboard reopens
     await until(() => messages(posted).some(message => message.event === 'harness.done'));
     assert.deepEqual(eventsOf(posted, 'harness-1'), [
+      ['harness.session', {attemptId: 'a1'}],
       ['harness.error', {message: 'The Harness terminal runs on your computer, through RUSH Lab: open this page in the RUSH Lab app.'}], ['harness.done', {}],
     ]);
     const queued = JSON.parse(calls.find(call => call.path === '/api/benchmark/sessions').init.body);
-    assert.deepEqual([queued.harness, queued.resume, queued.interactive], ['shell', SESSION, true]);
+    assert.deepEqual([queued.harness, queued.resume, queued.chat, queued.interactive], ['shell', SESSION, {agent: 'claude', id: 'aaaa'}, true]);
     assert.ok(calls.some(call => call.path === '/api/benchmark/runs/r1/cancel' && call.init.method === 'POST'));
   });
 

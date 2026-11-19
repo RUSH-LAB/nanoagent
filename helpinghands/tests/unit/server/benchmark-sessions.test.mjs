@@ -78,7 +78,7 @@ describe('POST /api/benchmark/sessions', () => {
     assert.deepEqual(calls.slice(0, 3), [['open', 'p'], ['frame', SHA, {task: 'sum', text: 'Add one and two'}], ['build', 'claude-code']]);
     const [, queued, source, policy, options] = calls[3];
     assert.deepEqual([queued.model, queued.endpoint_profile, queued.context, queued.case_id, queued.cases], [MODEL.model, 'openrouter', 'Add one and two', 'p-01', undefined]);
-    assert.deepEqual([source.harness.name, policy, options], ['claude-code', 'coding', {interactive: true, resumedFrom: null, startCli: null}]);
+    assert.deepEqual([source.harness.name, policy, options], ['claude-code', 'coding', {interactive: true, resumedFrom: null, startCli: null, resumeChat: null}]);
     await settled();
     assert.deepEqual(calls[4], ['pin', SHA, {task: 'sum', text: 'Add one and two', model: MODEL}]);
     const [what, session, publication] = calls[5];
@@ -109,7 +109,7 @@ describe('POST /api/benchmark/sessions', () => {
     ctx.benchmark.repository.terminalRows = async (context, {attemptId}) => (rows[attemptId] ? [rows[attemptId]] : []);
     const body = resume => ({plugin_id: 'p', harness: 'shell', interactive: true, resume});
     assert.equal((await post(ctx, body(OLD))).status, 201);
-    assert.deepEqual(calls.find(([what]) => what === 'session')[4], {interactive: true, resumedFrom: OLD, startCli: null});
+    assert.deepEqual(calls.find(([what]) => what === 'session')[4], {interactive: true, resumedFrom: OLD, startCli: null, resumeChat: null});
     const refused = async (resume, extra = {}) => {
       const {status, payload} = await post(ctx, {...body(resume), ...extra});
       return [status, payload.code];
@@ -119,11 +119,27 @@ describe('POST /api/benchmark/sessions', () => {
     assert.deepEqual(await refused(OLD, {harness: 'claude-code', task_id: 'sum', text: 'hi'}), [400, 'invalid_request']);
   });
 
+  it('resumes an ended session for one of its chats, which its first terminal reopens, and for no chat it did not hold', async () => {
+    const OLD = '11111111-1111-4111-8111-111111111111';
+    const chat = {agent: 'claude', id: 'aaaa', title: 'say ok', started_at: '2026-11-18T00:00:00Z', ended_at: '2026-11-18T00:00:05Z', started_ns: '1', ended_ns: '5'};
+    const row = {attempt_id: OLD, harness_name: 'shell', task_id: null, state: 'final', calls: [], processes: [], costs: {}, chats: [chat]};
+    const {ctx, calls} = ctxFor();
+    ctx.benchmark.repository.terminalRows = async () => [row];
+    const body = extra => ({plugin_id: 'p', harness: 'shell', interactive: true, resume: OLD, ...extra});
+    assert.equal((await post(ctx, body({chat: {agent: 'claude', id: 'aaaa'}}))).status, 201);
+    assert.deepEqual(calls.find(([what]) => what === 'session')[4].resumeChat, {agent: 'claude', id: 'aaaa'});
+    const status = async extra => (await post(ctx, body(extra))).status;
+    assert.deepEqual(
+      [await status({chat: {agent: 'claude', id: 'bbbb'}}), await status({chat: {agent: 'claude', id: '$(rm -rf /)'}}), await status({chat: {agent: 'claude', id: 'aaaa'}, resume: undefined})],
+      [404, 400, 400],
+    );
+  });
+
   it('starts a new free-form Terminal session running an agent\'s CLI, and no other', async () => {
     const {ctx, calls} = ctxFor();
     const body = {plugin_id: 'p', harness: 'shell', interactive: true, start: 'claude'};
     assert.equal((await post(ctx, body)).status, 201);
-    assert.deepEqual(calls.find(([what]) => what === 'session')[4], {interactive: true, resumedFrom: null, startCli: 'claude'});
+    assert.deepEqual(calls.find(([what]) => what === 'session')[4], {interactive: true, resumedFrom: null, startCli: 'claude', resumeChat: null});
     for (const extra of [{start: 'claude; rm -rf /'}, {start: ''}, {interactive: false}, {harness: 'claude-code', task_id: 'sum', text: 'hi'}]) {
       assert.equal((await post(ctx, {...body, ...extra})).status, 400);
     }
@@ -132,7 +148,7 @@ describe('POST /api/benchmark/sessions', () => {
   it('takes the harness\'s model and whether the member is at its terminal from the request', async () => {
     const {ctx, calls} = ctxFor();
     await post(ctx, {...BODY, interactive: false, model: 'openai/gpt-5.5'});
-    assert.deepEqual([calls[3][1].model, calls[3][4]], ['openai/gpt-5.5', {interactive: false, resumedFrom: null, startCli: null}]);
+    assert.deepEqual([calls[3][1].model, calls[3][4]], ['openai/gpt-5.5', {interactive: false, resumedFrom: null, startCli: null, resumeChat: null}]);
     await settled();
     assert.deepEqual(calls[4][2].model, MODEL); // the case is pinned with the model every run uses
     assert.equal((await post(ctxFor().ctx, {...BODY, interactive: undefined})).status, 400);
@@ -250,7 +266,7 @@ describe('`rush score`: POST /api/benchmark-worker/attempts/{id}/score and GET .
     assert.deepEqual([started.status, started.payload], [201, {run: {run_id: 'r1'}, attempt_id: 'a1'}]);
     await settled();
     assert.deepEqual(calls.map(([what]) => what), ['open', 'open', 'frame', 'session', 'pin', 'pinned']);
-    assert.deepEqual([calls[2][2], calls[3][2], calls[3][3], calls[3][4]], [{task: 'sum', text: 'Add two numbers'}, SAVED, 'coding', {interactive: false, resumedFrom: null, startCli: null}]);
+    assert.deepEqual([calls[2][2], calls[3][2], calls[3][3], calls[3][4]], [{task: 'sum', text: 'Add two numbers'}, SAVED, 'coding', {interactive: false, resumedFrom: null, startCli: null, resumeChat: null}]);
   });
 
   it('reads how the scored attempt went, and what its calls cost', async () => {
@@ -310,7 +326,7 @@ describe('a session\'s run', () => {
     const {run_id: runId, session} = await service.session(CONTEXT, sessionFrame, source, 'coding', {interactive: true});
     assert.equal(runId, 'r1');
     const [, request, resolved, benchmark, harness, options] = kept[0];
-    assert.deepEqual(options, {session: true, interactive: true, free: false, resumedFrom: null, startCli: null}); // a session's run, which the member's results do not list
+    assert.deepEqual(options, {session: true, interactive: true, free: false, resumedFrom: null, startCli: null, resumeChat: null}); // a session's run, which the member's results do not list
     assert.deepEqual([request.policy, request.source_sha256, request.request_digest.length], ['coding', 'b'.repeat(64), 64]);
     assert.deepEqual(resolved.cases, [{case_id: 'p-01', position: 0, kind: 'answer', arguments: null, expected_error: null, content_digest: null, prompt: null}]);
     assert.deepEqual([benchmark.case_set_id, benchmark.publisher.name, benchmark.plugin.sha256, benchmark.context, harness.name], [null, 'Ada', SHA, 'Add one and two', 'shell']);

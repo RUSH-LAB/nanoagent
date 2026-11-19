@@ -39,13 +39,16 @@ const failedText = (reason) => `Couldn't start the terminal: ${reason}`;
  * the first time it runs. As in an editor's
  * terminal panel, they open more terminals in the same VM and workspace ("+"), switch between them by their tabs and close one (×);
  * a terminal whose shell they leave (exit, Ctrl-D) closes too. The session ends with its last terminal; its time, tokens and cost
- * print there, and Enter then starts a new one. `resume(id)` starts a new one that resumes their ended session `id` (the Dashboard's):
- * the worker puts back what it kept of it on their computer, and its first terminal says so, or says why it could not. `startCli(name)`
- * starts a new one whose first terminal runs the agent CLI `name` (`claude`), as a resumed one runs its agent's resume command.
- * @returns {{element: HTMLElement, resume: (id: string) => void, startCli: (name: string) => void}}
+ * print there, and Enter then starts a new one. `reopen(chat)` starts a new one that resumes the ended session holding one of their
+ * chats (the Dashboard's) and reopens that conversation: the worker puts back what it kept of it on their computer, and its first
+ * terminal runs the agent's resume command, or says why it could not. `startCli(name)` starts a new one whose first terminal runs the
+ * agent CLI `name` (`claude`), as a resumed one runs its agent's resume command. `live()` is the attempt id of the session running
+ * here, or null.
+ * @returns {{element: HTMLElement, reopen: (chat: object) => void, startCli: (name: string) => void, live: () => string|null}}
  */
 export function harnessPage() {
   let runId = null;
+  let attempt = null;  // the running session's attempt, once RUSH has queued it
   let generation = 0;  // which start() the events heard are for: a resume can start another while one is still running
   let ended = false;
   let next = 0;  // the id the next terminal opened gets
@@ -140,8 +143,9 @@ export function harnessPage() {
     if (active !== null) views.get(active).fit.fit();
   }).observe(screens);
 
-  async function start({ resume, cli } = {}) {
+  async function start({ resume, chat, cli } = {}) {
     const mine = ++generation;
+    attempt = null;
     for (const id of [...views.keys()]) remove(id);
     ended = false;
     runId = null;
@@ -162,14 +166,18 @@ export function harnessPage() {
     };
     const done = () => {
       runId = null;
+      attempt = null;
       ended = true;
       updateAdd();
       shown().write("Press Enter to start a new one.");
     };
     try {
-      const id = await startRun("harness.run", { harness: "shell", ...(resume ? { resume } : {}), ...(cli ? { start: cli } : {}) }, (name, data) => {
+      const id = await startRun("harness.run", { harness: "shell", ...(resume ? { resume, chat } : {}), ...(cli ? { start: cli } : {}) }, (name, data) => {
         if (mine !== generation) return;  // a session this tab has since replaced
         switch (name) {
+          case "harness.session":
+            attempt = data.attemptId;
+            break;
           case "harness.preparing":  // shown only while something downloads; otherwise the terminal just opens
             if (!data.total) break;
             preparing = true;
@@ -214,10 +222,10 @@ export function harnessPage() {
     }
   }
 
-  /** A new session that resumes the ended session `id`, in place of any this tab has: RUSH ends that one as it starts this. */
-  function resume(id) {
+  /** A new session that reopens `chat` (the Dashboard's), in place of any this tab has: RUSH ends that one as it starts this. */
+  function reopen(chat) {
     opened = true;
-    start({ resume: id });
+    start({ resume: chat.attemptId, chat: { agent: chat.agent, id: chat.conversation } });
   }
 
   /** A new session whose first terminal runs the agent CLI `name`, in place of any this tab has. */
@@ -226,5 +234,5 @@ export function harnessPage() {
     start({ cli: name });
   }
 
-  return { element: h("section", { class: "harness-page", "aria-label": "Harness" }, tabs, screens), resume, startCli };
+  return { element: h("section", { class: "harness-page", "aria-label": "Harness" }, tabs, screens), reopen, startCli, live: () => (runId === null ? null : attempt) };
 }

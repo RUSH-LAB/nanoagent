@@ -330,6 +330,11 @@ class CaseHandle(Protocol):
         """The case's process evidence, once the harness has stopped."""
         ...
 
+    def live_evidence(self) -> ProcessEvidence | None:
+        """What the tracer has written so far while the case runs (its processes still running have no exit yet), or None once the
+        case is stopping."""
+        ...
+
     def close(self) -> None: ...
 
 
@@ -1298,14 +1303,23 @@ class _Case:
                 if self._paused:
                     self._run(_call(self._sandbox.resume))
                     self._paused = False
-                harness = TraceSession(self._run(_read_session(self._sandbox, f"{TRACE_DIR}/harness")), WORKSPACE, False, tracer_ok)
-                # Each further terminal is traced from its own root, beside the harness's, as a managed command is.
-                terminals = [
-                    TraceSession(self._run(_read_session(self._sandbox, f"{TRACE_DIR}/terminal-{terminal}")), WORKSPACE, True, run.done() and run.exception() is None)
-                    for terminal, run in sorted(self._terminals.items())
-                ]
-                self._final = parse_trace(self.container_id, [harness, *terminals, *self._sessions.values()])
+                self._final = self._read_trace(tracer_ok)
             return self._final
+
+    def live_evidence(self) -> ProcessEvidence | None:
+        with self._evidence_lock:
+            if self._final is not None or self._paused or self._closing.is_set():
+                return None
+            return self._read_trace(True)
+
+    def _read_trace(self, tracer_ok: bool) -> ProcessEvidence:
+        harness = TraceSession(self._run(_read_session(self._sandbox, f"{TRACE_DIR}/harness")), WORKSPACE, False, tracer_ok)
+        # Each further terminal is traced from its own root, beside the harness's, as a managed command is.
+        terminals = [
+            TraceSession(self._run(_read_session(self._sandbox, f"{TRACE_DIR}/terminal-{terminal}")), WORKSPACE, True, run.done() and run.exception() is None)
+            for terminal, run in sorted(self._terminals.items())
+        ]
+        return parse_trace(self.container_id, [harness, *terminals, *self._sessions.values()])
 
     def close(self) -> None:
         if self._closing.is_set():

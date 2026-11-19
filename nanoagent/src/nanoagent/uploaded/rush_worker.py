@@ -131,11 +131,22 @@ def rush_error(response: httpx.Response) -> RushError:
 
 
 @dataclass(frozen=True)
+class ChatOf:
+    """One chat of a Terminal session, which a new one reopens: its agent's CLI command and that CLI's conversation id, or None for a
+    run of the agent (as the recording shows it), whose last conversation it reopens."""
+
+    agent: str
+    id: str | None
+
+
+@dataclass(frozen=True)
 class ResumeOf:
-    """The Terminal session a new one resumes, as RUSH's claim names it: its attempt id and when it ended (ISO 8601)."""
+    """The Terminal session a new one resumes, as RUSH's claim names it: its attempt id, when it ended (ISO 8601), and the chat of it
+    to reopen, or None for the session as a whole."""
 
     attempt_id: str
     at: str
+    chat: ChatOf | None = None
 
 
 @dataclass(frozen=True)
@@ -170,13 +181,18 @@ class AttemptJob:
         return replace(self, case=body["case"], prompt=body["prompt"], private_reference=body["private_reference"], case_pending=False)
 
 
+def _resume_of(resume: Mapping[str, Any]) -> ResumeOf:
+    chat = resume["chat"]
+    return ResumeOf(resume["attempt_id"], resume["at"], None if chat is None else ChatOf(chat["agent"], chat["id"]))
+
+
 def parse_job(body: Mapping[str, Any]) -> AttemptJob:
     try:
         if body["kind"] == "attempt":
             return AttemptJob(
                 body["attempt_id"], body["attempt_no"], body["fence"], body["run"], body["task"], body["case"], body["prompt"],
                 body["plugin"], body.get("private_reference"), float(body["lease_seconds"]), body["case_pending"], body["free_form"],
-                None if body["resume"] is None else ResumeOf(body["resume"]["attempt_id"], body["resume"]["at"]), body["start"],
+                None if body["resume"] is None else _resume_of(body["resume"]), body["start"],
             )
     except KeyError as error:
         raise RushError(200, "invalid_job", f"the claimed job lacks {error.args[0]!r}", body) from error

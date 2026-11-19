@@ -99,6 +99,7 @@ from nanoagent.uploaded.sandbox import (
     WORKSPACE,
 )
 from nanoagent.uploaded.reference import build_reference
+from nanoagent.uploaded import chats
 from nanoagent.uploaded.resume import keep, restore, start_cli
 from nanoagent.uploaded import session_result
 from nanoagent.uploaded.source import SourceLimits, extract, inspect_zip
@@ -171,6 +172,7 @@ WARM_GO = json.dumps({"wait_go": True}).encode()  # a warm terminal's request un
 WARM_RECIPE = "warm.json"  # under the scratch folder: the last Terminal session's limits, the warm terminal's after a start
 WARM_MAX_AGE_S = 600.0  # a warm terminal nobody took is replaced after this, well within any session's wall time
 SCORE_POLL_S = 2.0  # how often `rush score` reads how its run is going
+LIVE_SPANS_S = 3.0  # how often a free-form session's trace so far goes to RUSH, so the Dashboard names its agents and chats as they work
 
 
 class LateApp:
@@ -1004,6 +1006,8 @@ class AttemptRunner:
             LOG.info("attempt %s: resuming %s: %s", job.attempt_id, job.resume.attempt_id, said["line"])
         if job.start is not None:  # the agent CLI its first terminal runs, as a resumed one runs its agent's resume command
             await in_thread(start_cli, handle.workspace, job.start)
+        # The conversations its agents kept as it starts (a resumed session's are back): it holds those it talks in (chats.talked).
+        restored = await in_thread(chats.read, handle.workspace) if job.free_form else {}
         if tools:
             await stack.enter_async_context(runner)  # the plugin is up before the harness can call it
             LOG.info("attempt %s: plugin tools up", job.attempt_id)
@@ -1019,7 +1023,8 @@ class AttemptRunner:
 
         recorded: list[bool] = []  # set once the collector's process evidence is committed
         try:
-            outcome = await self._wait(lease, handle, services, terminal, interactive=run["interactive"], free_form=job.free_form)
+            live = partial(self._live_spans, job, journal, handle, lambda wall: wall - offset, commands.outcomes, []) if job.free_form else None
+            outcome = await self._wait(lease, handle, services, terminal, interactive=run["interactive"], free_form=job.free_form, live=live)
             await self._revoke(services)
             lease.lapsed()  # a lease that ran out while the computer slept is dropped on waking, not finalized late
             if lease.reason in ("lease_lost", "sealed"):
@@ -1046,11 +1051,12 @@ class AttemptRunner:
             if job.free_form:  # no case: the member ended the session (by its last exit, Stop or leaving its page), and nothing scores it
                 await self._record_processes(emit, await in_thread(handle.evidence), lambda wall: wall - offset, commands.outcomes)
                 recorded.append(True)
-                resumable = await self._keep_session(job, handle)
+                held = chats.report(chats.talked(restored, await in_thread(chats.read, handle.workspace)), offset)
+                kept = await self._keep_session(job, handle)
                 if lease.reason == "canceled":
-                    return await self._finalize(job, journal, "canceled", None, result=AttemptResult("canceled"), resumable=resumable)
+                    return await self._finalize(job, journal, "canceled", None, result=AttemptResult("canceled"), kept=kept, held=held)
                 timed_out = outcome.termination.kind is TerminationKind.TIMED_OUT  # it ran to the session's wall time
-                return await self._finalize(job, journal, "ended", "timed_out" if timed_out else None, resumable=resumable)
+                return await self._finalize(job, journal, "ended", "timed_out" if timed_out else None, kept=kept, held=held)
             if snapshot is None:
                 status, case_outcome = "execution_failed", {"status": "execution_failed", "reason": "invalid_result"}
                 frozen = work / "overflow"  # the verifier gets an empty workspace: nothing was frozen
@@ -1072,11 +1078,43 @@ class AttemptRunner:
                 await self._record_fault_evidence(emit, handle, lambda wall: wall - offset, commands.outcomes)
             raise
 
-    async def _keep_session(self, job: AttemptJob, handle: CaseHandle) -> bool:
-        """Keeps the ended free-form session's workspace on this computer to resume; whether it was kept (RUSH learns only that)."""
-        kept = await in_thread(keep, self.config.scratch, job.attempt_id, handle.workspace, datetime.now(timezone.utc), self.config.resume_bytes)
+    @staticmethod
+    async def _every(seconds: float, work: Callable[[], Awaitable[None]]) -> None:
+        while True:
+            await anyio.sleep(seconds)
+            await work()
+
+    async def _live_spans(
+        self, job: AttemptJob, journal: RushJournal, handle: CaseHandle, to_monotonic_ns: Callable[[int], int], commands: Sequence[ExecOutcome], sent: list[tuple[int, int]],
+    ) -> None:
+        """Sends a running free-form session's trace so far to RUSH: the journal's records (its model calls, as they come) with the
+        processes the tracer has written so far (not journaled: the session's end records them, whole), projected as the end projects
+        them, so each span keeps its id and the end's upload fills what this one lacked. The Dashboard reads them to name the agents
+        working and their chats. Nothing is sent when nothing changed; a read or projection that fails waits for the next."""
+        try:
+            evidence = await in_thread(handle.live_evidence)
+            if evidence is None:
+                return
+            seen = (journal.high_water, len(evidence.events))
+            if sent and sent[-1] == seen:
+                return
+            facts, times = process_facts(evidence, to_monotonic_ns, commands)
+            records = [*journal.records, *Emitter(journal, self.clock_ns).records(facts, occurred_ns=times)]
+            projection = self.project(records, dict(journal.payloads), dict(journal.redactions))
+            for request in projection.spans_requests(job.fence):
+                await self.worker.spans(job.attempt_id, request)
+            sent[:] = [seen]
+        except (LeaseLost, Canceled, Sealed):
+            raise
+        except Exception as error:
+            LOG.warning("attempt %s: its trace so far did not reach RUSH: %s: %s", job.attempt_id, type(error).__name__, error)
+
+    async def _keep_session(self, job: AttemptJob, handle: CaseHandle) -> tuple[bool, list[str]]:
+        """Keeps the ended free-form session's workspace on this computer to resume: whether it was kept, and the older sessions that
+        went to make room (RUSH learns only those)."""
+        kept, evicted = await in_thread(keep, self.config.scratch, job.attempt_id, handle.workspace, datetime.now(timezone.utc), self.config.resume_bytes)
         LOG.info("attempt %s: %s", job.attempt_id, "kept to resume" if kept else "not kept to resume: larger than resume_bytes")
-        return kept
+        return kept, evicted
 
     async def _record_fault_evidence(self, emit: Emitter, handle: CaseHandle, to_monotonic_ns: Callable[[int], int], commands: Sequence[ExecOutcome]) -> None:
         """After a platform fault: stop the case and commit the process evidence the collector has, so the interrupted
@@ -1142,11 +1180,15 @@ class AttemptRunner:
         finally:
             late.up.set()
 
-    async def _wait(self, lease: Lease, handle: CaseHandle, services: AttemptServices, terminal: Terminal, *, interactive: bool, free_form: bool) -> Any:
+    async def _wait(
+        self, lease: Lease, handle: CaseHandle, services: AttemptServices, terminal: Terminal, *, interactive: bool, free_form: bool,
+        live: Callable[[], Awaitable[None]] | None = None,
+    ) -> Any:
         """The case's outcome, or None if the lease was lost or canceled first (the case is killed and drained). A free-form session's
         cancel is how its member ends it (Stop, leaving its page, opening another): its case ends as at an exit, so its outcome comes,
         and it is recorded as one that exited is. The harness's terminal output goes to RUSH as it comes meanwhile, and, when someone is
-        at it, to their page over the session's link (RUSH told where), which brings back what they type."""
+        at it, to their page over the session's link (RUSH told where), which brings back what they type; ``live``, when given, runs
+        every LIVE_SPANS_S meanwhile."""
         done = anyio.Event()
         box: list[Any] = []
 
@@ -1163,6 +1205,8 @@ class AttemptRunner:
         async with anyio.create_task_group() as group:
             group.start_soon(waiter)
             group.start_soon(terminal.pump, handle)
+            if live is not None:
+                group.start_soon(self._every, LIVE_SPANS_S, live)
             if interactive:
                 port = await group.start(terminal.serve, handle)
                 await self.worker.terminal_link(lease.attempt_id, lease.fence, port, terminal.token)
@@ -1290,9 +1334,10 @@ class AttemptRunner:
 
     async def _finalize(
         self, job: AttemptJob, journal: RushJournal, status: str, reason: str | None, *, verdict: Mapping[str, Any] | None = None,
-        result: AttemptResult | None = None, resumable: bool | None = None,
+        result: AttemptResult | None = None, kept: tuple[bool, list[str]] | None = None, held: list[dict] | None = None,
     ) -> AttemptResult:
-        """Seals the attempt. ``resumable``, for a free-form session that ran, is whether this computer kept it to resume."""
+        """Seals the attempt. For a free-form session that ran: ``kept``, whether this computer kept it to resume and the older sessions
+        that went to make room (``resumable``, ``evicted``), and ``held``, the conversations its agents held (chats.report)."""
         coverage, metrics = await self._trace(job, journal, status)
         body: dict[str, Any] = {
             "fence": job.fence,
@@ -1306,8 +1351,8 @@ class AttemptRunner:
         }
         if verdict is not None:
             body |= {key: verdict.get(key) for key in ("verdict", "explanation", "verifier_error")}
-        if resumable is not None:
-            body["resumable"] = resumable
+        if kept is not None:
+            body |= {"resumable": kept[0], "evicted": kept[1], "chats": held}
         await self.worker.finalize(job.attempt_id, body)
         journal.close()
         return result or AttemptResult("finalized", {"status": status, "reason": reason})

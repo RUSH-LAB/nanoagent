@@ -15,10 +15,10 @@ const {parseJson, stringifyJson} = require('../benchmark/json');
 const {compareAttempts, compareRuns} = require('../benchmark/compare');
 const {UUID, jsonBody, losslessBody, rawBody, sendFailure} = require('../benchmark/http');
 const {REFERENCE_HARNESSES, checkReference, referenceHarnessOf, referencePolicy, uploadedHarnessOf} = require('../benchmark/harness');
-const {previewBody, runBody, benchmarkPublication, importBody, publicationFrame, SHA256, object, string} = require('../benchmark/validate');
+const {previewBody, runBody, benchmarkPublication, importBody, publicationFrame, SHA256, object, string, CLI_COMMAND, CONVERSATION_ID} = require('../benchmark/validate');
 const {checkTaskAgainstEntry} = require('../benchmark/entry-check');
 const {leaderboard} = require('../benchmark/leaderboard');
-const {terminalSession} = require('../benchmark/terminal-sessions');
+const {terminalSession, terminalChats, memberChats} = require('../benchmark/terminal-sessions');
 const {listen, wake} = require('../benchmark/wake');
 const {MAX_SOURCE_BYTES, TERMINAL_LIMITS} = require('../benchmark/limits');
 
@@ -132,9 +132,11 @@ async function openApp(ctx, context, pluginId, computer) {
  * or scored; its one attempt records the model calls and commands. Given `resume`, an ended free-form session of the member's (its
  * attempt id), it resumes that one: its run is a new session linked to it (`resumed_from`), and the worker puts back what it kept of
  * it on the member's computer before the shell starts, or says it has nothing kept. Given `start` instead, an agent's CLI command
- * (`claude`), its first terminal runs it at its first prompt (`start_cli`), as a resumed one runs its agent's resume command. `{run, attempt_id}`.
+ * (`claude`), its first terminal runs it at its first prompt (`start_cli`), as a resumed one runs its agent's resume command. Given
+ * `chat` with `resume`, one of that session's chats (`{agent, id}`, the Dashboard's chat row, its CLI's conversation id or null for a
+ * run of an agent), its first terminal reopens that conversation (`resume_chat`). `{run, attempt_id}`.
  */
-async function startSession(ctx, context, {pluginId, taskId, harness, interactive, text, model, resume, start}) {
+async function startSession(ctx, context, {pluginId, taskId, harness, interactive, text, model, resume, start, chat}) {
   const {repository, service} = ctx.benchmark;
   const free = harness === 'shell' && interactive;
   if (free && (text !== undefined || taskId !== undefined)) {
@@ -142,6 +144,7 @@ async function startSession(ctx, context, {pluginId, taskId, harness, interactiv
   }
   const request = free ? null : string(text, 'text', {max: SESSION_TEXT_LIMIT});
   const resumedFrom = resume === undefined ? null : await resumable(repository, context, free, resume);
+  const resumeChat = chat === undefined ? null : await chatOf(repository, context, resumedFrom, chat);
   const startCli = start === undefined ? null : cliCommand(free, resumedFrom, start);
   const harnessModel = string(model, 'model', {optional: true}) ?? aiSettings.MODEL.model;
   const reference = REFERENCE_HARNESSES.includes(harness);
@@ -171,7 +174,7 @@ async function startSession(ctx, context, {pluginId, taskId, harness, interactiv
     source = await repository.saveSource(context, built.value, referenceHarnessOf(built.value, harness));
   }
   const policy = reference ? referencePolicy(harness) : 'coding';
-  const {run_id: id, attempt_id: attemptId, session} = await service.session(context, frame, source, policy, {interactive, resumedFrom, startCli});
+  const {run_id: id, attempt_id: attemptId, session} = await service.session(context, frame, source, policy, {interactive, resumedFrom, startCli, resumeChat});
   wake(`claim:${context.userId}`);
   if (!free) {
     const pinning = async () => {
@@ -197,8 +200,17 @@ async function resumable(repository, context, free, resume) {
   return id;
 }
 
-// An agent CLI command a new free-form session starts with: a harness name's characters (HarnessName), so one shell word.
-const CLI_COMMAND = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+/** The chat `chat` of the session `resumedFrom` resumes, which its first terminal reopens: `{agent, id}`. */
+async function chatOf(repository, context, resumedFrom, chat) {
+  if (resumedFrom === null) throw new BenchmarkError(400, 'invalid_request', 'A chat is reopened by resuming the session that holds it');
+  const {agent, id} = object(chat, 'chat');
+  if (typeof agent !== 'string' || !CLI_COMMAND.test(agent) || !(id === null || (typeof id === 'string' && CONVERSATION_ID.test(id)))) {
+    throw new BenchmarkError(400, 'invalid_request', "chat is {agent, id}: an agent's CLI command and its conversation id, or null");
+  }
+  const [row] = await repository.terminalRows(context, {attemptId: resumedFrom, atCalls: true});
+  if (!terminalChats(row).some(one => one.agent === agent && one.conversation === id)) throw new BenchmarkError(404, 'unknown_chat', 'That session holds no such chat');
+  return {agent, id};
+}
 
 /** The agent CLI command `start` names, which a new free-form session runs first. */
 function cliCommand(free, resumedFrom, start) {
@@ -310,7 +322,7 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       const body = object(await jsonBody(req, readBody), 'The body');
       const [pluginId, harness] = ['plugin_id', 'harness'].map(name => string(body[name], name));
       if (typeof body.interactive !== 'boolean') throw new BenchmarkError(400, 'invalid_request', 'interactive must be a boolean');
-      return json(res, 201, await startSession(ctx, context, {pluginId, taskId: body.task_id, harness, interactive: body.interactive, text: body.text, model: body.model, resume: body.resume, start: body.start}));
+      return json(res, 201, await startSession(ctx, context, {pluginId, taskId: body.task_id, harness, interactive: body.interactive, text: body.text, model: body.model, resume: body.resume, start: body.start, chat: body.chat}));
     }
     // A plugin page's Leaderboard tab: the harnesses run on the plugin, whatever task, ranked from every member's scored runs.
     if (top === 'leaderboard') {
@@ -319,13 +331,13 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       const pluginId = string(url.searchParams.get('plugin_id'), 'plugin_id');
       return json(res, 200, leaderboard(await repository.leaderboard(context, pluginId), context.userId));
     }
-    // A plugin page's Dashboard: the member's own Harness tab sessions on the plugin, by harness, beside their chats.
+    // A plugin page's Dashboard: the chats the member's own Harness tab sessions on the plugin held, by agent, beside their own chats.
     if (top === 'terminal-sessions') {
       if (req.method !== 'GET') return wrongMethod();
       read();
       const pluginId = string(url.searchParams.get('plugin_id'), 'plugin_id');
       const rows = await repository.terminalRows(context, {pluginId, atCalls: true});
-      return json(res, 200, {sessions: rows.map(terminalSession)});
+      return json(res, 200, {chats: memberChats(rows.map(terminalChats))});
     }
     // A run of a reference harness made outside RUSH (examples/benchmark in the NanoAgent project), kept as the member's scored run, on
     // the package of its plugin version as published: its task must be that version's.
@@ -406,13 +418,15 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
     }
 
     if (!UUID.test(attemptId)) return notFound('attempt');
-    // A Harness tab session archived from the Dashboard leaves its list for its Archived view, as a chat does; `archived` false restores it.
+    // A chat of a Harness tab session (`chat`, its key), archived from the Dashboard on the session that last held it, leaves its agent's
+    // list for that agent's Archived view, as a chat does; `archived` false restores it.
     if (attemptPart === 'archive') {
       if (req.method !== 'POST') return wrongMethod();
       write();
-      const {archived} = await jsonBody(req, readBody);
+      const {archived, chat} = object(await jsonBody(req, readBody), 'The body');
       if (typeof archived !== 'boolean') throw new BenchmarkError(400, 'invalid_request', 'archived is true or false');
-      return (await repository.archiveTerminal(context, attemptId, archived)) ? json(res, 200, {archived}) : notFound('session');
+      string(chat, 'chat', {max: 500});
+      return (await repository.archiveChat(context, attemptId, chat, archived)) ? json(res, 200, {archived}) : notFound('session');
     }
     if (req.method !== 'GET') return wrongMethod();
     read();

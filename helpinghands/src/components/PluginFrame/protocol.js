@@ -20,6 +20,9 @@ const HARNESS_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 // A Harness tab session's terminals: 0 the first, then each one the page opens (RUSH keeps 32).
 const isTerminal = terminal => Number.isInteger(terminal) && terminal >= 0 && terminal < 32;
 const isSize = (rows, cols) => [rows, cols].every(n => Number.isInteger(n) && n >= 1 && n <= 1000);
+// One chat of a Terminal session: its agent's CLI command and its CLI's conversation id, or null for a run of an agent.
+const isChat = chat => typeof chat === 'object' && chat !== null && HARNESS_NAME.test(chat.agent ?? '')
+  && (chat.id === null || (typeof chat.id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,199}$/.test(chat.id)));
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const isObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -52,17 +55,20 @@ const PARAMS = {
   'session.archive': ({id, archived}) => (UUID.test(id ?? '') && typeof archived === 'boolean'
     ? null
     : 'session.archive needs a session id and archived, true or false'),
-  'terminal.archive': ({attemptId, archived}) => (UUID.test(attemptId ?? '') && typeof archived === 'boolean'
+  'terminal.archive': ({attemptId, chat, archived}) => (UUID.test(attemptId ?? '') && typeof chat === 'string' && chat && chat.length <= 500 && typeof archived === 'boolean'
     ? null
-    : 'terminal.archive needs an attempt id and archived, true or false'),
-  // The Terminal (`shell`) is free-form, so it takes no task and no text, and may resume an ended session (its id) or start an agent's
-  // CLI in its first terminal (`start`, its command); any other harness works the text to a task.
-  'harness.run': ({harness, task, text, resume, start}) => (HARNESS_NAME.test(harness ?? '')
+    : 'terminal.archive needs an attempt id, a chat (its key) and archived, true or false'),
+  // The Terminal (`shell`) is free-form, so it takes no task and no text, and may resume an ended session (its id), reopening one of its
+  // chats (`chat`, `{agent, id}`), or start an agent's CLI in its first terminal (`start`, its command); any other harness works the
+  // text to a task.
+  'harness.run': ({harness, task, text, resume, start, chat}) => (HARNESS_NAME.test(harness ?? '')
     && (harness === 'shell'
-      ? task === undefined && text === undefined && (resume === undefined ? start === undefined || HARNESS_NAME.test(start ?? '') : UUID.test(resume ?? '') && start === undefined)
-      : typeof task === 'string' && task && typeof text === 'string' && text.trim() && text.length <= PROMPT_LIMIT && resume === undefined && start === undefined)
+      ? task === undefined && text === undefined && (resume === undefined
+        ? (start === undefined || HARNESS_NAME.test(start ?? '')) && chat === undefined
+        : UUID.test(resume ?? '') && start === undefined && (chat === undefined || isChat(chat)))
+      : typeof task === 'string' && task && typeof text === 'string' && text.trim() && text.length <= PROMPT_LIMIT && resume === undefined && start === undefined && chat === undefined)
     ? null
-    : `harness.run needs a harness name and, but for shell, which takes neither (and may take the id of a session to resume, or else an agent's CLI command to start), a task id and text of 1 to ${PROMPT_LIMIT} characters`),
+    : `harness.run needs a harness name and, but for shell, which takes neither (and may take the id of a session to resume, and one of its chats, or else an agent's CLI command to start), a task id and text of 1 to ${PROMPT_LIMIT} characters`),
   'harness.cancel': ({runId}) => (typeof runId === 'string' && runId ? null : 'harness.cancel needs a runId'),
   'harness.input': ({runId, terminal, data}) => (typeof runId === 'string' && runId && isTerminal(terminal) && typeof data === 'string' && data && data.length <= TYPED_LIMIT
     ? null

@@ -1,0 +1,4 @@
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-19T00:25:38.572Z","sessionId":"aaaa1111-0000-4000-8000-000000000001"}
+{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"say ok"},"uuid":"u1","timestamp":"2026-11-19T00:25:38.608Z","entrypoint":"sdk-cli","cwd":"/rush/workspace","sessionId":"aaaa1111-0000-4000-8000-000000000001"}
+{"parentUuid":"u1","isSidechain":false,"type":"attachment","uuid":"x1","timestamp":"2026-11-19T00:25:38.608Z","cwd":"/rush/workspace","sessionId":"aaaa1111-0000-4000-8000-000000000001"}
+{"parentUuid":"x1","isSidechain":false,"type":"assistant","message":{"role":"assistant","type":"message","content":[{"type":"text","text":"ok"}],"model":"deepseek/deepseek-v4-flash-0731","usage":{"input_tokens":14247,"output_tokens":3}},"uuid":"a1","timestamp":"2026-11-19T00:25:41.120Z","cwd":"/rush/workspace","sessionId":"aaaa1111-0000-4000-8000-000000000001"}

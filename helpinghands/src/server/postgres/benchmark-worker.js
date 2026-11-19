@@ -110,7 +110,8 @@ function createPostgresBenchmarkWorker({pool, config}) {
         },
         free_form: free,
         // The ended Terminal session it resumes, which the worker kept on the member's computer (or says it has not).
-        resume: resumed ? {attempt_id: resumed.attempt_id, at: resumed.finalized_at.toISOString()} : null,
+        // Resumed for one of its chats (the Dashboard's chat row), the chat to reopen: its agent and its CLI's conversation id.
+        resume: resumed ? {attempt_id: resumed.attempt_id, at: resumed.finalized_at.toISOString(), chat: run.resume_chat ?? null} : null,
         // The agent CLI command a new free-form session runs in its first terminal (the Dashboard's New session under that agent).
         start: run.start_cli ?? null,
         // A session's case still being pinned comes later, from GET /attempts/{id}/case.
@@ -512,7 +513,9 @@ function createPostgresBenchmarkWorker({pool, config}) {
         if (free ? ['answered', 'refused'].includes(body.execution.status) : body.execution.status === 'ended') {
           throw new BenchmarkError(422, 'invalid_status', free ? `A free-form session has no case to have ${body.execution.status}` : 'Only a free-form session ends with no case');
         }
-        if (!free && body.resumable !== null) throw new BenchmarkError(422, 'invalid_request', 'Only a free-form session is kept to resume');
+        if (!free && (body.resumable !== null || body.chats !== null || body.evicted.length)) {
+          throw new BenchmarkError(422, 'invalid_request', 'Only a free-form session is kept to resume and holds chats');
+        }
         const highWater = Number(attempt.next_cursor) - 1;
         if (highWater !== body.final_cursor_expected) {
           throw new BenchmarkError(409, 'cursor_mismatch', `The attempt's committed events end at ${highWater}`, {high_water_cursor: highWater});
@@ -520,11 +523,19 @@ function createPostgresBenchmarkWorker({pool, config}) {
         await client.query(
           `update benchmark_attempt set state = 'final', execution_status = $2, execution_reason = $3, verdict = $4, verifier_error = $5,
              coverage = $6, metrics = $7, finalized_at = now(), sealed = true, final_cursor = $8, finalize_digest = $9, explanation = $10,
-             resumable = $11
+             resumable = $11, chats = $12
            where attempt_id = $1`,
           [attemptId, body.execution.status, body.execution.reason, body.verdict, body.verifier_error,
-            JSON.stringify(body.coverage), JSON.stringify(body.metrics), highWater, digest, body.explanation, body.resumable === true],
+            JSON.stringify(body.coverage), JSON.stringify(body.metrics), highWater, digest, body.explanation, body.resumable === true,
+            body.chats === null ? null : JSON.stringify(body.chats)],
         );
+        // The member's older sessions the worker removed to keep this one: their chats' files are no longer on the computer.
+        if (body.evicted.length) {
+          await client.query(
+            `update benchmark_attempt a set resumable = false from benchmark_run r
+              where a.run_id = r.run_id and r.user_id = $1 and a.attempt_id = any($2::uuid[])`, [userId, body.evicted],
+          );
+        }
         return {attempt_id: attemptId, sealed: true, final_cursor: highWater, replayed: false};
       }, {final: true});
     },

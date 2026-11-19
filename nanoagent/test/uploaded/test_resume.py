@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from nanoagent.uploaded.resume import keep, restore, resume_command, start_cli
-from nanoagent.uploaded.rush_worker import ResumeOf
+from nanoagent.uploaded.rush_worker import ChatOf, ResumeOf
 
 AT = "2026-11-18T22:31:00Z"
+CLAUDE_STATE = Path(__file__).parent / "fixtures" / "claude_state"
 START = datetime(2026, 11, 18, tzinfo=timezone.utc)
 
 
@@ -26,7 +28,7 @@ def test_a_kept_session_comes_back_whole_with_its_links_and_modes(tmp_path: Path
     (made / "run.sh").chmod(0o755)
     os.symlink("deep/a.txt", made / "link")
     os.mkfifo(made / "pipe")  # a pipe is left out, never read
-    assert keep(tmp_path / "scratch", "s1", made, START, 1 << 20)
+    assert keep(tmp_path / "scratch", "s1", made, START, 1 << 20) == (True, [])
     back = tmp_path / "back"
     said = restore(tmp_path / "scratch", ResumeOf("s1", AT), back)
     assert (back / "deep/a.txt").read_bytes() == b"a" and os.readlink(back / "link") == "deep/a.txt" and not (back / "pipe").exists()
@@ -37,9 +39,9 @@ def test_a_kept_session_comes_back_whole_with_its_links_and_modes(tmp_path: Path
 
 def test_sessions_are_bounded_in_all_and_each_one_not_kept_says_why(tmp_path: Path) -> None:
     scratch = tmp_path / "scratch"
-    assert not keep(scratch, "huge", workspace(tmp_path / "huge", {"big": b"x" * 200}), START, 100)
-    assert keep(scratch, "old", workspace(tmp_path / "old", {"f": b"x" * 60}), START, 100)
-    assert keep(scratch, "new", workspace(tmp_path / "new", {"f": b"x" * 60}), START + timedelta(hours=1), 100)  # the old one goes
+    assert keep(scratch, "huge", workspace(tmp_path / "huge", {"big": b"x" * 200}), START, 100) == (False, [])
+    assert keep(scratch, "old", workspace(tmp_path / "old", {"f": b"x" * 60}), START, 100) == (True, [])
+    assert keep(scratch, "new", workspace(tmp_path / "new", {"f": b"x" * 60}), START + timedelta(hours=1), 100) == (True, ["old"])  # the old one goes
     lines = {name: restore(scratch, ResumeOf(name, AT), tmp_path / f"back-{name}")["line"] for name in ("huge", "old", "new", "never")}
     assert "larger than the 0.0 GB this computer keeps" in lines["huge"] and "This is a fresh terminal" in lines["huge"]
     assert "removed to keep this computer's Terminal sessions within 0.0 GB" in lines["old"]
@@ -49,23 +51,28 @@ def test_sessions_are_bounded_in_all_and_each_one_not_kept_says_why(tmp_path: Pa
 
 
 def test_one_agent_runs_its_resume_and_several_print_theirs(tmp_path: Path) -> None:
-    rollout = {"type": "session_meta", "payload": {"id": "c-9", "cwd": "/rush/workspace/app"}}
-    files = {".rush/clis/codex": b"k", ".rush/codex/sessions/2026/11/18/rollout-1.jsonl": json.dumps(rollout).encode() + b"\n"}
-    assert keep(tmp_path / "scratch", "one", workspace(tmp_path / "one", files), START, 1 << 20)
+    rollout = [
+        {"timestamp": "2026-11-18T00:00:00Z", "type": "session_meta", "payload": {"id": "c-9", "cwd": "/rush/workspace/app"}},
+        {"timestamp": "2026-11-18T00:00:01Z", "type": "event_msg", "payload": {"type": "user_message", "message": "hi"}},
+    ]
+    files = {".rush/clis/codex": b"k", ".rush/codex/sessions/2026/11/18/rollout-1.jsonl": b"".join(json.dumps(line).encode() + b"\n" for line in rollout)}
+    assert keep(tmp_path / "scratch", "one", workspace(tmp_path / "one", files), START, 1 << 20)[0]
     said = restore(tmp_path / "scratch", ResumeOf("one", AT), tmp_path / "back-one")
     assert said["line"].endswith(" · codex") and said["run"] == "cd /rush/workspace/app && codex resume c-9"
-    several = workspace(tmp_path / "several", {".rush/clis/pi": b"k", ".rush/clis/dsh": b"k", ".rush/pi/sessions/--rush-workspace--/1.jsonl": b"{}\n"})
-    assert keep(tmp_path / "scratch", "several", several, START, 1 << 20)
+    pi = [
+        {"type": "session", "id": "p-1", "timestamp": "2026-11-18T00:00:00Z", "cwd": "/rush/workspace"},
+        {"type": "message", "timestamp": "2026-11-18T00:00:01Z", "message": {"role": "user", "content": "hi"}},
+    ]
+    several = workspace(tmp_path / "several", {".rush/clis/pi": b"k", ".rush/clis/dsh": b"k", ".rush/pi/sessions/--rush-workspace--/1.jsonl": b"".join(json.dumps(line).encode() + b"\n" for line in pi)})
+    assert keep(tmp_path / "scratch", "several", several, START, 1 << 20)[0]
     said = restore(tmp_path / "scratch", ResumeOf("several", AT), tmp_path / "back-several")
     assert said["line"].endswith(" · dsh · pi") and "run" not in said
-    assert said["type"] == "To continue: dsh has nothing to continue · pi --continue"
+    assert said["type"] == "To continue: dsh has nothing to continue · pi --session p-1"
 
 
 def test_an_agent_that_kept_no_conversation_has_nothing_to_run(tmp_path: Path) -> None:
     assert resume_command(workspace(tmp_path, {".rush/claude/.claude.json": b"{}"}), "claude") is None
     assert resume_command(tmp_path, "hermes") is None
-    workspace(tmp_path, {".rush/hermes/state.db": b""})
-    assert resume_command(tmp_path, "hermes") == "hermes --continue"
     assert resume_command(tmp_path, "nanoagent") is None
     workspace(tmp_path, {".rush/nanoagent/261118-181932.traj.json": b"{}"})
     assert resume_command(tmp_path, "nanoagent") == "mgen -c"  # NanoAgent's last session, chat or mgen, with the plugin's tools again
@@ -74,3 +81,20 @@ def test_an_agent_that_kept_no_conversation_has_nothing_to_run(tmp_path: Path) -
 def test_a_session_started_under_an_agent_runs_its_cli_saying_nothing(tmp_path: Path) -> None:
     start_cli(tmp_path, "claude")
     assert json.loads((tmp_path / ".rush/resume.json").read_text()) == {"run": "claude"}
+
+
+def test_a_chat_reopens_its_own_conversation_or_says_why_it_cannot(tmp_path: Path) -> None:
+    made = tmp_path / "made"
+    shutil.copytree(CLAUDE_STATE, made)
+    assert keep(tmp_path / "scratch", "s1", made, START, 1 << 20)[0]
+    second = "bbbb2222-0000-4000-8000-000000000002"
+    said = restore(tmp_path / "scratch", ResumeOf("s1", AT, ChatOf("claude", second)), tmp_path / "back")
+    assert said["run"] == f"cd /rush/workspace/app && claude --resume {second}"  # that one, not the newest
+    assert said["line"].startswith("Reopened your claude chat from ") and said["line"].endswith(": List the files in this folder")
+    assert "kept no conversation nope in it" in restore(tmp_path / "scratch", ResumeOf("s1", AT, ChatOf("claude", "nope")), tmp_path / "b2")["line"]
+    newest = restore(tmp_path / "scratch", ResumeOf("s1", AT, ChatOf("claude", None)), tmp_path / "b3")  # a run of it: its last conversation
+    assert newest["run"] == f"cd /rush/workspace/app && claude --resume {second}"
+    dsh = restore(tmp_path / "scratch", ResumeOf("s1", AT, ChatOf("dsh", None)), tmp_path / "b4")
+    assert "run" not in dsh and "dsh has no command to reopen one of its chats" in dsh["line"]
+    gone = restore(tmp_path / "scratch", ResumeOf("never", AT, ChatOf("claude", second)), tmp_path / "b5")
+    assert gone["line"].startswith("This chat's files are no longer on this computer: it is not on this computer") and "run" not in gone

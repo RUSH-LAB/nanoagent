@@ -35,14 +35,15 @@ import {
  * and sends what is typed (`harness.input`) and the terminal's size (`harness.resize`), each to one of its terminals (0 the first);
  * `harness.open` opens another in a free-form session, `harness.close` closes one, and `harness.cancel` cancels the run, as the
  * frame going away does. A free-form session started with `resume` (an ended one's attempt id, clicked on the Dashboard) resumes it:
- * the worker puts back what it kept of it on this computer. One started with `start` (an agent's CLI command, the Dashboard's
- * New session under that agent) runs it in its first terminal.
+ * the worker puts back what it kept of it on this computer, and with `chat` too (`{agent, id}`, one of its chats) reopens that
+ * conversation. One started with `start` (an agent's CLI command, the Dashboard's New session under that agent) runs it in its first
+ * terminal. Once RUSH has queued it, `harness.session` names its attempt.
  *
  * The Leaderboard tab reads the harnesses ranked on the plugin, whatever task (`leaderboard`), and the trace of one of the member's
  * own runs on it (`leaderboard.trace`, its attempt's events).
  *
- * The Dashboard lists the member's Harness tab sessions on the plugin beside their chats (`sessions.list`'s `terminals`), and archives
- * or restores one as it does a chat (`terminal.archive`).
+ * The Dashboard lists the chats the member's Harness tab sessions on the plugin held beside their own chats (`sessions.list`'s
+ * `terminals`, each a conversation of an agent CLI), and archives or restores one as it does a chat (`terminal.archive`, by its key).
  */
 // As long as the member's computer holds a run for RUSH to take up again (runner/protocol.js HOLD_MS).
 const RECONNECT_MS = 10 * 60_000;
@@ -218,7 +219,7 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     post(runEvent('chat.done', runId, {}));
   }
 
-  async function harnessRun({harness, task, text, resume, start}) {
+  async function harnessRun({harness, task, text, resume, start, chat}) {
     runCount += 1;
     const runId = `harness-${runCount}`;
     const controller = new AbortController();
@@ -235,11 +236,12 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
         const response = await request('/api/benchmark/sessions', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({plugin_id: plugin.id, task_id: task, harness, text, resume, start, interactive: true}),
+          body: JSON.stringify({plugin_id: plugin.id, task_id: task, harness, text, resume, start, chat, interactive: true}),
         });
         if (!response.ok) throw await failed(response, 'Could not start the harness');
         const {run, attempt_id: attempt} = await response.json();
         Object.assign(entry, {run: run.run_id, attempt});
+        emit('harness.session', {attemptId: attempt});  // the session the page's terminals are, which the Dashboard's chats name
         // Stopped while RUSH was queuing it: the session it queued ends too.
         if (controller.signal.aborted) {
           await cancelHarness(entry);
@@ -318,15 +320,15 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
       ]);
       if (!chats.ok) throw await failed(chats, 'Could not list the sessions');
       if (!terminals.ok) throw await failed(terminals, 'Could not list the Harness sessions');
-      return {result: {sessions: (await chats.json()).sessions, terminals: (await terminals.json()).sessions}};
+      return {result: {sessions: (await chats.json()).sessions, terminals: (await terminals.json()).chats}};
     },
-    'terminal.archive': async ({attemptId, archived}) => {
+    'terminal.archive': async ({attemptId, chat, archived}) => {
       const response = await request(`/api/benchmark/attempts/${attemptId}/archive`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({archived}),
+        body: JSON.stringify({archived, chat}),
       });
-      if (!response.ok) throw await failed(response, archived ? 'Could not archive the session' : 'Could not restore the session');
+      if (!response.ok) throw await failed(response, archived ? 'Could not archive the chat' : 'Could not restore the chat');
       return {result: await response.json()};
     },
     'session.get': async ({id}) => ({

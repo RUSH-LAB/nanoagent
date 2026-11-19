@@ -17,15 +17,14 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 import shutil
 import stat
 from datetime import datetime
 from pathlib import Path
 
 from nanoagent.uploaded.clis import CLIS
-from nanoagent.uploaded.rush_worker import ResumeOf
-from nanoagent.uploaded.sandbox import WORKSPACE
+from nanoagent.uploaded import chats
+from nanoagent.uploaded.rush_worker import ChatOf, ResumeOf
 
 SESSIONS = "sessions"  # under the scratch folder: each kept Terminal session, by attempt id
 NOTE = "session.json"  # beside a kept session's workspace/: when it ended, and why it is not kept when it is not
@@ -69,9 +68,10 @@ def _note(folder: Path) -> dict:
     return json.loads((folder / NOTE).read_text(encoding="utf-8"))
 
 
-def keep(scratch: Path, attempt_id: str, workspace: Path, ended_at: datetime, max_bytes: int) -> bool:
+def keep(scratch: Path, attempt_id: str, workspace: Path, ended_at: datetime, max_bytes: int) -> tuple[bool, list[str]]:
     """Keeps the ended session ``attempt_id``'s ``workspace`` under ``scratch``, then the newest kept sessions that fit in
-    ``max_bytes`` in all, the older ones each left with a note of why they went. Whether this one was kept."""
+    ``max_bytes`` in all, the older ones each left with a note of why they went. Whether this one was kept, and the attempt ids of
+    the older ones that went (RUSH learns both, so the Dashboard says their chats' files are gone)."""
     folder = scratch / SESSIONS / attempt_id
     shutil.rmtree(folder, ignore_errors=True)
     folder.mkdir(parents=True)
@@ -90,13 +90,15 @@ def keep(scratch: Path, attempt_id: str, workspace: Path, ended_at: datetime, ma
         key=lambda entry: _note(entry)["ended_at"], reverse=True,
     )
     total = 0
+    evicted = []
     for entry in kept:
         total += _note(entry)["bytes"]
         if total > max_bytes:
+            evicted.append(entry.name)
             shutil.rmtree(entry / KEPT_WORKSPACE)
             older = _note(entry) | {"gone": f"it was removed to keep this computer's Terminal sessions within {gib(max_bytes)}"}
             (entry / NOTE).write_text(json.dumps(older), encoding="utf-8")
-    return (folder / KEPT_WORKSPACE).is_dir()
+    return (folder / KEPT_WORKSPACE).is_dir(), evicted
 
 
 def when(at: str) -> str:
@@ -106,58 +108,43 @@ def when(at: str) -> str:
     return f"{local:%b} {local.day}{year}, {local.hour % 12 or 12}:{local:%M} {'AM' if local.hour < 12 else 'PM'}"
 
 
-def _newest_session(folder: Path, pattern: str) -> tuple[str, str] | None:
-    """The id and folder of the newest conversation an agent kept under ``folder`` (files matching ``pattern``, JSON lines, one of
-    whose first lines carries its id and cwd), or None."""
-    files = sorted(folder.rglob(pattern), key=lambda path: path.stat().st_mtime, reverse=True) if folder.is_dir() else []
-    for path in files:
-        with path.open(encoding="utf-8", errors="replace") as lines:
-            for _, raw in zip(range(20), lines):
-                try:
-                    line = json.loads(raw)
-                except ValueError:
-                    continue
-                found = line.get("payload", line) if isinstance(line, dict) else {}
-                session, cwd = found.get("sessionId") or found.get("id"), found.get("cwd")
-                if isinstance(session, str) and isinstance(cwd, str):
-                    return session, cwd
-    return None
-
-
 def resume_command(workspace: Path, name: str) -> str | None:
     """The command that continues agent ``name``'s last conversation in the restored ``workspace`` (from its own state), or None when
     it kept none or has no way to continue one."""
-    rush = workspace / ".rush"
-
-    def cd(cwd: str, command: str) -> str:
-        return command if cwd == WORKSPACE else f"cd {shlex.quote(cwd)} && {command}"
-
-    match name:
-        case "claude":
-            found = _newest_session(rush / "claude" / ".claude" / "projects", "*.jsonl")
-            return None if found is None else cd(found[1], f"claude --resume {shlex.quote(found[0])}")
-        case "codex":
-            found = _newest_session(rush / "codex" / "sessions", "rollout-*.jsonl")
-            return None if found is None else cd(found[1], f"codex resume {shlex.quote(found[0])}")
-        case "pi":
-            return "pi --continue" if any((rush / "pi" / "sessions").rglob("*.jsonl")) else None
-        case "hermes":
-            return "hermes --continue" if (rush / "hermes" / "state.db").is_file() else None
-        case "nanoagent":
-            return "mgen -c" if any((rush / "nanoagent").rglob("*.traj.json")) else None
+    if name in chats.READERS:
+        kept = [chat for chat in chats.read(workspace).values() if chat.agent == name]
+        return max(kept, key=lambda chat: chat.ended_at).resume() if kept else None
+    if name == "nanoagent":
+        return "mgen -c" if any((workspace / ".rush" / "nanoagent").rglob("*.traj.json")) else None
     return None  # dsh runs one task at a time, headless: it has nothing to continue
+
+
+def _reopen(workspace: Path, chat: ChatOf, since: str) -> dict:
+    """What a session resumed for one of its chats says and runs: that chat's own resume command, or why it cannot be reopened. A chat
+    with no id is a run of its agent (one recorded before its conversations were read): its agent's last conversation."""
+    if chat.agent not in chats.READERS:
+        return {"line": f"Your session from {since} is back, files and all, but {chat.agent} has no command to reopen one of its chats."}
+    kept = [found for found in chats.read(workspace).values() if found.agent == chat.agent and chat.id in (None, found.id)]
+    found = max(kept, key=lambda one: one.ended_at) if kept else None
+    if found is None:
+        return {"line": f"Your session from {since} is back, files and all, but {chat.agent} kept no conversation {chat.id or ''} in it to reopen."}
+    return {"line": f"Reopened your {chat.agent} chat from {since}: {found.title}", "run": found.resume()}
 
 
 def restore(scratch: Path, of: ResumeOf, workspace: Path) -> dict:
     """Puts the kept session ``of`` back in ``workspace`` and returns what its first terminal says and runs (RESUME_FILE, which it is
-    also written to): ``line``, and ``run``, the one agent's resume command, or ``type``, the commands of several. A session that is not
-    kept says why, and the terminal is a fresh one."""
+    also written to): ``line``, and ``run``, the one agent's resume command, or ``type``, the commands of several; resumed for one of
+    its chats (``of.chat``), that chat's resume command. A session that is not kept says why, and the terminal is a fresh one."""
     folder = scratch / SESSIONS / of.attempt_id
     since = when(of.at)
     said: dict
     if not (folder / KEPT_WORKSPACE).is_dir():
         why = _note(folder)["gone"] if (folder / NOTE).is_file() else "it is not on this computer (it ran on another, or its files were deleted)"
-        said = {"line": f"Couldn't resume your session from {since}: {why}. This is a fresh terminal."}
+        gone = "This chat's files are no longer on this computer" if of.chat else f"Couldn't resume your session from {since}"
+        said = {"line": f"{gone}: {why}. This is a fresh terminal."}
+    elif of.chat is not None:
+        copy_workspace(folder / KEPT_WORKSPACE, workspace)
+        said = _reopen(workspace, of.chat, since)
     else:
         copy_workspace(folder / KEPT_WORKSPACE, workspace)
         ran = sorted(entry.name for entry in (workspace / CLIS_RAN).iterdir() if entry.name in CLIS) if (workspace / CLIS_RAN).is_dir() else []

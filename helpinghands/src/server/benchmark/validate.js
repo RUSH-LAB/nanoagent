@@ -311,6 +311,26 @@ function spansBody(body) {
   };
 }
 
+// An agent's CLI command (a harness name's characters) and its conversation id, which a resumed session's terminal runs as one word.
+const CLI_COMMAND = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+const CONVERSATION_ID = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,199}$/;
+
+/** One chat a worker read from an agent CLI's state (`finalize`'s `chats`). */
+function chatOf(value) {
+  const chat = object(value, 'a chat');
+  if (typeof chat.agent !== 'string' || !CLI_COMMAND.test(chat.agent)) throw bad('invalid_request', "a chat's agent must be a CLI command");
+  if (typeof chat.id !== 'string' || !CONVERSATION_ID.test(chat.id)) throw bad('invalid_request', "a chat's id must be its CLI's conversation id");
+  const at = what => {
+    const text = string(chat[what], `a chat's ${what}`, {max: 40});
+    if (Number.isNaN(Date.parse(text))) throw bad('invalid_request', `a chat's ${what} must be an ISO 8601 time`);
+    return text;
+  };
+  return {
+    agent: chat.agent, id: chat.id, title: string(chat.title, "a chat's title", {max: 200}), started_at: at('started_at'), ended_at: at('ended_at'),
+    started_ns: String(ns(chat.started_ns, "a chat's started_ns")), ended_ns: String(ns(chat.ended_ns, "a chat's ended_ns")),
+  };
+}
+
 function finalizeBody(body) {
   object(body, 'The body');
   const execution = object(body.execution, 'execution');
@@ -328,6 +348,13 @@ function finalizeBody(body) {
   }
   // Whether the worker kept a free-form Terminal session on the member's computer to resume (null: it says nothing of it).
   if (body.resumable !== undefined && typeof body.resumable !== 'boolean') throw bad('invalid_request', 'resumable must be a boolean');
+  // The chats it held (each conversation of an agent CLI, by the CLI's own id, its times also on the records' clock), and the older
+  // sessions the worker removed from the member's computer to keep this one.
+  const chats = body.chats === undefined ? null : array(body.chats, 'chats', {max: 500}).map(chatOf);
+  const evicted = array(body.evicted, 'evicted', {optional: true, max: 10_000}).map(id => {
+    if (typeof id !== 'string' || !UUID.test(id)) throw bad('invalid_request', 'evicted holds attempt ids');
+    return id;
+  });
   return {
     fence: fenceOf(body),
     final: {
@@ -335,7 +362,7 @@ function finalizeBody(body) {
       verdict, explanation, verifier_error: verifierError,
       coverage: bounded(body.coverage, 'coverage', MAX_RESULT_BYTES), metrics: bounded(body.metrics, 'metrics', MAX_RESULT_BYTES),
       final_cursor_expected: integer(body.final_cursor_expected, 'final_cursor_expected'),
-      resumable: body.resumable ?? null,
+      resumable: body.resumable ?? null, chats, evicted,
     },
   };
 }
@@ -414,5 +441,5 @@ function importBody(body) {
 
 module.exports = {
   benchmarkPublication, importBody, publicationFrame, previewBody, runBody, eventsBody, terminalBody, terminalLinkBody, spansBody, finalizeBody, admissionBody, settleBody, accountingBody,
-  claimBody, SHA256, fenceOf, object, string,
+  claimBody, SHA256, fenceOf, object, string, CLI_COMMAND, CONVERSATION_ID,
 };

@@ -227,25 +227,33 @@ async def test_a_free_form_sessions_tools_that_cannot_start_say_why_to_each_nano
 
 
 async def test_a_free_form_session_is_kept_to_resume_and_a_resuming_one_starts_on_its_workspace(tmp_path: Path) -> None:
-    made = {"notes.txt": b"made here", ".rush/clis/claude": b"key", ".rush/claude/.claude/projects/-rush-workspace/s.jsonl": b'{"sessionId": "s-1", "cwd": "/rush/workspace"}\n'}
+    state = Path(__file__).parent / "fixtures" / "claude_state"  # two `claude -p` runs
+    made = {"notes.txt": b"made here", ".rush/clis/claude": b"key"} | {
+        str(path.relative_to(state)): path.read_bytes() for path in state.rglob("*.jsonl")
+    }
     rig = Rig(tmp_path / "first", script=fx.CaseScript(made=made))
     await rig.run(fx.free_job(attempt_id="11111111-1111-4111-8111-000000000001"))
-    assert rig.rush.finalized[0]["resumable"] is True and rig.supervisor.case.found == {}
+    finalized = rig.rush.finalized[0]
+    assert finalized["resumable"] is True and finalized["evicted"] == [] and rig.supervisor.case.found == {}
+    assert [(chat["agent"], chat["title"]) for chat in finalized["chats"]] == [("claude", "say ok"), ("claude", "List the files in this folder")]
 
     def later(name: str) -> Rig:  # another session on the same computer
         rig = Rig(tmp_path / name)
         shutil.copytree(tmp_path / "first" / "scratch" / "sessions", tmp_path / name / "scratch" / "sessions")
         return rig
 
+    first = "aaaa1111-0000-4000-8000-000000000001"
     rig = later("second")
-    await rig.run(fx.free_job(attempt_id="11111111-1111-4111-8111-000000000002", resume={"attempt_id": "11111111-1111-4111-8111-000000000001", "at": "2026-11-18T22:31:00Z"}))
+    resume = {"attempt_id": "11111111-1111-4111-8111-000000000001", "at": "2026-11-18T22:31:00Z", "chat": {"agent": "claude", "id": first}}
+    await rig.run(fx.free_job(attempt_id="11111111-1111-4111-8111-000000000002", resume=resume))
     found = rig.supervisor.case.found  # the workspace as the shell started
     assert {name: found[name] for name in made} == made
     said = json.loads(found[".rush/resume.json"])
-    assert said["line"].startswith("Resumed your session from Nov 18") and said["line"].endswith(" · claude") and said["run"] == "claude --resume s-1"
+    assert said["line"].startswith("Reopened your claude chat from Nov 18") and said["run"] == f"claude --resume {first}"
+    assert rig.rush.finalized[0]["chats"] == []  # it held none it did not talk in
     # A session this computer does not have says so, and the terminal starts empty.
     rig = later("third")
-    await rig.run(fx.free_job(attempt_id="11111111-1111-4111-8111-000000000003", resume={"attempt_id": "11111111-1111-4111-8111-000000000004", "at": "2026-11-18T22:31:00Z"}))
+    await rig.run(fx.free_job(attempt_id="11111111-1111-4111-8111-000000000003", resume={"attempt_id": "11111111-1111-4111-8111-000000000004", "at": "2026-11-18T22:31:00Z", "chat": None}))
     found = rig.supervisor.case.found
     assert list(found) == [".rush/resume.json"] and "it is not on this computer" in json.loads(found[".rush/resume.json"])["line"]
     # A new session started under an agent runs its CLI in its first terminal.
@@ -275,6 +283,34 @@ async def test_a_free_form_session_its_member_left_is_recorded_whole_and_kept_to
     scored = Rig(tmp_path / "scored")
     await scored.run()
     assert "resumable" not in scored.rush.finalized[0] and not (tmp_path / "scored" / "scratch" / "sessions").exists()
+
+
+async def test_a_running_free_form_session_sends_its_processes_as_they_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The Dashboard names a session's agents and chats from its spans, so a running one sends its trace so far, the processes the tracer
+    # has written projected with the journal, each span under the id the session's end gives it.
+    monkeypatch.setattr("nanoagent.uploaded.runner.LIVE_SPANS_S", 0.01)
+    started = (ProcessEvent(0, ProcessEventKind.EXEC, 1_000_000, "c1", 100, 5000, 100, 5000, 1, "codex", "/", False, ("codex",)),)
+    rig = Rig(tmp_path, script=fx.CaseScript(block=True, evidence=ProcessEvidence("c1", started, True, (), 1, 0, 0, 0, 1, 0)))
+    projected: list[list[str]] = []
+
+    def project(records: list[dict], payloads: Any, redactions: Any) -> fx.FakeProjection:
+        projected.append([record["kind"] for record in records])
+        return fx.FakeProjection()
+
+    rig.runner.project = project
+
+    async def leave() -> None:
+        while not projected:
+            await asyncio.sleep(0.01)
+        await asyncio.sleep(0.1)  # ticks that find nothing new
+        rig.rush.canceled = True  # the member leaves the page
+
+    async with asyncio.TaskGroup() as group:
+        group.create_task(leave())
+        await rig.run(fx.free_job())
+    live = projected[:-1]  # the last is the session's end
+    assert live and all("process.exec" in kinds and "collector.health" not in kinds for kinds in live)
+    assert len(live) == 1 and len(rig.rush.span_bodies) == 2  # nothing new, nothing sent again
 
 
 async def test_any_other_harness_starts_only_once_its_case_is_pinned(tmp_path: Path) -> None:

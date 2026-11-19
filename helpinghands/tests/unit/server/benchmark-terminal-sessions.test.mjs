@@ -4,7 +4,7 @@ import {createRequire} from 'node:module';
 import {invoke, loadRoute, makeCtx} from '../_harness.mjs';
 
 const require = createRequire(import.meta.url);
-const {terminalSession} = require('../../../src/server/benchmark/terminal-sessions.js');
+const {terminalSession, terminalChats, memberChats} = require('../../../src/server/benchmark/terminal-sessions.js');
 const route = loadRoute('benchmark');
 const CONTEXT = {userId: 'me', workspaceId: 'w', membershipId: 'm', role: 'owner'};
 const ATTEMPT = '00000000-0000-4000-8000-000000000001';
@@ -92,12 +92,12 @@ describe('the Dashboard\'s Harness session routes', () => {
     return {ctx, calls};
   };
 
-  it('lists the member\'s sessions on the plugin without their calls, reading only the processes that name their agents', async () => {
+  it('lists the chats of the member\'s sessions on the plugin, reading only the processes that name their agents', async () => {
     const {ctx, calls} = ctxWith();
     const {status, payload} = await invoke(route, {method: 'GET', path: '/api/benchmark/terminal-sessions', query: {plugin_id: 'p'}, requestContext: CONTEXT, ctx});
     assert.equal(status, 200);
     assert.deepEqual(calls, [{pluginId: 'p', atCalls: true}]);
-    assert.deepEqual([payload.sessions[0].title, payload.sessions[0].archivedAt], ['claude', null]);
+    assert.deepEqual(payload.chats.map(chat => [chat.agent, chat.title, chat.archivedAt]), [['claude', 'claude', null]]);
   });
 
   it('replays one: its terminals and its figures', async () => {
@@ -109,14 +109,65 @@ describe('the Dashboard\'s Harness session routes', () => {
     assert.equal(payload.session.title, 'claude');
   });
 
-  it('archives and restores one of the member\'s sessions, and no one else\'s', async () => {
+  it('archives and restores one of the member\'s chats, on the session that last held it, and no one else\'s', async () => {
     const archived = [];
     const ctx = makeCtx({benchmark: {service: {}, repository: {
-      archiveTerminal: async (context, attemptId, value) => { archived.push([attemptId, value]); return attemptId === ATTEMPT; },
+      archiveChat: async (context, attemptId, chat, value) => { archived.push([attemptId, chat, value]); return attemptId === ATTEMPT; },
     }}});
     const post = (id, body) => invoke(route, {method: 'POST', path: `/api/benchmark/attempts/${id}/archive`, body, requestContext: CONTEXT, ctx});
-    const answers = [await post(ATTEMPT, {archived: true}), await post(ATTEMPT, {archived: false}), await post(OTHER, {archived: true}), await post(ATTEMPT, {})];
-    assert.deepEqual(answers.map(({status, payload}) => [status, status === 200 ? payload : null]), [[200, {archived: true}], [200, {archived: false}], [404, null], [400, null]]);
-    assert.deepEqual(archived, [[ATTEMPT, true], [ATTEMPT, false], [OTHER, true]]);
+    const chat = 'claude:aaaa';
+    const answers = [
+      await post(ATTEMPT, {archived: true, chat}), await post(ATTEMPT, {archived: false, chat}), await post(OTHER, {archived: true, chat}),
+      await post(ATTEMPT, {chat}), await post(ATTEMPT, {archived: true}),
+    ];
+    assert.deepEqual(answers.map(({status, payload}) => [status, status === 200 ? payload : null]), [[200, {archived: true}], [200, {archived: false}], [404, null], [400, null], [400, null]]);
+    assert.deepEqual(archived, [[ATTEMPT, chat, true], [ATTEMPT, chat, false], [OTHER, chat, true]]);
+  });
+});
+
+describe('the chats of a Harness tab session on the Dashboard', () => {
+  const S_NS = BigInt(1e9);
+  const at = seconds => String(BigInt(seconds) * S_NS);
+  const reported = (id, title, start, end, agent = 'claude') => ({
+    agent, id, title, started_at: `2026-11-18T00:00:${String(start).padStart(2, '0')}Z`, ended_at: `2026-11-18T00:00:${String(end).padStart(2, '0')}Z`,
+    started_ns: at(start), ended_ns: at(end),
+  });
+  const free = (fields = {}) => row({task_id: null, resumable: true, chats: null, archived_chats: {}, ...fields});
+
+  it('makes two claude -p runs two chats, titled by their prompts, each with its own calls, and one ended reopens', () => {
+    const bash = process(BASH, 0, null);
+    const first = process([...CLAUDE, '-p', 'say ok'], 9, 13, bash);
+    const second = process([...CLAUDE, '-p', 'list the files'], 19, 26, bash);
+    const recorded = {calls: [call('c1', 10, 12), call('c2', 20, 22), call('c3', 23, 25)], processes: [bash, first, second], costs: {c1: 0.01, c2: 0.02, c3: 0.03}};
+    // While it runs, each run of claude is a chat, named by what was typed.
+    const running = terminalChats(free({...recorded, state: 'leased', finalized_at: null}));
+    assert.deepEqual(running.map(chat => [chat.agent, chat.title, chat.conversation, chat.running, chat.usage.inputTokens.sum]), [
+      ['claude', 'claude -p say ok', null, true, 100], ['claude', 'claude -p list the files', null, true, 200],
+    ]);
+    // Ended, they are the conversations the worker read from Claude Code's state.
+    const ended = terminalChats(free({...recorded, chats: [reported('aaaa', 'say ok', 10, 12), reported('bbbb', 'list the files', 20, 25)]}));
+    assert.deepEqual(ended.map(chat => [chat.key, chat.title, chat.conversation, chat.resumable, chat.freeForm]), [
+      ['claude:aaaa', 'say ok', 'aaaa', true, true], ['claude:bbbb', 'list the files', 'bbbb', true, true],
+    ]);
+    assert.deepEqual(ended.map(chat => [chat.usage.cost, chat.usage.inputTokens, chat.usage.durationS]), [
+      [{sum: 0.01, count: 1}, {sum: 100, count: 1}, {sum: 2, count: 1}],
+      [{sum: 0.05, count: 1}, {sum: 200, count: 1}, {sum: 5, count: 1}],
+    ]);
+  });
+
+  it('keeps a run of an agent whose conversations are not read a chat of its own, and a session no agent ran in holds none', () => {
+    const bash = process(BASH, 0, null);
+    const dsh = process(['node', '/opt/rush/clis/k/harness/node_modules/@deepseek-ai/dsh/lib/bin.js', '--profile', 'headless', 'fix it'], 5, 9, bash);
+    const chats = terminalChats(free({calls: [call('c1', 6, 7)], processes: [bash, dsh], chats: []}));
+    assert.deepEqual(chats.map(chat => [chat.agent, chat.title, chat.conversation]), [['dsh', 'dsh --profile headless fix it', null]]);
+    assert.deepEqual(terminalChats(free({processes: [bash, process(['ls'], 1, 2, bash)], chats: []})), []);
+  });
+
+  it('makes one conversation resumed in a later session one chat, reopened from the later one, which takes its archive', () => {
+    const one = terminalChats(free({attempt_id: ATTEMPT, finalized_at: '2026-11-18T01:00:00Z', chats: [reported('aaaa', 'say ok', 10, 12)], archived_chats: {'claude:aaaa': '2026-11-18T02:00:00Z'}}));
+    const later = {...reported('aaaa', 'say ok', 10, 40), ended_at: '2026-11-18T03:00:00Z'};
+    const two = terminalChats(free({attempt_id: OTHER, finalized_at: '2026-11-18T03:00:00Z', chats: [later], resumable: false}));
+    const [chat] = memberChats([two, one]);
+    assert.deepEqual([chat.attemptId, chat.title, chat.archivedAt, chat.resumable, chat.usage.durationS], [OTHER, 'say ok', null, false, {sum: 32, count: 1}]);
   });
 });

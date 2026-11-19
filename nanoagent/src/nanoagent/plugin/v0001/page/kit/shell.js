@@ -196,15 +196,16 @@ export async function mountApp(renderers) {
   // A version the host no longer runs (`status` "refused") keeps its sessions to read, and starts none.
   const closed = plugin.status === "refused";
   const tabs = frameTabs();
-  // A free-form Terminal session clicked on the Dashboard resumes in the Harness tab, in a new session there, and New session under an
-  // agent other than nanoagent starts one there running its CLI.
+  // A chat of a Terminal session clicked on the Dashboard reopens in the Harness tab: in the session running there when it is that one's,
+  // else in a new session that resumes it. New session under an agent other than nanoagent starts one there running its CLI.
   const terminals = closed ? null : harnessPage();
   const board = dashboard({
     onOpen: (opened) => openSession(opened),
-    onResume: (session) => {
+    onChat: (chat) => {
       show("harness");
-      terminals.resume(session.id);
+      if (terminals.live() !== chat.attemptId) terminals.reopen(chat);
     },
+    live: () => terminals?.live() ?? null,
     onStart: (agent) => {
       show("harness");
       terminals.startCli(agent);

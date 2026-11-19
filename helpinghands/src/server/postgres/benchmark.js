@@ -386,7 +386,7 @@ function createPostgresBenchmark({pool}) {
      * terminal; `free` a free-form Terminal session, with no package, task or case and one attempt of none. A session's one attempt is `attempt_id`
      * in the answer; an `interactive` one ends the member's other unfinished interactive sessions first. A concurrent submission under the same key gets the first one's run: `{run_id, replayed}`.
      */
-    async createRun(context, request, resolved, benchmark, harness, {session = false, interactive = false, free = false, resumedFrom = null, startCli = null} = {}) {
+    async createRun(context, request, resolved, benchmark, harness, {session = false, interactive = false, free = false, resumedFrom = null, startCli = null, resumeChat = null} = {}) {
       const {plan, cases} = resolved;
       return memberWrite(context, async client => {
         // A free-form Terminal session runs nothing of its plugin: it keeps no package.
@@ -407,15 +407,15 @@ function createPostgresBenchmark({pool}) {
           `insert into benchmark_run (run_id, workspace_id, user_id, idempotency_key, request_digest, preview_id, source_sha256,
              model, endpoint_label, dialects, policy, prompt_text, limits, selection, renderer_version,
              benchmark_id, benchmark_name, harness_name, harness_version, case_set_id, case_set_digest, publisher,
-             plugin_id, plugin_name, version, package_sha256, task_id, task, context, session, interactive, resumed_from, start_cli)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33)
+             plugin_id, plugin_name, version, package_sha256, task_id, task, context, session, interactive, resumed_from, start_cli, resume_chat)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34)
            on conflict (workspace_id, user_id, idempotency_key) do nothing returning run_id`,
           [runId, context.workspaceId, context.userId, request.idempotency_key, request.request_digest, request.preview_id, request.source_sha256,
             plan.model, plan.endpoint_profile, JSON.stringify(harness.dialects), plan.policy, plan.prompt.text,
             JSON.stringify(plan.limits), JSON.stringify({case_ids: cases.map(c => c.case_id)}), plan.renderer_version,
             benchmark.benchmark_id, benchmark.name, harness.name, harness.version, benchmark.case_set_id, benchmark.case_set_digest, JSON.stringify(benchmark.publisher),
             benchmark.plugin.id, benchmark.plugin.name, benchmark.plugin.version, benchmark.plugin.sha256, benchmark.task_id, free ? null : stringifyJson(benchmark.task), benchmark.context,
-            session, interactive, resumedFrom, startCli],
+            session, interactive, resumedFrom, startCli, resumeChat === null ? null : JSON.stringify(resumeChat)],
         )).rows[0];
         if (!inserted) {
           const existing = (await client.query(
@@ -667,7 +667,7 @@ function createPostgresBenchmark({pool}) {
     async terminalRows(context, {pluginId = null, attemptId = null, atCalls = false}) {
       await sweep();
       return member(context, async client => (await client.query(
-        `select a.attempt_id, a.state, a.finalized_at, a.resumable, r.resumed_from, r.archived_at, (a.metrics->>'elapsed_ms')::float8 as elapsed_ms, r.harness_name, r.task_id, r.created_at,
+        `select a.attempt_id, a.state, a.finalized_at, a.resumable, a.chats, r.resumed_from, r.archived_chats, (a.metrics->>'elapsed_ms')::float8 as elapsed_ms, r.harness_name, r.task_id, r.created_at,
            coalesce((select json_agg(json_build_object('call_id', s.attributes->>'call_id', 'status', s.status,
                'start_ns', s.start_ns::text, 'end_ns', s.end_ns::text, 'usage', s.attributes->'usage') order by s.start_ns)
               from benchmark_span s where s.attempt_id = a.attempt_id and s.kind = 'model_call'), '[]') as calls,
@@ -691,15 +691,21 @@ function createPostgresBenchmark({pool}) {
           where attempt_id = $1 group by terminal order by terminal`, [attemptId],
       )).rows);
     },
-    /** Archive the caller's Harness tab session `attemptId`, or with `archived` false restore it; false when it is not theirs. */
-    async archiveTerminal(context, attemptId, archived) {
+    /**
+     * Archive chat `chat` ("<agent>:<id>") of the caller's Harness tab session `attemptId`, the one that last held it, or with `archived`
+     * false restore it; false when the session is not theirs.
+     */
+    async archiveChat(context, attemptId, chat, archived) {
       return member(context, async client => {
         const [run] = (await client.query(
           'select r.run_id from benchmark_run r join benchmark_attempt a on a.run_id = r.run_id where a.attempt_id = $1 and r.session', [attemptId],
         )).rows;
         if (!run) return false;
         await client.query("select set_config('app.benchmark_system', 'on', true)");
-        await client.query('update benchmark_run set archived_at = case when $2 then coalesce(archived_at, now()) end where run_id = $1', [run.run_id, archived]);
+        await client.query(
+          `update benchmark_run set archived_chats = case when $3 then archived_chats || jsonb_build_object($2::text, now()) else archived_chats - $2::text end
+            where run_id = $1`, [run.run_id, chat, archived],
+        );
         return true;
       });
     },

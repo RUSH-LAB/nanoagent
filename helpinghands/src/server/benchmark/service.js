@@ -90,7 +90,7 @@ function createBenchmarkService({repository}) {
      * is what `pinSession` takes once the case is pinned. A free-form Terminal session's frame has `case_id` null: its run has no case
      * and one attempt, which nothing pins. `attempt_id` is the session's one attempt.
      */
-    async session(context, frame, source, policy, {interactive, resumedFrom = null, startCli = null}) {
+    async session(context, frame, source, policy, {interactive, resumedFrom = null, startCli = null, resumeChat = null}) {
       checkWorkers(frame.limits, frame.model, await repository.capabilities(context.userId, frame.endpoint_profile), frame.endpoint_profile);
       const benchmark = {
         benchmark_id: crypto.randomUUID(), name: frame.name, publisher: await repository.publisher(context.userId),
@@ -107,7 +107,7 @@ function createBenchmarkService({repository}) {
       // The preview is kept with this id once the case is pinned, as the plan it resolves to has the case's prompt.
       const request = {benchmark_id: benchmark.benchmark_id, policy, preview_id: crypto.randomUUID(), source_sha256: source.source_sha256, idempotency_key: crypto.randomUUID()};
       const {run_id: runId, attempt_id: attemptId} = await repository.createRun(
-        context, {...request, request_digest: sha256Hex(canonicalJson(request))}, {plan, cases}, benchmark, source.harness, {session: true, interactive, free: !cases.length, resumedFrom, startCli},
+        context, {...request, request_digest: sha256Hex(canonicalJson(request))}, {plan, cases}, benchmark, source.harness, {session: true, interactive, free: !cases.length, resumedFrom, startCli, resumeChat},
       );
       return {run_id: runId, attempt_id: attemptId, session: {run_id: runId, benchmark, policy, preview_id: request.preview_id, frame}};
     },

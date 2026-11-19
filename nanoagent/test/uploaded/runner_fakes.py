@@ -357,6 +357,9 @@ class FakeCase:
     def evidence(self) -> ProcessEvidence:
         return self.script.evidence
 
+    def live_evidence(self) -> ProcessEvidence | None:
+        return self.script.evidence
+
     def end(self) -> None:
         self.ended = True
         self.released.set()
