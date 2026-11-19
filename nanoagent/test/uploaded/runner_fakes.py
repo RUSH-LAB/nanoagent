@@ -70,6 +70,7 @@ def job_body(policy: str = "task_tools", limits: dict[str, Any] | None = None, t
         "free_form": False,
         "case_pending": False,
         "resume": None,
+        "start": None,
     }
     body.update(overrides)
     return body

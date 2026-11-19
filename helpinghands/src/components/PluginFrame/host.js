@@ -35,7 +35,8 @@ import {
  * and sends what is typed (`harness.input`) and the terminal's size (`harness.resize`), each to one of its terminals (0 the first);
  * `harness.open` opens another in a free-form session, `harness.close` closes one, and `harness.cancel` cancels the run, as the
  * frame going away does. A free-form session started with `resume` (an ended one's attempt id, clicked on the Dashboard) resumes it:
- * the worker puts back what it kept of it on this computer.
+ * the worker puts back what it kept of it on this computer. One started with `start` (an agent's CLI command, the Dashboard's
+ * New session under that agent) runs it in its first terminal.
  *
  * The Leaderboard tab reads the harnesses ranked on the plugin, whatever task (`leaderboard`), and the trace of one of the member's
  * own runs on it (`leaderboard.trace`, its attempt's events).
@@ -217,7 +218,7 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     post(runEvent('chat.done', runId, {}));
   }
 
-  async function harnessRun({harness, task, text, resume}) {
+  async function harnessRun({harness, task, text, resume, start}) {
     runCount += 1;
     const runId = `harness-${runCount}`;
     const controller = new AbortController();
@@ -234,7 +235,7 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
         const response = await request('/api/benchmark/sessions', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({plugin_id: plugin.id, task_id: task, harness, text, resume, interactive: true}),
+          body: JSON.stringify({plugin_id: plugin.id, task_id: task, harness, text, resume, start, interactive: true}),
         });
         if (!response.ok) throw await failed(response, 'Could not start the harness');
         const {run, attempt_id: attempt} = await response.json();

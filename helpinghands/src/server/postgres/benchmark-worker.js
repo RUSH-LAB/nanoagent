@@ -111,6 +111,8 @@ function createPostgresBenchmarkWorker({pool, config}) {
         free_form: free,
         // The ended Terminal session it resumes, which the worker kept on the member's computer (or says it has not).
         resume: resumed ? {attempt_id: resumed.attempt_id, at: resumed.finalized_at.toISOString()} : null,
+        // The agent CLI command a new free-form session runs in its first terminal (the Dashboard's New session under that agent).
+        start: run.start_cli ?? null,
         // A session's case still being pinned comes later, from GET /attempts/{id}/case.
         case_pending: !free && !pinned.case,
         ...(pinned.case ? pinned : {case_set: null, case: null, prompt: null, private_reference: null}),

@@ -19,16 +19,15 @@ bind -x '"\C-l": clear'
 rush_banner
 # A resumed session's first terminal (shell.py): from when and with which agent, then what to type, or that agent's resume
 # command, run at the first prompt (so it is a job of the shell, which the member is back at when it exits) and kept in history.
-if [ -n "$RUSH_RESUME_LINE" ]; then
-  printf '%s\n' "$RUSH_RESUME_LINE"
-  if [ -n "$RUSH_RESUME_TYPE" ]; then printf '%s\n' "$RUSH_RESUME_TYPE"; fi
-  rush_resume() {
-    local run="$RUSH_RESUME_RUN"
-    PROMPT_COMMAND=
-    unset RUSH_RESUME_RUN
-    history -s "$run"
-    eval "$run"
-  }
-  if [ -n "$RUSH_RESUME_RUN" ]; then PROMPT_COMMAND=rush_resume; else unset RUSH_RESUME_RUN; fi
-  unset RUSH_RESUME_LINE RUSH_RESUME_TYPE
-fi
+# A session started under an agent runs its CLI (`claude`) the same way, with nothing said.
+if [ -n "$RUSH_RESUME_LINE" ]; then printf '%s\n' "$RUSH_RESUME_LINE"; fi
+if [ -n "$RUSH_RESUME_TYPE" ]; then printf '%s\n' "$RUSH_RESUME_TYPE"; fi
+rush_resume() {
+  local run="$RUSH_RESUME_RUN"
+  PROMPT_COMMAND=
+  unset RUSH_RESUME_RUN
+  history -s "$run"
+  eval "$run"
+}
+if [ -n "$RUSH_RESUME_RUN" ]; then PROMPT_COMMAND=rush_resume; else unset RUSH_RESUME_RUN; fi
+unset RUSH_RESUME_LINE RUSH_RESUME_TYPE

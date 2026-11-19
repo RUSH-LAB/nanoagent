@@ -99,7 +99,7 @@ from nanoagent.uploaded.sandbox import (
     WORKSPACE,
 )
 from nanoagent.uploaded.reference import build_reference
-from nanoagent.uploaded.resume import keep, restore
+from nanoagent.uploaded.resume import keep, restore, start_cli
 from nanoagent.uploaded import session_result
 from nanoagent.uploaded.source import SourceLimits, extract, inspect_zip
 from nanoagent.uploaded.terminal import MAX_TERMINALS, Terminal
@@ -1002,6 +1002,8 @@ class AttemptRunner:
         if job.resume is not None:  # the session it resumes, back in its workspace before the shell starts
             said = await in_thread(restore, cfg.scratch, job.resume, handle.workspace)
             LOG.info("attempt %s: resuming %s: %s", job.attempt_id, job.resume.attempt_id, said["line"])
+        if job.start is not None:  # the agent CLI its first terminal runs, as a resumed one runs its agent's resume command
+            await in_thread(start_cli, handle.workspace, job.start)
         if tools:
             await stack.enter_async_context(runner)  # the plugin is up before the harness can call it
             LOG.info("attempt %s: plugin tools up", job.attempt_id)

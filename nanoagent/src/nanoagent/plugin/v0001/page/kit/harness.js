@@ -40,8 +40,9 @@ const failedText = (reason) => `Couldn't start the terminal: ${reason}`;
  * terminal panel, they open more terminals in the same VM and workspace ("+"), switch between them by their tabs and close one (×);
  * a terminal whose shell they leave (exit, Ctrl-D) closes too. The session ends with its last terminal; its time, tokens and cost
  * print there, and Enter then starts a new one. `resume(id)` starts a new one that resumes their ended session `id` (the Dashboard's):
- * the worker puts back what it kept of it on their computer, and its first terminal says so, or says why it could not.
- * @returns {{element: HTMLElement, resume: (id: string) => void}}
+ * the worker puts back what it kept of it on their computer, and its first terminal says so, or says why it could not. `startCli(name)`
+ * starts a new one whose first terminal runs the agent CLI `name` (`claude`), as a resumed one runs its agent's resume command.
+ * @returns {{element: HTMLElement, resume: (id: string) => void, startCli: (name: string) => void}}
  */
 export function harnessPage() {
   let runId = null;
@@ -139,7 +140,7 @@ export function harnessPage() {
     if (active !== null) views.get(active).fit.fit();
   }).observe(screens);
 
-  async function start(resume = null) {
+  async function start({ resume, cli } = {}) {
     const mine = ++generation;
     for (const id of [...views.keys()]) remove(id);
     ended = false;
@@ -166,7 +167,7 @@ export function harnessPage() {
       shown().write("Press Enter to start a new one.");
     };
     try {
-      const id = await startRun("harness.run", { harness: "shell", ...(resume ? { resume } : {}) }, (name, data) => {
+      const id = await startRun("harness.run", { harness: "shell", ...(resume ? { resume } : {}), ...(cli ? { start: cli } : {}) }, (name, data) => {
         if (mine !== generation) return;  // a session this tab has since replaced
         switch (name) {
           case "harness.preparing":  // shown only while something downloads; otherwise the terminal just opens
@@ -216,8 +217,14 @@ export function harnessPage() {
   /** A new session that resumes the ended session `id`, in place of any this tab has: RUSH ends that one as it starts this. */
   function resume(id) {
     opened = true;
-    start(id);
+    start({ resume: id });
   }
 
-  return { element: h("section", { class: "harness-page", "aria-label": "Harness" }, tabs, screens), resume };
+  /** A new session whose first terminal runs the agent CLI `name`, in place of any this tab has. */
+  function startCli(name) {
+    opened = true;
+    start({ cli: name });
+  }
+
+  return { element: h("section", { class: "harness-page", "aria-label": "Harness" }, tabs, screens), resume, startCli };
 }

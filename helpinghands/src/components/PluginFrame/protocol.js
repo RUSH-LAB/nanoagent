@@ -55,14 +55,14 @@ const PARAMS = {
   'terminal.archive': ({attemptId, archived}) => (UUID.test(attemptId ?? '') && typeof archived === 'boolean'
     ? null
     : 'terminal.archive needs an attempt id and archived, true or false'),
-  // The Terminal (`shell`) is free-form, so it takes no task and no text, and may resume an ended session (its id); any other harness
-  // works the text to a task.
-  'harness.run': ({harness, task, text, resume}) => (HARNESS_NAME.test(harness ?? '')
+  // The Terminal (`shell`) is free-form, so it takes no task and no text, and may resume an ended session (its id) or start an agent's
+  // CLI in its first terminal (`start`, its command); any other harness works the text to a task.
+  'harness.run': ({harness, task, text, resume, start}) => (HARNESS_NAME.test(harness ?? '')
     && (harness === 'shell'
-      ? task === undefined && text === undefined && (resume === undefined || UUID.test(resume ?? ''))
-      : typeof task === 'string' && task && typeof text === 'string' && text.trim() && text.length <= PROMPT_LIMIT && resume === undefined)
+      ? task === undefined && text === undefined && (resume === undefined ? start === undefined || HARNESS_NAME.test(start ?? '') : UUID.test(resume ?? '') && start === undefined)
+      : typeof task === 'string' && task && typeof text === 'string' && text.trim() && text.length <= PROMPT_LIMIT && resume === undefined && start === undefined)
     ? null
-    : `harness.run needs a harness name and, but for shell, which takes neither (and may take the id of a session to resume), a task id and text of 1 to ${PROMPT_LIMIT} characters`),
+    : `harness.run needs a harness name and, but for shell, which takes neither (and may take the id of a session to resume, or else an agent's CLI command to start), a task id and text of 1 to ${PROMPT_LIMIT} characters`),
   'harness.cancel': ({runId}) => (typeof runId === 'string' && runId ? null : 'harness.cancel needs a runId'),
   'harness.input': ({runId, terminal, data}) => (typeof runId === 'string' && runId && isTerminal(terminal) && typeof data === 'string' && data && data.length <= TYPED_LIMIT
     ? null

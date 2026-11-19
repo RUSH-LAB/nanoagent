@@ -9,7 +9,8 @@ each copy that is not kept leaves a note why (``session.json``), so a resume can
 
 A session that resumes one gets the copy back in its workspace before its shell starts, with ``.rush/resume.json``: the line its first
 terminal prints after the banner, and the agent's resume command to run there (one agent) or the commands to type (several), which
-shell.py and bashrc act on.
+shell.py and bashrc act on. A new session started under an agent (the Dashboard's New session with its chip chosen) gets the same
+file with that agent's CLI command to run, and no line (start_cli).
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from nanoagent.uploaded.sandbox import WORKSPACE
 SESSIONS = "sessions"  # under the scratch folder: each kept Terminal session, by attempt id
 NOTE = "session.json"  # beside a kept session's workspace/: when it ended, and why it is not kept when it is not
 KEPT_WORKSPACE = "workspace"
-RESUME_FILE = ".rush/resume.json"  # in a resuming session's workspace, read (and removed) by shell.py as its shell starts
+RESUME_FILE = ".rush/resume.json"  # in a resuming or starting session's workspace, read (and removed) by shell.py as its shell starts
 CLIS_RAN = ".rush/clis"  # in the workspace: each CLI the session ran, by name (shell rush.py)
 
 
@@ -160,14 +161,21 @@ def restore(scratch: Path, of: ResumeOf, workspace: Path) -> dict:
     else:
         copy_workspace(folder / KEPT_WORKSPACE, workspace)
         ran = sorted(entry.name for entry in (workspace / CLIS_RAN).iterdir() if entry.name in CLIS) if (workspace / CLIS_RAN).is_dir() else []
-        said = {"line": f"Resumed your session from {since}" + "".join(f" · {CLIS[name].label}" for name in ran)}
+        said = {"line": f"Resumed your session from {since}" + "".join(f" · {name}" for name in ran)}
         commands = {name: resume_command(workspace, name) for name in ran}
         if len(ran) == 1 and commands[ran[0]]:
             said["run"] = commands[ran[0]]
         elif len(ran) == 1:
-            said["type"] = f"{CLIS[ran[0]].label} kept no conversation it can continue."
+            said["type"] = f"{ran[0]} kept no conversation it can continue."
         elif ran:
-            said["type"] = "To continue: " + " · ".join(commands[name] or f"{CLIS[name].label} has nothing to continue" for name in ran)
+            said["type"] = "To continue: " + " · ".join(commands[name] or f"{name} has nothing to continue" for name in ran)
     (workspace / RESUME_FILE).parent.mkdir(parents=True, exist_ok=True)
     (workspace / RESUME_FILE).write_text(json.dumps(said), encoding="utf-8")
     return said
+
+
+def start_cli(workspace: Path, command: str) -> None:
+    """Has a new session's first terminal run the agent CLI ``command`` (``claude``) at its first prompt (RESUME_FILE's ``run``), so
+    the member lands in it and is back at the shell when it exits."""
+    (workspace / RESUME_FILE).parent.mkdir(parents=True, exist_ok=True)
+    (workspace / RESUME_FILE).write_text(json.dumps({"run": command}), encoding="utf-8")

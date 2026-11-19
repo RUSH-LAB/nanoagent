@@ -242,12 +242,16 @@ async def test_a_free_form_session_is_kept_to_resume_and_a_resuming_one_starts_o
     found = rig.supervisor.case.found  # the workspace as the shell started
     assert {name: found[name] for name in made} == made
     said = json.loads(found[".rush/resume.json"])
-    assert said["line"].startswith("Resumed your session from Nov 18") and said["line"].endswith(" · Claude Code") and said["run"] == "claude --resume s-1"
+    assert said["line"].startswith("Resumed your session from Nov 18") and said["line"].endswith(" · claude") and said["run"] == "claude --resume s-1"
     # A session this computer does not have says so, and the terminal starts empty.
     rig = later("third")
     await rig.run(fx.free_job(attempt_id="11111111-1111-4111-8111-000000000003", resume={"attempt_id": "11111111-1111-4111-8111-000000000004", "at": "2026-11-18T22:31:00Z"}))
     found = rig.supervisor.case.found
     assert list(found) == [".rush/resume.json"] and "it is not on this computer" in json.loads(found[".rush/resume.json"])["line"]
+    # A new session started under an agent runs its CLI in its first terminal.
+    rig = Rig(tmp_path / "fourth")
+    await rig.run(fx.free_job(attempt_id="11111111-1111-4111-8111-000000000005", start="codex"))
+    assert json.loads(rig.supervisor.case.found[".rush/resume.json"]) == {"run": "codex"}
 
 
 async def test_a_free_form_session_its_member_left_is_recorded_whole_and_kept_to_resume_and_a_scored_one_never_is(tmp_path: Path) -> None:

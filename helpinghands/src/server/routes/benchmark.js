@@ -131,9 +131,10 @@ async function openApp(ctx, context, pluginId, computer) {
  * it was opened from, runs under the Terminal's own limits (TERMINAL_LIMITS), and has no case set and no case, nothing filled, pinned
  * or scored; its one attempt records the model calls and commands. Given `resume`, an ended free-form session of the member's (its
  * attempt id), it resumes that one: its run is a new session linked to it (`resumed_from`), and the worker puts back what it kept of
- * it on the member's computer before the shell starts, or says it has nothing kept. `{run, attempt_id}`.
+ * it on the member's computer before the shell starts, or says it has nothing kept. Given `start` instead, an agent's CLI command
+ * (`claude`), its first terminal runs it at its first prompt (`start_cli`), as a resumed one runs its agent's resume command. `{run, attempt_id}`.
  */
-async function startSession(ctx, context, {pluginId, taskId, harness, interactive, text, model, resume}) {
+async function startSession(ctx, context, {pluginId, taskId, harness, interactive, text, model, resume, start}) {
   const {repository, service} = ctx.benchmark;
   const free = harness === 'shell' && interactive;
   if (free && (text !== undefined || taskId !== undefined)) {
@@ -141,6 +142,7 @@ async function startSession(ctx, context, {pluginId, taskId, harness, interactiv
   }
   const request = free ? null : string(text, 'text', {max: SESSION_TEXT_LIMIT});
   const resumedFrom = resume === undefined ? null : await resumable(repository, context, free, resume);
+  const startCli = start === undefined ? null : cliCommand(free, resumedFrom, start);
   const harnessModel = string(model, 'model', {optional: true}) ?? aiSettings.MODEL.model;
   const reference = REFERENCE_HARNESSES.includes(harness);
   const saved = reference ? null : await repository.savedHarness(context, harness);
@@ -169,7 +171,7 @@ async function startSession(ctx, context, {pluginId, taskId, harness, interactiv
     source = await repository.saveSource(context, built.value, referenceHarnessOf(built.value, harness));
   }
   const policy = reference ? referencePolicy(harness) : 'coding';
-  const {run_id: id, attempt_id: attemptId, session} = await service.session(context, frame, source, policy, {interactive, resumedFrom});
+  const {run_id: id, attempt_id: attemptId, session} = await service.session(context, frame, source, policy, {interactive, resumedFrom, startCli});
   wake(`claim:${context.userId}`);
   if (!free) {
     const pinning = async () => {
@@ -193,6 +195,17 @@ async function resumable(repository, context, free, resume) {
   if (!old || old.harness_name !== 'shell' || old.task_id !== null) throw new BenchmarkError(404, 'unknown_session', 'No Terminal session of yours to resume has that id');
   if (old.state !== 'final') throw new BenchmarkError(409, 'session_running', 'That session is still running: leave its shell (exit) to end it, then resume it');
   return id;
+}
+
+// An agent CLI command a new free-form session starts with: a harness name's characters (HarnessName), so one shell word.
+const CLI_COMMAND = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
+/** The agent CLI command `start` names, which a new free-form session runs first. */
+function cliCommand(free, resumedFrom, start) {
+  if (!free || resumedFrom !== null) throw new BenchmarkError(400, 'invalid_request', 'Only a new Terminal session someone is at starts an agent\'s CLI');
+  const command = string(start, 'start');
+  if (!CLI_COMMAND.test(command)) throw new BenchmarkError(400, 'invalid_request', 'start must be an agent\'s CLI command, such as claude');
+  return command;
 }
 
 module.exports = async function benchmark(req, res, url, pathname, ctx) {
@@ -297,7 +310,7 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       const body = object(await jsonBody(req, readBody), 'The body');
       const [pluginId, harness] = ['plugin_id', 'harness'].map(name => string(body[name], name));
       if (typeof body.interactive !== 'boolean') throw new BenchmarkError(400, 'invalid_request', 'interactive must be a boolean');
-      return json(res, 201, await startSession(ctx, context, {pluginId, taskId: body.task_id, harness, interactive: body.interactive, text: body.text, model: body.model, resume: body.resume}));
+      return json(res, 201, await startSession(ctx, context, {pluginId, taskId: body.task_id, harness, interactive: body.interactive, text: body.text, model: body.model, resume: body.resume, start: body.start}));
     }
     // A plugin page's Leaderboard tab: the harnesses run on the plugin, whatever task, ranked from every member's scored runs.
     if (top === 'leaderboard') {

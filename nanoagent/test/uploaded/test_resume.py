@@ -7,7 +7,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from nanoagent.uploaded.resume import keep, restore, resume_command
+from nanoagent.uploaded.resume import keep, restore, resume_command, start_cli
 from nanoagent.uploaded.rush_worker import ResumeOf
 
 AT = "2026-11-18T22:31:00Z"
@@ -53,12 +53,12 @@ def test_one_agent_runs_its_resume_and_several_print_theirs(tmp_path: Path) -> N
     files = {".rush/clis/codex": b"k", ".rush/codex/sessions/2026/11/18/rollout-1.jsonl": json.dumps(rollout).encode() + b"\n"}
     assert keep(tmp_path / "scratch", "one", workspace(tmp_path / "one", files), START, 1 << 20)
     said = restore(tmp_path / "scratch", ResumeOf("one", AT), tmp_path / "back-one")
-    assert said["line"].endswith(" · Codex") and said["run"] == "cd /rush/workspace/app && codex resume c-9"
+    assert said["line"].endswith(" · codex") and said["run"] == "cd /rush/workspace/app && codex resume c-9"
     several = workspace(tmp_path / "several", {".rush/clis/pi": b"k", ".rush/clis/dsh": b"k", ".rush/pi/sessions/--rush-workspace--/1.jsonl": b"{}\n"})
     assert keep(tmp_path / "scratch", "several", several, START, 1 << 20)
     said = restore(tmp_path / "scratch", ResumeOf("several", AT), tmp_path / "back-several")
-    assert said["line"].endswith(" · DeepSeek Harness · PI") and "run" not in said
-    assert said["type"] == "To continue: DeepSeek Harness has nothing to continue · pi --continue"
+    assert said["line"].endswith(" · dsh · pi") and "run" not in said
+    assert said["type"] == "To continue: dsh has nothing to continue · pi --continue"
 
 
 def test_an_agent_that_kept_no_conversation_has_nothing_to_run(tmp_path: Path) -> None:
@@ -69,3 +69,8 @@ def test_an_agent_that_kept_no_conversation_has_nothing_to_run(tmp_path: Path) -
     assert resume_command(tmp_path, "nanoagent") is None
     workspace(tmp_path, {".rush/nanoagent/261118-181932.traj.json": b"{}"})
     assert resume_command(tmp_path, "nanoagent") == "mgen -c"  # NanoAgent's last session, chat or mgen, with the plugin's tools again
+
+
+def test_a_session_started_under_an_agent_runs_its_cli_saying_nothing(tmp_path: Path) -> None:
+    start_cli(tmp_path, "claude")
+    assert json.loads((tmp_path / ".rush/resume.json").read_text()) == {"run": "claude"}

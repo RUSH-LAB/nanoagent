@@ -163,8 +163,9 @@ function emptyText(archived, closed) {
 /**
  * The dashboard, by agent: chips name, by its CLI command, every agent that made a model call on
  * this plugin, nanoagent (the person's chats) first and chosen at first, and the one chosen shows
- * its usage and its sessions, newest first. Under nanoagent they start a new session or resume
- * one, and archive a session; archived sessions leave the list for its Archived view, where they
+ * its usage and its sessions, newest first. Under nanoagent New session starts a chat, and they
+ * resume one; under any other agent it starts a Harness session running that agent's CLI. They
+ * archive a session; archived sessions leave the list for its Archived view, where they
  * can be opened or restored; chatting in one again restores it. Every agent's list has the person's
  * Harness tab sessions it made calls in (a free-form Terminal one under each agent that did), with
  * its figures there, and the ones no agent made a call in, with their own: a free-form Terminal one
@@ -173,16 +174,17 @@ function emptyText(archived, closed) {
  * @param {(session: object|null) => void} options.onOpen With what `session.resume` answered,
  *   or null for a new session.
  * @param {(session: object) => void} options.onResume With a free-form Terminal session (`sessions.list`'s), to resume it.
+ * @param {(agent: string) => void} options.onStart With the chosen agent's CLI command, to start a Harness session running it.
  * @param {boolean} [options.closed] Whether no new session may start: the sessions are only read.
  * @returns {{element: HTMLElement, refresh: () => Promise<void>, resume: (id: string) => Promise<boolean>}}
  *   `refresh` lists the sessions again; `resume` opens session `id`, saying why not when it cannot, and whether it did.
  */
-export function dashboard({ onOpen, onResume, closed = false }) {
+export function dashboard({ onOpen, onResume, onStart, closed = false }) {
   const stats = h("div", { class: "dashboard-usage" });
   const status = h("p", { class: "error-text", role: "alert" });
   const list = h("ul", { class: "session-list" });
   const heading = h("h2", { text: "Sessions" });
-  const newButton = h("button", { type: "button", class: "button small", hidden: closed, onclick: () => onOpen(null) }, icon("plus", { size: 16 }), "New session");
+  const newButton = h("button", { type: "button", class: "button small", hidden: closed, onclick: () => (chosen === NANOAGENT ? onOpen(null) : onStart(chosen)) }, icon("plus", { size: 16 }), "New session");
   const viewButton = h("button", { type: "button", class: "button small ghost", hidden: true });
   const chips = h("div", { class: "harness-chips", role: "group", "aria-label": "Harness" });
   let archivedView = false;
@@ -277,7 +279,7 @@ export function dashboard({ onOpen, onResume, closed = false }) {
         refresh();
       },
     })));
-    newButton.hidden = closed || chosen !== NANOAGENT;
+    newButton.hidden = closed;
     viewButton.hidden = !archived.length;
     viewButton.textContent = archivedView ? "Back to sessions" : `Archived (${archived.length})`;
     heading.textContent = archivedView ? "Archived sessions" : "Sessions";
