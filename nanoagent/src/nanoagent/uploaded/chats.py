@@ -2,7 +2,8 @@
 
 A chat is one conversation of one CLI, named by the CLI's own conversation id: Claude Code's session (``.rush/claude/.claude/projects/
 <dir>/<id>.jsonl``), Codex's thread (``.rush/codex/sessions/…/rollout-*.jsonl``), PI's session (``.rush/pi/sessions/<dir>/*.jsonl``) and
-Hermes Agent's session (``.rush/hermes/state.db``). Each is titled by its first user prompt and spans its first to its last message, by
+Hermes Agent's session (``.rush/hermes/state.db``). Each is titled by the CLI's own title for it, else by the first prompt the member
+typed (past what the CLI injects into the conversation: notes, commands' output, instructions, context), and spans its first to its last message, by
 the CLI's own timestamps. A session holds the chats it talked in: read as its shell starts (after a resumed session's files are back) and
 as it ends, those that are new or grew. dsh keeps its runs as compressed event logs and NanoAgent's chats are the Dashboard's own; RUSH
 takes theirs from the recording.
@@ -11,6 +12,7 @@ takes theirs from the recording.
 from __future__ import annotations
 
 import json
+import re
 import shlex
 import sqlite3
 from dataclasses import dataclass, replace
@@ -20,6 +22,15 @@ from pathlib import Path
 from nanoagent.uploaded.sandbox import WORKSPACE
 
 TITLE_CHARS = 120
+# What a CLI writes into a user message besides what the member typed: Claude Code's notes, slash commands and their output, Codex's
+# AGENTS.md instructions and context, PI's and Codex's skills
+INJECTED = re.compile(
+    r"(?:# AGENTS\.md instructions for [^\n]*\s*)?<(system-reminder|command-name|command-message|command-args|local-command-stdout|"
+    r"local-command-stderr|local-command-caveat|bash-input|bash-stdout|bash-stderr|user-prompt-submit-hook|task-notification|"
+    r"environment_context|user_instructions|INSTRUCTIONS|user_shell_command|turn_aborted|subagent_notification|skill)\b[^>]*>.*?</\1>",
+    re.S,
+)
+NOTES = ("Caveat: The messages below were generated", "[Request interrupted by user")  # Claude Code's, as plain text
 
 
 @dataclass(frozen=True)
@@ -55,6 +66,19 @@ def in_root(path: str, root: str) -> str:
 def _title(text: str) -> str:
     line = " ".join(text.split())
     return line if len(line) <= TITLE_CHARS else line[: TITLE_CHARS - 1] + "…"
+
+
+def _typed(text: str) -> str:
+    """What the member typed of a user message's text: '' when it is all the CLI's own."""
+    typed = INJECTED.sub("", text).strip()
+    return "" if typed.startswith(NOTES) else typed
+
+
+def _titled(own: str | None, prompts: list[str]) -> str | None:
+    """A chat's title: the CLI's own title for it, else the first prompt the member typed; None when it has neither."""
+    typed = [text for text in map(_typed, prompts) if text]
+    title = own.strip() if own and own.strip() else typed[0] if typed else None
+    return _title(title) if title else None
 
 
 def _at(value: str | float) -> datetime:
@@ -97,24 +121,31 @@ def prompt_of(dialect: str, body: dict) -> str | None:
 
 def _claude(home: Path) -> list[Chat]:
     """Claude Code's sessions: one JSON-lines file each under projects/<dir>/ (a session's subagents live in a folder beside it). The
-    title is its first prompt the member typed, not a command's output or a note Claude Code adds (``isMeta``)."""
+    title is the member's (``custom-title``), else Claude Code's (``ai-title``, or a ``summary`` line), else the first prompt the member
+    typed, not a note Claude Code adds (``isMeta``)."""
+    keys = {"custom-title": "customTitle", "ai-title": "aiTitle", "summary": "summary"}
     chats = []
     for path in sorted((home / ".claude" / "projects").glob("*/*.jsonl")):
-        said = [line for line in _lines(path) if line.get("type") in ("user", "assistant") and not line.get("isSidechain") and "timestamp" in line]
+        lines = _lines(path)
+        own = {line["type"]: line.get(keys[line["type"]]) for line in lines if line.get("type") in keys}  # the last of each
+        said = [line for line in lines if line.get("type") in ("user", "assistant") and not line.get("isSidechain") and "timestamp" in line]
         prompts = [
             _text(line["message"].get("content")) for line in said
             if line["type"] == "user" and not line.get("isMeta") and isinstance(line.get("message"), dict)
         ]  # fmt: skip
-        typed = [text for text in prompts if text.strip() and not text.lstrip().startswith(("<command-", "<local-command", "<bash-", "Caveat:"))]
-        if not typed:
+        title = _titled(own.get("custom-title") or own.get("ai-title") or own.get("summary"), prompts)
+        if title is None or not said:
             continue
-        chats.append(Chat("claude", path.stem, _title(typed[0]), _at(said[0]["timestamp"]), _at(said[-1]["timestamp"]), len(said), said[0].get("cwd")))
+        chats.append(Chat("claude", path.stem, title, _at(said[0]["timestamp"]), _at(said[-1]["timestamp"]), len(said), said[0].get("cwd")))
     return chats
 
 
 def _codex(home: Path) -> list[Chat]:
     """Codex's threads: one rollout file each under sessions/<year>/<month>/<day>/, its first line the thread's id and folder, and each
-    prompt the member typed an item of its own (Codex 0.167: ``event_msg`` ``item_completed``, its item a ``UserMessage``)."""
+    prompt the member typed an item of its own (Codex 0.167: ``event_msg`` ``item_completed``, its item a ``UserMessage``). A thread the
+    member named is titled by its name: the last line for it in session_index.jsonl."""
+    index = home / "session_index.jsonl"
+    names = {line["id"]: line.get("thread_name") for line in (_lines(index) if index.is_file() else []) if "id" in line}
     chats = []
     for path in sorted((home / "sessions").rglob("rollout-*.jsonl")):
         lines = _lines(path)
@@ -123,43 +154,49 @@ def _codex(home: Path) -> list[Chat]:
             _text(item.get("content")) for line in lines if line.get("type") == "event_msg" and line["payload"].get("type") == "item_completed"
             for item in [line["payload"].get("item")] if isinstance(item, dict) and item.get("type") == "UserMessage"
         ]  # fmt: skip
-        typed = [text for text in prompts if text.strip()]
-        if meta is None or not typed:
+        title = _titled(names.get(meta["id"]), prompts) if meta else None
+        if title is None:
             continue
         timed = [line for line in lines if "timestamp" in line]
-        chats.append(Chat("codex", meta["id"], _title(typed[0]), _at(timed[0]["timestamp"]), _at(timed[-1]["timestamp"]), len(timed), meta.get("cwd")))
+        chats.append(Chat("codex", meta["id"], title, _at(timed[0]["timestamp"]), _at(timed[-1]["timestamp"]), len(timed), meta.get("cwd")))
     return chats
 
 
 def _pi(home: Path) -> list[Chat]:
-    """PI's sessions: one JSON-lines file each under sessions/<dir>/, its first line (``session``) its id and folder."""
+    """PI's sessions: one JSON-lines file each under sessions/<dir>/, its first line (``session``) its id and folder. A session the
+    member named is titled by its name, its last ``session_info`` line's."""
     chats = []
     for path in sorted((home / "sessions").glob("*/*.jsonl")):
         lines = _lines(path)
         header = next((line for line in lines if line.get("type") == "session"), None)
         said = [line for line in lines if line.get("type") == "message" and isinstance(line.get("message"), dict)]
         prompts = [_text(line["message"].get("content")) for line in said if line["message"].get("role") == "user"]
-        typed = [text for text in prompts if text.strip()]
-        if header is None or not typed:
+        named = [line.get("name") for line in lines if line.get("type") == "session_info"]
+        title = _titled(named[-1] if named else None, prompts) if header else None
+        if title is None or not said:
             continue
-        chats.append(Chat("pi", header["id"], _title(typed[0]), _at(said[0]["timestamp"]), _at(said[-1]["timestamp"]), len(said), header.get("cwd")))
+        chats.append(Chat("pi", header["id"], title, _at(said[0]["timestamp"]), _at(said[-1]["timestamp"]), len(said), header.get("cwd")))
     return chats
 
 
 def _hermes(home: Path) -> list[Chat]:
     """Hermes Agent's sessions, in its state.db: each session's messages, by time. Hermes keeps no folder per session: it reopens one in
-    the folder it is run from."""
+    the folder it is run from. A session with a title (``sessions.title``, from Hermes's schema 3) is titled by it."""
     database = home / "state.db"
     if not database.is_file():
         return []
     with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
-        rows = connection.execute(
-            """select session_id, min(timestamp), max(timestamp), count(*),
-                 (select content from messages f where f.session_id = m.session_id and f.role = 'user'
-                    and trim(coalesce(f.content, '')) != '' order by f.timestamp, f.id limit 1)
-               from messages m group by session_id"""
-        ).fetchall()
-    return [Chat("hermes", session, _title(prompt), _at(started), _at(ended), count, None) for session, started, ended, count, prompt in rows if prompt]
+        rows = connection.execute("select session_id, min(timestamp), max(timestamp), count(*) from messages group by session_id").fetchall()
+        prompts: dict[str, list[str]] = {}
+        typed = "select session_id, content from messages where role = 'user' and content is not null order by timestamp, id"
+        for session, content in connection.execute(typed):
+            prompts.setdefault(session, []).append(content)
+        has_titles = any(column[1] == "title" for column in connection.execute("pragma table_info(sessions)"))
+        titles = dict(connection.execute("select id, title from sessions where title is not null")) if has_titles else {}
+    return [
+        Chat("hermes", session, title, _at(started), _at(ended), count, None) for session, started, ended, count in rows
+        for title in [_titled(titles.get(session), prompts.get(session, []))] if title
+    ]  # fmt: skip
 
 
 READERS = {"claude": _claude, "codex": _codex, "pi": _pi, "hermes": _hermes}
