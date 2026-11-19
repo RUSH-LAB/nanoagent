@@ -97,6 +97,15 @@ async function main() {
     req.on('data', chunk => chunks.push(chunk));
     req.on('end', () => {
       modelRequest = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if (!modelRequest.stream) {
+        // A structured answer (a Harness tab session filling its task's input): the input of word-check's check-words.
+        res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify({
+          id: 'chatcmpl-mochi-test', object: 'chat.completion', created: 0, model: 'fake',
+          choices: [{index: 0, message: {role: 'assistant', content: JSON.stringify({reference: 'apple Pear', raw: 'apple pear'})}, finish_reason: 'stop'}],
+          usage: {prompt_tokens: 7, completion_tokens: 3, total_tokens: 10},
+        }));
+        return;
+      }
       res.writeHead(200, {'Content-Type': 'text/event-stream'});
       const send = value => res.write(`data: ${JSON.stringify(value)}\n\n`);
       const base = {id: 'chatcmpl-mochi-test', object: 'chat.completion.chunk', created: 0, model: 'fake'};
@@ -271,6 +280,30 @@ async function main() {
         const publication = JSON.parse(ok(derived));
         assert.equal(publication.package_sha256, offered.sha256);
         assert.deepEqual(publication.cases.map(item => item.case_id), [`${PLUGIN}-01`]);
+      },
+      async installedPackage() {
+        // The installed package's bytes, what a Terminal session's plugin tools run; production's, which has no such route, 404.
+        const kept = await gateway.installedPackage(offered.sha256);
+        if (kept.status !== 404) assert.deepEqual(ok(kept), ok(await gateway.packageFile(PLUGIN)));
+      },
+      async benchmarkSessionFrame() {
+        // A Harness tab session's case set but its case, read from the installed plugin; production's, which has no such route, 404.
+        const framed = await gateway.benchmarkSessionFrame(offered.sha256, JSON.stringify({task: 'check-words', text: 'Check apple pear.'}));
+        if (framed.status === 404) return;
+        const frame = JSON.parse(ok(framed));
+        assert.equal(frame.package_sha256, offered.sha256);
+        assert.equal(frame.task_id, 'check-words');
+        assert.match(frame.case_id, /\S/);
+      },
+      async benchmarkSession() {
+        // The plugin model fills the task's input from the request, held to its schema, and the one case is pinned on the
+        // session's frame; production's, which has no such route, 404.
+        const pinned = await gateway.benchmarkSession(offered.sha256, JSON.stringify({task: 'check-words', text: 'Check apple pear.'}));
+        if (pinned.status === 404) return;
+        const publication = JSON.parse(ok(pinned));
+        assert.equal(modelRequest.response_format.json_schema.name, 'check-words');
+        assert.equal(publication.package_sha256, offered.sha256);
+        assert.deepEqual(publication.cases.map(item => item.case_id), [publication.case_id]);
       },
       async benchmarkReferenceHarness() {
         // A reference harness's ZIP; production's, which has no such route, 404.
