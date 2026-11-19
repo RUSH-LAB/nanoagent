@@ -6,7 +6,12 @@ create function benchmark_leaderboard(p_plugin_id text)
 returns table (run_id uuid, attempt_id uuid, user_id text, user_name text, user_github text, harness_name text, policy text, model text,
   case_id text, kind text, content_digest text, arguments json, prompt_system text, prompt_user text, tools json, reference json,
   verdict text, explanation text, execution_status text, execution_reason text, metrics jsonb, cost_usd double precision, created_at timestamptz)
-language sql stable security definer set search_path = pg_catalog, public set app.benchmark_system = 'on' as $$
+language plpgsql stable security definer set search_path = pg_catalog, public as $$
+#variable_conflict use_column
+declare prior text := coalesce(current_setting('app.benchmark_system', true), 'off');
+begin
+  perform set_config('app.benchmark_system', 'on', true);
+  return query
   select r.run_id, a.attempt_id, r.user_id, u.display_name, u.github_login, r.harness_name, r.policy, r.model,
     c.case_id, c.kind, c.content_digest, c.arguments, c.prompt_system, c.prompt_user, r.task->'tools', p.reference,
     a.verdict, a.explanation, a.execution_status, a.execution_reason, a.metrics,
@@ -20,5 +25,7 @@ language sql stable security definer set search_path = pg_catalog, public set ap
     left join public.benchmark_run_private p on p.run_id = r.run_id and p.case_id = a.case_id
    where r.plugin_id = p_plugin_id and r.harness_name <> 'shell' and a.state = 'final' and a.verdict is not null
      and c.content_digest is not null
-   order by r.created_at desc, r.run_id
+   order by r.created_at desc, r.run_id;
+  perform set_config('app.benchmark_system', prior, true);
+end
 $$;

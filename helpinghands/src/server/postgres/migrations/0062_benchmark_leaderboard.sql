@@ -5,7 +5,12 @@
 create function benchmark_leaderboard(p_plugin_id text, p_task_id text)
 returns table (run_id uuid, attempt_id uuid, user_id text, user_name text, user_github text, harness_name text, verdict text,
   elapsed_ms double precision, cost_usd double precision, created_at timestamptz)
-language sql stable security definer set search_path = pg_catalog, public set app.benchmark_system = 'on' as $$
+language plpgsql stable security definer set search_path = pg_catalog, public as $$
+#variable_conflict use_column
+declare prior text := coalesce(current_setting('app.benchmark_system', true), 'off');
+begin
+  perform set_config('app.benchmark_system', 'on', true);
+  return query
   select r.run_id, a.attempt_id, r.user_id, u.display_name, u.github_login, r.harness_name, a.verdict, (a.metrics->>'elapsed_ms')::float8,
     (select case when bool_or(d.status <> 'settled') then null else coalesce(sum(d.cost_usd), 0)::float8 end
        from public.benchmark_admission d where d.attempt_id = a.attempt_id),
@@ -14,6 +19,8 @@ language sql stable security definer set search_path = pg_catalog, public set ap
     cross join lateral (select distinct on (x.case_id) x.* from public.benchmark_attempt x
       where x.run_id = r.run_id and x.case_id is not null order by x.case_id, x.attempt_no desc) a
    where r.plugin_id = p_plugin_id and r.task_id = p_task_id and a.state = 'final' and a.verdict is not null
-   order by r.created_at desc, r.run_id
+   order by r.created_at desc, r.run_id;
+  perform set_config('app.benchmark_system', prior, true);
+end
 $$;
 create index benchmark_run_plugin_task_idx on benchmark_run(plugin_id, task_id);

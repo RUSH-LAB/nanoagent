@@ -419,17 +419,31 @@ select r.run_id, r.benchmark_id, r.harness_name, r.harness_version, r.benchmark_
   from benchmark_run r join app_user u on u.id = r.user_id;
 
 -- What other members may see of a benchmark's runs. benchmark_run is the owner's alone, so these run as the system for
--- their one query (the function's own `set`, which ends with it) and return the summary columns only.
+-- their one query (a transaction-local set_config each undoes before it returns: Neon's role may not attach a `set` of app.* to a function) and return the summary columns only.
 create function benchmark_stats(p_benchmark_id uuid)
 returns table (run_count bigint, runner_count bigint)
-language sql stable security definer set search_path = pg_catalog, public set app.benchmark_system = 'on' as $$
-  select count(*), count(distinct r.user_id) from public.benchmark_run r where r.benchmark_id = p_benchmark_id
+language plpgsql stable security definer set search_path = pg_catalog, public as $$
+#variable_conflict use_column
+declare prior text := coalesce(current_setting('app.benchmark_system', true), 'off');
+begin
+  perform set_config('app.benchmark_system', 'on', true);
+  return query
+  select count(*), count(distinct r.user_id) from public.benchmark_run r where r.benchmark_id = p_benchmark_id;
+  perform set_config('app.benchmark_system', prior, true);
+end
 $$;
 
 create function benchmark_results(p_benchmark_id uuid, p_limit integer, p_before timestamptz)
 returns setof benchmark_run_summary
-language sql stable security definer set search_path = pg_catalog, public set app.benchmark_system = 'on' as $$
+language plpgsql stable security definer set search_path = pg_catalog, public as $$
+#variable_conflict use_column
+declare prior text := coalesce(current_setting('app.benchmark_system', true), 'off');
+begin
+  perform set_config('app.benchmark_system', 'on', true);
+  return query
   select * from public.benchmark_run_summary s
    where s.benchmark_id = p_benchmark_id and (p_before is null or s.created_at < p_before)
-   order by s.created_at desc, s.run_id limit p_limit
+   order by s.created_at desc, s.run_id limit p_limit;
+  perform set_config('app.benchmark_system', prior, true);
+end
 $$;
