@@ -28,18 +28,14 @@ In RUSH Lab, open **the plugin you created**. Its page has these tabs: **Session
 
 ## 4. Try another CLI agent in the Harness tab
 
-1. Open **Harness**. A sandboxed terminal opens; use **+** for more tabs.
+1. Open **Harness**. A sandboxed terminal opens;
 2. Run the agent you like: `claude`, `codex`, `pi`, `hermes`, `dsh` or `nanoagent`. Models and tracing are already set up, and every agent uses the same model (DeepSeek V4 Flash).
    - **Any other agent:** install it in the terminal (e.g. `npm i -g <agent>`), then run it once as `rush <command>`. After that, plain `<command>` is tracked too. It has to use the preset `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` and `$RUSH_MODEL`.
 3. Quit the agent (or type `exit`) when you're done. Each conversation becomes a row under that agent's chip on the **Dashboard**, and clicking a row reopens it.
 
 ### 4a. Try to match nanoagent's results
 
-- **Use the same user prompt** you gave nanoagent.
-- **You may add a system prompt** to help the agent. For example:
-  - `claude --append-system-prompt "…" -p "<your prompt>"`
-  - or write it into `AGENTS.md` (Codex, pi) or `CLAUDE.md` (Claude Code) in the workspace before starting the agent.
-- Other agents **don't have your plugin's tools**. They may use the internet, write code, or install packages, whatever gets the job done.
+- Use the same user prompt you gave nanoagent. If you want a system prompt too, paste it before the user prompt.
 - Run it the same number of times as nanoagent (e.g. 5).
 
 ## 5. Report
