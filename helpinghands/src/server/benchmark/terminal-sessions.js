@@ -15,18 +15,13 @@ const WRAPPER = /\/harness\/bin\/(claude|codex|pi|hermes|dsh)(?:\s|$)/;
 // The Terminal's own processes (its bash's shell.py, `rush` and a CLI's install), which run no agent.
 const HARNESS = /\/harness\/(?:shell|rush)\.py(?:\s|$)/;
 const SHELLS = new Set(['sh', 'bash', 'dash', 'zsh', 'fish', 'ash']);
-// A model call no process the record shows was running when it started, or that two agents running then could have made.
-const UNKNOWN = 'unknown';
 
 const ns = value => (value === null || value === undefined ? null : Number(value));
 const seconds = (start, end) => (start === null || end === null ? null : (end - start) / 1e9);
 const figure = (sum, known) => ({sum: known ? sum : 0, count: known ? 1 : 0});
 
-/** What the member calls a run's harness: a reference harness by its label (NanoAgent's apart from RUSH's chats), a saved one by its name. */
-function harnessLabel(name) {
-  if (name === 'nanoagent') return `${REFERENCE_LABELS.nanoagent} (Harness)`;
-  return REFERENCE_LABELS[name] ?? name;
-}
+/** A run's agent: a reference harness's CLI command, a saved harness by its name. */
+const harnessLabel = name => REFERENCE_LABELS[name] ?? name;
 
 /**
  * The agent a process is, by its argv: one of the CLIs a Terminal session installs, by what the member types, or any other program
@@ -50,23 +45,43 @@ function outermost(processes) {
   });
 }
 
-/** The agent whose process ran at `at` (ns), when the outermost agent processes running then are all one agent; otherwise unknown. */
+/**
+ * The agent whose process ran at `at` (ns), when the outermost agent processes running then are all one agent; otherwise null (no
+ * process the record shows ran then, as in a session recorded before process records, or two agents could have made the call).
+ */
 function agentAt(processes, at) {
-  if (at === null) return UNKNOWN;
+  if (at === null) return null;
   const running = processes.filter(process => process.start !== null && process.start <= at && (process.end === null || process.end >= at));
   const agents = new Set(outermost(running).map(process => process.agent));
-  return agents.size === 1 ? [...agents][0] : UNKNOWN;
+  return agents.size === 1 ? [...agents][0] : null;
+}
+
+/** What `calls` took, read and cost, in the figures a chat's usage has, with `elapsed` (s) as its End-to-End Latency when it is its own. */
+function usageOf(calls, final, elapsed) {
+  // A session's calls are known once it is final and the gateway's evidence is in; a session with none made none.
+  const all = pick => final && calls.every(call => pick(call) !== null);
+  const some = pick => (final && !calls.length) || calls.some(call => pick(call) !== null);
+  const sum = pick => calls.reduce((total, call) => total + (pick(call) ?? 0), 0);
+  return {
+    durationS: figure(elapsed ?? 0, elapsed !== null),
+    modelS: figure(sum(call => call.durationS), all(call => call.durationS)),
+    toolsS: figure(0, false),
+    inputTokens: figure(sum(call => call.inputTokens), some(call => call.inputTokens)),
+    outputTokens: figure(sum(call => call.outputTokens), some(call => call.outputTokens)),
+    cost: figure(sum(call => call.cost), all(call => call.cost)),
+  };
 }
 
 /**
  * One of the member's Harness tab sessions (a `benchmark_run` with `session`, its attempt's row as `terminalRows` reads it), as the
- * Dashboard shows it beside the chats: its harness, and per harness that worked in it what its model calls took, read and cost (from
- * the gateway), in the figures a chat's usage has, each `{sum, count}` with count 1 when this session knows it and 0 when not. Tool
- * time is the plugin tools', which a terminal has none of, so it is never known; the End-to-End Latency (the profiler's) goes to the
- * session's one harness, and to none when several worked in it. In a free-form Terminal session each model call is the agent's whose
- * process ran when it started (agentAt), and the session is named by its agents in the order they first called a model ("claude,
- * codex"), or with none by its main command (its longest-running outermost process), or "shell" when it ran none. `calls` and
- * `commands` are what its recording shows.
+ * Dashboard shows it beside the chats. `harnesses` are the agents that made model calls in it, named by their CLI command, each with
+ * what its calls took, read and cost (from the gateway), in the figures a chat's usage has, each `{sum, count}` with count 1 when this
+ * session knows it and 0 when not. Tool time is the plugin tools', which a terminal has none of, so it is never known; the End-to-End
+ * Latency (the profiler's) goes to the session's one agent, and to none when several worked in it. In a free-form Terminal session
+ * each model call is the agent's whose process ran when it started (agentAt); a call tied to none is no agent's and counts only in
+ * the session's own `usage`, which, for a session no agent made a call in, also has its latency. The session is titled by its agents
+ * in the order they first called a model ("claude, codex"); with none, by what it did: its main command (its longest-running
+ * outermost process) or its calls ("3 model calls"), or "no agent". `calls` and `commands` are what its recording shows.
  */
 function terminalSession(row) {
   const shell = row.harness_name === 'shell';
@@ -89,37 +104,20 @@ function terminalSession(row) {
     })
     .sort((x, y) => (x.start ?? Infinity) - (y.start ?? Infinity));
   const final = row.state === 'final';
-  const agents = [...new Set(calls.map(call => call.agent))];
+  const agents = [...new Set(calls.map(call => call.agent).filter(agent => agent !== null))];
   const lasted = process => (process.start === null ? 0 : (process.end ?? Infinity) - process.start);
   const main = outermost(processes).sort((x, y) => lasted(y) - lasted(x))[0];
-  const harness = !shell ? label : agents.length ? agents.join(', ') : main?.agent ?? 'shell';
-  const groups = agents.length ? agents : [harness];
+  const did = !shell ? label : main?.agent ?? (calls.length ? `${calls.length} model call${calls.length === 1 ? '' : 's'}` : 'no agent');
   const elapsed = typeof row.elapsed_ms === 'number' ? row.elapsed_ms / 1000 : null;
-  const harnesses = groups.map(agent => {
-    const mine = calls.filter(call => call.agent === agent);
-    // A session's calls are known once it is final and the gateway's evidence is in; a session with none made none.
-    const all = pick => final && mine.every(call => pick(call) !== null);
-    const some = pick => (final && !mine.length) || mine.some(call => pick(call) !== null);
-    const sum = pick => mine.reduce((total, call) => total + (pick(call) ?? 0), 0);
-    return {
-      harness: agent,
-      usage: {
-        durationS: figure(elapsed ?? 0, groups.length === 1 && elapsed !== null),
-        modelS: figure(sum(call => call.durationS), all(call => call.durationS)),
-        toolsS: figure(0, false),
-        inputTokens: figure(sum(call => call.inputTokens), some(call => call.inputTokens)),
-        outputTokens: figure(sum(call => call.outputTokens), some(call => call.outputTokens)),
-        cost: figure(sum(call => call.cost), all(call => call.cost)),
-      },
-    };
-  });
+  const harnesses = agents.map(agent => ({
+    harness: agent, usage: usageOf(calls.filter(call => call.agent === agent), final, agents.length === 1 ? elapsed : null),
+  }));
   // The recording's clock starts at the first thing it recorded.
   const starts = [...calls, ...processes].map(one => one.start).filter(start => start !== null);
   const begun = starts.length ? Math.min(...starts) : null;
   return {
     id: row.attempt_id,
-    harness,
-    title: harness,
+    title: agents.length ? agents.join(', ') : did,
     createdAt: row.created_at,
     updatedAt: row.finalized_at ?? row.created_at,
     running: !final,
@@ -128,6 +126,7 @@ function terminalSession(row) {
     resumable: row.resumable === true,
     resumedFrom: row.resumed_from ?? null,
     harnesses,
+    usage: usageOf(calls.filter(call => call.agent === null), final, agents.length ? null : elapsed),
     calls: calls.map(({start, ...call}) => ({...call, startS: seconds(begun, start)})),
     commands: processes.map(({argv, start, end, exitCode}) => ({argv, startS: seconds(begun, start), durationS: seconds(start, end), exitCode})),
   };

@@ -94,8 +94,8 @@ const when = (at) => {
   return `${date.toLocaleDateString(undefined, { year, month: "short", day: "numeric" })}, ${date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
 };
 const titled = (session) => session.title || "Untitled session";
-// The harness of the chats, the dashboard's first chip.
-const RUSH = "RUSH";
+// The agent of the chats, by its CLI command as every agent is named: the dashboard's first chip.
+const NANOAGENT = "nanoagent";
 // How many sessions a harness's usage is over, above it.
 const counted = (count) => h("p", { class: "muted small-text", text: plural(count, "session") });
 
@@ -115,7 +115,7 @@ const FIGURES = [
 /**
  * One harness's usage, as the dashboard shows it: a column per figure (FIGURES), its Total over
  * its Average, from `usages` (each a session's, every figure `{sum, count}`) averaged per `unit`:
- * RUSH's chats count their messages, a Harness session counts itself. A Total that not every one of
+ * the chats count their messages, a Harness session counts itself. A Total that not every one of
  * the `units` counted says so in its title.
  */
 function harnessUsage(usages, units, unit) {
@@ -150,13 +150,14 @@ function emptyText(archived, closed) {
 }
 
 /**
- * The dashboard, by harness: chips name every harness the person used on this plugin, RUSH (their
- * chats) first and chosen at first, and the one chosen shows its usage and its sessions, newest
- * first. From RUSH's they start a new session or resume one, and archive a session; archived
- * sessions leave the list for its Archived view, where they can be opened or restored; chatting in
- * one again restores it. Another harness's are the person's Harness tab sessions (a free-form
- * Terminal one under each agent that worked in it): a free-form Terminal one resumes in the Harness tab, and any of them shows its
- * read-only recording.
+ * The dashboard, by agent: chips name, by its CLI command, every agent that made a model call on
+ * this plugin, nanoagent (the person's chats) first and chosen at first, and the one chosen shows
+ * its usage and its sessions, newest first. Under nanoagent they start a new session or resume
+ * one, and archive a session; archived sessions leave the list for its Archived view, where they
+ * can be opened or restored; chatting in one again restores it. Every agent's list has the person's
+ * Harness tab sessions it made calls in (a free-form Terminal one under each agent that did), with
+ * its figures there, and the ones no agent made a call in, with their own: a free-form Terminal one
+ * resumes in the Harness tab, and any of them shows its read-only recording.
  * @param {object} options
  * @param {(session: object|null) => void} options.onOpen With what `session.resume` answered,
  *   or null for a new session.
@@ -174,7 +175,7 @@ export function dashboard({ onOpen, onResume, closed = false }) {
   const viewButton = h("button", { type: "button", class: "button small ghost", hidden: true });
   const chips = h("div", { class: "harness-chips", role: "group", "aria-label": "Harness" });
   let archivedView = false;
-  let chosen = RUSH;
+  let chosen = NANOAGENT;
   viewButton.addEventListener("click", () => {
     archivedView = !archivedView;
     refresh();
@@ -221,10 +222,11 @@ export function dashboard({ onOpen, onResume, closed = false }) {
     return h("li", { class: "session-row" }, h("div", { class: "session-line" }, open, spent, archiving));
   }
 
-  // A Harness session, with what the chosen harness's calls in it cost and took. A free-form Terminal one opens in the Harness tab,
-  // resumed where it was left (`onResume`), and shows its recording under it with Recording; any other opens as its recording.
+  // A Harness session, with what the chosen agent's calls in it cost and took, or its own `usage` when no agent made a call in it.
+  // A free-form Terminal one opens in the Harness tab, resumed where it was left (`onResume`), and shows its recording under it with
+  // Recording; any other opens as its recording.
   function terminalRow(session) {
-    const { usage } = session.harnesses.find((one) => one.harness === chosen);
+    const { usage } = session.harnesses.find((one) => one.harness === chosen) ?? session;
     const resumes = session.freeForm && !closed;
     const open = h(
       "button",
@@ -256,10 +258,10 @@ export function dashboard({ onOpen, onResume, closed = false }) {
       status.textContent = problem.message;
       return;
     }
-    const used = [RUSH, ...new Set(terminals.flatMap((one) => one.harnesses.map(({ harness }) => harness)).sort())];
-    if (!used.includes(chosen)) chosen = RUSH;
+    const used = [...new Set([NANOAGENT, ...terminals.flatMap((one) => one.harnesses.map(({ harness }) => harness)).sort()])];
+    if (!used.includes(chosen)) chosen = NANOAGENT;
     const archived = all.filter((one) => one.archivedAt);
-    if (!archived.length || chosen !== RUSH) archivedView = false;
+    if (!archived.length || chosen !== NANOAGENT) archivedView = false;
     chips.hidden = used.length < 2 || archivedView;
     chips.replaceChildren(...used.map((harness) => h("button", {
       type: "button", class: "harness-chip", text: harness, "aria-pressed": String(harness === chosen),
@@ -268,24 +270,26 @@ export function dashboard({ onOpen, onResume, closed = false }) {
         refresh();
       },
     })));
-    newButton.hidden = closed || chosen !== RUSH;
-    viewButton.hidden = !archived.length || chosen !== RUSH;
+    newButton.hidden = closed || chosen !== NANOAGENT;
+    viewButton.hidden = !archived.length || chosen !== NANOAGENT;
     viewButton.textContent = archivedView ? "Back to sessions" : `Archived (${archived.length})`;
     heading.textContent = archivedView ? "Archived sessions" : "Sessions";
-    if (chosen !== RUSH) {
-      const mine = terminals.filter((one) => one.harnesses.some(({ harness }) => harness === chosen));
+    const mine = terminals.filter((one) => one.harnesses.some(({ harness }) => harness === chosen));
+    const shown = archivedView ? [] : [...mine, ...terminals.filter((one) => !one.harnesses.length)].map((one) => [one, terminalRow]);
+    const newest = (rows) => rows.sort(([x], [y]) => new Date(y.updatedAt) - new Date(x.updatedAt)).map(([one, made]) => made(one));
+    if (chosen !== NANOAGENT) {
       const usages = mine.map((one) => one.harnesses.find(({ harness }) => harness === chosen).usage);
       stats.replaceChildren(counted(mine.length), harnessUsage(usages, mine.length, "session"));
-      list.replaceChildren(...[...mine].sort((x, y) => new Date(y.updatedAt) - new Date(x.updatedAt)).map(terminalRow));
+      list.replaceChildren(...newest(shown));
       return;
     }
     const sessions = archivedView ? archived : all.filter((one) => !one.archivedAt);
     const runs = sessions.reduce((sum, one) => sum + one.runs, 0);
     stats.replaceChildren(...(runs && !archivedView ? [counted(sessions.length), harnessUsage(sessions.map((one) => one.usage), runs, "message")] : []));
-    const newest = [...sessions].sort((x, y) => new Date(y.updatedAt) - new Date(x.updatedAt));
+    const rows = [...sessions.map((one) => [one, row]), ...shown];
     list.replaceChildren(
-      ...(newest.length
-        ? newest.map(row)
+      ...(rows.length
+        ? newest(rows)
         : [h("li", { class: "session-empty", text: emptyText(archived.length, closed) })]),
     );
   }

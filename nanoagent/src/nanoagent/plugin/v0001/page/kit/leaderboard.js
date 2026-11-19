@@ -33,10 +33,10 @@ const FIGURES = [
   ["model_calls", "Model calls", (of) => calls(of("model_calls"))],
   ["tool_calls", "Tool calls", (of) => calls(of("tool_calls"))],
 ];
-/** What a harness is given: RUSH the plugin's tools beside the task's prompt, every other harness the prompt with its own tools. */
+/** What a harness is given: nanoagent the plugin's tools beside the task's prompt, every other harness the prompt with its own tools. */
 const setup = (rush) => (rush ? "plugin tools + task prompt" : "prompt only (own tools)");
 const date = (iso) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-const rushPill = () => h("span", { class: "pill rush-pill", text: "RUSH" });
+const rushPill = () => h("span", { class: "pill rush-pill", text: "nanoagent" });
 const verdictPill = (verdict) => (verdict === "pass" ? statusPill("Right", "ok") : statusPill("Wrong", "bad"));
 
 /** "92% (12/13)": how many of a harness's scored runs were right. */
@@ -194,7 +194,7 @@ export function leaderboardPage() {
     h("header", { class: "dashboard-head" }, h("h2", { text: "Leaderboard" })),
     status,
     board.element,
-    h("p", { class: "muted small-text", text: "All harnesses get the same task and are judged by the same verifier. Only RUSH has the plugin's own tools, which is RUSH's approach." }),
+    h("p", { class: "muted small-text", text: "All harnesses get the same task and are judged by the same verifier. Only nanoagent has the plugin's own tools, which is RUSH's approach." }),
     casesBox,
   );
   return { element, refresh };

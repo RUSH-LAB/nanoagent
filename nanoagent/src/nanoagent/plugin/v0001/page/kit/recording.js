@@ -34,7 +34,7 @@ function replay({ terminal, data }, element) {
   shown.write(bytes(data));
 }
 
-/** One model call: its agent, model and figures, and its request and response once it is opened. */
+/** One model call: its agent (none when no process record ties it to one), model and figures, and its request and response once it is opened. */
 function modelCall(attemptId, call, index, status) {
   const body = h("div", { class: "leaderboard-trace" });
   let loaded = false;
@@ -53,7 +53,7 @@ function modelCall(attemptId, call, index, status) {
   };
   return disclosure(
     {
-      summary: `${index + 1} · ${call.agent} · ${call.model ?? "model"}`,
+      summary: [index + 1, call.agent, call.model ?? "model"].filter((part) => part !== null).join(" · "),
       hint: `${formatSeconds(call.durationS)} · ${count(call.inputTokens)} in / ${count(call.outputTokens)} out · ${formatCost(call.cost)}`,
       onToggle: (opened) => opened && load(),
     },

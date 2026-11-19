@@ -383,12 +383,12 @@ describe('the bridge host', () => {
     };
     const {posted, calls, send} = await hostWith(path => (path.includes('/events')
       ? Response.json(pages[new URL(path, 'http://rush').searchParams.get('after')])
-      : Response.json({harnesses: [{rank: 1, harness: 'RUSH'}], cases: []})));
+      : Response.json({harnesses: [{rank: 1, harness: 'nanoagent'}], cases: []})));
     send('b', 'leaderboard', {});
     send('t', 'leaderboard.trace', {attemptId: SESSION});
     await until(() => posted.length === 2);
     const byId = Object.fromEntries(messages(posted).map(message => [message.id, message.result]));
-    assert.deepEqual(byId, {b: {harnesses: [{rank: 1, harness: 'RUSH'}], cases: []}, t: {events: [...pages[0].events, ...pages[1].events]}});
+    assert.deepEqual(byId, {b: {harnesses: [{rank: 1, harness: 'nanoagent'}], cases: []}, t: {events: [...pages[0].events, ...pages[1].events]}});
     assert.deepEqual(calls.map(({path}) => path), [
       '/api/benchmark/leaderboard?plugin_id=arxiv-source',
       `/api/benchmark/attempts/${SESSION}/events?limit=1000&after=0`, `/api/benchmark/attempts/${SESSION}/events?limit=1000&after=1`,

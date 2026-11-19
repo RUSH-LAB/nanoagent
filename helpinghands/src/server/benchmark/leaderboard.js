@@ -3,9 +3,9 @@
 const {REFERENCE_HARNESSES} = require('./harness');
 const {SUBMIT} = require('./prompt');
 
-// What people call each reference harness (a unit test keeps these equal to REFERENCE_HARNESSES).
+// What each reference harness is called: its agent's CLI command (a unit test keeps these equal to REFERENCE_HARNESSES).
 const REFERENCE_LABELS = Object.freeze({
-  'nanoagent': 'RUSH', 'claude-code': 'Claude Code', 'codex': 'Codex', 'dsh': 'DSH', 'hermes': 'Hermes', 'pi': 'Pi', 'shell': 'Terminal',
+  'nanoagent': 'nanoagent', 'claude-code': 'claude', 'codex': 'codex', 'dsh': 'dsh', 'hermes': 'hermes', 'pi': 'pi', 'shell': 'shell',
 });
 
 // The figures each run shows and each harness averages, from its attempt's metrics (a run made in RUSH records some, an imported run

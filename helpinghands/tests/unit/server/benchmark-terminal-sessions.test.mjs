@@ -37,9 +37,11 @@ describe('a Harness tab session on the Dashboard', () => {
       processes: [shell, bash, claude, process(['rg', 'TODO'], 9, 11, claude), process(CODEX, 25, 40, bash), process(['/usr/bin/aider'], 45, 55, bash)],
       costs: {c1: 0.01, c2: 0.02},
     }));
-    assert.equal(session.title, 'claude, codex, aider, unknown');
-    assert.deepEqual(session.calls.map(one => [one.agent, one.startS, one.durationS]), [['claude', 10, 2], ['codex', 30, 3], ['aider', 50, 1], ['unknown', 70, 1]]);
+    assert.equal(session.title, 'claude, codex, aider');
+    assert.deepEqual(session.calls.map(one => [one.agent, one.startS, one.durationS]), [['claude', 10, 2], ['codex', 30, 3], ['aider', 50, 1], [null, 70, 1]]);
     const usage = usageOf(session);
+    assert.deepEqual(Object.keys(usage), ['claude', 'codex', 'aider']);
+    assert.deepEqual([session.usage.modelS, session.usage.durationS], [{sum: 1, count: 1}, {sum: 0, count: 0}]);
     assert.deepEqual(usage.claude, {
       durationS: {sum: 0, count: 0}, modelS: {sum: 2, count: 1}, toolsS: {sum: 0, count: 0},
       inputTokens: {sum: 100, count: 1}, outputTokens: {sum: 10, count: 1}, cost: {sum: 0.01, count: 1},
@@ -47,27 +49,28 @@ describe('a Harness tab session on the Dashboard', () => {
     assert.deepEqual([usage.aider.inputTokens, usage.aider.cost], [{sum: 0, count: 0}, {sum: 0, count: 0}]);
   });
 
-  it('names a session by its one agent, which takes its latency, and leaves a call two agents could have made unknown', () => {
+  it('names a session by its one agent, which takes its latency, and ties a call two agents could have made to none', () => {
     const wrapper = process(['sh', '/harness/bin/claude', '-p', 'hi'], 5, null);
     const one = terminalSession(row({calls: [call('c1', 10, 12)], processes: [wrapper, process(['python', '/harness/rush.py', 'cli', 'claude'], 6, 7, wrapper)], costs: {c1: 0.01}}));
     assert.deepEqual([one.title, usageOf(one).claude.durationS], ['claude', {sum: 60, count: 1}]);
     const both = terminalSession(row({calls: [call('c1', 10, 12)], processes: [process(CLAUDE, 5, null), process(CODEX, 6, null)]}));
-    assert.deepEqual([both.title, both.calls[0].agent], ['unknown', 'unknown']);
+    assert.deepEqual([both.title, both.calls[0].agent, both.harnesses, both.usage.durationS], ['claude', null, [], {sum: 60, count: 1}]);
     const codex = terminalSession(row({harness_name: 'codex', calls: [call('c1', 10, 12)]}));
-    assert.deepEqual([codex.harness, codex.title, terminalSession(row({harness_name: 'mine'})).harness], ['Codex', 'Codex', 'mine']);
+    const rush = terminalSession(row({harness_name: 'nanoagent', calls: [call('c1', 10, 12)]}));
+    assert.deepEqual([codex.title, rush.title, terminalSession(row({harness_name: 'claude-code'})).title], ['codex', 'nanoagent', 'claude']);
   });
 
-  it('names a session with no model calls by its main command, or shell', () => {
+  it('gives a session no agent made a model call in no agent, titled by its main command, its calls, or no agent', () => {
     const bash = process(BASH, 0, null);
     const ran = terminalSession(row({processes: [bash, process(['ls'], 1, 2, bash), process(['/usr/bin/python3', 'train.py'], 3, 40, bash)]}));
-    assert.deepEqual([ran.title, ran.harnesses.map(one => one.harness)], ['python3', ['python3']]);
-    assert.equal(terminalSession(row({processes: [bash]})).title, 'shell');
+    assert.deepEqual([ran.title, ran.harnesses], ['python3', []]);
+    assert.deepEqual([terminalSession(row({processes: [bash]})).title, terminalSession(row({calls: [call('c1', 1, 2), call('c2', 3, 4)]})).title], ['no agent', '2 model calls']);
   });
 
   it('knows nothing of a running session\'s calls, and knows a finished one with none made none', () => {
-    const running = usageOf(terminalSession(row({state: 'leased', finalized_at: null, elapsed_ms: null})));
-    assert.deepEqual([running.shell.cost, running.shell.durationS], [{sum: 0, count: 0}, {sum: 0, count: 0}]);
-    assert.deepEqual(usageOf(terminalSession(row())).shell.cost, {sum: 0, count: 1});
+    const running = terminalSession(row({state: 'leased', finalized_at: null, elapsed_ms: null})).usage;
+    assert.deepEqual([running.cost, running.durationS], [{sum: 0, count: 0}, {sum: 0, count: 0}]);
+    assert.deepEqual(terminalSession(row()).usage.cost, {sum: 0, count: 1});
   });
 });
 
@@ -86,7 +89,7 @@ describe('the Dashboard\'s Harness session routes', () => {
     const {status, payload} = await invoke(route, {method: 'GET', path: '/api/benchmark/terminal-sessions', query: {plugin_id: 'p'}, requestContext: CONTEXT, ctx});
     assert.equal(status, 200);
     assert.deepEqual(calls, [{pluginId: 'p', atCalls: true}]);
-    assert.deepEqual([payload.sessions[0].harness, 'calls' in payload.sessions[0]], ['claude', false]);
+    assert.deepEqual([payload.sessions[0].title, 'calls' in payload.sessions[0]], ['claude', false]);
   });
 
   it('replays one: its terminals, model calls and commands', async () => {

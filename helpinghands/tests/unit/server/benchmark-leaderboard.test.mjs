@@ -34,7 +34,7 @@ describe('a plugin\'s leaderboard', () => {
       row('my-agent', 'fail', {user: 'other'}),
     ], 'me');
     assert.deepEqual(board.map(({rank, harness, passed, scored}) => [rank, harness, passed, scored]), [
-      [1, 'RUSH', 1, 1], [2, 'Codex', 1, 2], [3, 'Pi', 1, 2], [4, 'DSH', 1, 2], [5, 'my-agent (@other name)', 0, 1],
+      [1, 'nanoagent', 1, 1], [2, 'codex', 1, 2], [3, 'pi', 1, 2], [4, 'dsh', 1, 2], [5, 'my-agent (@other name)', 0, 1],
     ]);
     assert.deepEqual([board[1].avg_latency_ms, board[1].avg_model_ms, board[1].avg_cached_tokens, board[1].avg_tool_calls], [2000, 800, 4, 2]);
     assert.deepEqual([board[2].avg_cost_usd, board[3].avg_cost_usd], [0.02, null]);
@@ -45,7 +45,7 @@ describe('a plugin\'s leaderboard', () => {
     assert.deepEqual([codex.avg_latency_ms, codex.avg_input_tokens, codex.avg_model_ms, codex.avg_tool_calls], [1000, 10, null, null]);
   });
 
-  it('groups the runs by case, RUSH first, showing the case and the attempt of the viewer\'s own runs only', () => {
+  it('groups the runs by case, nanoagent first, showing the case and the attempt of the viewer\'s own runs only', () => {
     const {cases} = leaderboard([
       row('pi', 'fail', {user: 'other', at: '2026-11-14T00:00:00Z', attempt: 'theirs'}),
       row('pi', 'pass', {at: '2026-11-13T00:00:00Z', attempt: 'mine-pi'}),
@@ -54,7 +54,7 @@ describe('a plugin\'s leaderboard', () => {
     ], 'me');
     assert.deepEqual(cases.map(shown => [shown.content_digest, shown.arguments, shown.reference]), [['d1', {x: 'd1'}, {y: 1}], ['d2', null, null]]);
     assert.deepEqual(cases[0].runs.map(run => [run.harness, run.rush, run.mine, run.attempt_id, run.input_tokens, run.tool_calls]), [
-      ['RUSH', true, true, 'mine-rush', 10, 2], ['Pi', false, false, null, 10, 2], ['Pi', false, true, 'mine-pi', 10, 2],
+      ['nanoagent', true, true, 'mine-rush', 10, 2], ['pi', false, false, null, 10, 2], ['pi', false, true, 'mine-pi', 10, 2],
     ]);
     assert.deepEqual(cases[0].runs.map(run => run.inputs), [
       {policy: 'task_tools', system: 'system', user: 'task_tools d1', tools: ['add', 'submit']}, null,
@@ -98,7 +98,7 @@ describe('GET /api/benchmark/leaderboard', () => {
     const {status, payload} = await invoke(route, {method: 'GET', path: '/api/benchmark/leaderboard', query: {plugin_id: 'p'}, requestContext: CONTEXT, ctx});
     assert.equal(status, 200);
     assert.deepEqual(calls, [['board', 'p']]);
-    assert.deepEqual([payload.harnesses[0].harness, payload.cases[0].runs[0].attempt_id], ['Pi', 'a1']);
+    assert.deepEqual([payload.harnesses[0].harness, payload.cases[0].runs[0].attempt_id], ['pi', 'a1']);
     assert.equal((await invoke(route, {method: 'GET', path: '/api/benchmark/leaderboard', query: {}, requestContext: CONTEXT, ctx})).status, 400);
   });
 });
