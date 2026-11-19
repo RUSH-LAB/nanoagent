@@ -48,9 +48,9 @@ describe('a Harness tab session on the Dashboard', () => {
     assert.deepEqual([session.usage.modelS, session.usage.durationS], [{sum: 1, count: 1}, {sum: 0, count: 0}]);
     assert.deepEqual(usage.claude, {
       durationS: {sum: 0, count: 0}, modelS: {sum: 2, count: 1}, toolsS: {sum: 0, count: 0},
-      inputTokens: {sum: 100, count: 1}, outputTokens: {sum: 10, count: 1}, cost: {sum: 0.01, count: 1},
+      inputTokens: {sum: 100, count: 1}, outputTokens: {sum: 10, count: 1}, cost: {sum: 0.01, count: 1, pending: 0},
     });
-    assert.deepEqual([usage.aider.inputTokens, usage.aider.cost], [{sum: 0, count: 0}, {sum: 0, count: 0}]);
+    assert.deepEqual([usage.aider.inputTokens, usage.aider.cost], [{sum: 0, count: 0}, {sum: 0, count: 0, pending: 1}]);
   });
 
   it('gives a call made while agents run in two terminals to the one its client names, live, at its first model call', () => {
@@ -96,10 +96,26 @@ describe('a Harness tab session on the Dashboard', () => {
     assert.deepEqual([terminalSession(row({processes: [bash]})).title, terminalSession(row({calls: [call('c1', 1, 2), call('c2', 3, 4)]})).title], ['no agent', '2 model calls']);
   });
 
+  it('shows a running session\'s Model Time and Cost as each call completes, a call the gateway has not settled pending, and the same once it ends', () => {
+    const claude = process(CLAUDE, 5, null);
+    const calls = [call('c1', 10, 12), call('c2', 20, 23), call('c3', 30, 31)];
+    for (const state of [{state: 'leased', finalized_at: null}, {}]) {
+      const settled = usageOf(terminalSession(row({...state, calls: calls.slice(0, 2), processes: [claude], costs: {c1: 0.01, c2: 0.0023}}))).claude;
+      assert.deepEqual([settled.modelS, settled.cost.count, settled.cost.pending], [{sum: 5, count: 1}, 1, 0]);
+      assert.ok(Math.abs(settled.cost.sum - 0.0123) < 1e-12);
+      const unsettled = usageOf(terminalSession(row({...state, calls, processes: [claude], costs: {c1: 0.01, c2: 0.0023}}))).claude;
+      assert.deepEqual([unsettled.modelS, unsettled.cost.pending], [{sum: 6, count: 1}, 1]);
+      assert.ok(Math.abs(unsettled.cost.sum - 0.0123) < 1e-12);
+    }
+    // A call still in flight has no Model Time yet, and its cost is pending.
+    const inFlight = usageOf(terminalSession(row({state: 'leased', finalized_at: null, processes: [claude], calls: [{...call('c1', 10, 12), end_ns: null}]}))).claude;
+    assert.deepEqual([inFlight.modelS, inFlight.cost], [{sum: 0, count: 0}, {sum: 0, count: 0, pending: 1}]);
+  });
+
   it('knows nothing of a running session\'s calls, and knows a finished one with none made none', () => {
     const running = terminalSession(row({state: 'leased', finalized_at: null, elapsed_ms: null})).usage;
-    assert.deepEqual([running.cost, running.durationS], [{sum: 0, count: 0}, {sum: 0, count: 0}]);
-    assert.deepEqual(terminalSession(row()).usage.cost, {sum: 0, count: 1});
+    assert.deepEqual([running.cost, running.durationS], [{sum: 0, count: 0, pending: 0}, {sum: 0, count: 0}]);
+    assert.deepEqual(terminalSession(row()).usage.cost, {sum: 0, count: 1, pending: 0});
   });
 });
 
@@ -172,8 +188,8 @@ describe('the chats of a Harness tab session on the Dashboard', () => {
     ]);
     // A claude chat has the gateway's exact figures, and neither End-to-End Latency nor Tool Time, which nothing measures exactly.
     assert.deepEqual(ended.map(({usage}) => [usage.cost, usage.inputTokens, usage.outputTokens, usage.modelS, usage.durationS, usage.toolsS]), [
-      [{sum: 0.01, count: 1}, {sum: 100, count: 1}, {sum: 10, count: 1}, {sum: 2, count: 1}, NONE, NONE],
-      [{sum: 0.05, count: 1}, {sum: 200, count: 1}, {sum: 20, count: 1}, {sum: 4, count: 1}, NONE, NONE],
+      [{sum: 0.01, count: 1, pending: 0}, {sum: 100, count: 1}, {sum: 10, count: 1}, {sum: 2, count: 1}, NONE, NONE],
+      [{sum: 0.05, count: 1, pending: 0}, {sum: 200, count: 1}, {sum: 20, count: 1}, {sum: 4, count: 1}, NONE, NONE],
     ]);
   });
 

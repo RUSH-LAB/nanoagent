@@ -58,6 +58,16 @@ export function formatCost(usd) {
   return `$${usd.toFixed(usd < 0.01 ? 4 : usd < 1 ? 3 : 2)}`;
 }
 
+/**
+ * "$0.0123", "$0.0123 + 1 pending", "2 pending", "—": a usage's Cost (`{sum, count, pending}`), its settled calls' sum and
+ * how many calls the gateway has not settled yet, never estimated.
+ */
+export function formatSettled({ sum, count, pending = 0 }) {
+  const settled = count ? formatCost(sum) : null;
+  if (!pending) return settled ?? "—";
+  return settled ? `${settled} + ${pending} pending` : `${pending} pending`;
+}
+
 /** "0.8 s", "14 s", "3 min 12 s": a duration, to a tenth of a second when short. */
 export function formatSeconds(seconds) {
   if (seconds === null || seconds === undefined) return "—";
@@ -125,12 +135,13 @@ export function usageFigures(usages, units, unit, agent) {
     if (own && agent !== NANOAGENT) return { total: UNMEASURED, average: UNMEASURED };
     const sum = usages.reduce((total, usage) => total + usage[key].sum, 0);
     const count = usages.reduce((total, usage) => total + usage[key].count, 0);
-    const total = count ? format(sum) : ["—"];
-    if (count && count < units) {
+    const pending = usages.reduce((total, usage) => total + (usage[key].pending ?? 0), 0);
+    const total = pending ? [formatSettled({ sum, count, pending }), `${plural(pending, "model call")} not settled by the gateway yet`] : count ? format(sum) : ["—"];
+    if (count && count < units && !pending) {
       const why = unit === "message" ? "those sent before RUSH counted it lack it" : "the others did not record it";
       total[1] = `For ${count.toLocaleString()} of ${plural(units, unit)}: ${why}`;
     }
-    return { total, average: count ? format(sum / count) : ["—"] };
+    return { total, average: pending ? ["—", total[1]] : count ? format(sum / count) : ["—"] };
   });
 }
 
@@ -278,7 +289,7 @@ export function dashboard({ onOpen, onChat, onStart, closed = false }) {
     const read = usage.inputTokens.count || usage.outputTokens.count;
     return line(chat, {
       title: chat.title, running: chat.running && "Running", verdict: chat.verdict, tokens: read ? thousands(usage.inputTokens.sum + usage.outputTokens.sum) : "—",
-      cost: usage.cost.count ? formatCost(usage.cost.sum) : "—", took: usage.durationS.count ? formatSeconds(usage.durationS.sum) : "—", terminal: true,
+      cost: formatSettled(usage.cost), took: usage.durationS.count ? formatSeconds(usage.durationS.sum) : "—", terminal: true,
       onClick: closed ? null : () => onChat(chat),
     });
   }

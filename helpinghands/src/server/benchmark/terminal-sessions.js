@@ -89,21 +89,22 @@ function processAt(processes, {start: at, client, run}) {
 const agentAt = (processes, call) => processAt(processes, call)?.agent ?? null;
 
 /**
- * What `calls` took, read and cost, in the figures a chat's usage has, from the gateway's records alone, which measure them exactly.
+ * What `calls` took, read and cost, in the figures a chat's usage has, from the gateway's records alone, which measure them exactly,
+ * each call counted the moment it completes: Model Time sums the calls that ended (each from its dispatch to its completion), Cost
+ * the calls the gateway settled, with `pending` the calls it has not (still running, or their cost not known yet), never estimated.
  * End-to-End Latency and Tool Time are never known: only nanoagent reports its own steps, and nothing else measures them exactly.
  */
 function usageOf(calls, final) {
-  // A session's calls are known once it is final and the gateway's evidence is in; a session with none made none.
-  const all = pick => final && calls.every(call => pick(call) !== null);
+  // A session with no calls made none once it is final.
   const some = pick => (final && !calls.length) || calls.some(call => pick(call) !== null);
   const sum = pick => calls.reduce((total, call) => total + (pick(call) ?? 0), 0);
   return {
     durationS: figure(0, false),
-    modelS: figure(sum(call => call.durationS), all(call => call.durationS)),
+    modelS: figure(sum(call => call.durationS), some(call => call.durationS)),
     toolsS: figure(0, false),
     inputTokens: figure(sum(call => call.inputTokens), some(call => call.inputTokens)),
     outputTokens: figure(sum(call => call.outputTokens), some(call => call.outputTokens)),
-    cost: figure(sum(call => call.cost), all(call => call.cost)),
+    cost: {...figure(sum(call => call.cost), some(call => call.cost)), pending: calls.filter(call => call.cost === null).length},
   };
 }
 
@@ -241,8 +242,8 @@ function terminalChats(row) {
   return chats;
 }
 
-/** Add two of a chat's figures (`{sum, count}`), known when either is. */
-const plus = (x, y) => ({sum: x.sum + y.sum, count: Math.max(x.count, y.count)});
+/** Add two of a chat's figures (`{sum, count}`, Cost's with `pending`), known when either is. */
+const plus = (x, y) => ({sum: x.sum + y.sum, count: Math.max(x.count, y.count), ...('pending' in x ? {pending: x.pending + y.pending} : {})});
 
 /**
  * The member's chats across `sessions` (each `terminalChats`), one per conversation: a conversation resumed in a later session is one
