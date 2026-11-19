@@ -81,6 +81,18 @@ async def test_x_api_key_works_and_credentials_are_swapped_upstream(tmp_path: Pa
     assert response.headers["x-generation-id"] == "gen-abc" and response.headers["x-rush-call-id"]
 
 
+async def test_a_token_naming_a_rush_run_is_admitted_and_its_call_recorded_as_that_runs(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, ScriptedTransport(chat_ok(), chat_ok()))
+    async with rig.client() as client:
+        assert (await client.post(PATHS["chat_completions"], json=chat_request(), headers={"authorization": f"Bearer {TOKEN}.r1"})).status_code == 200
+        assert (await client.post(PATHS["chat_completions"], json=chat_request(), headers={"authorization": "", "x-api-key": TOKEN})).status_code == 200
+        assert (await client.post(PATHS["chat_completions"], json=chat_request(), headers={"authorization": "Bearer nope.r1"})).status_code == 401
+        refused = await client.post(PATHS["chat_completions"], json=chat_request(), headers={"authorization": f"Bearer {TOKEN}.r1", "x-api-key": f"{TOKEN}.r2"})
+        assert refused.status_code == 400 and refused.json()["error"]["code"] == "invalid_run"
+    assert [e.data["run"] for e in rig.journal.of("model_call.admitted")] == ["r1", None]
+    assert TOKEN not in str(rig.transport.requests[0].headers)
+
+
 @pytest.mark.parametrize("method,path", [("POST", "/api/v1/embeddings"), ("GET", "/api/v1/models"), ("POST", "/api/v1/messages/count_tokens"), ("GET", "/elsewhere")])
 async def test_unsupported_routes_are_404_and_recorded(tmp_path: Path, method: str, path: str) -> None:
     rig = make_rig(tmp_path, ScriptedTransport())

@@ -271,21 +271,23 @@ class Gateway:
         anthropic = dialect == "anthropic_messages"
         submitted_sha: str | None = None
         span_id: str | None = None
+        run: str | None = None
         try:
             self.attempt.require_auth(request)
             if dialect not in self.attempt.policy.dialects:
                 raise ServiceError(404, "dialect_not_enabled", f"{SUFFIXES[dialect]} is not among this attempt's dialects {list(self.attempt.policy.dialects)}")
             span_id = self.attempt.span_id(request)
+            run = self.attempt.rush_run(request)
             self.attempt.require_active()
             raw = await self.attempt.read_body(request)
             submitted_sha = await self.recorder.payload(raw)
-            call = await self._admit(request, dialect, raw, call_id, span_id, submitted_sha)
+            call = await self._admit(request, dialect, raw, call_id, span_id, run, submitted_sha)
         except ServiceError as error:
-            await self._reject(call_id, dialect, request, error, span_id, submitted_sha)
+            await self._reject(call_id, dialect, request, error, span_id, submitted_sha, run)
             return error_response(error, call_id, anthropic=anthropic)
         return _Relay(self, call)
 
-    async def _admit(self, request: Request, dialect: str, raw: bytes, call_id: str, span_id: str | None, submitted_sha: str) -> _Call:
+    async def _admit(self, request: Request, dialect: str, raw: bytes, call_id: str, span_id: str | None, run: str | None, submitted_sha: str) -> _Call:
         policy = self.attempt.policy
         try:
             body = decode_json_object(raw, policy.max_request_bytes)
@@ -327,6 +329,7 @@ class Gateway:
                 "call_id": call_id,
                 "dialect": dialect,
                 "span_id": span_id,
+                "run": run,
                 "model": policy.model,
                 "stream": call.stream,
                 "ordinal": self._admitted,
@@ -341,7 +344,9 @@ class Gateway:
         )
         return call
 
-    async def _reject(self, call_id: str, dialect: str | None, request: Request, error: ServiceError, span_id: str | None, submitted_sha: str | None) -> None:
+    async def _reject(
+        self, call_id: str, dialect: str | None, request: Request, error: ServiceError, span_id: str | None, submitted_sha: str | None, run: str | None = None
+    ) -> None:
         await self.recorder.record(
             "gateway",
             "model_call.rejected",
@@ -355,6 +360,7 @@ class Gateway:
                 "http_status": error.status,
                 "requested_model": error.model if isinstance(error, PolicyRefused) else None,
                 "span_id": span_id,
+                "run": run,
                 "admitted": False,
                 "submitted_request_sha256": submitted_sha,
             },

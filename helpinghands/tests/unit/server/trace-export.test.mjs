@@ -32,7 +32,7 @@ function run(id, user, plugin, createdAt) {
   };
   const events = [
     {kind: 'process.exec', data: {argv: ['claude', '-p', 'Add one and two']}},
-    {kind: 'model_call.admitted', data: {call_id: 'k1', dialect: 'anthropic_messages', model: 'm', submitted_request_sha256: sha(REQUEST)}},
+    {kind: 'model_call.admitted', data: {call_id: 'k1', dialect: 'anthropic_messages', model: 'm', run: 'r1', submitted_request_sha256: sha(REQUEST)}},
     {kind: 'model_call.dispatched', data: {call_id: 'k1', url: 'https://openrouter.ai/api/v1/messages'}},
     {kind: 'model_call.response', data: {call_id: 'k1', dialect: 'anthropic_messages', terminal: 'completed', http_status: 200, usage: {input: 5, output: 3}, stream_payload_sha256: sha(STREAM)}},
     {kind: 'process.exit', data: {exit_code: 0}},
@@ -97,6 +97,7 @@ describe('GET /api/traces/export', () => {
     assert.equal(call.response_text, 'It is 3.');
     assert.equal(call.url, 'https://openrouter.ai/api/v1/messages');
     assert.deepEqual(call.usage, {input: 5, output: 3});
+    assert.equal(call.run, 'r1');  // the `rush <command>` run whose process tree made it
     assert.deepEqual(attempt.events.filter(event => event.kind.startsWith('process.')).map(event => event.data), [{argv: ['claude', '-p', 'Add one and two']}, {exit_code: 0}]);
     assert.deepEqual(attempt.accounting, [{call_id: 'k1', status: 'settled', cost_usd: 0.01}]);
     assert.deepEqual(attempt.terminals, [{terminal: 0, text: '$ claude\n3\n'}]);

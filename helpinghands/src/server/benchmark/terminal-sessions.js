@@ -69,21 +69,24 @@ const CLIENTS = Object.freeze([['claude', /^claude-cli\//], ['codex', /^codex[-_
 const clientAgent = client => CLIENTS.find(([, pattern]) => pattern.test(client ?? ''))?.[0] ?? null;
 
 /**
- * The outermost agent process running at `at` (ns) that made a call from `client`: of the agent that client names when it names one,
- * and those running then all one agent (the latest started of them); otherwise null (no process the record shows ran then, as in a
- * session recorded before process records, or two agents could have made the call).
+ * The agent process that made `call` ({start, client, run}). A call that names a `rush <command>` run (its token's, which every process
+ * the run's command starts inherits) is that run's process's, whatever else ran then. Any other call is the outermost agent process
+ * running at its start that no such run is: of the agent its client (user-agent) names when it names one, and those running then all
+ * one agent (the latest started of them); otherwise null (no process the record shows ran then, as in a session recorded before
+ * process records, or two agents could have made the call).
  */
-function processAt(processes, at, client) {
+function processAt(processes, {start: at, client, run}) {
+  if (run) return processes.find(process => process.run === run) ?? null;
   if (at === null) return null;
   const named = clientAgent(client);
   const running = outermost(processes.filter(process => process.start !== null && process.start <= at && (process.end === null || process.end >= at)))
-    .filter(process => named === null || process.agent === named);
+    .filter(process => process.run === null && (named === null || process.agent === named));
   if (new Set(running.map(process => process.agent)).size !== 1) return null;
   return running.reduce((latest, process) => (process.start > latest.start ? process : latest));
 }
 
-/** The agent whose process made a call from `client` at `at` (processAt), or null. */
-const agentAt = (processes, at, client) => processAt(processes, at, client)?.agent ?? null;
+/** The agent whose process made `call` (processAt), or null. */
+const agentAt = (processes, call) => processAt(processes, call)?.agent ?? null;
 
 /**
  * What `calls` took, read and cost, in the figures a chat's usage has, from the gateway's records alone, which measure them exactly.
@@ -118,6 +121,7 @@ function terminalSession(row) {
   const shell = row.harness_name === 'shell';
   const processes = row.processes.map(process => ({
     id: process.span_id, parent: process.parent_id, start: ns(process.start_ns), end: ns(process.end_ns), agent: agentOf(process.argv ?? []),
+    run: process.run ?? null,
   }));
   const label = harnessLabel(row.harness_name);
   const calls = row.calls
@@ -126,7 +130,7 @@ function terminalSession(row) {
       const start = ns(call.start_ns);
       const end = ns(call.end_ns);
       return {
-        start, agent: shell ? agentAt(processes, start, call.client) : label, durationS: seconds(start, end),
+        start, agent: shell ? agentAt(processes, {start, client: call.client, run: call.run ?? null}) : label, durationS: seconds(start, end),
         inputTokens: call.usage?.input ?? null, outputTokens: call.usage?.output ?? null,
         cost: typeof row.costs[call.call_id] === 'number' ? row.costs[call.call_id] : null,
       };
@@ -191,13 +195,13 @@ function terminalChats(row) {
   const archived = key => row.archived_chats?.[key] ?? null;
   const processes = row.processes.map(process => ({
     id: process.span_id, parent: process.parent_id, start: ns(process.start_ns), end: ns(process.end_ns), argv: process.argv ?? [], cwd: process.cwd ?? null,
-    title: process.title ?? null, verdict: process.verdict ?? null, agent: agentOf(process.argv ?? []),
+    title: process.title ?? null, verdict: process.verdict ?? null, run: process.run ?? null, agent: agentOf(process.argv ?? []),
   }));
   const calls = row.calls.filter(call => call.status !== 'rejected').map(call => {
     const start = ns(call.start_ns);
     const end = ns(call.end_ns);
     return {
-      start, prompt: call.prompt ?? null, process: row.harness_name === 'shell' ? processAt(processes, start, call.client) : null, durationS: seconds(start, end),
+      start, prompt: call.prompt ?? null, process: row.harness_name === 'shell' ? processAt(processes, {start, client: call.client, run: call.run ?? null}) : null, durationS: seconds(start, end),
       inputTokens: call.usage?.input ?? null, outputTokens: call.usage?.output ?? null,
       cost: typeof row.costs[call.call_id] === 'number' ? row.costs[call.call_id] : null,
     };

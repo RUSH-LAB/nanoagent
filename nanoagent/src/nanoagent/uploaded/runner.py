@@ -270,25 +270,26 @@ class LateTools:
 class RushRuns:
     """A Terminal session's `rush <command>` runs (the shell's rush.py): the case a scored one works, pinned the first time the session
     asks for the task's prompt (`/runs/prompt`) and kept for every run after, with its plugin unpacked; and each run under way, by its
-    id: when it started (the worker's clock) and its process."""
+    id: its process."""
 
     def __init__(self) -> None:
         self.pinning = anyio.Lock()
         self.case: Mapping[str, Any] | None = None  # the worker client's score_case
         self.manifest: PluginManifest | None = None
-        self.running: dict[str, tuple[int, int]] = {}  # run id -> (start ns, pid)
+        self.running: dict[str, int] = {}  # run id -> pid
 
 
-def run_figures(records: Sequence[Mapping[str, Any]], start_ns: int, end_ns: int) -> dict[str, Any]:
-    """What the model calls the gateway answered between ``start_ns`` and ``end_ns`` (the worker's clock) took: their tokens, and their
-    cost, None while one of theirs is not known; and the model each call it refused for naming another model than the session's asked
-    for (`rejected`)."""
-    during = [record for record in records if start_ns <= int(record["occurred_ns"]) <= end_ns]
-    calls = [record["data"] for record in during if record["kind"] == "model_call.response"]
+def run_figures(records: Sequence[Mapping[str, Any]], run: str) -> dict[str, Any]:
+    """What the model calls of `rush <command>` run ``run`` took, those its process tree made (the gateway took them under the run their
+    token named), whatever else ran meanwhile: their tokens, and their cost, None while one of theirs is not known; and the model each
+    call it refused for naming another model than the session's asked for (`rejected`)."""
+    made = [record for record in records if record["data"].get("run") == run]
+    admitted = {record["data"]["call_id"] for record in made if record["kind"] == "model_call.admitted"}
+    calls = [record["data"] for record in records if record["kind"] == "model_call.response" and record["data"]["call_id"] in admitted]
     costs = [(call.get("settlement") or {}).get("cost_usd") for call in calls]
     return {
         "rejected": [
-            str(record["data"].get("requested_model")) for record in during if record["kind"] == "model_call.rejected" and record["data"].get("code") == "model_not_pinned"
+            str(record["data"].get("requested_model")) for record in made if record["kind"] == "model_call.rejected" and record["data"].get("code") == "model_not_pinned"
         ],
         "input_tokens": sum((call.get("usage") or {}).get("input") or 0 for call in calls),
         "output_tokens": sum((call.get("usage") or {}).get("output") or 0 for call in calls),
@@ -907,7 +908,8 @@ class AttemptRunner:
     ) -> Mapping[str, Any]:
         """One request of a Terminal session's `rush <command>` run (the shell's rush.py, app RUN_ACTIONS). `prompt`: the plugin task's
         prompt, its case pinned the first time. `start` ({pid, title}): a run of process ``pid`` begins, its id answered, its title (a
-        one-shot run's prompt argument) kept on its process (records.ProcessRush), which the Dashboard titles its row by. `title`
+        one-shot run's prompt argument) kept on its process (records.ProcessRush), which the Dashboard titles its row by, with the run's id,
+        which every model call its process tree makes names (rush.py gives the command the key `<token>.<run>`). `title`
         ({run, title}): an interactive run's, the first line typed into it. `end` ({run, exit_code, scored}): what its model calls took
         (run_figures); a scored one (given the task's prompt) is verified on the answer.json it left in the workspace, as a harness's is,
         its verdict (right or wrong) kept on its process too, for its Dashboard row, and answered."""
@@ -917,15 +919,14 @@ class AttemptRunner:
             pid, title = body.get("pid"), body.get("title")
             if not isinstance(pid, int) or not (title is None or isinstance(title, str)):
                 raise ServiceError(400, "invalid_request", "a run starts with its process's pid and its title, or null")
-            run, now = uuid.uuid4().hex, self.clock_ns()
-            runs.running[run] = (now, pid)
-            if title:
-                await emit.emit(rec.ProcessRush(pid, now, title=title))
+            run = uuid.uuid4().hex
+            runs.running[run] = pid
+            await emit.emit(rec.ProcessRush(pid, self.clock_ns(), title=title or None, run=run))
             return {"run": run}
         run = body.get("run")
         if run not in runs.running:
             raise ServiceError(404, "unknown_run", "no run under way here has that id")
-        start, pid = runs.running[run]
+        pid = runs.running[run]
         if action == "title":
             if not isinstance(body.get("title"), str):
                 raise ServiceError(400, "invalid_request", "a title is a string")
@@ -935,9 +936,8 @@ class AttemptRunner:
         if not isinstance(code, int) or not isinstance(scored, bool):
             raise ServiceError(400, "invalid_request", "a run ends with its exit_code and whether it is scored")
         del runs.running[run]
-        end = self.clock_ns()
         await services.flush()  # the run's last calls are in the journal
-        ran = run_figures(journal.records, start, end)
+        ran = run_figures(journal.records, run)
         if not scored:
             return ran
         if runs.case is None or runs.manifest is None:

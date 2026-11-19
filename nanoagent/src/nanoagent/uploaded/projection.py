@@ -199,7 +199,7 @@ def _model_calls(j: _Join) -> None:
             provenance=OBSERVED, target=c.model,
             attributes={**extra, "call_id": c.call_id, "dialect": c.dialect, "terminal": c.terminal, "http_status": c.http_status, "stream": c.stream, "ordinal": c.ordinal,
                         "generation_id": c.generation_id, "response_id": c.response_id, "resolved_model": c.resolved_model, "provider": c.provider, "finish_reason": c.finish_reason,
-                        "error": c.error, "rejected": c.rejected, "client": c.client, "prompt": c.prompt, "submitted_request_sha256": c.submitted_sha256, "effective_request_sha256": c.effective_sha256,
+                        "error": c.error, "rejected": c.rejected, "client": c.client, "prompt": c.prompt, "run": c.run, "submitted_request_sha256": c.submitted_sha256, "effective_request_sha256": c.effective_sha256,
                         "response_sha256": c.response_sha256, "frames_sha256": c.frames_sha256, "usage": None if usage is None else {k: getattr(usage, k) for k in ("input", "output", "total", "cache_read", "cache_write", "reasoning")},
                         "evidence": list(c.evidence)},
         )  # fmt: skip
@@ -357,7 +357,7 @@ def _processes(j: _Join) -> None:
         status = "unfinished" if p.end_ns is None else ("ok" if p.exit_code == 0 and p.signal is None else "error")
         j.add(id=pid[ident], kind="process", name=base, parent=parent, scope=None, status=status, start_ns=p.start_ns, end_ns=p.end_ns, provenance=OBSERVED, target=p.argv[0] if p.argv else None,
               attributes={"tgid": ident[0], "start_time": ident[1], "argv": p.argv, "cwd": p.cwd, "exit_code": p.exit_code, "signal": p.signal, "launch_id": p.launch_id,
-                          "title": p.title, "verdict": p.verdict, "linked_command": parent_link[0] if parent_link else None, "evidence": list(p.evidence)})  # fmt: skip
+                          "title": p.title, "verdict": p.verdict, "run": p.run, "linked_command": parent_link[0] if parent_link else None, "evidence": list(p.evidence)})  # fmt: skip
         if parent_link:
             j.links.append(LinkOut("command_process", parent_link[0], pid[ident], parent_link[1],
                                    {"launch_id": p.launch_id, "exit_code": p.exit_code, "signal": p.signal, "evidence": list(p.evidence)}))  # fmt: skip

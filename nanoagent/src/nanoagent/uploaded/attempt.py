@@ -112,14 +112,24 @@ class AttemptPolicy:
         return next((tool for tool in self.tools if tool.name == name), None)
 
 
+def _offered(request: Request) -> list[str]:
+    """The credentials ``request`` offers, in `x-api-key` and `Authorization: Bearer`."""
+    offered = [request.headers.get("x-api-key")]
+    scheme, _, credential = request.headers.get("authorization", "").partition(" ")
+    offered.append(credential.strip() if scheme.lower() == "bearer" else None)
+    return [value for value in offered if value is not None]
+
+
+def _is_token(value: str, digest: bytes) -> bool:
+    """Whether credential ``value`` is the token whose sha256 is ``digest``, or that token naming a `rush <command>` run after a dot
+    (`<token>.<run>`: the key rush.py gives its command, which every process the command starts inherits)."""
+    return hmac.compare_digest(hashlib.sha256(value.partition(".")[0].encode()).digest(), digest)
+
+
 def carries(request: Request, digest: bytes) -> bool:
     """Constant-time check that ``request`` carries the token whose sha256 is ``digest``, in `Authorization: Bearer` or `x-api-key`."""
-    offered = [request.headers.get("x-api-key")]
-    authorization = request.headers.get("authorization", "")
-    scheme, _, credential = authorization.partition(" ")
-    offered.append(credential.strip() if scheme.lower() == "bearer" else None)
     # Both candidates are always compared so the outcome does not depend on which header carried the token.
-    matches = [hmac.compare_digest(hashlib.sha256(value.encode()).digest(), digest) for value in offered if value is not None]
+    matches = [_is_token(value, digest) for value in _offered(request)]
     return any(matches)
 
 
@@ -140,6 +150,16 @@ class Attempt:
     def authenticate(self, request: Request) -> bool:
         """Constant-time check of the attempt token in `Authorization: Bearer` or `x-api-key`."""
         return carries(request, self._token_digest)
+
+    def rush_run(self, request: Request) -> str | None:
+        """The `rush <command>` run whose process tree made ``request``: the run its token names (`<token>.<run>`), or None."""
+        runs = {value.partition(".")[2] for value in _offered(request) if _is_token(value, self._token_digest)} - {""}
+        if len(runs) > 1:
+            raise ServiceError(400, "invalid_run", "the request's credentials name two rush runs")
+        run = runs.pop() if runs else None
+        if run is not None and not _ID.match(run):
+            raise ServiceError(400, "invalid_run", f"a rush run's id must match {_ID.pattern}")
+        return run
 
     def require_auth(self, request: Request) -> None:
         if not self.authenticate(request):

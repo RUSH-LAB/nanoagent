@@ -107,6 +107,7 @@ class ModelCall:
     evidence: tuple[str, ...]
     client: str | None = None  # the user-agent the call came with, which tells which agent CLI of a Terminal session made it
     prompt: str | None = None  # its request's last user message, titled (chats.prompt_of): a run's first call titles its chat
+    run: str | None = None  # the `rush <command>` run whose process tree made it (the run its token named)
     parser_version: str = PARSER_VERSION
 
 
@@ -168,6 +169,7 @@ class ProcessInfo:
     evidence: tuple[str, ...]
     title: str | None = None  # a `rush <command>` run's (records.ProcessRush)
     verdict: str | None = None  # a scored `rush <command>` run's: right or wrong
+    run: str | None = None  # a `rush <command>` run's id, which its model calls name
     parser_version: str = PARSER_VERSION
 
 

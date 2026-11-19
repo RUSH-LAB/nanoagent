@@ -203,6 +203,22 @@ describe('the chats of a Harness tab session on the Dashboard', () => {
     assert.deepEqual(terminalChats(free({...recorded, processes: [bash, process(['aider'], 5, 20, bash)]})), []);
   });
 
+  it('gives two overlapping `rush` runs in two terminals each only the calls its process tree made (the run its key names)', () => {
+    const bash = process(BASH, 0, null);
+    const first = process(RUSH(['aider']), 5, 40, bash, '/rush/workspace', {title: 'first', run: 'r1'});
+    const second = process(RUSH(['aider']), 10, 30, bash, '/rush/workspace', {title: 'second', run: 'r2'});
+    const claude = process(CLAUDE, 12, 25, bash);  // a listed agent at a third terminal, its calls naming no run
+    const recorded = {
+      calls: [{...call('c1', 6, 7), run: 'r1'}, {...call('c2', 14, 15, {input: 200, output: 20}), run: 'r2'}, {...call('c3', 16, 17, {input: 300, output: 30}), run: 'r1'},
+        {...call('c4', 18, 19, {input: 7, output: 1}), client: 'claude-cli/2.1.325 (external, cli)'}],
+      processes: [bash, first, second, claude, process(['aider'], 5, 40, first), process(['aider'], 10, 30, second)], costs: {c1: 0.01, c2: 0.02, c3: 0.03, c4: 0.04}, chats: [],
+    };
+    const chats = terminalChats(free(recorded));
+    assert.deepEqual(chats.map(chat => [chat.title, chat.usage.inputTokens.sum, chat.usage.cost.sum]), [['first', 400, 0.04], ['second', 200, 0.02], ['claude', 7, 0.04]]);
+    const usage = usageOf(terminalSession(free(recorded)));
+    assert.deepEqual([usage.aider.inputTokens.sum, usage.claude.inputTokens.sum], [600, 7]);
+  });
+
   it('makes `rush claude` one chat, as claude is, never its run and its CLI\'s both', () => {
     const bash = process(BASH, 0, null);
     const rush = process(RUSH(['claude', '-p', 'say ok']), 5, 20, bash, '/rush/workspace', {title: 'say ok'});

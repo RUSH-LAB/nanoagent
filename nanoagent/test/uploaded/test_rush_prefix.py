@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -121,23 +122,29 @@ async def test_the_services_hand_each_run_request_to_the_runner(tmp_path: Path) 
     assert asked == [("start", {"pid": 7, "title": None}), ("end", {"run": "gone"})]
 
 
-def response(at: int, input_tokens: int, output_tokens: int, cost: str | None) -> dict[str, Any]:
-    return {"kind": "model_call.response", "occurred_ns": at, "data": {"usage": {"input": input_tokens, "output": output_tokens}, "settlement": {"cost_usd": cost}}}
+def call(call_id: str, run: str | None, input_tokens: int, output_tokens: int, cost: str | None) -> list[dict[str, Any]]:
+    """A model call's admission, under the run its token named, and its response."""
+    return [
+        {"kind": "model_call.admitted", "occurred_ns": 0, "data": {"call_id": call_id, "run": run}},
+        {"kind": "model_call.response", "occurred_ns": 0, "data": {"call_id": call_id, "usage": {"input": input_tokens, "output": output_tokens}, "settlement": {"cost_usd": cost}}},
+    ]
 
 
-def test_a_runs_figures_are_its_calls_answered_while_it_ran() -> None:
-    records = [response(5, 100, 10, "0.001"), response(15, 200, 20, "0.002"), response(25, 400, 40, "0.004"), {"kind": "model_call.admitted", "occurred_ns": 16, "data": {}}]
-    assert run_figures(records, 10, 30) == {"input_tokens": 600, "output_tokens": 60, "cost_usd": pytest.approx(0.006), "rejected": []}
-    assert run_figures([*records, response(20, 1, 1, None)], 10, 30)["cost_usd"] is None  # a call not settled
-    assert run_figures(records, 30, 40) == {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "rejected": []}
+def test_two_overlapping_runs_each_get_only_the_calls_their_process_trees_made() -> None:
+    # Runs r1 and r2 at once in two terminals, their calls interleaved, beside a listed agent's call that names no run.
+    records = [*call("c1", "r1", 100, 10, "0.001"), *call("c2", "r2", 200, 20, "0.002"), *call("c3", None, 800, 80, "0.008"), *call("c4", "r1", 400, 40, "0.004")]
+    assert run_figures(records, "r1") == {"input_tokens": 500, "output_tokens": 50, "cost_usd": pytest.approx(0.005), "rejected": []}
+    assert run_figures(records, "r2") == {"input_tokens": 200, "output_tokens": 20, "cost_usd": pytest.approx(0.002), "rejected": []}
+    assert run_figures([*records, *call("c5", "r2", 1, 1, None)], "r2")["cost_usd"] is None  # a call not settled
+    assert run_figures(records, "r3") == {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "rejected": []}
 
 
 def test_a_runs_figures_name_the_models_its_refused_calls_asked_for() -> None:
-    def rejected(at: int, code: str, model: str | None) -> dict:
-        return {"kind": "model_call.rejected", "occurred_ns": at, "data": {"code": code, "requested_model": model}}
+    def rejected(run: str | None, code: str, model: str | None) -> dict:
+        return {"kind": "model_call.rejected", "occurred_ns": 0, "data": {"code": code, "requested_model": model, "run": run}}
 
-    records = [rejected(5, "model_not_pinned", "early"), rejected(15, "model_not_pinned", "claude-sonnet-4-5"), rejected(16, "output_cap_exceeded", None)]
-    assert run_figures(records, 10, 30)["rejected"] == ["claude-sonnet-4-5"]
+    records = [rejected("r2", "model_not_pinned", "another run's"), rejected("r1", "model_not_pinned", "claude-sonnet-4-5"), rejected("r1", "output_cap_exceeded", None)]
+    assert run_figures(records, "r1")["rejected"] == ["claude-sonnet-4-5"]
 
 
 class Runs:
@@ -146,7 +153,7 @@ class Runs:
     def __init__(self, tmp_path: Path, verdict: str = "pass") -> None:
         self.emitted: list[rec.Fact] = []
         self.clock = iter(range(100, 10_000, 100))
-        self.journal = SimpleNamespace(records=[response(150, 1200, 30, "0.0021")])
+        self.journal = SimpleNamespace(records=[])
         self.workspace = tmp_path
         self.verified: list[tuple[Any, ...]] = []
         case = {"case_id": "c1", "kind": "answer", "arguments": {"city": "Paris"}, "reference": {"temp": 20}}
@@ -180,14 +187,19 @@ class Runs:
             SimpleNamespace(handle=SimpleNamespace(workspace=self.workspace)), self.workspace, action, body,
         )  # fmt: skip
 
+    def called(self, run: str) -> None:
+        """Run ``run``'s process tree made a call."""
+        self.journal.records += call(f"c{len(self.journal.records)}", run, 1200, 30, "0.0021")
+
 
 async def test_an_interactive_run_is_titled_by_its_first_line_and_ends_with_what_its_calls_took(tmp_path: Path) -> None:
     runs = Runs(tmp_path)
     run = (await runs("start", {"pid": 42, "title": None}))["run"]
-    assert runs.emitted == []
+    assert runs.emitted == [rec.ProcessRush(42, 100, run=run)]
+    runs.called(run)
     assert await runs("title", {"run": run, "title": "list three ids"}) == {}
     assert await runs("end", {"run": run, "exit_code": 0, "scored": False}) == {"input_tokens": 1200, "output_tokens": 30, "cost_usd": pytest.approx(0.0021), "rejected": []}
-    assert runs.emitted == [rec.ProcessRush(42, 200, title="list three ids")]
+    assert runs.emitted == [rec.ProcessRush(42, 100, run=run), rec.ProcessRush(42, 200, title="list three ids")]
     assert runs.verified == []  # an unscored run is not verified
     with pytest.raises(ServiceError, match="no run under way"):
         await runs("end", {"run": run, "exit_code": 0, "scored": False})
@@ -198,10 +210,11 @@ async def test_a_scored_run_is_verified_on_the_answer_it_left_and_its_verdict_ke
     assert await runs("prompt", {}) == {"prompt": PROMPT}
     (tmp_path / "answer.json").write_text('{"temp": 20}')
     run = (await runs("start", {"pid": 42, "title": "the weather"}))["run"]
+    runs.called(run)
     ended = await runs("end", {"run": run, "exit_code": 0, "scored": True})
     assert ended == {"input_tokens": 1200, "output_tokens": 30, "cost_usd": pytest.approx(0.0021), "rejected": [], "verdict": "right", "explanation": "20 °C is right"}
     assert runs.verified == [("weather", {"city": "Paris"}, {"status": "answered", "answer": {"temp": 20}}, {"temp": 20}, tmp_path)]
-    assert runs.emitted == [rec.ProcessRush(42, 100, title="the weather"), rec.ProcessRush(42, 300, verdict="right")]
+    assert runs.emitted == [rec.ProcessRush(42, 100, title="the weather", run=run), rec.ProcessRush(42, 200, verdict="right")]
 
 
 async def test_a_scored_run_that_failed_or_wrote_no_answer_is_scored_on_that(tmp_path: Path) -> None:
@@ -227,19 +240,33 @@ async def test_a_scored_run_needs_the_tasks_prompt_pinned_and_a_working_verifier
         await runs("end", {"run": run, "exit_code": 0, "scored": True})
 
 
-def test_the_projection_puts_a_runs_title_and_verdict_on_the_process_that_ran_then() -> None:
+def test_the_projection_puts_a_runs_id_title_and_verdict_on_the_process_that_ran_then() -> None:
     facts = [
         (rec.ProcessExec(42, 1, ["python", "/harness/rush.py", "run", "aider"], "/rush/workspace", 10), 10),
         (rec.ProcessExit(42, 1, 50), 50),
         (rec.ProcessExec(42, 2, ["sleep", "1"], "/rush/workspace", 60), 60),  # the pid used again, after the run
+        (rec.ProcessRush(42, 15, run="r1"), 15),
         (rec.ProcessRush(42, 20, title="list three ids"), 20),
         (rec.ProcessRush(42, 40, verdict="right"), 40),
     ]
     raw = [rec.make_record(fact, event_id=f"e{n}", sequence=n, occurred_ns=at) for n, (fact, at) in enumerate(facts, 1)]
     records, issues = parse_records(raw)
     processes = {p.identity: p for p in normalize(records, {}, issues).processes}
-    assert (processes[(42, 1)].title, processes[(42, 1)].verdict) == ("list three ids", "right")
-    assert (processes[(42, 2)].title, processes[(42, 2)].verdict) == (None, None)
+    assert (processes[(42, 1)].title, processes[(42, 1)].verdict, processes[(42, 1)].run) == ("list three ids", "right", "r1")
+    assert (processes[(42, 2)].title, processes[(42, 2)].verdict, processes[(42, 2)].run) == (None, None, None)
+
+
+def test_a_runs_command_holds_a_key_naming_the_run_wherever_the_token_was(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    for name in ("RUSH_ATTEMPT_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.setenv(name, "tok")
+    monkeypatch.setenv("RUSH_MODEL", "tok-model")
+    monkeypatch.delenv("RUSH_PROMPT", raising=False)
+    monkeypatch.setattr(rush, "service", lambda path, body: {"run": "r1"} if path == "/runs/start" else {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0})
+    seen: dict[str, str] = {}
+    monkeypatch.setattr(rush, "interact", lambda argv, heard: seen.update(os.environ) or 0)
+    with pytest.raises(SystemExit):
+        rush.run(["sh"])
+    assert [seen[name] for name in ("RUSH_ATTEMPT_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "RUSH_MODEL")] == ["tok.r1", "tok.r1", "tok.r1", "tok-model"]
 
 
 def test_a_run_passes_its_output_through_and_exits_as_its_command_did(capfd: pytest.CaptureFixture[str]) -> None:

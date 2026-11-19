@@ -230,7 +230,8 @@ class ProcessExit(Fact):
 @dataclass(frozen=True)
 class ProcessRush(Fact):
     """What is known of a `rush <command>` run, the process ``tgid`` running at ``time_ns`` (the shell's rush.py): its ``title`` (its
-    prompt argument, or the first line the member typed into it), or its ``verdict`` (right or wrong, a run given the task's prompt)."""
+    prompt argument, or the first line the member typed into it), or its ``verdict`` (right or wrong, a run given the task's prompt), or
+    its ``run`` id, which every model call its process tree makes names (gateway: `model_call.admitted`'s `run`)."""
 
     source: ClassVar[str] = PROCESS
     kind: ClassVar[str] = PROCESS_RUSH
@@ -238,3 +239,4 @@ class ProcessRush(Fact):
     time_ns: int
     title: str | None = None
     verdict: str | None = None
+    run: str | None = None

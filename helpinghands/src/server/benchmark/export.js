@@ -62,7 +62,8 @@ function payloadOf(payloads, sha256, json) {
 /**
  * Every model call of an attempt, in the order its first event came, from its gateway events (`model_call.*`, by `call_id`) and stored
  * payloads (`Map<sha256, {data, redaction}>`): what was asked (the request body the harness sent), what came back (the JSON body, or
- * the event stream as text), the response's text, its usage and timing, and why it was rejected when it was.
+ * the event stream as text), the response's text, its usage and timing, why it was rejected when it was, and the `rush <command>` run
+ * whose process tree made it (`run`, the id its process span's `run` holds), or null.
  */
 function modelCalls(events, payloads) {
   const calls = new Map();
@@ -84,7 +85,7 @@ function modelCalls(events, payloads) {
       text = body.redaction === 'truncated' ? null : streamText(dialect, body.body);
     }
     return {
-      call_id: callId, dialect,
+      call_id: callId, dialect, run: admitted?.run ?? null,
       model: {requested: admitted?.model ?? response?.requested_model ?? null, resolved: response?.resolved_model ?? null, provider: response?.provider ?? null},
       url: dispatched?.url ?? null,
       request: submitted ? payloadOf(payloads, submitted, true) : null,

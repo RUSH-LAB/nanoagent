@@ -1,7 +1,8 @@
 """`rush <command> [<args>…]` in the RUSH terminal, a prefix like `time`: it runs the command in the foreground on a terminal of its
 own (a pty the member's keys and screen pass through, so interactive CLIs work) as one recorded run, named by its program
-(program_of, as the Dashboard names its chip). The worker (`/runs/…`, the runner's `_rush_run`) ties the run to this process, so its
-model calls, processes and output are its own, and gives it its title: a one-shot run's prompt argument, or the first line the member
+(program_of, as the Dashboard names its chip). The worker (`/runs/…`, the runner's `_rush_run`) ties the run to this process, and the
+command's credentials name the run (`<token>.<run>`, inherited by every process it starts), so its model calls are its own even while
+another run goes on in another terminal; it gives the run its title: a one-shot run's prompt argument, or the first line the member
 types into an interactive one. When it ends, one line says what it took (summary_line). A run given the plugin task's exact prompt
 (an argument holding "$RUSH_PROMPT", which bashrc pins the first time a command names it, `rush.py prompt`) is scored by the plugin's
 verifier on the answer.json it leaves: right or wrong, on its line and its Dashboard row. `rush help` says what the terminal holds.
@@ -197,6 +198,11 @@ def run(argv: list[str]) -> None:
     prompt = os.environ.get("RUSH_PROMPT")
     program, scored, title = program_of(argv), is_scored(argv, prompt), prompt_argument(argv)
     started = service("/runs/start", {"pid": os.getpid(), "title": title})
+    held = os.environ["RUSH_ATTEMPT_TOKEN"]
+    key = f"{held.partition('.')[0]}.{started['run']}"
+    for name, value in list(os.environ.items()):
+        if value == held:  # RUSH_ATTEMPT_TOKEN, OPENAI_API_KEY, ANTHROPIC_API_KEY: the command's model calls name this run
+            os.environ[name] = key
     first = FirstLine()
 
     def heard(data: bytes) -> None:
