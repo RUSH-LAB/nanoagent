@@ -182,6 +182,9 @@ export function reopening(chat) {
   return { resume: chat.attemptId, chat: { agent: chat.agent, id: chat.conversation, run: chat.run } };
 }
 
+// How long after an archive moved the dashboard's rows a click on Archive is taken as meant for the row that left (dashboard).
+const ARCHIVE_SETTLE_MS = 600;
+
 /**
  * The dashboard, by agent: chips name, by its CLI command, every agent that made a model call on
  * this plugin, nanoagent (the person's chats) first and chosen at first, and the one chosen shows
@@ -189,7 +192,7 @@ export function reopening(chat) {
  * nanoagent the person's sessions, and every agent's chats in the Harness tab's terminals (a
  * Claude Code conversation, a Codex thread, a run of dsh), each with its title (its first prompt),
  * when, its tokens, cost and End-to-End Latency. Under nanoagent New session starts a chat, and
- * they resume one; under any other agent it starts a Harness session running that agent's CLI,
+ * they resume one; under any other agent it runs that agent's CLI in the Harness tab, in a new terminal of the running session if any,
  * and clicking a chat always opens it in a terminal of the Harness tab (reopening). They archive a chat; archived ones
  * leave the agent's list for that agent's Archived view, where they can be opened or restored;
  * talking in one again restores it. Download traces (JSON) downloads their own traces of the plugin as JSON Lines, never another
@@ -198,7 +201,7 @@ export function reopening(chat) {
  * @param {(session: object|null) => void} options.onOpen With what `session.resume` answered,
  *   or null for a new session.
  * @param {(chat: object) => void} options.onChat With a chat of a Terminal session (`sessions.list`'s `terminals`), to open it.
- * @param {(agent: string) => void} options.onStart With the chosen agent's CLI command, to start a Harness session running it.
+ * @param {(agent: string) => void} options.onStart With the chosen agent's CLI command, to run it in the Harness tab.
  * @param {boolean} [options.closed] Whether no new session may start: the sessions are only read.
  * @returns {{element: HTMLElement, refresh: () => Promise<void>, resume: (id: string) => Promise<boolean>}}
  *   `refresh` lists the sessions again; `resume` opens session `id`, saying why not when it cannot, and whether it did.
@@ -227,13 +230,18 @@ export function dashboard({ onOpen, onChat, onStart, closed = false }) {
     refresh();
   });
 
+  // When an archive (or restore) last moved the rows: the row below then takes the place of the one that left, its own Archive
+  // under the pointer, so a click that comes within ARCHIVE_SETTLE_MS of it (the second of a double click) was meant for the row that left.
+  let movedAt = -Infinity;
   async function archive(session, button, terminal) {
+    if (performance.now() - movedAt < ARCHIVE_SETTLE_MS) return;
     button.disabled = true;
     try {
       await request(...(terminal
         ? ["terminal.archive", { attemptId: session.attemptId, chat: session.key, archived: !session.archivedAt }]
         : ["session.archive", { id: session.id, archived: !session.archivedAt }]));
       await refresh();
+      movedAt = performance.now();
     } catch (problem) {
       status.textContent = problem.message;
       button.disabled = false;

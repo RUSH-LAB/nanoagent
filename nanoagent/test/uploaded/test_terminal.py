@@ -281,3 +281,34 @@ async def test_a_chat_clicked_while_the_session_is_live_opens_in_its_next_termin
         assert gone["run"] == "codex" and gone["line"].startswith("That session's files are no longer on this computer")
         page.send(reopen={"start": "claude; rm -rf /", "line": "x"}, rows=24, cols=90)
         assert (await page.hear())["error"].startswith("reopen is")
+
+
+async def test_new_session_while_the_session_is_live_runs_its_agent_in_its_next_terminal(tmp_path: Path) -> None:
+    case = Case()
+    case.workspace = tmp_path / "workspace"  # type: ignore[attr-defined]
+    terminal = Terminal(Rush(), "a", 3, terminals=32, scratch=tmp_path / "scratch")  # type: ignore[arg-type]
+    async with linked(terminal, case) as page:
+        page.send(reopen={"start": "codex"}, rows=24, cols=90)
+        await page.writer.drain()
+        with anyio.fail_after(2):
+            while not case.calls:
+                await anyio.sleep(0.01)
+        assert case.calls == [("open", 1, 24, 90)]  # a new terminal; terminal 0 and the session untouched
+        assert json.loads((case.workspace / ".rush/resume-1.json").read_text()) == {"run": "codex"}
+
+
+async def test_a_second_client_opens_a_terminal_of_its_own_and_alone_is_told_its_id_before_its_output(tmp_path: Path) -> None:
+    case = Case()
+    terminal = Terminal(Rush(), "a", 3, terminals=3, scratch=tmp_path / "scratch")  # type: ignore[arg-type]
+    async with linked(terminal, case) as page:
+        page.send(terminal=1, rows=20, cols=80)  # the page's own second terminal
+        page.send(open=True, rows=24, cols=90)
+        assert await page.hear() == {"opened": 2}
+        case.outputs[2](b"$ ")
+        assert await page.screen(2, b"$ ") == b"$ "
+        assert case.calls == [("open", 1, 20, 80), ("open", 2, 24, 90)]
+        page.send(open=True, rows=24, cols=90)  # past the session's terminals
+        assert (await page.hear())["error"].startswith("this session opened its 3 terminals")
+    async with linked(Terminal(Rush(), "a", 3), Case()) as page:  # a harness's own session has one terminal
+        page.send(open=True, rows=24, cols=90)
+        assert (await page.hear())["error"].startswith("only a free-form session")

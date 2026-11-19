@@ -89,4 +89,12 @@ describe('a plugin page\'s Dashboard, two members in one workspace', () => {
     assert.deepEqual(await traces.runIds('carol', {member: null, plugin: 'p', since: null, until: null}), [RUN]);
     assert.deepEqual((await traces.chats('carol', {member: null, plugin: 'p', since: null, until: null})).map(chat => chat.id), ['s-alice']);
   });
+
+  it('gives alice her running Terminal session, from any plugin, as the one every start joins, and bob none of it', async () => {
+    assert.equal(await repository.liveSession(as('alice')), null);  // ended
+    await db.exec(`update benchmark_attempt set state = 'leased', finalized_at = null where attempt_id = '${ATTEMPT}'`);
+    assert.deepEqual(await repository.liveSession(as('alice')), {run_id: RUN, attempt_id: ATTEMPT, free: true});
+    assert.equal(await repository.liveSession(as('bob')), null);
+    await db.exec(`update benchmark_attempt set state = 'final', finalized_at = now() where attempt_id = '${ATTEMPT}'`);
+  });
 });

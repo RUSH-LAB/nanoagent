@@ -19,6 +19,10 @@ key. Without `prompt`, the first line typed is the request (but for the shell, w
 harness's, raw, until it exits: the command reaches it as the tab does, over the worker's token-guarded link on this computer
 (GET attempts/{id}/terminal-link, nanoagent.uploaded.terminal), never through RUSH. A one-shot run nobody is at prints its
 terminal from its recording once it is over.
+
+One session someone is at runs per member, and only its member ends it. While their shell session runs (from the plugin page or
+another `nanoagent harness`), `harness=shell` joins it: this terminal is a new terminal of it, as the tab's "+" opens one, and the
+command returns when its shell exits, the session running on. Any other start while one runs is refused, the live one untouched.
 """
 
 from __future__ import annotations
@@ -163,31 +167,48 @@ def link_of(rush: httpx.Client, attempt_path: str) -> dict[str, Any] | None:
 
 class Link:
     """The session's terminals over the worker's link on this computer (nanoagent.uploaded.terminal): one JSON object a line each way,
-    the first the link's token. What terminal 0, the harness's, writes goes to ``write`` as it comes; what is typed goes back."""
+    the first the link's token. What this command's terminal writes goes to ``write`` as it comes; what is typed goes back. Its terminal
+    is 0, the harness's; or, ``joined`` (a live session of the member's), a new one the worker opens for this link and names
+    (``{"opened"}``), whose end ends the link here."""
 
-    def __init__(self, port: int, token: str, write) -> None:
+    def __init__(self, port: int, token: str, write, *, joined: bool = False) -> None:
         self._socket = socket.create_connection(("127.0.0.1", port))
         self._lock = threading.Lock()
         self._write = write
+        self._joined = joined
         self.error: str | None = None
+        self.terminal: int | None = None if joined else 0
+        self.ready = threading.Event()  # set once ``terminal`` is known, or the link ended
+        if not joined:
+            self.ready.set()
         self.send({"token": token})
+        if joined:
+            size = shutil.get_terminal_size()
+            self.send({"open": True, "rows": size.lines, "cols": size.columns})
 
     def send(self, line: dict[str, Any]) -> None:
         with self._lock:
             self._socket.sendall(json.dumps(line).encode() + b"\n")
 
     def follow(self) -> bytes:
-        """Terminal 0's output, each chunk to ``write``, until the worker ends the link (the session is over): all of it."""
+        """This command's terminal's output, each chunk to ``write``, until the worker ends the link (the session is over) or, joined,
+        that terminal ended: all of it."""
         screen = bytearray()
         with self._socket, self._socket.makefile("rb") as lines:
             for raw in lines:
                 line = json.loads(raw)
                 if "error" in line:
                     self.error = f"the session's terminals refused this command: {line['error']}"
-                elif line.get("terminal") == 0 and "data" in line:
+                elif "opened" in line:
+                    self.terminal = line["opened"]
+                    self.ready.set()
+                elif line.get("terminal") == self.terminal and "data" in line:
                     chunk = base64.b64decode(line["data"])
                     screen += chunk
                     self._write(chunk)
+                elif self._joined and line.get("terminal") == self.terminal and line.get("closed"):
+                    break
+        self.ready.set()
         return bytes(screen)
 
 
@@ -203,7 +224,7 @@ class Keyboard:
 
     def _size(self, *_: Any) -> None:
         size = shutil.get_terminal_size()
-        self._sends.put({"terminal": 0, "rows": size.lines, "cols": size.columns})
+        self._sends.put({"rows": size.lines, "cols": size.columns})
 
     def _read(self) -> None:
         while not self._done.is_set():
@@ -211,12 +232,15 @@ class Keyboard:
                 data = os.read(self._fd, 4096)
                 if not data:
                     return
-                self._sends.put({"terminal": 0, "data": base64.b64encode(data).decode("ascii")})
+                self._sends.put({"data": base64.b64encode(data).decode("ascii")})
 
     def _send(self) -> None:
         while (body := self._sends.get()) is not None:
+            self._link.ready.wait()
+            if self._link.terminal is None:
+                return  # the link ended before the worker named this command's terminal
             try:
-                self._link.send(body)
+                self._link.send({"terminal": self._link.terminal} | body)
             except OSError:
                 return  # the session ended: what is typed has nowhere to go
 
@@ -254,6 +278,26 @@ def answer_of(recording: list[dict[str, Any]]) -> Any:
     return reads[-1].get("answer") if reads else None
 
 
+def join(rush: httpx.Client, attempt_path: str, attempt_id: str) -> int:
+    """This terminal as a new terminal of the member's live shell session ``attempt_id`` until its shell exits; the session runs on."""
+    print(f"shell · joining your running session {attempt_id} in a new terminal", file=sys.stderr, flush=True)
+    found = link_of(rush, attempt_path)
+    if found is None:
+        raise SystemExit("harness: your running session ended before its terminals could be reached; start again")
+
+    def write(chunk: bytes) -> None:
+        sys.stdout.buffer.write(chunk)
+        sys.stdout.buffer.flush()
+
+    link = Link(found["port"], found["token"], write, joined=True)
+    with Keyboard(link):
+        link.follow()
+    if link.error:
+        raise SystemExit(f"harness: {link.error}")
+    print(f"\r\nshell · this terminal closed; session {attempt_id} runs on", file=sys.stderr)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
     cfg = load_config_args(HarnessCommandConfig, [f"harness_cfg={DEFAULT_CONFIG}", *argv])
@@ -289,6 +333,8 @@ def main(argv: list[str] | None = None) -> int:
                                     timeout=START_TIMEOUT_S))  # fmt: skip
         run, attempt_id = started["run"], started["attempt_id"]
         attempt_path = f"{prefix}/benchmark/attempts/{attempt_id}"
+        if started.get("joined"):
+            return join(rush, attempt_path, attempt_id)
 
         def write(chunk: bytes) -> None:
             sys.stdout.buffer.write(chunk)

@@ -48,17 +48,17 @@ const promptView = row => ({system: row.prompt_system, user: row.prompt_user, sh
  * Cancel member `userId`'s unfinished interactive session runs, as `cancel` does one run: a queued attempt ends canceled, a leased
  * one is told to stop. `client` acts as the system.
  */
-async function endInteractiveSessions(client, userId) {
-  const runs = (await client.query(
-    `select run_id from benchmark_run r where r.user_id = $1 and r.interactive and r.canceled_at is null
-       and exists (select 1 from benchmark_attempt a where a.run_id = r.run_id and a.state <> 'final') order by run_id for update`, [userId],
-  )).rows.map(row => row.run_id);
-  if (!runs.length) return;
-  await client.query('update benchmark_run set canceled_at = now() where run_id = any($1)', [runs]);
-  await client.query(
-    `update benchmark_attempt set state = 'final', execution_status = 'canceled', finalized_at = now(), sealed = true,
-       final_cursor = next_cursor - 1 where run_id = any($1) and state = 'queued'`, [runs]);
-  await client.query("update benchmark_attempt set cancel_requested = true where run_id = any($1) and state = 'leased'", [runs]);
+/**
+ * The member's session someone is at that has not ended, `{run_id, attempt_id, free}` (`free` a free-form Terminal session), or null.
+ * Given `lock`, it first takes the member's lock for starting one, held to the end of the transaction, so two starts never both find none.
+ */
+async function liveSessionOf(client, userId, {lock = false} = {}) {
+  if (lock) await client.query('select pg_advisory_xact_lock(hashtext($1))', [`benchmark-session:${userId}`]);
+  return (await client.query(
+    `select r.run_id, a.attempt_id, (r.harness_name = 'shell' and r.task_id is null) as free from benchmark_run r join benchmark_attempt a on a.run_id = r.run_id
+      where r.user_id = $1 and r.session and r.interactive and r.canceled_at is null and a.state <> 'final' and not a.cancel_requested
+      order by r.created_at desc limit 1`, [userId],
+  )).rows[0] ?? null;
 }
 
 function runStatus(run, attempts) {
@@ -372,7 +372,8 @@ function createPostgresBenchmark({pool}) {
      * (`resolve` in benchmark/plan.js), `benchmark` the benchmark it was resolved against and `harness` the source's manifest identity;
      * `session` marks a Harness tab or `nanoagent harness` run, never a benchmark result, and `interactive` one whose member works at its
      * terminal; `free` a free-form Terminal session, with no package, task or case and one attempt of none. A session's one attempt is `attempt_id`
-     * in the answer; an `interactive` one ends the member's other unfinished interactive sessions first. A concurrent submission under the same key gets the first one's run: `{run_id, replayed}`.
+     * in the answer. One session someone is at runs per member, and nothing ends it but its member: an `interactive` one while another
+     * runs is refused (`session_running`; the route joins a free-form start to the live one before it gets here). A concurrent submission under the same key gets the first one's run: `{run_id, replayed}`.
      */
     async createRun(context, request, resolved, benchmark, harness, {session = false, interactive = false, free = false, resumedFrom = null, startCli = null, resumeChat = null} = {}) {
       const {plan, cases} = resolved;
@@ -388,8 +389,10 @@ function createPostgresBenchmark({pool}) {
             throw new BenchmarkError(409, 'package_unavailable', `${benchmark.plugin.id} ${benchmark.plugin.version} is no longer published, so its benchmark cannot be run`);
           }
         }
-        // One terminal session per member: a new one ends their other unfinished ones (any plugin, any workspace), so it never waits behind them.
-        if (interactive) await endInteractiveSessions(client, context.userId);
+        // One session someone is at per member (any plugin, any workspace), which only its member ends: a second never replaces it.
+        if (interactive && await liveSessionOf(client, context.userId, {lock: true})) {
+          throw new BenchmarkError(409, 'session_running', 'Another session of yours started at the same moment: start again to open this in it');
+        }
         const runId = crypto.randomUUID();
         const inserted = (await client.query(
           `insert into benchmark_run (run_id, workspace_id, user_id, idempotency_key, request_digest, preview_id, source_sha256,
@@ -667,15 +670,10 @@ function createPostgresBenchmark({pool}) {
           order by r.created_at desc, a.attempt_no desc`, [pluginId, attemptId, atCalls, context.userId],
       )).rows);
     },
-    /** The member's free-form Terminal session on plugin `pluginId` that still runs, `{run_id, attempt_id}`, or null. */
-    async liveTerminal(context, pluginId) {
+    /** The member's session someone is at that still runs, on any plugin: `{run_id, attempt_id, free}`, or null (liveSessionOf). */
+    async liveSession(context) {
       await sweep();
-      return member(context, async client => (await client.query(
-        `select r.run_id, a.attempt_id from benchmark_run r join benchmark_attempt a on a.run_id = r.run_id
-          where r.user_id = $1 and r.plugin_id = $2 and r.session and r.interactive and r.harness_name = 'shell' and r.task_id is null
-            and r.canceled_at is null and a.state <> 'final' and not a.cancel_requested
-          order by r.created_at desc limit 1`, [context.userId, pluginId],
-      )).rows[0] ?? null);
+      return member(context, client => liveSessionOf(client, context.userId));
     },
     /** Everything each terminal of attempt `attemptId` wrote, by terminal: `[{terminal, data}]`, data a Buffer. */
     async terminalTranscripts(context, attemptId) {

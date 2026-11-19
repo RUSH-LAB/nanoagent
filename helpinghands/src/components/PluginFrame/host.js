@@ -35,15 +35,14 @@ import {
  * Lab, not through RUSH (./harness.js). The page hears the terminal's output as it comes and the outcome, through `harness.done`,
  * and sends what is typed (`harness.input`) and the terminal's size (`harness.resize`), each to one of its terminals (0 the first);
  * `harness.open` opens another in a free-form session, `harness.close` closes one, and `harness.cancel` cancels the run. The frame
- * going away, or the page no longer following it, leaves the session running: started again with neither `resume` nor `start`, the
- * page is given it again (RUSH answers with the member's free-form session on the plugin that still runs), and its link replays each
- * terminal's output from its first byte. A free-form session started with `resume` (an ended one's attempt id, clicked on the
- * Dashboard) resumes it: the worker puts back what it kept of it on this computer, and with `chat` too (`{agent, id, run}`, one of its chats) reopens that
- * conversation. One started with `start` (an agent's CLI command, the Dashboard's New session under that agent) runs it in its first
- * terminal. Either one started with `join` (a chat clicked on the Dashboard) is, while the member's free-form session still runs, that
- * session instead, `harness.session` saying so (`joined`), and `harness.reopen` then opens the chat in its next terminal: from the ended
- * session that holds it (`{resume, chat}`) or, one that cannot be reopened, its agent anew with why (`{start, line}`). Once RUSH has
- * queued it, `harness.session` names its attempt.
+ * going away, or the page no longer following it, leaves the session running, and only its member ends it. A free-form session started
+ * with `resume` (an ended one's attempt id, clicked on the Dashboard) resumes it: the worker puts back what it kept of it on this
+ * computer, and with `chat` too (`{agent, id, run}`, one of its chats) reopens that conversation. One started with `start` (an agent's
+ * CLI command, the Dashboard's New session under that agent) runs it in its first terminal. While the member's free-form session runs
+ * (from this page or any other, this window or another), any start is that session instead, `harness.session` saying so (`joined`), its
+ * link replaying each terminal's output from its first byte, and `harness.reopen` then opens what was asked in its next terminal: a chat
+ * from the ended session that holds it (`{resume, chat}`), or an agent's CLI (`{start}`, with why when it is a chat that cannot be
+ * reopened: `{start, line}`). Once RUSH has queued it, `harness.session` names its attempt.
  *
  * The Dashboard lists the chats the member's Harness tab sessions on the plugin held beside their own chats (`sessions.list`'s
  * `terminals`, each a conversation of an agent CLI), and archives or restores one as it does a chat (`terminal.archive`, by its key).
@@ -224,7 +223,7 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     post(runEvent('chat.done', runId, {}));
   }
 
-  async function harnessRun({harness, task, text, resume, start, chat, join}) {
+  async function harnessRun({harness, task, text, resume, start, chat}) {
     runCount += 1;
     const runId = `harness-${runCount}`;
     const controller = new AbortController();
@@ -241,7 +240,7 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
         const response = await request('/api/benchmark/sessions', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({plugin_id: plugin.id, task_id: task, harness, text, resume, start, chat, join, interactive: true}),
+          body: JSON.stringify({plugin_id: plugin.id, task_id: task, harness, text, resume, start, chat, interactive: true}),
         });
         if (!response.ok) throw await failed(response, 'Could not start the harness');
         const {run, attempt_id: attempt, joined} = await response.json();
@@ -299,7 +298,7 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     // Another terminal of the session, `rows` by `cols`: its first size opens it, and its output comes over the link as the others' does.
     'harness.open': async ({runId, terminal, rows, cols}) => toTerminal(runId, {terminal, rows, cols}),
     'harness.close': async ({runId, terminal}) => toTerminal(runId, {terminal, close: true}),
-    // A chat clicked on the Dashboard, in the next terminal of the session, whose output comes over the link as the others' does.
+    // A chat clicked on the Dashboard, or an agent's CLI started, in the next terminal of the session, whose output comes over the link as the others' does.
     'harness.reopen': async ({runId, rows, cols, reopen}) => toTerminal(runId, {reopen, rows, cols}),
     // The browser downloads the export (GET /api/traces/export) as it downloads a file, signed in with the member's session.
     'traces.download': async () => {

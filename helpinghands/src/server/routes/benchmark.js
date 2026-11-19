@@ -131,34 +131,32 @@ async function openApp(ctx, context, pluginId, computer) {
  * it on the member's computer before the shell starts, or says it has nothing kept. Given `start` instead, an agent's CLI command
  * (`claude`), its first terminal runs it at its first prompt (`start_cli`), as a resumed one runs its agent's resume command. Given
  * `chat` with `resume`, one of that session's chats (`{agent, id, run}`, the Dashboard's chat row, its CLI's conversation id or null
- * for a run of a program, with that run), its first terminal reopens that conversation or reruns that run (`resume_chat`). Given
- * neither, while the member's free-form session on that plugin still runs, it is that session's run, not a new one; given `join`
- * (true, with `resume` or `start`: a chat clicked on the Dashboard), so is it, answered with `joined`, and the page opens the chat in a new terminal of it. `{run, attempt_id, joined?}`.
+ * for a run of a program, with that run), its first terminal reopens that conversation or reruns that run (`resume_chat`). One
+ * session someone is at runs per member, on any plugin, and only its member ends it (exit, its time limit, quitting RUSH Lab): while
+ * their free-form session runs, a free-form start (the Harness tab shown again, New session, a chat clicked, another window,
+ * `nanoagent harness harness=shell`) is that session, answered with `joined`, and what it asked for (`start`, `resume` with `chat`)
+ * opens in a new terminal of it, which the page asks its worker for; a start that cannot be a terminal of it (another harness, a
+ * whole session resumed) is refused (`session_running`), never ending the live one. `{run, attempt_id, joined?}`.
  */
-async function startSession(ctx, context, {pluginId, taskId, harness, interactive, text, model, resume, start, chat, join}) {
+async function startSession(ctx, context, {pluginId, taskId, harness, interactive, text, model, resume, start, chat}) {
   const {repository, service} = ctx.benchmark;
   const free = harness === 'shell' && interactive;
   if (free && (text !== undefined || taskId !== undefined)) {
     throw new BenchmarkError(400, 'invalid_request', 'A Terminal session someone is at is free-form: it takes no task and no text');
   }
   const request = free ? null : string(text, 'text', {max: SESSION_TEXT_LIMIT});
-  if (join !== undefined && (join !== true || !free || (resume === undefined && start === undefined))) {
-    throw new BenchmarkError(400, 'invalid_request', 'join is true, on a Terminal session someone is at that resumes one or starts an agent\'s CLI');
-  }
-  // A chat clicked on the Dashboard (`join`) while the member's free-form session on the plugin runs opens in a new terminal of that
-  // one, which the page asks its worker for: the session is not ended, and no second one starts.
-  if (join) {
-    const live = await repository.liveTerminal(context, pluginId);
-    if (live) return {run: await repository.run(context, live.run_id), attempt_id: live.attempt_id, joined: true};
-  }
   const resumedFrom = resume === undefined ? null : await resumable(repository, context, free, resume);
   const resumeChat = chat === undefined ? null : await chatOf(repository, context, resumedFrom, chat);
   const startCli = start === undefined ? null : cliCommand(free, resumedFrom, start);
-  // A new free-form session on a plugin where the member's last one still runs is that one, which the page links to again (the
-  // Harness tab shown again, the plugin opened again): only `exit`, its time limit or another start (resume, start, without join) ends it.
-  if (free && resumedFrom === null && startCli === null) {
-    const live = await repository.liveTerminal(context, pluginId);
-    if (live) return {run: await repository.run(context, live.run_id), attempt_id: live.attempt_id};
+  const live = interactive ? await repository.liveSession(context) : null;
+  if (live) {
+    if (!free || !live.free) {
+      throw new BenchmarkError(409, 'session_running', `Your ${live.free ? 'Terminal' : 'harness'} session still runs, and only one runs at a time: leave its shell (exit) to end it, then start this one`);
+    }
+    if (resumedFrom !== null && resumeChat === null) {
+      throw new BenchmarkError(409, 'session_running', 'Your Terminal session still runs: leave its shell (exit) to end it, then resume this one, or open one of its chats from the Dashboard in a new terminal of it');
+    }
+    return {run: await repository.run(context, live.run_id), attempt_id: live.attempt_id, joined: true};
   }
   const harnessModel = string(model, 'model', {optional: true}) ?? aiSettings.MODEL.model;
   if (!REFERENCE_HARNESSES.includes(harness)) {
@@ -335,7 +333,7 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       const body = object(await jsonBody(req, readBody), 'The body');
       const [pluginId, harness] = ['plugin_id', 'harness'].map(name => string(body[name], name));
       if (typeof body.interactive !== 'boolean') throw new BenchmarkError(400, 'invalid_request', 'interactive must be a boolean');
-      return json(res, 201, await startSession(ctx, context, {pluginId, taskId: body.task_id, harness, interactive: body.interactive, text: body.text, model: body.model, resume: body.resume, start: body.start, chat: body.chat, join: body.join}));
+      return json(res, 201, await startSession(ctx, context, {pluginId, taskId: body.task_id, harness, interactive: body.interactive, text: body.text, model: body.model, resume: body.resume, start: body.start, chat: body.chat}));
     }
     // A plugin page's Dashboard: the chats the member's own Harness tab sessions on the plugin held, by agent, beside their own chats.
     if (top === 'terminal-sessions') {

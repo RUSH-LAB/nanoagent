@@ -219,6 +219,16 @@ describe('the chats of a Harness tab session on the Dashboard', () => {
     assert.deepEqual(terminalChats(free({...recorded, processes: [bash, process(['aider'], 5, 20, bash)]})), []);
   });
 
+  it('dates each `rush` run by its own process, its start and its end or, while it runs, its latest call, never its session', () => {
+    const bash = process(BASH, 0, null);
+    const at = seconds => new Date(seconds * 1000).toISOString();
+    const first = process(RUSH(['opencode']), 5, 9, bash, '/rush/workspace', {run: 'r1'});
+    const second = process(RUSH(['opencode']), 30, null, bash, '/rush/workspace', {run: 'r2'});
+    const calls = [{...call('c1', 6, 7), run: 'r1'}, {...call('c2', 31, 33), run: 'r2'}, {...call('c3', 40, 44), run: 'r2'}];
+    const chats = terminalChats(free({calls, processes: [bash, first, second], chats: [], state: 'leased', finalized_at: null}));
+    assert.deepEqual(chats.map(chat => [chat.startedAt, chat.updatedAt]), [[at(5), at(9)], [at(30), at(44)]]);
+  });
+
   it('gives two overlapping `rush` runs in two terminals each only the calls its process tree made (the run its key names)', () => {
     const bash = process(BASH, 0, null);
     const first = process(RUSH(['aider']), 5, 40, bash, '/rush/workspace', {title: 'first', run: 'r1'});

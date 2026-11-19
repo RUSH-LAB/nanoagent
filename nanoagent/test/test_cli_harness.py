@@ -1,12 +1,43 @@
-"""`nanoagent harness`: its config, RUSH Lab's connection and what it makes of a sealed attempt."""
+"""`nanoagent harness`: its config, RUSH Lab's connection, what it makes of a sealed attempt, and joining a live session."""
 
+import base64
 import json
+import socket
+import threading
 from pathlib import Path
 
 import pytest
 
-from nanoagent.cli.harness import DEFAULT_CONFIG, HarnessCommandConfig, answer_of, connection, find_lab, summary_line, verdict
+from nanoagent.cli.harness import DEFAULT_CONFIG, HarnessCommandConfig, Link, answer_of, connection, find_lab, summary_line, verdict
 from nanoagent.runtime.config import load_config_args
+
+
+def test_joining_a_live_session_opens_a_terminal_of_its_own_follows_it_alone_and_leaves_when_it_closes() -> None:
+    listener = socket.create_server(("127.0.0.1", 0))
+    heard: list[dict] = []
+
+    def worker() -> None:  # the session's link (nanoagent.uploaded.terminal), whose terminals 0 and 1 the page has open
+        conn, _ = listener.accept()
+        with conn, conn.makefile("rb") as lines:
+            heard.extend(json.loads(lines.readline()) for _ in range(2))
+            data = lambda terminal, text: {"terminal": terminal, "data": base64.b64encode(text).decode()}  # noqa: E731
+            send = lambda *items: conn.sendall(b"".join(json.dumps(item).encode() + b"\n" for item in items))  # noqa: E731
+            send(data(0, b"page's shell"), {"opened": 2}, data(2, b"$ "), data(1, b"other"))
+            heard.append(json.loads(lines.readline()))  # what is typed once it is open goes to its terminal
+            send({"terminal": 2, "closed": True}, data(2, b"never"))
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    written: list[bytes] = []
+    link = Link(listener.getsockname()[1], "t", written.append, joined=True)
+    assert link.terminal is None and not link.ready.is_set()
+    sender = threading.Thread(target=lambda: (link.ready.wait(), link.send({"terminal": link.terminal, "data": "eA=="})))
+    sender.start()
+    assert link.follow() == b"$ "
+    sender.join()
+    thread.join()
+    assert written == [b"$ "] and link.terminal == 2 and link.error is None
+    assert [heard[0], set(heard[1]), heard[1]["open"], heard[2]] == [{"token": "t"}, {"open", "rows", "cols"}, True, {"terminal": 2, "data": "eA=="}]
 
 
 def test_the_config_takes_plugin_and_harness_and_leaves_the_rest_to_the_tab_s_choices() -> None:

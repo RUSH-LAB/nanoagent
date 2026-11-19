@@ -15,6 +15,8 @@ const WRAPPER = /\/harness\/bin\/(claude|codex|pi|hermes|dsh|nanoagent)(?:\s|$)/
 
 const ns = value => (value === null || value === undefined ? null : Number(value));
 const seconds = (start, end) => (start === null || end === null ? null : (end - start) / 1e9);
+/** A time in nanoseconds since the epoch, as an ISO timestamp. */
+const iso = at => new Date(at / 1e6).toISOString();
 const figure = (sum, known) => ({sum: known ? sum : 0, count: known ? 1 : 0});
 
 /** A run's agent: a reference harness's CLI command. */
@@ -183,8 +185,9 @@ function typed(process) {
  * which take the calls of their agent's runs in place of those runs: each such call goes to the chat of its agent whose time holds
  * it, or the nearest. A session of a harness of its own is one chat of it. A call no process ties to one agent is no chat's. A chat
  * has `key` ("<agent>:<id>"), its `conversation` id (null for a run, which nothing reopens by id), its session's
- * `attemptId`, whether that one is `running`, `resumable` (kept on the member's computer) and `freeForm`, when it was archived, and its
- * figures (`usage`, as a chat's).
+ * `attemptId`, whether that one is `running`, `resumable` (kept on the member's computer) and `freeForm`, when it was archived, its
+ * figures (`usage`, as a chat's), and when it started and was last at work (`startedAt`, `updatedAt`): a CLI's conversation's from its
+ * CLI, a run's from its process (its start, and its end or, while it runs, its latest call), never its session's.
  */
 function terminalChats(row) {
   const final = row.state === 'final';
@@ -202,7 +205,7 @@ function terminalChats(row) {
     const start = ns(call.start_ns);
     const end = ns(call.end_ns);
     return {
-      start, prompt: call.prompt ?? null, process: row.harness_name === 'shell' ? processAt(processes, {start, client: call.client, run: call.run ?? null}) : null, durationS: seconds(start, end),
+      start, end, prompt: call.prompt ?? null, process: row.harness_name === 'shell' ? processAt(processes, {start, client: call.client, run: call.run ?? null}) : null, durationS: seconds(start, end),
       inputTokens: call.usage?.input ?? null, outputTokens: call.usage?.output ?? null,
       cost: typeof row.costs[call.call_id] === 'number' ? row.costs[call.call_id] : null,
     };
@@ -233,8 +236,12 @@ function terminalChats(row) {
     const first = made.reduce((x, y) => ((y.start ?? Infinity) < (x.start ?? Infinity) ? y : x));
     const at = rushAt(process.argv);
     const rush = at !== -1;
+    // The run's own time: its process's start, and its end, or its latest call's while it runs (its calls' alone when the record lacks one).
+    const began = [process.start, ...made.map(call => call.start)].filter(time => time !== null);
+    const worked = process.end !== null ? [process.end] : made.map(call => call.end ?? call.start).filter(time => time !== null);
     chats.push({
       ...session, key, agent: process.agent, conversation: null, run: {argv: rush ? ['rush', ...process.argv.slice(at)] : process.argv, cwd: process.cwd},
+      ...(began.length ? {startedAt: iso(Math.min(...began))} : {}), ...(worked.length ? {updatedAt: iso(Math.max(...worked))} : {}),
       title: rush ? process.title ?? typed(process) : first.prompt ?? typed(process), verdict: process.verdict,
       archivedAt: archived(key), usage: usageOf(made, final),
     });

@@ -54,7 +54,7 @@ function ctxFor({computer, app = {value: {id: 'p', sha256: SHA, status: 'ready',
       repository: {
         saveSource: async (context, data, harness) => ({source_sha256: 'b'.repeat(64), size: data.length, harness}),
         run: async (context, id) => ({run_id: id}),
-        liveTerminal: async () => null,
+        liveSession: async () => null,
         failSessionCase: async (context, runId, caseId, error) => { calls.push(['failed', runId, caseId, error]); },
       },
     },
@@ -96,27 +96,38 @@ describe('POST /api/benchmark/sessions', () => {
     for (const extra of [{text: 'hi'}, {task_id: 'sum'}]) assert.equal((await post(ctx, {plugin_id: 'p', harness: 'shell', interactive: true, ...extra})).status, 400);
   });
 
-  it('gives the member\'s free-form session on the plugin that still runs, not a new one, when it is shown again; resume and start still start one', async () => {
+  it('gives every free-form start the member\'s live session, on any plugin, as a new terminal of it (joined), never ending it or starting a second', async () => {
+    const OLD = '11111111-1111-4111-8111-111111111111';
     const {ctx, calls} = ctxFor();
-    const asked = [];
-    ctx.benchmark.repository.liveTerminal = async (context, pluginId) => { asked.push(pluginId); return {run_id: 'live', attempt_id: 'a-live'}; };
-    const {status, payload} = await post(ctx, {plugin_id: 'p', harness: 'shell', interactive: true});
-    assert.deepEqual([status, payload, asked, calls], [201, {run: {run_id: 'live'}, attempt_id: 'a-live'}, ['p'], []]);
-    assert.equal((await post(ctx, {plugin_id: 'p', harness: 'shell', interactive: true, start: 'codex'})).status, 201);
-    assert.deepEqual([asked, calls.find(([what]) => what === 'session')[4].startCli], [['p'], 'codex']);
+    ctx.benchmark.repository.liveSession = async () => ({run_id: 'live', attempt_id: 'a-live', free: true});
+    ctx.benchmark.repository.terminalRows = async () => [{attempt_id: OLD, harness_name: 'shell', task_id: null, state: 'final', processes: [], calls: [], costs: {}, chats: [{agent: 'claude', id: 'a'}]}];
+    const live = {run: {run_id: 'live'}, attempt_id: 'a-live', joined: true};
+    for (const body of [{}, {start: 'claude'}, {start: 'codex'}, {resume: OLD, chat: {agent: 'claude', id: 'a', run: null}}]) {
+      const {status, payload} = await post(ctx, {plugin_id: 'other', harness: 'shell', interactive: true, ...body});
+      assert.deepEqual([status, payload], [201, live], JSON.stringify(body));
+    }
+    assert.deepEqual(calls, []);
+    // A start that cannot be a terminal of it is refused, the live one left running.
+    const refused = async body => {
+      const {status, payload} = await post(ctx, body);
+      return [status, payload.code];
+    };
+    assert.deepEqual(await refused({plugin_id: 'p', harness: 'shell', interactive: true, resume: OLD}), [409, 'session_running']);
+    assert.deepEqual(await refused(BODY), [409, 'session_running']);
+    ctx.benchmark.repository.liveSession = async () => ({run_id: 'live', attempt_id: 'a-live', free: false});  // a harness session someone is at
+    assert.deepEqual(await refused({plugin_id: 'p', harness: 'shell', interactive: true, start: 'claude'}), [409, 'session_running']);
+    assert.deepEqual(calls, []);
+    // None live: a new session runs what was asked in its first terminal.
+    ctx.benchmark.repository.liveSession = async () => null;
+    assert.deepEqual((await post(ctx, {plugin_id: 'p', harness: 'shell', interactive: true, start: 'claude'})).payload, {run: {run_id: 'r1'}, attempt_id: 'a1'});
+    assert.equal(calls.find(([what]) => what === 'session')[4].startCli, 'claude');
   });
 
-  it('opens a session clicked on the Dashboard in the live session (join), neither ending it nor starting a second', async () => {
+  it('leaves a one-shot run nobody is at to run beside the live session', async () => {
     const {ctx, calls} = ctxFor();
-    ctx.benchmark.repository.liveTerminal = async () => ({run_id: 'live', attempt_id: 'a-live'});
-    const joined = await post(ctx, {plugin_id: 'p', harness: 'shell', interactive: true, start: 'claude', join: true});
-    assert.deepEqual([joined.status, joined.payload, calls], [201, {run: {run_id: 'live'}, attempt_id: 'a-live', joined: true}, []]);
-    const resumed = await post(ctx, {plugin_id: 'p', harness: 'shell', interactive: true, resume: '11111111-1111-4111-8111-111111111111', chat: {agent: 'claude', id: 'a'}, join: true});
-    assert.deepEqual([resumed.payload.joined, calls], [true, []]);
-    ctx.benchmark.repository.liveTerminal = async () => null;  // none live: a new session runs it
-    assert.equal((await post(ctx, {plugin_id: 'p', harness: 'shell', interactive: true, start: 'claude', join: true})).status, 201);
-    assert.equal(calls.find(([what]) => what === 'session')[4].startCli, 'claude');
-    assert.equal((await post(ctx, {plugin_id: 'p', harness: 'shell', interactive: true, join: true})).status, 400);
+    ctx.benchmark.repository.liveSession = async () => { throw new Error('a one-shot run never asks'); };
+    assert.equal((await post(ctx, {...BODY, interactive: false})).status, 201);
+    assert.ok(calls.some(([what]) => what === 'session'));
   });
 
   it('resumes an ended free-form Terminal session of the member\'s as a new session linked to it, and no other', async () => {
@@ -208,7 +219,7 @@ describe('POST /api/benchmark/sessions', () => {
   });
 
   it('runs only on the member\'s own computer, and only an app of theirs that is ready', async () => {
-    const offline = makeCtx({benchmark: {repository: {}, service: {}}, runners: {computer: () => null}, workspaceApps: {open: async () => assert.fail('must not open')}});
+    const offline = makeCtx({benchmark: {repository: {liveSession: async () => null}, service: {}}, runners: {computer: () => null}, workspaceApps: {open: async () => assert.fail('must not open')}});
     assert.equal((await post(offline, BODY)).status, 503);
     const refused = await post(ctxFor({app: {value: {id: 'p', sha256: SHA, status: 'refused'}}}).ctx, BODY);
     assert.deepEqual([refused.status, refused.payload.code], [409, 'app_unavailable']);

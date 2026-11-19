@@ -195,7 +195,7 @@ export async function mountApp(renderers) {
   const closed = plugin.status === "refused";
   const tabs = frameTabs();
   // A chat of a Terminal session clicked on the Dashboard opens in a terminal of the Harness tab (harnessPage openChat). New session
-  // under an agent other than nanoagent starts one there running its CLI.
+  // under an agent other than nanoagent runs its CLI there, in a new terminal of the running session when one runs (startCli).
   const terminals = closed ? null : harnessPage();
   const board = dashboard({
     onOpen: (opened) => openSession(opened),
