@@ -13,6 +13,10 @@ shell.py and bashrc act on. A new session started under an agent (the Dashboard'
 file with that agent's CLI command to run, and no line (start_cli). A chat clicked on the Dashboard while a session is live opens in a
 new terminal of it (``.rush/resume-<terminal>.json``): its kept files in a folder of their own there (reopen_in), or, when it cannot be
 reopened, its agent started anew with why.
+
+A session sees only its own files. Only a session resumed whole gets every file it kept back; a chat reopened, in a new session or a
+live one, gets only its own (chat_files): the member's files of the folder it ran in, and of the agents' homes only its own CLI's, never
+another agent's state (NanoAgent's traces among them) nor the folders of other chats reopened in it.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ import re
 import shlex
 import shutil
 import stat
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -46,16 +51,20 @@ def gib(size: int) -> str:
     return f"{size / (1 << 30):.1f} GB"
 
 
-def copy_workspace(source: Path, destination: Path, max_bytes: int | None = None) -> int:
+def copy_workspace(source: Path, destination: Path, max_bytes: int | None = None, leave: Callable[[Path], bool] = lambda _: False) -> int:
     """Copies the folder ``source`` to ``destination``: its folders, regular files (with their modes) and links as links, never
-    followed; sockets and pipes are left out. Raises [TooLarge] once its files pass ``max_bytes``. Returns their bytes."""
+    followed; sockets and pipes are left out, and each entry whose path in ``source`` ``leave`` holds, a folder with all it holds.
+    Raises [TooLarge] once its files pass ``max_bytes``. Returns their bytes."""
     total = 0
     destination.mkdir(parents=True, exist_ok=True)
     for root, folders, files in os.walk(source):
         here = Path(root)
         there = destination / here.relative_to(source)
+        folders[:] = [name for name in folders if not leave((here / name).relative_to(source))]
         for name in [*folders, *files]:
             path, target = here / name, there / name
+            if leave(path.relative_to(source)):
+                continue
             mode = path.lstat().st_mode
             if stat.S_ISLNK(mode):
                 os.symlink(os.readlink(path), target)
@@ -174,6 +183,20 @@ def _reopen(workspace: Path, chat: ChatOf, since: str, root: str = WORKSPACE) ->
     return {"line": f"Reopened your {chat.agent} session from {since}: {found.title}", "run": found.resume()}
 
 
+def chat_files(kept: Path, chat: ChatOf, into: Path) -> None:
+    """Copies of the kept session's workspace ``kept`` to ``into`` only ``chat``'s own files, where they were: the folder it was kept in
+    (the session's workspace, or the folder of a chat reopened in it, CHATS), less its .rush/ but its own CLI's home there. A run of a
+    program, or a conversation the session did not keep, gets the session's own files alone, no agent's home."""
+    found = [one for one in chats.read(kept).values() if one.agent == chat.agent and one.id == chat.id] if chat.id is not None else []
+    folder = found[0].root.removeprefix(WORKSPACE).lstrip("/") if found else ""
+    home = (".rush", chat.agent) if found else None
+
+    def leave(path: Path) -> bool:
+        return path.parts[0] == ".rush" and not (home is not None and home[: len(path.parts)] == path.parts[:2])
+
+    copy_workspace(kept / folder, into / folder, leave=leave)
+
+
 def _say(workspace: Path, said: dict, terminal: int = 0) -> dict:
     """Has terminal ``terminal`` say and run ``said`` as its shell starts (RESUME_FILE)."""
     path = workspace / RESUME_FILE.format(terminal=terminal)
@@ -185,8 +208,8 @@ def _say(workspace: Path, said: dict, terminal: int = 0) -> dict:
 def restore(scratch: Path, of: ResumeOf, workspace: Path) -> dict:
     """Puts the kept session ``of`` back in ``workspace`` and returns what its first terminal says and runs (RESUME_FILE, which it is
     also written to): ``line``, and ``run``, the one agent's resume command, or ``type``, the commands of several; resumed for one of
-    its chats (``of.chat``), that chat's resume command. A session that is not kept says why, and the terminal is a fresh one, running
-    the chat's agent anew when it was for one."""
+    its chats (``of.chat``), only that chat's files (chat_files) and its resume command. A session that is not kept says why, and the
+    terminal is a fresh one, running the chat's agent anew when it was for one."""
     folder = scratch / SESSIONS / of.attempt_id
     since = when(of.at)
     said: dict
@@ -196,7 +219,7 @@ def restore(scratch: Path, of: ResumeOf, workspace: Path) -> dict:
     elif gone:
         said = {"line": f"Couldn't resume your session from {since}: {gone}. This is a fresh terminal."}
     elif of.chat is not None:
-        copy_workspace(folder / KEPT_WORKSPACE, workspace)
+        chat_files(folder / KEPT_WORKSPACE, of.chat, workspace)
         said = _reopen(workspace, of.chat, since)
     else:
         copy_workspace(folder / KEPT_WORKSPACE, workspace)
@@ -216,7 +239,8 @@ def reopen_in(scratch: Path, of: ResumeOf, workspace: Path, terminal: int) -> di
     """Has terminal ``terminal`` of a live session reopen ``of.chat``, a chat of the kept session ``of``, and returns what it says and
     runs: the kept session's files go to a folder of their own in ``workspace`` (CHATS/<its conversation id>, or the session's id for a
     run of a program), not over the live session's, where its agent reopens it. A folder already there (the chat reopened before in this
-    session) is used as it is. A chat whose files are gone starts its agent anew in the workspace, saying why."""
+    session) is used as it is. Only the chat's own files come (chat_files). A chat whose files are gone starts its agent anew in the
+    workspace, saying why."""
     folder = scratch / SESSIONS / of.attempt_id
     gone = _gone(folder)
     if gone:
@@ -224,7 +248,7 @@ def reopen_in(scratch: Path, of: ResumeOf, workspace: Path, terminal: int) -> di
     name = of.chat.id or of.attempt_id
     into = workspace / chats.CHATS / name
     if not into.is_dir():
-        copy_workspace(folder / KEPT_WORKSPACE, into)
+        chat_files(folder / KEPT_WORKSPACE, of.chat, into)
     return _say(workspace, _reopen(into, of.chat, when(_note(folder)["ended_at"]), f"{WORKSPACE}/{chats.CHATS}/{name}"), terminal)
 
 

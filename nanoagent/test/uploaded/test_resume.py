@@ -97,12 +97,11 @@ def test_a_chat_reopens_its_own_conversation_or_says_why_it_cannot(tmp_path: Pat
     aider = ChatOf("aider", None, ("aider", "--model", "x y"), "/rush/workspace/app")  # a run of a program: its command line again
     rerun = restore(tmp_path / "scratch", ResumeOf("s1", AT, aider), tmp_path / "b3")
     assert rerun["run"] == "cd /rush/workspace/app && aider --model 'x y'" and rerun["line"].startswith("Reran your aider session from ")
-    assert (tmp_path / "b3/.rush/claude").is_dir()  # its files back first
+    assert not (tmp_path / "b3/.rush/claude").exists()  # a run of a program gets no agent's home
     live = reopen_in(tmp_path / "scratch", ResumeOf("s1", "", aider), tmp_path / "b4", 2)  # in a live session: its own folder
-    assert live["run"] == "cd /rush/workspace/.rush/chats/s1/app && aider --model 'x y'" and (tmp_path / "b4/.rush/chats/s1/.rush/claude").is_dir()
+    assert live["run"] == "cd /rush/workspace/.rush/chats/s1/app && aider --model 'x y'" and not (tmp_path / "b4/.rush/chats/s1/.rush/claude").exists()
     gone = restore(tmp_path / "scratch", ResumeOf("never", AT, ChatOf("claude", second)), tmp_path / "b5")
     assert gone["line"].startswith("That session's files are no longer on this computer (it is not on this computer") and gone["run"] == "claude"
-
 
 
 def test_a_chat_reopened_in_a_live_session_comes_back_in_a_folder_of_its_own_and_runs_there(tmp_path: Path) -> None:
@@ -122,3 +121,44 @@ def test_a_chat_reopened_in_a_live_session_comes_back_in_a_folder_of_its_own_and
     assert chats.read(live)[("claude", second)].root == folder  # the live session holds it, from that folder
     gone = reopen_in(tmp_path / "scratch", ResumeOf("never", "", ChatOf("pi", "p-1")), live, 5)
     assert gone["run"] == "pi" and gone["line"].endswith("so it can't be reopened; started a new pi session")
+
+
+def files(root: Path) -> set[str]:
+    return {str(path.relative_to(root)) for path in root.rglob("*") if path.is_file()}
+
+
+def test_a_session_sees_only_its_own_files_and_a_chat_only_its_own_agents_home(tmp_path: Path) -> None:
+    """Resumed whole, a session gets its own kept files back; a chat of it, resumed or reopened in a live session, gets the member's
+    files and its own CLI's home, never NanoAgent's traces, another CLI's home, the remembered agents or the folder of a chat reopened
+    in it."""
+    made = tmp_path / "made"
+    shutil.copytree(CLAUDE_STATE, made)
+    workspace(made, {
+        "notes.txt": b"mine", ".rush/nanoagent/261118-181932.traj.json": b"{}", ".rush/codex/auth.json": b"{}", ".rush/agents": b"aider\n",
+        ".rush/chats/older/secret.txt": b"older", ".rush/chats/older/.rush/pi/sessions/x.jsonl": b"",
+    })
+    assert keep(tmp_path / "scratch", "s1", made, START, 1 << 20)[0]
+    second = "bbbb2222-0000-4000-8000-000000000002"
+    claude = {path for path in files(made) if path.startswith(".rush/claude/")}
+    whole = tmp_path / "whole"
+    restore(tmp_path / "scratch", ResumeOf("s1", AT), whole)
+    assert files(whole) - {".rush/resume-0.json"} == files(made)
+    one = tmp_path / "one"
+    restore(tmp_path / "scratch", ResumeOf("s1", AT, ChatOf("claude", second)), one)
+    assert files(one) - {".rush/resume-0.json"} == {"notes.txt"} | claude
+    live = workspace(tmp_path / "live", {"live.txt": b"live"})
+    reopen_in(tmp_path / "scratch", ResumeOf("s1", "", ChatOf("claude", second)), live, 1)
+    trusted = f".rush/chats/{second}/.rush/claude/.claude.json"  # Claude Code told it trusts the folder it is reopened in
+    assert files(live) - {".rush/resume-1.json", "live.txt", trusted} == {f".rush/chats/{second}/{path}" for path in {"notes.txt"} | claude}
+
+
+def test_a_chat_kept_in_a_reopened_chats_folder_comes_back_with_that_folder_alone(tmp_path: Path) -> None:
+    made = workspace(tmp_path / "made", {"top.txt": b"top", ".rush/nanoagent/a.traj.json": b"{}"})
+    shutil.copytree(CLAUDE_STATE / ".rush", made / ".rush/chats/c1/.rush")
+    workspace(made, {".rush/chats/c1/app.txt": b"app", ".rush/chats/c1/.rush/nanoagent/b.traj.json": b"{}"})
+    assert keep(tmp_path / "scratch", "s1", made, START, 1 << 20)[0]
+    second = "bbbb2222-0000-4000-8000-000000000002"
+    back = tmp_path / "back"
+    said = restore(tmp_path / "scratch", ResumeOf("s1", AT, ChatOf("claude", second)), back)
+    assert "RUSH_WORKSPACE=/rush/workspace/.rush/chats/c1 claude --resume" in said["run"]
+    assert files(back) - {".rush/resume-0.json"} == {".rush/chats/c1/app.txt"} | {f".rush/chats/c1/{path}" for path in files(CLAUDE_STATE)}

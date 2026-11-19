@@ -240,7 +240,7 @@ async def test_the_member_opens_a_second_terminal_in_the_case_from_the_link(tmp_
         with anyio.fail_after(2):
             while len(sandbox.calls) < 3:
                 await anyio.sleep(0.01)
-    assert sandbox.calls == [("exec", "mkdir", "-p", "-m", "0755", "/rush-trace/terminal-1"), ("exec_stream", "1"), ("resize", 20, 80)]
+    assert sandbox.calls == [("exec", "mkdir", "-p", "-m", "0700", "/rush-trace/terminal-1"), ("exec_stream", "1"), ("resize", 20, 80)]
     assert case.ended_terminals() == frozenset()
 
 

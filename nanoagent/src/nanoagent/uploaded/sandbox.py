@@ -87,7 +87,7 @@ PLUGIN_SOURCE_DIR = "/plugin-source"  # the prep VM's read-only view of the plug
 FIXTURES_DIR = "/fixtures"
 TOOLS_DIR = "/opt/rush-tools"  # the worker's guest tools (strace, uv), read-only in every VM
 CLIS_DIR = "/opt/rush/clis"  # the worker's installs of the reference CLIs (nanoagent.uploaded.clis), read-only in a case VM
-TRACE_DIR = "/rush-trace"  # root-owned: the case user cannot write the evidence
+TRACE_DIR = "/rush-trace"  # root-owned, each session's folder 0700: the case user can neither write the recording nor read it
 CLOSURE_MOUNT = "/rush-closure"  # the build's read-only view of the closure's tar, unpacked at the dependency mount
 OUTPUT_MOUNT = "/rush-build-tar"  # where the build VM leaves OUTPUT_ARCHIVE, its /build-out
 OUTPUT_ARCHIVE = "build-out.tar"
@@ -671,7 +671,7 @@ class MicrosandboxSupervisor:
         name = f"rush-probe-{uuid.uuid4().hex[:12]}"
         sandbox = await self._create(name, image, Limits(), Network.none(), {TOOLS_DIR: MountConfig(kind=MountKind.BIND, bind=str(tools), readonly=True)})
         try:
-            await sandbox.exec("mkdir", ["-p", "-m", "0755", f"{TRACE_DIR}/probe"], user="root", timeout=30)
+            await sandbox.exec("mkdir", ["-p", "-m", "0700", f"{TRACE_DIR}/probe"], user="root", timeout=30)
             cmd, args = _traced("probe", ["/bin/true"])
             run = await _run(sandbox, cmd, args, user="root", cwd="/", timeout_s=60)
             if run.code != 0:
@@ -1131,7 +1131,7 @@ class _Case:
                 return
             started = threading.Event()
             session = f"terminal-{terminal}"
-            self._run(_call(lambda: self._sandbox.exec("mkdir", ["-p", "-m", "0755", f"{TRACE_DIR}/{session}"], user="root", timeout=30)))
+            self._run(_call(lambda: self._sandbox.exec("mkdir", ["-p", "-m", "0700", f"{TRACE_DIR}/{session}"], user="root", timeout=30)))
             cmd, args = _traced(session, self.spec.run_argv)
             limits = self.spec.limits
             self._terminals[terminal] = self._s._loop.submit(_run(
@@ -1183,7 +1183,7 @@ class _Case:
             return list(self._terminals.values())
 
     async def _prepare_trace(self) -> int:
-        await self._sandbox.exec("mkdir", ["-p", "-m", "0755", f"{TRACE_DIR}/harness"], user="root", timeout=30)
+        await self._sandbox.exec("mkdir", ["-p", "-m", "0700", f"{TRACE_DIR}/harness"], user="root", timeout=30)
         return await _oom_kills(self._sandbox)
 
     def wait(self) -> CaseOutcome:
@@ -1245,7 +1245,7 @@ class _Case:
         )
 
     async def _exec(self, launch_id: str, cmd: str, args: Sequence[str], cwd: str, timeout_s: float, limits: Limits) -> tuple[_Run, dict[int, bytes]]:
-        await self._sandbox.exec("mkdir", ["-p", "-m", "0755", f"{TRACE_DIR}/{launch_id}"], user="root", timeout=30)
+        await self._sandbox.exec("mkdir", ["-p", "-m", "0700", f"{TRACE_DIR}/{launch_id}"], user="root", timeout=30)
         # PYTHONUNBUFFERED is emptied for the command: an unbuffered Python can drop part of a large write to a pipe.
         run = await _run(
             self._sandbox, cmd, args, user="root", cwd=cwd, env={"PYTHONUNBUFFERED": ""}, timeout_s=timeout_s + EXEC_KILL_GRACE_S + 10,

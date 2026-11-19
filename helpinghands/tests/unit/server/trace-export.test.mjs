@@ -155,6 +155,15 @@ describe('GET /api/traces/export', () => {
     const {status} = await invoke(route, {path: PATH, ctx, auth: null});
     assert.equal(status, 401);
   });
+
+  it('refuses a Terminal session VM\'s token, which names no member, on the export and on every session\'s files', async () => {
+    const {ctx} = ctxFor();
+    const vm = {authorization: 'Bearer attempt-token.run-1'};
+    for (const path of [PATH, `/api/traces/workspaces/${UPLOADED}`]) {
+      const {status} = await invoke(route, {path, ctx, auth: null, headers: vm});
+      assert.equal(status, 401);
+    }
+  });
 });
 
 describe('GET /api/traces/workspaces/<attempt id>', () => {

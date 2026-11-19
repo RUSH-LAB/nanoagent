@@ -253,7 +253,8 @@ async def test_a_free_form_session_is_kept_to_resume_and_a_resuming_one_starts_o
     resume = {"attempt_id": "11111111-1111-4111-8111-000000000001", "at": "2026-11-18T22:31:00Z", "chat": {"agent": "claude", "id": first, "run": None}}
     await rig.run(fx.free_job(attempt_id="11111111-1111-4111-8111-000000000002", resume=resume))
     found = rig.supervisor.case.found  # the workspace as the shell started
-    assert {name: found[name] for name in made} == made
+    own = {name: data for name, data in made.items() if not name.startswith(".rush/clis/")}  # the chat's own files: no other state
+    assert {name: found[name] for name in own} == own and ".rush/clis/claude" not in found
     said = json.loads(found[".rush/resume-0.json"])
     assert said["line"].startswith("Reopened your claude session from Nov 18") and said["run"] == f"claude --resume {first}"
     assert rig.rush.finalized[0]["chats"] == []  # it held none it did not talk in
