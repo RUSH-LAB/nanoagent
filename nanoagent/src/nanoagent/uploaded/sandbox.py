@@ -34,7 +34,6 @@ import os
 import platform
 import shutil
 import socket
-import sys
 import threading
 import time
 import uuid
@@ -54,7 +53,7 @@ from nanoagent.uploaded.toolchains import CLOSURE_ARCHIVE, DependencyClosure, To
 
 # microsandbox has no wheel for Intel Macs (pyproject.toml's marker leaves it out there): everything else NanoAgent does runs
 # there, and the supervisor refuses to start, so a worker there never starts and advertises no sandbox.
-SANDBOX_SUPPORTED = sys.platform != "darwin" or platform.machine() == "arm64"
+SANDBOX_SUPPORTED = platform.system() != "Darwin" or platform.machine() == "arm64"
 UNSUPPORTED = "The Harness terminal needs an Apple silicon Mac, Windows or Linux."
 if SANDBOX_SUPPORTED:
     import microsandbox

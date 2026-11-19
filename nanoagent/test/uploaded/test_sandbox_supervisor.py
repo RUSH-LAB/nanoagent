@@ -233,7 +233,7 @@ def test_an_intel_mac_runs_nanoagent_without_microsandbox_and_its_supervisor_ref
     script = f"""
 import platform, sys
 sys.modules["microsandbox"] = None  # not installed
-sys.platform, platform.machine = "darwin", lambda: "x86_64"
+platform.system, platform.machine = lambda: "Darwin", lambda: "x86_64"
 import nanoagent.uploaded.worker, nanoagent.uploaded.runner, nanoagent.web.app
 from nanoagent.uploaded.sandbox import MicrosandboxSupervisor, SandboxError, UNSUPPORTED
 try:
