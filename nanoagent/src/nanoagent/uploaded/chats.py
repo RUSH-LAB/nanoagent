@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import shlex
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -31,16 +31,25 @@ class Chat:
     ended_at: datetime
     messages: int  # how many it holds, so a session tells the chats it talked in from those it only restored
     cwd: str | None  # the folder it ran in, where its CLI finds it again
+    root: str = WORKSPACE  # the workspace its CLI's home is in: the session's, or a chat's folder in it (CHATS)
 
     def resume(self) -> str:
-        """The command that reopens this conversation, in the folder it ran in."""
+        """The command that reopens this conversation, in the folder it ran in, under its ``root``, with its CLI's home there."""
+        cwd = in_root(self.cwd or WORKSPACE, self.root)
         command = {
             "claude": f"claude --resume {shlex.quote(self.id)}",
             "codex": f"codex resume {shlex.quote(self.id)}",
             "pi": f"pi --session {shlex.quote(self.id)}",
             "hermes": f"hermes --resume {shlex.quote(self.id)}",
         }[self.agent]
-        return command if self.cwd in (None, WORKSPACE) else f"cd {shlex.quote(self.cwd)} && {command}"
+        if self.root != WORKSPACE:
+            command = f"RUSH_WORKSPACE={shlex.quote(self.root)} {command}"
+        return command if cwd == WORKSPACE else f"cd {shlex.quote(cwd)} && {command}"
+
+
+def in_root(path: str, root: str) -> str:
+    """The folder ``path`` of the session's workspace is at once its files are restored to ``root`` (a folder outside it stays)."""
+    return root + path.removeprefix(WORKSPACE) if path == WORKSPACE or path.startswith(f"{WORKSPACE}/") else path
 
 
 def _title(text: str) -> str:
@@ -144,12 +153,18 @@ def _hermes(home: Path) -> list[Chat]:
 
 
 READERS = {"claude": _claude, "codex": _codex, "pi": _pi, "hermes": _hermes}
+CHATS = ".rush/chats"  # in a workspace: each chat a reopen restored into a live session, a workspace of its own (resume.reopen_in)
 
 
-def read(workspace: Path) -> dict[tuple[str, str], Chat]:
-    """Every conversation the agent CLIs keep in ``workspace``'s .rush/, by agent and id."""
-    rush = workspace / ".rush"
-    return {(chat.agent, chat.id): chat for agent, reader in READERS.items() for chat in reader(rush / agent)}
+def read(workspace: Path, root: str = WORKSPACE) -> dict[tuple[str, str], Chat]:
+    """Every conversation the agent CLIs keep in ``workspace``'s .rush/ (``root`` in the VM) and in each chat's folder in it (CHATS),
+    by agent and id: one kept in both is the one talked in last."""
+    found = {(chat.agent, chat.id): replace(chat, root=root) for agent, reader in READERS.items() for chat in reader(workspace / ".rush" / agent)}
+    for folder in sorted((workspace / CHATS).iterdir()) if (workspace / CHATS).is_dir() else []:
+        for key, chat in read(folder, f"{root}/{CHATS}/{folder.name}").items():
+            if key not in found or chat.ended_at > found[key].ended_at:
+                found[key] = chat
+    return found
 
 
 def talked(before: dict[tuple[str, str], Chat], after: dict[tuple[str, str], Chat]) -> list[Chat]:

@@ -5,7 +5,7 @@
 
 import { startRun, request } from "./bridge.js";
 import { h, icon } from "./dom.js";
-import { formatCost, formatSeconds, thousands } from "./session.js";
+import { formatCost, formatSeconds, reopening, thousands } from "./session.js";
 import { Terminal } from "./vendor/xterm/xterm.mjs";
 import { FitAddon } from "./vendor/xterm/addon-fit.mjs";
 
@@ -40,12 +40,13 @@ const failedText = (reason) => `Couldn't start the terminal: ${reason}`;
  * terminal panel, they open more terminals in the same VM and workspace ("+"), switch between them by their tabs and close one (×);
  * a terminal whose shell they leave (exit, Ctrl-D) closes too. The session ends with its last terminal; its time, tokens and cost
  * print there, and Enter then starts a new one. Another tab shown, or the page left, the session runs on: started again while it runs,
- * this tab is given it again, and each of its terminals comes back with what it wrote from its first byte. `reopen(chat)` starts a
- * new one that resumes the ended session holding one of their chats (the Dashboard's) and reopens that conversation: the worker puts back what it kept of it on their computer, and its first
- * terminal runs the agent's resume command, or says why it could not. `startCli(name)` starts a new one whose first terminal runs the
- * agent CLI `name` (`claude`), as a resumed one runs its agent's resume command. `live()` is the attempt id of the session running
- * here, or null.
- * @returns {{element: HTMLElement, reopen: (chat: object) => void, startCli: (name: string) => void, live: () => string|null}}
+ * this tab is given it again, and each of its terminals comes back with what it wrote from its first byte. `openChat(chat)` opens one
+ * of their chats (the Dashboard's) in a terminal, always (session.js reopening): while their session runs, here or elsewhere, in a new
+ * terminal of it, the chat's files in a folder of their own there; else in a new session that resumes the ended one holding it, the
+ * worker putting back what it kept of it on their computer; and its agent's resume command runs there, or, for a chat that cannot be
+ * reopened, its agent anew after a line saying why. `startCli(name)` starts a new one whose first terminal runs the agent CLI `name`
+ * (`claude`), as a resumed one runs its agent's resume command.
+ * @returns {{element: HTMLElement, openChat: (chat: object) => void, startCli: (name: string) => void}}
  */
 export function harnessPage() {
   let runId = null;
@@ -154,7 +155,23 @@ export function harnessPage() {
     if (active !== null) views.get(active).fit.fit();
   }).observe(screens);
 
-  async function start({ resume, chat, cli } = {}) {
+  // A chat to open in the next terminal of the session once this tab has it (openChat), and the session the chat is of.
+  let reopen = null;
+  let reopenOf = null;
+  function reopenNext() {
+    if (!runId || !attempt || ended || !reopen) return;  // once RUSH said which session this is (harness.session)
+    const shown = views.get(active).terminal;
+    const asked = reopen;
+    reopen = null;
+    if (next >= MAX_TERMINALS) {
+      shown.write(`\r\n\x1b[31mThis session opened its ${MAX_TERMINALS} terminals: leave its shell (exit), then click the session again.\x1b[0m\r\n`);
+      return;
+    }
+    next += 1;  // the worker opens the next terminal for it, which shows here as its output comes
+    send("harness.reopen", { rows: shown.rows, cols: shown.cols, reopen: asked }, views.get(active));
+  }
+
+  async function start({ resume, chat, cli, join, line } = {}) {
     const mine = ++generation;
     attempt = null;
     for (const id of [...views.keys()]) remove(id);
@@ -183,11 +200,18 @@ export function harnessPage() {
       shown().write("Press Enter to start a new one.");
     };
     try {
-      const id = await startRun("harness.run", { harness: "shell", ...(resume ? { resume, chat } : {}), ...(cli ? { start: cli } : {}) }, (name, data) => {
+      const id = await startRun("harness.run", { harness: "shell", ...(resume ? { resume, chat } : {}), ...(cli ? { start: cli } : {}), ...(join ? { join } : {}) }, (name, data) => {
         if (mine !== generation) return;  // a session this tab has since replaced
         switch (name) {
           case "harness.session":
             attempt = data.attemptId;
+            if (!data.joined) {
+              reopen = null;  // this session is the chat's: its first terminal opens it
+              if (line) first.terminal.write(`${line}\r\n`);
+            } else if (attempt === reopenOf) {
+              reopen = null;  // the chat is of the session running: it is open in it
+            }
+            reopenNext();
             break;
           case "harness.preparing":  // shown only while something downloads; otherwise the terminal just opens
             if (!data.total) break;
@@ -224,6 +248,7 @@ export function harnessPage() {
         updateAdd();
         send("harness.resize", { terminal: 0, rows: first.terminal.rows, cols: first.terminal.cols }, first);
         first.terminal.focus();
+        reopenNext();
       }
     } catch (problem) {
       if (mine !== generation) return;
@@ -232,10 +257,18 @@ export function harnessPage() {
     }
   }
 
-  /** A new session that reopens `chat` (the Dashboard's), in place of any this tab has: RUSH ends that one as it starts this. */
-  function reopen(chat) {
+  /** Opens `chat` (the Dashboard's) in a terminal: see harnessPage. */
+  function openChat(chat) {
     opened = true;
-    start({ resume: chat.attemptId, chat: { agent: chat.agent, id: chat.conversation } });
+    const how = reopening(chat);
+    reopen = Object.keys(how).length ? how : null;
+    reopenOf = chat.attemptId;
+    if (runId && !ended) {
+      if (attempt === chat.attemptId) reopen = null;  // one of the running session's own chats: it is open in it
+      reopenNext();
+    } else {
+      start({ ...(how.resume ? { resume: how.resume, chat: how.chat } : {}), ...(how.start ? { cli: how.start, line: how.line } : {}), join: Boolean(reopen) });
+    }
   }
 
   /** A new session whose first terminal runs the agent CLI `name`, in place of any this tab has. */
@@ -244,5 +277,5 @@ export function harnessPage() {
     start({ cli: name });
   }
 
-  return { element: h("section", { class: "harness-page", "aria-label": "Harness" }, tabs, screens), reopen, startCli, live: () => (runId === null ? null : attempt) };
+  return { element: h("section", { class: "harness-page", "aria-label": "Harness" }, tabs, screens), openChat, startCli };
 }

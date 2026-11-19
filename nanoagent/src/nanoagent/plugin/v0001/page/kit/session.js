@@ -142,17 +142,24 @@ function harnessUsage(usages, units, unit) {
   );
 }
 
-/** What the dashboard's list says with nothing in view: `unit` is "session" or "chat". */
+/** What the dashboard's list says with nothing in view: `unit` is "session". */
 function emptyText(archived, closed, unit) {
   if (archived) return closed ? `Every ${unit} is archived.` : `Every ${unit} is archived. Start a new one with New session.`;
   return closed ? `No ${unit}s.` : `No ${unit}s yet. Start one with New session.`;
 }
 
-/** Why a chat of a Terminal session (`sessions.list`'s `terminals`) cannot reopen here, or null when it can. */
-function closedChat(chat, live) {
-  if (!chat.freeForm) return "This chat ran in a harness run, not in the Terminal: there is no terminal to reopen it in.";
-  if (chat.running) return live === chat.attemptId ? null : "This chat's terminal is still open in another window. Switch to it there, or leave its shell (exit) to reopen the chat here.";
-  return chat.resumable ? null : "This chat's files are no longer on this computer.";
+/**
+ * How a chat of a Terminal session (`sessions.list`'s `terminals`) clicked on the Dashboard opens, always in a terminal of the Harness
+ * tab: `{resume, chat}` reopens it from the ended session that holds it; one that cannot be reopened (it ran in a harness run, or this
+ * computer no longer keeps its files) starts its agent anew, saying why (`{start, line}`); one whose session still runs is open in
+ * that session (`{}`).
+ */
+export function reopening(chat) {
+  const fresh = (why) => ({ start: chat.agent, line: `${why}, so it can't be reopened; started a new ${chat.agent} session` });
+  if (chat.running) return {};
+  if (!chat.freeForm) return fresh("That session ran in a harness run, not a terminal");
+  if (!chat.resumable) return fresh("That session's files are no longer on this computer");
+  return { resume: chat.attemptId, chat: { agent: chat.agent, id: chat.conversation } };
 }
 
 /**
@@ -163,21 +170,19 @@ function closedChat(chat, live) {
  * Claude Code conversation, a Codex thread, a run of dsh), each with its title (its first prompt),
  * when, its tokens, cost and End-to-End Latency. Under nanoagent New session starts a chat, and
  * they resume one; under any other agent it starts a Harness session running that agent's CLI,
- * and clicking a chat reopens that conversation in the Harness tab (switching to its terminal
- * when it is the one running there), or says why it cannot. They archive a chat; archived ones
+ * and clicking a chat always opens it in a terminal of the Harness tab (reopening). They archive a chat; archived ones
  * leave the agent's list for that agent's Archived view, where they can be opened or restored;
  * talking in one again restores it.
  * @param {object} options
  * @param {(session: object|null) => void} options.onOpen With what `session.resume` answered,
  *   or null for a new session.
- * @param {(chat: object) => void} options.onChat With a chat of a Terminal session (`sessions.list`'s `terminals`), to reopen it.
- * @param {() => string|null} options.live The attempt id of the Terminal session running in the Harness tab, or null.
+ * @param {(chat: object) => void} options.onChat With a chat of a Terminal session (`sessions.list`'s `terminals`), to open it.
  * @param {(agent: string) => void} options.onStart With the chosen agent's CLI command, to start a Harness session running it.
  * @param {boolean} [options.closed] Whether no new session may start: the sessions are only read.
  * @returns {{element: HTMLElement, refresh: () => Promise<void>, resume: (id: string) => Promise<boolean>}}
  *   `refresh` lists the sessions again; `resume` opens session `id`, saying why not when it cannot, and whether it did.
  */
-export function dashboard({ onOpen, onChat, live, onStart, closed = false }) {
+export function dashboard({ onOpen, onChat, onStart, closed = false }) {
   const stats = h("div", { class: "dashboard-usage" });
   const status = h("p", { class: "error-text", role: "alert" });
   const list = h("ul", { class: "session-list" });
@@ -223,7 +228,7 @@ export function dashboard({ onOpen, onChat, live, onStart, closed = false }) {
   function line(session, { title, running, tokens, cost, took, onClick, terminal }) {
     const open = h(
       onClick ? "button" : "div",
-      { ...(onClick ? { type: "button", title: terminal ? "Reopen this chat" : "Resume this session" } : {}), class: "session-open" },
+      { ...(onClick ? { type: "button", title: terminal ? "Reopen this session" : "Resume this session" } : {}), class: "session-open" },
       h("span", { class: "session-title", text: title }),
       h("span", { class: "session-meta" }, running ? statusPill(running, "info") : null, when(session.updatedAt)),
     );
@@ -244,17 +249,14 @@ export function dashboard({ onOpen, onChat, live, onStart, closed = false }) {
     });
   }
 
-  // A chat of a Terminal session: clicking it reopens it in the Harness tab, or says why it cannot.
+  // A chat of a Terminal session: clicking it opens it in the Harness tab.
   function chatRow(chat) {
     const { usage } = chat;
     const read = usage.inputTokens.count || usage.outputTokens.count;
     return line(chat, {
       title: chat.title, running: chat.running && "Running", tokens: read ? thousands(usage.inputTokens.sum + usage.outputTokens.sum) : "—",
       cost: usage.cost.count ? formatCost(usage.cost.sum) : "—", took: usage.durationS.count ? formatSeconds(usage.durationS.sum) : "—", terminal: true,
-      onClick: closed ? null : () => {
-        status.textContent = closedChat(chat, live()) ?? "";
-        if (!status.textContent) onChat(chat);
-      },
+      onClick: closed ? null : () => onChat(chat),
     });
   }
 
@@ -294,8 +296,8 @@ export function dashboard({ onOpen, onChat, live, onStart, closed = false }) {
       ...(rows.length ? newest(rows) : [h("li", { class: "session-empty", text: emptyText(archivedView && archived, closed, unit) })]),
     );
     if (chosen !== NANOAGENT) {
-      stats.replaceChildren(...(shown.length && !archivedView ? [counted(shown.length, "chat"), harnessUsage(shown.map((one) => one.usage), shown.length, "chat")] : []));
-      listed(shown.map((one) => [one, chatRow]), "chat");
+      stats.replaceChildren(...(shown.length && !archivedView ? [counted(shown.length, "session"), harnessUsage(shown.map((one) => one.usage), shown.length, "session")] : []));
+      listed(shown.map((one) => [one, chatRow]), "session");
       return;
     }
     const own = sessions.filter(inView);

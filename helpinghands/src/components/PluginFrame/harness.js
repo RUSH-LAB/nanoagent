@@ -55,9 +55,13 @@ export function typedBase64(text) {
   return btoa(binary);
 }
 
-/** The line the link carries for the page's `input` to terminal `input.terminal`: `{data}` typed, `{rows, cols}`, or `{close: true}`. */
+/**
+ * The line the link carries for the page's `input` to terminal `input.terminal`: `{data}` typed, `{rows, cols}`, or `{close: true}`;
+ * or `{reopen, rows, cols}`, a chat to open in the next terminal.
+ */
 export function linkLine(input) {
   const {terminal} = input;
+  if (input.reopen) return {reopen: input.reopen, rows: input.rows, cols: input.cols};
   if (input.close) return {terminal, close: true};
   return input.data === undefined ? {terminal, rows: input.rows, cols: input.cols} : {terminal, data: typedBase64(input.data)};
 }

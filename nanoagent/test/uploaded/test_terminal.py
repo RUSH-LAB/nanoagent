@@ -259,3 +259,25 @@ async def test_a_terminal_that_cannot_open_ends_alone_with_why_printed_in_it() -
     await terminal.flush(case)
     assert case.calls == [("input", 0, b"ls\r", None, None)]
     assert rush.sent == [("output", 1), ("closed", 1)]
+
+
+
+async def test_a_chat_clicked_while_the_session_is_live_opens_in_its_next_terminal_and_the_session_runs_on(tmp_path: Path) -> None:
+    case = Case()
+    case.workspace = tmp_path / "workspace"  # type: ignore[attr-defined]
+    terminal = Terminal(Rush(), "a", 3, terminals=32, scratch=tmp_path / "scratch")  # type: ignore[arg-type]
+    why = "That session ran in a harness run, not a terminal, so it can't be reopened; started a new claude session"
+    async with linked(terminal, case) as page:
+        page.send(terminal=1, rows=20, cols=80)  # the member's own second terminal
+        page.send(reopen={"start": "claude", "line": why}, rows=24, cols=90)
+        page.send(reopen={"resume": "11111111-1111-4111-8111-000000000001", "chat": {"agent": "codex", "id": "c-1"}}, rows=24, cols=90)
+        await page.writer.drain()
+        with anyio.fail_after(2):
+            while len(case.calls) < 3:
+                await anyio.sleep(0.01)
+        assert case.calls == [("open", 1, 20, 80), ("open", 2, 24, 90), ("open", 3, 24, 90)]  # new terminals; none closed
+        assert json.loads((case.workspace / ".rush/resume-2.json").read_text()) == {"run": "claude", "line": why}
+        gone = json.loads((case.workspace / ".rush/resume-3.json").read_text())  # this computer never kept that session
+        assert gone["run"] == "codex" and gone["line"].startswith("That session's files are no longer on this computer")
+        page.send(reopen={"start": "claude; rm -rf /", "line": "x"}, rows=24, cols=90)
+        assert (await page.hear())["error"].startswith("reopen is")

@@ -109,6 +109,19 @@ describe('POST /api/benchmark/sessions', () => {
     assert.deepEqual([asked, calls.find(([what]) => what === 'session')[4].startCli], [['p'], 'codex']);
   });
 
+  it('opens a session clicked on the Dashboard in the live session (join), neither ending it nor starting a second', async () => {
+    const {ctx, calls} = ctxFor();
+    ctx.benchmark.repository.liveTerminal = async () => ({run_id: 'live', attempt_id: 'a-live'});
+    const joined = await post(ctx, {plugin_id: 'p', harness: 'shell', interactive: true, start: 'claude', join: true});
+    assert.deepEqual([joined.status, joined.payload, calls], [201, {run: {run_id: 'live'}, attempt_id: 'a-live', joined: true}, []]);
+    const resumed = await post(ctx, {plugin_id: 'p', harness: 'shell', interactive: true, resume: '11111111-1111-4111-8111-111111111111', chat: {agent: 'claude', id: 'a'}, join: true});
+    assert.deepEqual([resumed.payload.joined, calls], [true, []]);
+    ctx.benchmark.repository.liveTerminal = async () => null;  // none live: a new session runs it
+    assert.equal((await post(ctx, {plugin_id: 'p', harness: 'shell', interactive: true, start: 'claude', join: true})).status, 201);
+    assert.equal(calls.find(([what]) => what === 'session')[4].startCli, 'claude');
+    assert.equal((await post(ctx, {plugin_id: 'p', harness: 'shell', interactive: true, join: true})).status, 400);
+  });
+
   it('resumes an ended free-form Terminal session of the member\'s as a new session linked to it, and no other', async () => {
     const OLD = '11111111-1111-4111-8111-111111111111';
     const rows = {

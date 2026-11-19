@@ -7,16 +7,19 @@ own state (each wrapper in the shell reference harness's bin/ keeps its CLI's ho
 learns whether it was kept (finalize's ``resumable``). The copies are bounded in all by ``resume_bytes``; the oldest go first, and
 each copy that is not kept leaves a note why (``session.json``), so a resume can say so.
 
-A session that resumes one gets the copy back in its workspace before its shell starts, with ``.rush/resume.json``: the line its first
-terminal prints after the banner, and the agent's resume command to run there (one agent) or the commands to type (several), which
+A session that resumes one gets the copy back in its workspace before its shell starts, with ``.rush/resume-0.json``: the line its
+first terminal prints after the banner, and the agent's resume command to run there (one agent) or the commands to type (several), which
 shell.py and bashrc act on. A new session started under an agent (the Dashboard's New session with its chip chosen) gets the same
-file with that agent's CLI command to run, and no line (start_cli).
+file with that agent's CLI command to run, and no line (start_cli). A chat clicked on the Dashboard while a session is live opens in a
+new terminal of it (``.rush/resume-<terminal>.json``): its kept files in a folder of their own there (reopen_in), or, when it cannot be
+reopened, its agent started anew with why.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import stat
 from datetime import datetime
@@ -25,11 +28,12 @@ from pathlib import Path
 from nanoagent.uploaded.clis import CLIS
 from nanoagent.uploaded import chats
 from nanoagent.uploaded.rush_worker import ChatOf, ResumeOf
+from nanoagent.uploaded.sandbox import WORKSPACE
 
 SESSIONS = "sessions"  # under the scratch folder: each kept Terminal session, by attempt id
 NOTE = "session.json"  # beside a kept session's workspace/: when it ended, and why it is not kept when it is not
 KEPT_WORKSPACE = "workspace"
-RESUME_FILE = ".rush/resume.json"  # in a resuming or starting session's workspace, read (and removed) by shell.py as its shell starts
+RESUME_FILE = ".rush/resume-{terminal}.json"  # in the workspace: what a terminal says and runs, read (and removed) by shell.py as its shell starts
 CLIS_RAN = ".rush/clis"  # in the workspace: each CLI the session ran, by name (shell rush.py)
 
 
@@ -119,29 +123,76 @@ def resume_command(workspace: Path, name: str) -> str | None:
     return None  # dsh runs one task at a time, headless: it has nothing to continue
 
 
-def _reopen(workspace: Path, chat: ChatOf, since: str) -> dict:
-    """What a session resumed for one of its chats says and runs: that chat's own resume command, or why it cannot be reopened. A chat
-    with no id is a run of its agent (one recorded before its conversations were read): its agent's last conversation."""
+def fresh(agent: str, why: str) -> dict:
+    """What a terminal opened for a chat that cannot be reopened says and runs: why, then its agent, started anew."""
+    return {"line": f"{why}, so it can't be reopened; started a new {agent} session", "run": agent}
+
+
+def _gone(folder: Path) -> str | None:
+    """Why the session kept in ``folder`` is no longer on this computer, or None while it is."""
+    if (folder / KEPT_WORKSPACE).is_dir():
+        return None
+    return _note(folder)["gone"] if (folder / NOTE).is_file() else "it is not on this computer (it ran on another, or its files were deleted)"
+
+
+def _relocate(workspace: Path, root: str, chat: chats.Chat) -> None:
+    """Lets ``chat``'s CLI find it from the folder it is reopened in, under its ``chat.root`` (``workspace``, ``root`` in the VM, holds
+    it): Claude Code and PI keep a conversation under its folder's name, so that name links to the folder it ran in, which Claude Code
+    is told it trusts."""
+    ran = chat.cwd or WORKSPACE
+    now = chats.in_root(ran, chat.root)
+    home = workspace / chat.root.removeprefix(root).lstrip("/") / ".rush" / chat.agent
+    named = {
+        "claude": (home / ".claude" / "projects", lambda path: re.sub(r"[^A-Za-z0-9]", "-", path)),
+        "pi": (home / "sessions", lambda path: f"--{re.sub(r'[/:]', '-', path.lstrip('/'))}--"),
+    }
+    if now == ran or chat.agent not in named:
+        return
+    store, name = named[chat.agent]
+    if not (store / name(now)).exists():
+        os.symlink(name(ran), store / name(now))
+    if chat.agent == "claude":
+        config = json.loads((home / ".claude.json").read_text(encoding="utf-8")) if (home / ".claude.json").is_file() else {}
+        config.setdefault("projects", {})[now] = {"hasTrustDialogAccepted": True, "hasCompletedProjectOnboarding": True}
+        (home / ".claude.json").write_text(json.dumps(config), encoding="utf-8")
+
+
+def _reopen(workspace: Path, chat: ChatOf, since: str, root: str = WORKSPACE) -> dict:
+    """What a terminal reopening one of the chats of the session put back in ``workspace`` (``root`` in the VM) says and runs: that
+    chat's own resume command, or why it cannot be reopened and its agent started anew. A chat with no id is a run of its agent (one
+    recorded before its conversations were read): its agent's last conversation."""
     if chat.agent not in chats.READERS:
-        return {"line": f"Your session from {since} is back, files and all, but {chat.agent} has no command to reopen one of its chats."}
-    kept = [found for found in chats.read(workspace).values() if found.agent == chat.agent and chat.id in (None, found.id)]
-    found = max(kept, key=lambda one: one.ended_at) if kept else None
-    if found is None:
-        return {"line": f"Your session from {since} is back, files and all, but {chat.agent} kept no conversation {chat.id or ''} in it to reopen."}
-    return {"line": f"Reopened your {chat.agent} chat from {since}: {found.title}", "run": found.resume()}
+        return fresh(chat.agent, f"{chat.agent} has no command to reopen a session")
+    kept = [found for found in chats.read(workspace, root).values() if found.agent == chat.agent and chat.id in (None, found.id)]
+    if not kept:
+        return fresh(chat.agent, f"Your session from {since} kept no {chat.agent} conversation {chat.id or ''}".rstrip())
+    found = max(kept, key=lambda one: one.ended_at)
+    if root != WORKSPACE:
+        _relocate(workspace, root, found)
+    return {"line": f"Reopened your {chat.agent} session from {since}: {found.title}", "run": found.resume()}
+
+
+def _say(workspace: Path, said: dict, terminal: int = 0) -> dict:
+    """Has terminal ``terminal`` say and run ``said`` as its shell starts (RESUME_FILE)."""
+    path = workspace / RESUME_FILE.format(terminal=terminal)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(said), encoding="utf-8")
+    return said
 
 
 def restore(scratch: Path, of: ResumeOf, workspace: Path) -> dict:
     """Puts the kept session ``of`` back in ``workspace`` and returns what its first terminal says and runs (RESUME_FILE, which it is
     also written to): ``line``, and ``run``, the one agent's resume command, or ``type``, the commands of several; resumed for one of
-    its chats (``of.chat``), that chat's resume command. A session that is not kept says why, and the terminal is a fresh one."""
+    its chats (``of.chat``), that chat's resume command. A session that is not kept says why, and the terminal is a fresh one, running
+    the chat's agent anew when it was for one."""
     folder = scratch / SESSIONS / of.attempt_id
     since = when(of.at)
     said: dict
-    if not (folder / KEPT_WORKSPACE).is_dir():
-        why = _note(folder)["gone"] if (folder / NOTE).is_file() else "it is not on this computer (it ran on another, or its files were deleted)"
-        gone = "This chat's files are no longer on this computer" if of.chat else f"Couldn't resume your session from {since}"
-        said = {"line": f"{gone}: {why}. This is a fresh terminal."}
+    gone = _gone(folder)
+    if gone and of.chat:
+        said = fresh(of.chat.agent, f"That session's files are no longer on this computer ({gone})")
+    elif gone:
+        said = {"line": f"Couldn't resume your session from {since}: {gone}. This is a fresh terminal."}
     elif of.chat is not None:
         copy_workspace(folder / KEPT_WORKSPACE, workspace)
         said = _reopen(workspace, of.chat, since)
@@ -156,13 +207,26 @@ def restore(scratch: Path, of: ResumeOf, workspace: Path) -> dict:
             said["type"] = f"{ran[0]} kept no conversation it can continue."
         elif ran:
             said["type"] = "To continue: " + " · ".join(commands[name] or f"{name} has nothing to continue" for name in ran)
-    (workspace / RESUME_FILE).parent.mkdir(parents=True, exist_ok=True)
-    (workspace / RESUME_FILE).write_text(json.dumps(said), encoding="utf-8")
-    return said
+    return _say(workspace, said)
 
 
-def start_cli(workspace: Path, command: str) -> None:
-    """Has a new session's first terminal run the agent CLI ``command`` (``claude``) at its first prompt (RESUME_FILE's ``run``), so
-    the member lands in it and is back at the shell when it exits."""
-    (workspace / RESUME_FILE).parent.mkdir(parents=True, exist_ok=True)
-    (workspace / RESUME_FILE).write_text(json.dumps({"run": command}), encoding="utf-8")
+def reopen_in(scratch: Path, of: ResumeOf, workspace: Path, terminal: int) -> dict:
+    """Has terminal ``terminal`` of a live session reopen ``of.chat``, a chat of the kept session ``of``, and returns what it says and
+    runs: the kept session's files go to a folder of their own in ``workspace`` (CHATS/<its conversation id>, or the session's id for a
+    run of an agent), not over the live session's, where its agent reopens it. A folder already there (the chat reopened before in this
+    session) is used as it is. A chat whose files are gone starts its agent anew in the workspace, saying why."""
+    folder = scratch / SESSIONS / of.attempt_id
+    gone = _gone(folder)
+    if gone:
+        return _say(workspace, fresh(of.chat.agent, f"That session's files are no longer on this computer ({gone})"), terminal)
+    name = of.chat.id or of.attempt_id
+    into = workspace / chats.CHATS / name
+    if not into.is_dir():
+        copy_workspace(folder / KEPT_WORKSPACE, into)
+    return _say(workspace, _reopen(into, of.chat, when(_note(folder)["ended_at"]), f"{WORKSPACE}/{chats.CHATS}/{name}"), terminal)
+
+
+def start_cli(workspace: Path, command: str, terminal: int = 0, line: str | None = None) -> None:
+    """Has terminal ``terminal`` (a new session's first) run the agent CLI ``command`` (``claude``) at its first prompt (RESUME_FILE's
+    ``run``), after ``line`` when given, so the member lands in it and is back at the shell when it exits."""
+    _say(workspace, {"run": command} | ({"line": line} if line else {}), terminal)

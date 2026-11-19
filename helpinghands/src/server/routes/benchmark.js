@@ -135,20 +135,30 @@ async function openApp(ctx, context, pluginId, computer) {
  * (`claude`), its first terminal runs it at its first prompt (`start_cli`), as a resumed one runs its agent's resume command. Given
  * `chat` with `resume`, one of that session's chats (`{agent, id}`, the Dashboard's chat row, its CLI's conversation id or null for a
  * run of an agent), its first terminal reopens that conversation (`resume_chat`). Given neither, while the member's free-form session on
- * that plugin still runs, it is that session's run, not a new one. `{run, attempt_id}`.
+ * that plugin still runs, it is that session's run, not a new one; given `join` (true, with `resume` or `start`: a chat clicked on the
+ * Dashboard), so is it, answered with `joined`, and the page opens the chat in a new terminal of it. `{run, attempt_id, joined?}`.
  */
-async function startSession(ctx, context, {pluginId, taskId, harness, interactive, text, model, resume, start, chat}) {
+async function startSession(ctx, context, {pluginId, taskId, harness, interactive, text, model, resume, start, chat, join}) {
   const {repository, service} = ctx.benchmark;
   const free = harness === 'shell' && interactive;
   if (free && (text !== undefined || taskId !== undefined)) {
     throw new BenchmarkError(400, 'invalid_request', 'A Terminal session someone is at is free-form: it takes no task and no text');
   }
   const request = free ? null : string(text, 'text', {max: SESSION_TEXT_LIMIT});
+  if (join !== undefined && (join !== true || !free || (resume === undefined && start === undefined))) {
+    throw new BenchmarkError(400, 'invalid_request', 'join is true, on a Terminal session someone is at that resumes one or starts an agent\'s CLI');
+  }
+  // A chat clicked on the Dashboard (`join`) while the member's free-form session on the plugin runs opens in a new terminal of that
+  // one, which the page asks its worker for: the session is not ended, and no second one starts.
+  if (join) {
+    const live = await repository.liveTerminal(context, pluginId);
+    if (live) return {run: await repository.run(context, live.run_id), attempt_id: live.attempt_id, joined: true};
+  }
   const resumedFrom = resume === undefined ? null : await resumable(repository, context, free, resume);
   const resumeChat = chat === undefined ? null : await chatOf(repository, context, resumedFrom, chat);
   const startCli = start === undefined ? null : cliCommand(free, resumedFrom, start);
   // A new free-form session on a plugin where the member's last one still runs is that one, which the page links to again (the
-  // Harness tab shown again, the plugin opened again): only `exit`, its time limit or another start (resume, start) ends it.
+  // Harness tab shown again, the plugin opened again): only `exit`, its time limit or another start (resume, start, without join) ends it.
   if (free && resumedFrom === null && startCli === null) {
     const live = await repository.liveTerminal(context, pluginId);
     if (live) return {run: await repository.run(context, live.run_id), attempt_id: live.attempt_id};
@@ -215,7 +225,7 @@ async function chatOf(repository, context, resumedFrom, chat) {
     throw new BenchmarkError(400, 'invalid_request', "chat is {agent, id}: an agent's CLI command and its conversation id, or null");
   }
   const [row] = await repository.terminalRows(context, {attemptId: resumedFrom, atCalls: true});
-  if (!terminalChats(row).some(one => one.agent === agent && one.conversation === id)) throw new BenchmarkError(404, 'unknown_chat', 'That session holds no such chat');
+  if (!terminalChats(row).some(one => one.agent === agent && one.conversation === id)) throw new BenchmarkError(404, 'unknown_chat', 'That session is not one RUSH kept from that terminal session');
   return {agent, id};
 }
 
@@ -329,7 +339,7 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       const body = object(await jsonBody(req, readBody), 'The body');
       const [pluginId, harness] = ['plugin_id', 'harness'].map(name => string(body[name], name));
       if (typeof body.interactive !== 'boolean') throw new BenchmarkError(400, 'invalid_request', 'interactive must be a boolean');
-      return json(res, 201, await startSession(ctx, context, {pluginId, taskId: body.task_id, harness, interactive: body.interactive, text: body.text, model: body.model, resume: body.resume, start: body.start, chat: body.chat}));
+      return json(res, 201, await startSession(ctx, context, {pluginId, taskId: body.task_id, harness, interactive: body.interactive, text: body.text, model: body.model, resume: body.resume, start: body.start, chat: body.chat, join: body.join}));
     }
     // A plugin page's Leaderboard tab: the harnesses run on the plugin, whatever task, ranked from every member's scored runs.
     if (top === 'leaderboard') {

@@ -10,7 +10,8 @@ did. What passes ``limit_bytes``, all terminals together, is kept from both: a l
 :meth:`Terminal.serve` is the link: a TCP listener on 127.0.0.1 that RUSH Lab connects to for the page (RUSH tells the page its port
 and :attr:`Terminal.token`, and only the session's member). Each side sends one JSON object a line. The link's first line is
 ``{"token"}``; then the page sends ``{"terminal", "data"}`` (base64 keystrokes), ``{"terminal", "rows", "cols"}`` (a size, which opens
-a terminal not yet open) or ``{"terminal", "close": true}``, and hears ``{"terminal", "data"}`` (everything that terminal wrote, from
+a terminal not yet open), ``{"terminal", "close": true}`` or ``{"reopen", "rows", "cols"}`` (a chat clicked on the Dashboard, which
+opens in the next terminal of a free-form session: :meth:`Terminal._reopen`), and hears ``{"terminal", "data"}`` (everything that terminal wrote, from
 its first byte, then as it comes) and ``{"terminal", "closed": true}`` once it ended, after its output. A link that sends anything
 else is closed, with ``{"error"}`` why.
 """
@@ -22,16 +23,20 @@ import base64
 import binascii
 import contextlib
 import json
+import re
 import secrets
 import threading
+from collections.abc import Callable
 from functools import partial
+from pathlib import Path
 from typing import Any
 
 import anyio
 from anyio.abc import SocketAttribute, SocketStream
 from anyio.streams.buffered import BufferedByteReceiveStream
 
-from nanoagent.uploaded.rush_worker import RushWorkerClient
+from nanoagent.uploaded.resume import reopen_in, start_cli
+from nanoagent.uploaded.rush_worker import ChatOf, ResumeOf, RushWorkerClient
 
 SEND_S = 0.05
 MAX_SEND_BYTES = 256 * 1024  # one request's or link line's bytes of output at most
@@ -40,18 +45,30 @@ LIMIT_BYTES = 4 * 1024 * 1024 - 4096
 MAX_TERMINALS = 32  # a free-form session's: ids 0 to 31
 MAX_LINE = 1 << 20  # one line the page sends: a paste is 40 000 characters at most, as base64
 CLOSE_S = 1.0  # how long a closing link has to send what is left
+# What a reopened chat names, as RUSH checks them: the kept session's attempt id, its agent's CLI command and its conversation id.
+UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+CLI = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
+CONVERSATION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@-]{0,199}")
 
 
 class LinkRefused(Exception):
     """What the page sent the link that it does not take."""
 
 
+def _size(rows: object, cols: object) -> None:
+    if not all(type(n) is int and 1 <= n <= 1000 for n in (rows, cols)):
+        raise LinkRefused("a size is rows and cols, each 1 to 1000")
+
+
 class Terminal:
-    def __init__(self, worker: RushWorkerClient, attempt_id: str, fence: int, *, terminals: int = 1, limit_bytes: int = LIMIT_BYTES) -> None:
+    def __init__(
+        self, worker: RushWorkerClient, attempt_id: str, fence: int, *, terminals: int = 1, scratch: Path | None = None, limit_bytes: int = LIMIT_BYTES
+    ) -> None:
         self._worker = worker
         self._attempt_id = attempt_id
         self._fence = fence
         self._terminals = terminals  # the ids the member may use: 0 alone, or all a free-form session opens
+        self._scratch = scratch  # a free-form session's: where this computer keeps ended sessions, whose chats it reopens (resume)
         self._limit = limit_bytes
         self.token = secrets.token_urlsafe(32)
         self._loop = asyncio.get_running_loop()
@@ -212,6 +229,9 @@ class Terminal:
         scope.cancel()
 
     async def _apply(self, case: Any, item: dict[str, Any]) -> None:
+        if "reopen" in item:
+            await self._reopen(case, item)
+            return
         terminal = item.get("terminal")
         if type(terminal) is not int or not 0 <= terminal < self._terminals:
             raise LinkRefused(f"terminal is a terminal's id, 0 to {self._terminals - 1}")
@@ -220,8 +240,7 @@ class Terminal:
             await anyio.to_thread.run_sync(case.close_terminal, terminal)
             return
         if data is None:
-            if not all(type(n) is int and 1 <= n <= 1000 for n in (rows, cols)):
-                raise LinkRefused("a size is rows and cols, each 1 to 1000")
+            _size(rows, cols)
         else:
             try:
                 data = base64.b64decode(data, validate=True)
@@ -231,11 +250,45 @@ class Terminal:
         if terminal not in self._opened:
             if data is not None:
                 return  # typed at a terminal not yet open: its size opens it
-            self._opened.add(terminal)
-            try:
-                await anyio.to_thread.run_sync(case.open_terminal, terminal, rows, cols, partial(self.write, terminal))
-            except Exception as error:  # noqa: BLE001 - it ends this terminal, with why, not the session
-                self.write(terminal, f"\x1b[0m[RUSH: this terminal could not open: {type(error).__name__}: {error}]\r\n".encode())
-                self._failed.add(terminal)
+            await self._open(case, terminal, rows, cols)
             return
         await anyio.to_thread.run_sync(case.terminal_input, terminal, data, rows, cols)
+
+    async def _open(self, case: Any, terminal: int, rows: int, cols: int, prepare: Callable[[], object] | None = None) -> None:
+        """Opens ``terminal``, after ``prepare`` (what it says and runs as it starts); one that cannot open ends with why in it."""
+        self._opened.add(terminal)
+        try:
+            if prepare is not None:
+                await anyio.to_thread.run_sync(prepare)
+            await anyio.to_thread.run_sync(case.open_terminal, terminal, rows, cols, partial(self.write, terminal))
+        except Exception as error:  # noqa: BLE001 - it ends this terminal, with why, not the session
+            self.write(terminal, f"\x1b[0m[RUSH: this terminal could not open: {type(error).__name__}: {error}]\r\n".encode())
+            self._failed.add(terminal)
+
+    async def _reopen(self, case: Any, item: dict[str, Any]) -> None:
+        """A chat the member clicked on the Dashboard, opened in a new terminal of this live session (the next id), ``rows`` by ``cols``:
+        ``{"resume": attempt id, "chat": {agent, id}}`` reopens it from the session this computer kept (resume.reopen_in); ``{"start":
+        agent, "line": why}``, one that cannot be reopened, starts its agent anew, saying why."""
+        spec, rows, cols = item["reopen"], item.get("rows"), item.get("cols")
+        _size(rows, cols)
+        if self._scratch is None:
+            raise LinkRefused("only a free-form session reopens a chat")
+        if not isinstance(spec, dict):
+            raise LinkRefused("reopen is {resume, chat} or {start, line}")
+        chat = spec.get("chat")
+        if set(spec) == {"resume", "chat"} and isinstance(spec["resume"], str) and UUID.fullmatch(spec["resume"]) and isinstance(chat, dict) \
+                and set(chat) == {"agent", "id"} and isinstance(chat["agent"], str) and CLI.fullmatch(chat["agent"]) \
+                and (chat["id"] is None or (isinstance(chat["id"], str) and CONVERSATION.fullmatch(chat["id"]))):  # fmt: skip
+            of = ResumeOf(spec["resume"], "", ChatOf(chat["agent"], chat["id"]))
+            prepare = lambda: reopen_in(self._scratch, of, case.workspace, terminal)  # noqa: E731
+        elif set(spec) == {"start", "line"} and isinstance(spec["start"], str) and CLI.fullmatch(spec["start"]) \
+                and isinstance(spec["line"], str) and 0 < len(spec["line"]) <= 500:  # fmt: skip
+            prepare = lambda: start_cli(case.workspace, spec["start"], terminal, spec["line"])  # noqa: E731
+        else:
+            raise LinkRefused("reopen is {resume: a session's id, chat: {agent, id}} or {start: an agent's CLI command, line: why}")
+        terminal = max(self._opened) + 1
+        if terminal >= self._terminals:
+            shown = self._opened - case.ended_terminals() - self._failed
+            self.write(max(shown, default=0), f"\r\n\x1b[0m[RUSH: this session opened its {self._terminals} terminals: leave its shell (exit), then click the session again]\r\n".encode())
+            return
+        await self._open(case, terminal, rows, cols, prepare)

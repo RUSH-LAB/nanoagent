@@ -22,12 +22,25 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 TERMINAL_ENV = Path("/tmp/rush-terminal-env.json")  # the first terminal's shell environment, which every other terminal starts with
 SHELL = ["bash", "--rcfile", str(HERE / "bashrc"), "-i"]
+
+
+def said(workspace: Path) -> dict[str, str]:
+    """What this terminal says after the banner and runs at its first prompt (bashrc), as the worker left it (nanoagent.uploaded.resume:
+    a resumed session's, a session started under an agent, a chat reopened in a new terminal), or nothing."""
+    resume = workspace / ".rush" / f"resume-{os.environ['RUSH_TERMINAL']}.json"
+    if not resume.is_file():
+        return {}
+    told = json.loads(resume.read_text(encoding="utf-8"))
+    resume.unlink()
+    return {"RUSH_RESUME_LINE": told.get("line", ""), "RUSH_RESUME_RUN": told.get("run", ""), "RUSH_RESUME_TYPE": told.get("type", "")}
+
+
 if os.environ["RUSH_TERMINAL"] != "0":
     while not TERMINAL_ENV.is_file():  # written as the first terminal's shell starts, which a terminal opened at once may beat
         time.sleep(0.005)
     env = {**json.loads(TERMINAL_ENV.read_text(encoding="utf-8")), "RUSH_TERMINAL": os.environ["RUSH_TERMINAL"]}
     os.chdir(env["RUSH_WORKSPACE"])
-    os.execvpe("bash", SHELL, env)
+    os.execvpe("bash", SHELL, env | said(Path(env["RUSH_WORKSPACE"])))
 request = json.loads(Path(os.environ["RUSH_REQUEST"]).read_text(encoding="utf-8"))
 if request.get("wait_go"):
     # A warm terminal, started before any session had it: the session it is handed to writes its request and its attempt's token
@@ -79,13 +92,7 @@ staged.write_text(json.dumps(env), encoding="utf-8")
 staged.rename(TERMINAL_ENV)  # whole: another terminal reads it the moment it appears
 # A session that resumes another (nanoagent.uploaded.resume): its first terminal says from when and with which agent after the
 # banner, then runs that agent's resume command or says what to type (bashrc). One started under an agent runs its CLI, saying nothing.
-first = dict(env)
-resume = workspace / ".rush" / "resume.json"
-if resume.is_file():
-    said = json.loads(resume.read_text(encoding="utf-8"))
-    resume.unlink()
-    first |= {"RUSH_RESUME_LINE": said.get("line", ""), "RUSH_RESUME_RUN": said.get("run", ""), "RUSH_RESUME_TYPE": said.get("type", "")}
-shell = subprocess.Popen(SHELL, env=first)
+shell = subprocess.Popen(SHELL, env=env | said(workspace))
 signal.signal(signal.SIGINT, signal.SIG_IGN)  # after the start, so the shell and what it runs keep Ctrl-C
 shell.wait()
 # The member ends the session by leaving the shell; its exit status is their last command's, not the harness's.

@@ -8,7 +8,8 @@ import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from nanoagent.uploaded.resume import keep, restore, resume_command, start_cli
+from nanoagent.uploaded import chats
+from nanoagent.uploaded.resume import keep, reopen_in, restore, resume_command, start_cli
 from nanoagent.uploaded.rush_worker import ChatOf, ResumeOf
 
 AT = "2026-11-18T22:31:00Z"
@@ -34,7 +35,7 @@ def test_a_kept_session_comes_back_whole_with_its_links_and_modes(tmp_path: Path
     assert (back / "deep/a.txt").read_bytes() == b"a" and os.readlink(back / "link") == "deep/a.txt" and not (back / "pipe").exists()
     assert (back / "run.sh").stat().st_mode & 0o777 == 0o755
     assert said == {"line": f"Resumed your session from {said['line'].split('from ')[1]}"} and "run" not in said  # no agent ran in it
-    assert json.loads((back / ".rush/resume.json").read_text()) == said
+    assert json.loads((back / ".rush/resume-0.json").read_text()) == said
 
 
 def test_sessions_are_bounded_in_all_and_each_one_not_kept_says_why(tmp_path: Path) -> None:
@@ -80,7 +81,7 @@ def test_an_agent_that_kept_no_conversation_has_nothing_to_run(tmp_path: Path) -
 
 def test_a_session_started_under_an_agent_runs_its_cli_saying_nothing(tmp_path: Path) -> None:
     start_cli(tmp_path, "claude")
-    assert json.loads((tmp_path / ".rush/resume.json").read_text()) == {"run": "claude"}
+    assert json.loads((tmp_path / ".rush/resume-0.json").read_text()) == {"run": "claude"}
 
 
 def test_a_chat_reopens_its_own_conversation_or_says_why_it_cannot(tmp_path: Path) -> None:
@@ -90,11 +91,32 @@ def test_a_chat_reopens_its_own_conversation_or_says_why_it_cannot(tmp_path: Pat
     second = "bbbb2222-0000-4000-8000-000000000002"
     said = restore(tmp_path / "scratch", ResumeOf("s1", AT, ChatOf("claude", second)), tmp_path / "back")
     assert said["run"] == f"cd /rush/workspace/app && claude --resume {second}"  # that one, not the newest
-    assert said["line"].startswith("Reopened your claude chat from ") and said["line"].endswith(": List the files in this folder")
-    assert "kept no conversation nope in it" in restore(tmp_path / "scratch", ResumeOf("s1", AT, ChatOf("claude", "nope")), tmp_path / "b2")["line"]
+    assert said["line"].startswith("Reopened your claude session from ") and said["line"].endswith(": List the files in this folder")
+    nope = restore(tmp_path / "scratch", ResumeOf("s1", AT, ChatOf("claude", "nope")), tmp_path / "b2")
+    assert "kept no claude conversation nope, so it can't be reopened" in nope["line"] and nope["run"] == "claude"  # the agent, anew
     newest = restore(tmp_path / "scratch", ResumeOf("s1", AT, ChatOf("claude", None)), tmp_path / "b3")  # a run of it: its last conversation
     assert newest["run"] == f"cd /rush/workspace/app && claude --resume {second}"
     dsh = restore(tmp_path / "scratch", ResumeOf("s1", AT, ChatOf("dsh", None)), tmp_path / "b4")
-    assert "run" not in dsh and "dsh has no command to reopen one of its chats" in dsh["line"]
+    assert dsh == {"line": "dsh has no command to reopen a session, so it can't be reopened; started a new dsh session", "run": "dsh"}
     gone = restore(tmp_path / "scratch", ResumeOf("never", AT, ChatOf("claude", second)), tmp_path / "b5")
-    assert gone["line"].startswith("This chat's files are no longer on this computer: it is not on this computer") and "run" not in gone
+    assert gone["line"].startswith("That session's files are no longer on this computer (it is not on this computer") and gone["run"] == "claude"
+
+
+
+def test_a_chat_reopened_in_a_live_session_comes_back_in_a_folder_of_its_own_and_runs_there(tmp_path: Path) -> None:
+    made = tmp_path / "made"
+    shutil.copytree(CLAUDE_STATE, made)
+    (made / "notes.txt").write_text("old")
+    assert keep(tmp_path / "scratch", "s1", made, START, 1 << 20)[0]
+    live = workspace(tmp_path / "live", {"notes.txt": b"live"})
+    second = "bbbb2222-0000-4000-8000-000000000002"
+    said = reopen_in(tmp_path / "scratch", ResumeOf("s1", "", ChatOf("claude", second)), live, 4)
+    folder = f"/rush/workspace/.rush/chats/{second}"
+    assert said["run"] == f"cd {folder}/app && RUSH_WORKSPACE={folder} claude --resume {second}"
+    assert (live / "notes.txt").read_text() == "live" and (live / f".rush/chats/{second}/notes.txt").read_text() == "old"
+    projects = live / f".rush/chats/{second}/.rush/claude/.claude/projects"
+    assert any(path.is_symlink() for path in projects.iterdir())  # Claude Code finds it from the folder it is reopened in
+    assert json.loads((live / ".rush/resume-4.json").read_text()) == said
+    assert chats.read(live)[("claude", second)].root == folder  # the live session holds it, from that folder
+    gone = reopen_in(tmp_path / "scratch", ResumeOf("never", "", ChatOf("pi", "p-1")), live, 5)
+    assert gone["run"] == "pi" and gone["line"].endswith("so it can't be reopened; started a new pi session")

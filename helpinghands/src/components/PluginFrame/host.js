@@ -39,7 +39,10 @@ import {
  * terminal's output from its first byte. A free-form session started with `resume` (an ended one's attempt id, clicked on the
  * Dashboard) resumes it: the worker puts back what it kept of it on this computer, and with `chat` too (`{agent, id}`, one of its chats) reopens that
  * conversation. One started with `start` (an agent's CLI command, the Dashboard's New session under that agent) runs it in its first
- * terminal. Once RUSH has queued it, `harness.session` names its attempt.
+ * terminal. Either one started with `join` (a chat clicked on the Dashboard) is, while the member's free-form session still runs, that
+ * session instead, `harness.session` saying so (`joined`), and `harness.reopen` then opens the chat in its next terminal: from the ended
+ * session that holds it (`{resume, chat}`) or, one that cannot be reopened, its agent anew with why (`{start, line}`). Once RUSH has
+ * queued it, `harness.session` names its attempt.
  *
  * The Leaderboard tab reads the harnesses ranked on the plugin, whatever task (`leaderboard`), and the trace of one of the member's
  * own runs on it (`leaderboard.trace`, its attempt's events).
@@ -221,7 +224,7 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     post(runEvent('chat.done', runId, {}));
   }
 
-  async function harnessRun({harness, task, text, resume, start, chat}) {
+  async function harnessRun({harness, task, text, resume, start, chat, join}) {
     runCount += 1;
     const runId = `harness-${runCount}`;
     const controller = new AbortController();
@@ -238,14 +241,14 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
         const response = await request('/api/benchmark/sessions', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({plugin_id: plugin.id, task_id: task, harness, text, resume, start, chat, interactive: true}),
+          body: JSON.stringify({plugin_id: plugin.id, task_id: task, harness, text, resume, start, chat, join, interactive: true}),
         });
         if (!response.ok) throw await failed(response, 'Could not start the harness');
-        const {run, attempt_id: attempt} = await response.json();
+        const {run, attempt_id: attempt, joined} = await response.json();
         Object.assign(entry, {run: run.run_id, attempt});
         // A page given its running session again follows it here alone.
         for (const other of harnessRuns.values()) if (other !== entry && other.attempt === attempt) other.controller.abort();
-        emit('harness.session', {attemptId: attempt});  // the session the page's terminals are, which the Dashboard's chats name
+        emit('harness.session', {attemptId: attempt, joined: Boolean(joined)});  // the session the page's terminals are, which the Dashboard's chats name
         if (controller.signal.aborted) return;
         await followHarness({attemptId: entry.attempt, request, emit, signal: controller.signal, linked});
       } catch (error) {
@@ -296,6 +299,8 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     // Another terminal of the session, `rows` by `cols`: its first size opens it, and its output comes over the link as the others' does.
     'harness.open': async ({runId, terminal, rows, cols}) => toTerminal(runId, {terminal, rows, cols}),
     'harness.close': async ({runId, terminal}) => toTerminal(runId, {terminal, close: true}),
+    // A chat clicked on the Dashboard, in the next terminal of the session, whose output comes over the link as the others' does.
+    'harness.reopen': async ({runId, rows, cols, reopen}) => toTerminal(runId, {reopen, rows, cols}),
     'leaderboard': async () => {
       const response = await request(`/api/benchmark/leaderboard?${new URLSearchParams({plugin_id: plugin.id})}`);
       if (!response.ok) throw await failed(response, 'Could not read the leaderboard');
@@ -326,7 +331,7 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({archived, chat}),
       });
-      if (!response.ok) throw await failed(response, archived ? 'Could not archive the chat' : 'Could not restore the chat');
+      if (!response.ok) throw await failed(response, archived ? 'Could not archive the session' : 'Could not restore the session');
       return {result: await response.json()};
     },
     'session.get': async ({id}) => ({
