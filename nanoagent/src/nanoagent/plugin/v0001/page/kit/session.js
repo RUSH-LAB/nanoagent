@@ -261,17 +261,17 @@ export function dashboard({ onOpen, onChat, onStart, closed = false }) {
     }
   }
 
-  // A row: its title over when it was last used (and, for a scored `rush` run, right or wrong), what it read and wrote (a chat of a
+  // A row: its title over when it was last used, what it read and wrote (a chat of a
   // Terminal session), cost and took at its end, in line with the others', and Archive (or Restore). `onClick` opens it; a row with
   // none only reads.
-  function line(session, { title, running, verdict, tokens, cost, took, onClick, terminal }) {
+  function line(session, { title, running, tokens, cost, took, onClick, terminal }) {
     const open = h(
       onClick ? "button" : "div",
       { ...(onClick ? { type: "button", title: terminal ? "Reopen this session" : "Resume this session" } : {}), class: "session-open" },
       h("span", { class: "session-title", text: title }),
       h(
         "span", { class: "session-meta" }, running ? statusPill(running, "info") : null,
-        verdict ? statusPill(verdict, verdict === "right" ? "ok" : "bad", { icon: true }) : null, when(session.updatedAt),
+        when(session.updatedAt),
       ),
     );
     if (onClick) open.addEventListener("click", () => onClick(open));
@@ -296,7 +296,7 @@ export function dashboard({ onOpen, onChat, onStart, closed = false }) {
     const { usage } = chat;
     const read = usage.inputTokens.count || usage.outputTokens.count;
     return line(chat, {
-      title: chat.title, running: chat.running && "Running", verdict: chat.verdict, tokens: read ? thousands(usage.inputTokens.sum + usage.outputTokens.sum) : "—",
+      title: chat.title, running: chat.running && "Running", tokens: read ? thousands(usage.inputTokens.sum + usage.outputTokens.sum) : "—",
       cost: formatSettled(usage.cost), took: usage.durationS.count ? formatSeconds(usage.durationS.sum) : "—", terminal: true,
       onClick: closed ? null : () => onChat(chat),
     });

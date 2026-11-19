@@ -29,7 +29,7 @@ from nanoagent.uploaded.rush_worker import RushError
 API = "/api/v1"
 # Event errors that mean the same event arrived with conflicting content.
 CONFLICTS = {"conflicting_duplicate"}
-RUN_ACTIONS = ("prompt", "start", "title", "end")  # a `rush <command>` run's requests (`/runs/<action>`)
+RUN_ACTIONS = ("start", "title", "end", "forget")  # a `rush <command>` run's requests (`/runs/<action>`)
 
 
 class AttemptServices:

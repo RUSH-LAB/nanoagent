@@ -201,21 +201,21 @@ describe('the chats of a Harness tab session on the Dashboard', () => {
     assert.deepEqual(terminalChats(free({processes: [bash, process(['ls'], 1, 2, bash)], chats: []})), []);
   });
 
-  it('makes each `rush <command>` run that made model calls a chat: named by its program, titled by what the member said to it, with its verdict, rerun as rush', () => {
+  it('makes each `rush <command>` run that made model calls a chat: named by its program, titled by what the member said to it, rerun as rush', () => {
     const bash = process(BASH, 0, null);
-    const said = {title: 'list three ids', verdict: 'right'};
+    const said = {title: 'list three ids'};
     const aider = process(RUSH(['aider', '--model', 'x y']), 5, 20, bash, '/rush/workspace/app', said);
     const child = process(['aider', '--model', 'x y'], 5, 20, aider, '/rush/workspace/app');  // what it starts is its own
     const recorded = {calls: [call('c1', 8, 9, undefined, 'list three ids To suggest changes to a file'), call('c2', 10, 11)], processes: [bash, aider, child], chats: []};
     for (const state of [{state: 'leased', finalized_at: null}, {}]) {  // live, at its first call, and ended alike
       const chats = terminalChats(free({...recorded, ...state}));
-      assert.deepEqual(chats.map(chat => [chat.key, chat.agent, chat.title, chat.verdict, chat.conversation, chat.run, chat.usage.inputTokens.sum]), [
-        [`aider:${ATTEMPT}/${aider.span_id}`, 'aider', 'list three ids', 'right', null, {argv: ['rush', 'aider', '--model', 'x y'], cwd: '/rush/workspace/app'}, 200],
+      assert.deepEqual(chats.map(chat => [chat.key, chat.agent, chat.title, chat.conversation, chat.run, chat.usage.inputTokens.sum]), [
+        [`aider:${ATTEMPT}/${aider.span_id}`, 'aider', 'list three ids', null, {argv: ['rush', 'aider', '--model', 'x y'], cwd: '/rush/workspace/app'}, 200],
       ]);
     }
-    // Before the member has said anything to it, its title is its command; unscored, it has no verdict; unprefixed, it is no chat.
+    // Before the member has said anything to it, its title is its command; unprefixed, it is no chat.
     const untitled = terminalChats(free({...recorded, processes: [bash, process(RUSH(['aider', '--model', 'x y']), 5, 20, bash), child]}));
-    assert.deepEqual(untitled.map(chat => [chat.title, chat.verdict]), [['aider --model x y', null]]);
+    assert.deepEqual(untitled.map(chat => chat.title), ['aider --model x y']);
     assert.deepEqual(terminalChats(free({...recorded, processes: [bash, process(['aider'], 5, 20, bash)]})), []);
   });
 

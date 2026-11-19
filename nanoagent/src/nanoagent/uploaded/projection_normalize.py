@@ -302,7 +302,7 @@ def _processes(n: Normalized) -> None:
             continue
         d = r.data
         if r.kind == R.PROCESS_RUSH:
-            said.append((int(d["tgid"]), int(d["time_ns"]), {key: str(d[key]) for key in ("title", "verdict", "run") if d.get(key) is not None}))
+            said.append((int(d["tgid"]), int(d["time_ns"]), {key: str(d[key]) for key in ("title", "run") if d.get(key) is not None}))
             continue
         try:
             ident = (int(d["tgid"]), int(d["start_time"]))
@@ -334,7 +334,7 @@ def _processes(n: Normalized) -> None:
         n.processes.append(
             ProcessInfo(
                 ident, p.get("parent"), p.get("argv"), p.get("cwd"), p.get("launch_id"), p.get("start"), p.get("end"), p.get("exit_code"), p.get("signal"),
-                tuple(p["evidence"]), p.get("title"), p.get("verdict"), p.get("run"),
+                tuple(p["evidence"]), p.get("title"), p.get("run"),
             )
         )
 

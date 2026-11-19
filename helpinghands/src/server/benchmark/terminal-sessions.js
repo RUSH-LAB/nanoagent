@@ -179,7 +179,7 @@ function typed(process) {
  * made model calls (an outermost agent process: what the member typed at the shell, named by its command, agentOf), from its first
  * call on; it reruns as the member typed it (`run`: its argv and the folder it ran in). A `rush <command>` run is titled by what the
  * member said to it (its process's `title`: its prompt argument, or the first line typed into it, from rush.py; its command until
- * then), carries its `verdict` (right or wrong) when it was given the task's prompt, and reruns as `rush <command>`; a listed CLI's
+ * then) and reruns as `rush <command>`; a listed CLI's
  * run is titled by the last user message of its first call's request (`prompt`, from the gateway). An ended free-form Terminal session also holds the chats its worker read from the CLIs'
  * own state (claude, codex, pi, hermes; `row.chats`), each its CLI's conversation, titled by its first prompt and reopened by its id,
  * which take the calls of their agent's runs in place of those runs: each such call goes to the chat of its agent whose time holds
@@ -199,7 +199,7 @@ function terminalChats(row) {
   const archived = key => row.archived_chats?.[key] ?? null;
   const processes = row.processes.map(process => ({
     id: process.span_id, parent: process.parent_id, start: ns(process.start_ns), end: ns(process.end_ns), argv: process.argv ?? [], cwd: process.cwd ?? null,
-    title: process.title ?? null, verdict: process.verdict ?? null, run: process.run ?? null, agent: agentOf(process.argv ?? []),
+    title: process.title ?? null, run: process.run ?? null, agent: agentOf(process.argv ?? []),
   }));
   const calls = row.calls.filter(call => call.status !== 'rejected').map(call => {
     const start = ns(call.start_ns);
@@ -212,7 +212,7 @@ function terminalChats(row) {
   });
   if (row.harness_name !== 'shell') {
     const key = `${label}:${row.attempt_id}`;
-    return [{...session, key, agent: label, conversation: null, run: null, title: label, verdict: null, archivedAt: archived(key), usage: usageOf(calls, final)}];
+    return [{...session, key, agent: label, conversation: null, run: null, title: label, archivedAt: archived(key), usage: usageOf(calls, final)}];
   }
   const reported = final && Array.isArray(row.chats) ? row.chats : [];
   // How far call `call` started from `chat`'s span (0 within it): each call is the nearest chat's of its agent.
@@ -222,7 +222,7 @@ function terminalChats(row) {
   const chats = reported.map(chat => {
     const key = `${chat.agent}:${chat.id}`;
     return {
-      ...session, key, agent: chat.agent, conversation: chat.id, run: null, title: chat.title, verdict: null, startedAt: chat.started_at, updatedAt: chat.ended_at,
+      ...session, key, agent: chat.agent, conversation: chat.id, run: null, title: chat.title, startedAt: chat.started_at, updatedAt: chat.ended_at,
       archivedAt: archived(key), usage: usageOf(calls.filter(call => owner.get(call) === chat), final),
     };
   });
@@ -242,7 +242,7 @@ function terminalChats(row) {
     chats.push({
       ...session, key, agent: process.agent, conversation: null, run: {argv: rush ? ['rush', ...process.argv.slice(at)] : process.argv, cwd: process.cwd},
       ...(began.length ? {startedAt: iso(Math.min(...began))} : {}), ...(worked.length ? {updatedAt: iso(Math.max(...worked))} : {}),
-      title: rush ? process.title ?? typed(process) : first.prompt ?? typed(process), verdict: process.verdict,
+      title: rush ? process.title ?? typed(process) : first.prompt ?? typed(process),
       archivedAt: archived(key), usage: usageOf(made, final),
     });
   }

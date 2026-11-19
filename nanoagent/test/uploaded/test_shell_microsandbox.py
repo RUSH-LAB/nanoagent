@@ -1,12 +1,12 @@
 """Integration test: the RUSH terminal (reference harness `shell`) in a real microVM, through the runner, relay, gateway and
-verifier, with a fake worker API that types at its PTY, and a scored `rush <command>` run there.
+verifier, with a fake worker API that types at its PTY, and a `rush <command>` run there, remembered.
 
     .venv/bin/python -m pytest -p no:cacheprovider -m microsandbox test/uploaded/test_shell_microsandbox.py -s
 
 The member checks the toolchain (node, npm, git, curl), installs from npm and pip (internet egress), calls the model with the
 OpenAI SDK and with Claude Code from the preset environment, neither carrying the case's prompt (recorded by the gateway, the
-upstream the scripted MockProvider), writes a tiny agent that answers, runs it as `rush python agent.py "$RUSH_PROMPT"` (the
-task's case pinned by the fake worker API, the run verified on the answer.json it leaves) and exits.
+upstream the scripted MockProvider), runs `rush python …` (recorded, and python remembered), then python plain, which the
+shell runs as `rush python …` too, and exits.
 """
 
 from __future__ import annotations
@@ -44,8 +44,6 @@ HOME = Path(os.environ.get("RUSH_WORKER_HOME", Path.home() / "rush-worker"))
 MODEL = "test/model"
 TOKEN = "alpha"
 DIGEST = hashlib.sha256(TOKEN.encode()).hexdigest()[:12]
-PROMPT = f'Task: probe.\n\nThe task\'s input:\n{{"token": "{TOKEN}"}}\n\nWrite your answer to /rush/workspace/answer.json.'
-AGENT = 'import json, hashlib, sys; a = json.loads(sys.argv[1].split("input:")[1].split("Write")[0]); json.dump({"digest": hashlib.sha256(a["token"].encode()).hexdigest()[:12]}, open("answer.json", "w"))'
 TYPED = [
     "node --version; npm --version; git --version; curl --version | head -n 1",
     "npm install -g --silent is-number && ls .rush/npm/lib/node_modules",
@@ -55,8 +53,8 @@ TYPED = [
     "messages=[{'role': 'user', 'content': 'say ok'}]); print('MODEL SAID:', r.choices[0].message.content)\"",
     'claude -p "say ok"',
     "echo \"$OPENAI_BASE_URL $ANTHROPIC_BASE_URL $RUSH_MODEL\"; ls",
-    f"printf '%s\\n' '{AGENT}' > agent.py",
-    'rush python agent.py "$RUSH_PROMPT" && cat answer.json',
+    "rush python -c \"print('first run')\"",
+    "python -c \"print('plain run')\"",
     "exit",
 ]
 
@@ -86,12 +84,6 @@ class Rush(fx.FakeRush):
         await reader.read()
         writer.close()
 
-    async def score_case(self, attempt_id: str, fence: int) -> dict[str, Any]:
-        return {
-            "case": {"case_id": "c1", "kind": "answer", "arguments": {"token": TOKEN, "wait_seconds": 0.0}, "reference": {"digest": DIGEST}},
-            "prompt": PROMPT, "plugin": {"id": "probe-plugin", "sha256": hashlib.sha256(self._package).hexdigest()}, "task": {"id": "probe"},
-            "package": base64.b64encode(self._package).decode(),
-        }  # fmt: skip
 
 
 async def attempt(root: Path, source: bytes, package: bytes, interactive: bool, provider: MockProvider, typed: list[str]) -> tuple[Rush, Any, Any]:
@@ -121,7 +113,7 @@ async def attempt(root: Path, source: bytes, package: bytes, interactive: bool, 
     return rush, result, handle
 
 
-async def test_the_terminal_records_its_agents_and_scores_a_rush_run_given_the_tasks_prompt() -> None:
+async def test_the_terminal_records_its_agents_and_remembers_a_rush_runs_program() -> None:
     package = pack(fx.PROBE)
     root = HOME / "scratch" / f"shell-{uuid.uuid4().hex[:8]}"  # one worker's scratch, where builds are kept between attempts
     root.mkdir(parents=True)
@@ -138,7 +130,7 @@ async def scenario(root: Path, package: bytes) -> None:
         print(screen)
         assert result.outcome == "finalized", result
         [final] = rush.finalized
-        assert final["execution"] == {"status": "answered", "reason": None} and final["verdict"] == "pass", final
+        assert final["verdict"] is None, final  # nothing in a Terminal session is scored
         assert "MODEL SAID: ok" in screen and "/api/v1 " in screen and "prompt.md" in screen and "request.json" in screen
         assert "v22." in screen and "git version" in screen and "curl " in screen and "is-number" in screen
         # Claude Code is installed the first time it is typed, its progress on the terminal.
@@ -147,15 +139,15 @@ async def scenario(root: Path, package: bytes) -> None:
         responses = rush.of("model_call.response")
         assert len(handle.ledger.calls) >= 2 and len(responses) == len(handle.ledger.calls) and all(r["terminal"] == "completed" for r in responses)
         assert {call["dialect"] for call in rush.of("model_call.admitted")} >= {"chat_completions", "anthropic_messages"}
-        # The rush run, given the task's prompt, is verified on the answer it left: right.
-        assert "rush · python · right · " in screen, screen
-        assert any(data["verdict"] == "right" for data in rush.of("process.rush"))
+        # The rush run is recorded and python remembered: typed plain, it runs as `rush python …`, one more recorded run.
+        assert "first run" in screen and "plain run" in screen and screen.count("rush · python · ") == 2, screen
+        assert len([data for data in rush.of("process.rush") if data.get("run")]) == 2
+        assert json.loads((root / "agents.json").read_text()) == ["python"]
 
-        # The next terminal opens on the build the first kept and runs the install it made at once; one left without an answer
-        # has no verdict.
+        # The next terminal opens on the build the first kept and runs the install it made at once.
         cached, opened, _ = await attempt(root, build_reference("shell"), package, True, provider, ["time claude --version", "exit"])
         screen = cached.screen.decode(errors="replace")
         print(screen)
         assert "2.1.325 (Claude Code)" in screen and "installing" not in screen
-        assert opened.outcome == "finalized" and cached.finalized[0]["execution"] == {"status": "execution_failed", "reason": "missing_result"}
+        assert opened.outcome == "finalized"
         assert len(list((root / "builds").iterdir())) == 1  # the terminal's build, kept

@@ -3,9 +3,9 @@ own (a pty the member's keys and screen pass through, so interactive CLIs work) 
 (program_of, as the Dashboard names its chip). The worker (`/runs/…`, the runner's `_rush_run`) ties the run to this process, and the
 command's credentials name the run (`<token>.<run>`, inherited by every process it starts), so its model calls are its own even while
 another run goes on in another terminal; it gives the run its title: a one-shot run's prompt argument, or the first line the member
-types into an interactive one. When it ends, one line says what it took (summary_line). A run given the plugin task's exact prompt
-(an argument holding "$RUSH_PROMPT", which bashrc pins the first time a command names it, `rush.py prompt`) is scored by the plugin's
-verifier on the answer.json it leaves: right or wrong, on its line and its Dashboard row. `rush help` says what the terminal holds.
+types into an interactive one. When it ends, one line says what it took (summary_line). The worker remembers the command a run
+named, for the member in every session after (runner.RememberedAgents), and every terminal runs it typed plain as `rush <command>`
+(bashrc); `rush forget <program>` stops that. `rush help` says what the terminal holds.
 
 And `rush.py cli <name>`, which bin/'s wrappers run: where the worker installed the CLI <name> (nanoagent.uploaded.clis), installed
 there the first time, with its progress on the terminal. And `rush.py nanoagent|mgen [<args>]`, which bin/nanoagent and bin/mgen run:
@@ -41,8 +41,9 @@ model           $RUSH_MODEL, through RUSH's gateway, which records every call. T
 packages        pip install and npm install -g put packages in .rush/.
 exit            (or Ctrl-D) ends the session; its model calls and commands are kept with it.
 rush <command>  runs <command> as one recorded run, shown on the Dashboard under its program, and says its time, tokens and cost.
-rush <command> "$RUSH_PROMPT"
-                given this plugin's task prompt, the run is also scored right or wrong by the plugin's verifier."""
+                Its program is remembered: typed plain from then on, in every terminal and session, it runs as rush <command>.
+rush forget <program>
+                stops running <program> as rush <program> when typed plain."""
 
 
 def fail(message: str) -> None:
@@ -82,11 +83,6 @@ def program_of(argv: list[str]) -> str:
     return name
 
 
-def is_scored(argv: list[str], prompt: str | None) -> bool:
-    """Whether a command was given the plugin task's exact prompt (as "$RUSH_PROMPT" expands to) in one of its arguments."""
-    return bool(prompt) and any(prompt in arg for arg in argv[1:])
-
-
 def trimmed(text: str) -> str:
     text = " ".join(text.split())
     return text if len(text) <= TITLE_CHARS else f"{text[: TITLE_CHARS - 1]}…"
@@ -104,15 +100,14 @@ def thousands(count: int) -> str:
 
 
 def summary_line(program: str, seconds: float, ran: dict) -> str:
-    """`rush · <program> · <time> · <in>/<out> tokens · $<cost>`, a scored run's verdict (right or wrong) after its program. A cost
+    """`rush · <program> · <time> · <in>/<out> tokens · $<cost>`. A cost
     the gateway does not know yet (a call not settled) reads $—. Calls the gateway refused for naming another model than the
     session's end it: `2 calls rejected: asked for claude-sonnet-4-5`."""
     cost = "$—" if ran["cost_usd"] is None else f"${ran['cost_usd']:.4f}"
-    verdict = [] if ran.get("verdict") is None else [ran["verdict"]]
     tokens = f"{thousands(ran['input_tokens'])}/{thousands(ran['output_tokens'])} tokens"
     rejected = ran.get("rejected") or []
     refused = [f"{len(rejected)} call{'s' * (len(rejected) != 1)} rejected: asked for {', '.join(sorted(set(rejected)))}"] if rejected else []
-    return " · ".join(["rush", program, *verdict, f"{seconds:.0f} s", tokens, cost, *refused])
+    return " · ".join(["rush", program, f"{seconds:.0f} s", tokens, cost, *refused])
 
 
 class FirstLine:
@@ -187,17 +182,23 @@ def interact(argv: list[str], heard: Callable[[bytes], None]) -> int:
 
 
 def run(argv: list[str]) -> None:
-    """`rush <command>`: the run, then its line; rush exits as the command did."""
+    """`rush <command>`: the run, then its line; rush exits as the command did. `rush forget <program>`: the program typed plain runs
+    as itself again."""
     if not argv:
-        fail("usage: rush <command> [<args>…], or rush help")
+        fail("usage: rush <command> [<args>…], rush forget <program>, or rush help")
     if argv == ["help"]:
         print(HELP)
         return
+    if argv[0] == "forget":
+        if len(argv) != 2:
+            fail("usage: rush forget <program>")
+        service("/runs/forget", {"program": argv[1]})
+        print(f"rush: {argv[1]} typed plain runs as itself again")
+        return
     if shutil.which(argv[0]) is None:
         fail(f"{argv[0]}: command not found")
-    prompt = os.environ.get("RUSH_PROMPT")
-    program, scored, title = program_of(argv), is_scored(argv, prompt), prompt_argument(argv)
-    started = service("/runs/start", {"pid": os.getpid(), "title": title})
+    program, title = program_of(argv), prompt_argument(argv)
+    started = service("/runs/start", {"pid": os.getpid(), "title": title, "command": argv[0]})
     held = os.environ["RUSH_ATTEMPT_TOKEN"]
     key = f"{held.partition('.')[0]}.{started['run']}"
     for name, value in list(os.environ.items()):
@@ -212,12 +213,8 @@ def run(argv: list[str]) -> None:
     began = time.monotonic()
     code = interact(argv, heard)
     seconds = time.monotonic() - began
-    if scored:
-        print(f"rush: scoring {program} on this plugin's task…", file=sys.stderr, flush=True)
-    ran = service("/runs/end", {"run": started["run"], "exit_code": code, "scored": scored})
+    ran = service("/runs/end", {"run": started["run"], "exit_code": code})
     print(summary_line(program, seconds, ran))
-    if ran.get("explanation"):
-        print(f"  {ran['explanation']}")
     sys.exit(code)
 
 
@@ -304,12 +301,8 @@ def main(argv: list[str]) -> None:
     if argv[:1] in (["nanoagent"], ["mgen"]):
         nanoagent(argv[0], argv[1:])
         return
-    if argv == ["prompt"]:  # bashrc's RUSH_PROMPT: the plugin task's prompt, its case pinned now (RUSH fills it from the task)
-        print("rush: pinning this plugin's task…", file=sys.stderr, flush=True)
-        print(service("/runs/prompt", {})["prompt"], end="")
-        return
     if argv[:1] != ["run"]:
-        fail(f"rush.py takes run, prompt, cli, nanoagent or mgen, not {argv[:1]}")
+        fail(f"rush.py takes run, cli, nanoagent or mgen, not {argv[:1]}")
     run(argv[1:])
 
 

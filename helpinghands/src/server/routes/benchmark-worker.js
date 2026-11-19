@@ -12,11 +12,9 @@ const {parseJson, stringifyJson} = require('../benchmark/json');
 const {UUID, jsonBody, rawBody, sendFailure} = require('../benchmark/http');
 const v = require('../benchmark/validate');
 const {positiveSetting} = require('../benchmark/limits');
-const {renderCase} = require('../benchmark/plan');
 const {listen, wake} = require('../benchmark/wake');
 const {PIN_TIMEOUT_MS, RUNNER_OFFLINE} = require('../ai');
-const aiSettings = require('../ai-settings');
-const {SESSION_ENDPOINT, openApp} = require('./benchmark');
+const {openApp} = require('./benchmark');
 
 const MAX_PAYLOAD_BYTES = positiveSetting('BENCHMARK_PAYLOAD_MAX_BYTES', 16 * 1024 * 1024);
 // A session's watch waits this long for it to be canceled, its lease lost or it sealed, looking every WATCH_POLL_MS.
@@ -30,7 +28,7 @@ const REDACTIONS = ['none', 'redacted', 'truncated'];
 const ROUTE = new RegExp([
   '^/api/benchmark-worker/(?:',
   '(claim|started)',
-  '|attempts/([^/]+)/(renew|source|package|case|admissions|events|terminal|terminal-link|watch|score|tools|spans|finalize|accounting)',
+  '|attempts/([^/]+)/(renew|source|package|case|admissions|events|terminal|terminal-link|watch|tools|spans|finalize|accounting)',
   '|attempts/([^/]+)/admissions/([^/]+)/(settle)',
   '|attempts/([^/]+)/payloads/([^/]+)',
   ')$',
@@ -169,26 +167,8 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
         res.writeHead(204);
         return res.end();
       }
-      // The case a scored `rush <command>` in the attempt's Terminal session works (its "$RUSH_PROMPT"): the first task of the plugin
-      // whose page opened the session, its case filled from the task's description and pinned on the member's computer as a one-shot
-      // session's is; the case with its private reference, the coding prompt rendered for it, and the package installed there, with
-      // which the worker verifies the run.
-      if (jobPart === 'score') {
-        wanted('POST', jobId);
-        const {computer, frame, sha256, first} = await terminalPlugin(ctx, worker, userId, jobId, v.fenceOf(v.object(await body(), 'The body')));
-        const pinned = await computer.benchmarkSession(sha256, JSON.stringify({task: first.id, text: first.description, model: aiSettings.MODEL}));
-        if (pinned.error) throw new BenchmarkError(pinned.status, 'pin_failed', pinned.error);
-        const publication = v.benchmarkPublication({...parseJson(pinned.value), model: aiSettings.MODEL.model, endpoint_profile: SESSION_ENDPOINT});
-        const [c] = publication.cases;
-        const prompt = renderCase({
-          benchmark: {task: publication.task, context: publication.context, plugin: {name: publication.plugin_name}}, policy: 'coding', text: publication.coding_template, c,
-        });
-        return json(res, 200, {
-          ...await installedPlugin(computer, frame), case: {...c, reference: publication.private[c.case_id]}, prompt: prompt.user,
-        });
-      }
       // The plugin's tools a Terminal session's `nanoagent` asks for (the worker starts them then, for it alone): the first task of the
-      // plugin whose page opened the session, opened on the member's computer as a scored `rush` run's is, and the package installed there
+      // plugin whose page opened the session, opened on the member's computer, and the package installed there
       // (as the Session tab's agent runs it), whose bytes must be the sha256 it is installed as.
       if (jobPart === 'tools') {
         wanted('POST', jobId);

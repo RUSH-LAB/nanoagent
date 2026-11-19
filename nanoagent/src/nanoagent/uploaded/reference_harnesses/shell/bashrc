@@ -2,23 +2,27 @@
 HISTFILE=/dev/null
 HISTCONTROL=
 PS1='\[\e[1m\]rush\[\e[0m\]:\w\$ '
-# `rush <command>`: the command as one recorded run, and `rush help` (rush.py).
+# `rush <command>`: the command as one recorded run, `rush forget <program>` and `rush help` (rush.py). `command`: python may be a
+# remembered program itself.
 rush() {
-  python /harness/rush.py run "$@"
+  command python /harness/rush.py run "$@"
 }
-# "$RUSH_PROMPT" is the plugin task's prompt, set the first time a command names it, before that command's words expand: its case is
-# pinned then (rush.py prompt). A command whose pin fails does not run (extdebug skips it).
-shopt -s extdebug
-rush_prompt() {
-  [[ -z ${RUSH_PROMPT+x} && $BASH_COMMAND == *RUSH_PROMPT* ]] || return 0
-  local prompt
-  prompt="$(python /harness/rush.py prompt)" || return 1
-  export RUSH_PROMPT="$prompt"
+# The member's remembered programs (.rush/agents, one per line, which the worker writes as a session starts and after each rush run
+# or forget): each typed plain runs as `rush <program>`. Read again before every prompt, so every terminal follows a run in another.
+RUSH_AGENTS=()
+rush_agents() {
+  local name kept=()
+  [[ -f $RUSH_WORKSPACE/.rush/agents ]] && while IFS= read -r name; do kept+=("$name"); done < "$RUSH_WORKSPACE/.rush/agents"
+  for name in "${RUSH_AGENTS[@]}"; do unset -f "$name"; done
+  RUSH_AGENTS=("${kept[@]}")
+  for name in "${kept[@]}"; do eval "$name() { rush $name \"\$@\"; }"; done
 }
-trap rush_prompt DEBUG
+rush_agents
+PROMPT_COMMAND=rush_agents
 # The banner at the top of every terminal (each is a bash on this rc), and again when the member clears it: `clear` or Ctrl-L.
 rush_banner() {
-  printf '%s\n' 'Run nanoagent, claude, codex, pi, hermes or dsh here, and any other agent as rush <command>.' 'Models and tracing are set up; rush help says more.' \
+  printf '%s\n' 'Run nanoagent, claude, codex, pi, hermes or dsh here, and any other agent as rush <command>: it is remembered, so typed plain' \
+    'from then on it is recorded too (rush forget <program> stops that). Models and tracing are set up; rush help says more.' \
     'Model provider APIs do not resolve here: point your agent at the preset $OPENAI_BASE_URL or $ANTHROPIC_BASE_URL.'
 }
 clear() {
@@ -33,10 +37,10 @@ if [ -n "$RUSH_RESUME_LINE" ]; then printf '%s\n' "$RUSH_RESUME_LINE"; fi
 if [ -n "$RUSH_RESUME_TYPE" ]; then printf '%s\n' "$RUSH_RESUME_TYPE"; fi
 rush_resume() {
   local run="$RUSH_RESUME_RUN"
-  PROMPT_COMMAND=
+  PROMPT_COMMAND=rush_agents
   unset RUSH_RESUME_RUN
   history -s "$run"
   eval "$run"
 }
-if [ -n "$RUSH_RESUME_RUN" ]; then PROMPT_COMMAND=rush_resume; else unset RUSH_RESUME_RUN; fi
+if [ -n "$RUSH_RESUME_RUN" ]; then PROMPT_COMMAND='rush_agents; rush_resume'; else unset RUSH_RESUME_RUN; fi
 unset RUSH_RESUME_LINE RUSH_RESUME_TYPE

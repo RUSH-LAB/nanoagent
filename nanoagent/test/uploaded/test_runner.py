@@ -236,7 +236,7 @@ async def test_a_free_form_session_is_kept_to_resume_and_a_resuming_one_starts_o
     rig = Rig(tmp_path / "first", script=fx.CaseScript(made=made))
     await rig.run(fx.free_job(attempt_id="11111111-1111-4111-8111-000000000001"))
     finalized = rig.rush.finalized[0]
-    assert finalized["resumable"] is True and finalized["evicted"] == [] and rig.supervisor.case.found == {}
+    assert finalized["resumable"] is True and finalized["evicted"] == [] and rig.supervisor.case.found == {".rush/agents": b""}  # no program remembered yet
     assert [(chat["agent"], chat["title"]) for chat in finalized["chats"]] == [("claude", "say ok"), ("claude", "List the files in this folder")]
     uploaded = finalized["workspace"]  # its files went to RUSH too, without the agents' state
     archive = tmp_path / "uploaded.tar.zst"
@@ -261,7 +261,7 @@ async def test_a_free_form_session_is_kept_to_resume_and_a_resuming_one_starts_o
     rig = later("third")
     await rig.run(fx.free_job(attempt_id="11111111-1111-4111-8111-000000000003", resume={"attempt_id": "11111111-1111-4111-8111-000000000004", "at": "2026-11-18T22:31:00Z", "chat": None}))
     found = rig.supervisor.case.found
-    assert list(found) == [".rush/resume-0.json"] and "it is not on this computer" in json.loads(found[".rush/resume-0.json"])["line"]
+    assert sorted(found) == [".rush/agents", ".rush/resume-0.json"] and "it is not on this computer" in json.loads(found[".rush/resume-0.json"])["line"]
     # A new session started under an agent runs its CLI in its first terminal.
     rig = Rig(tmp_path / "fourth")
     await rig.run(fx.free_job(attempt_id="11111111-1111-4111-8111-000000000005", start="codex"))

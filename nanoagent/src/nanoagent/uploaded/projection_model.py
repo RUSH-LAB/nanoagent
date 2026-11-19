@@ -168,7 +168,6 @@ class ProcessInfo:
     signal: int | None
     evidence: tuple[str, ...]
     title: str | None = None  # a `rush <command>` run's (records.ProcessRush)
-    verdict: str | None = None  # a scored `rush <command>` run's: right or wrong
     run: str | None = None  # a `rush <command>` run's id, which its model calls name
     parser_version: str = PARSER_VERSION
 

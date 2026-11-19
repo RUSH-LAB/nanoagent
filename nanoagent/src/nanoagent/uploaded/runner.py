@@ -33,6 +33,7 @@ import hashlib
 import json
 import logging
 import platform
+import re
 import secrets
 import shutil
 import threading
@@ -169,6 +170,10 @@ class SyncedPlugins:
 
 
 WARM_GO = json.dumps({"wait_go": True}).encode()  # a warm terminal's request until a session hands it its own (`CaseHandle.go`)
+AGENTS_FILE = "agents.json"  # under the scratch folder: the programs the member ran as `rush <program>` (RememberedAgents)
+WORKSPACE_AGENTS = ".rush/agents"  # in a Terminal session's workspace: those programs, one per line, which its shell wraps (bashrc)
+AGENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")  # a program a shell function can be named after
+SHELL_NAMES = {"mgen", "rush", "clear"}  # what the terminal's bin/ and bashrc define beside the listed CLIs
 WARM_RECIPE = "warm.json"  # under the scratch folder: the last Terminal session's limits, the warm terminal's after a start
 WARM_MAX_AGE_S = 600.0  # a warm terminal nobody took is replaced after this, well within any session's wall time
 LIVE_SPANS_S = 3.0  # how often a free-form session's trace so far goes to RUSH, so the Dashboard names its agents and chats as they work
@@ -269,15 +274,60 @@ class LateTools:
 
 
 class RushRuns:
-    """A Terminal session's `rush <command>` runs (the shell's rush.py): the case a scored one works, pinned the first time the session
-    asks for the task's prompt (`/runs/prompt`) and kept for every run after, with its plugin unpacked; and each run under way, by its
-    id: its process."""
+    """A Terminal session's `rush <command>` runs (the shell's rush.py) under way, by id: its process."""
 
     def __init__(self) -> None:
-        self.pinning = anyio.Lock()
-        self.case: Mapping[str, Any] | None = None  # the worker client's score_case
-        self.manifest: PluginManifest | None = None
         self.running: dict[str, int] = {}  # run id -> pid
+
+
+class RememberedAgents:
+    """The programs the member ran as `rush <program>`, kept in this computer's scratch folder (AGENTS_FILE: the worker serves its
+    member alone), so every session after has them too; and each live Terminal session's workspace, whose WORKSPACE_AGENTS lists them
+    for its shell (bashrc wraps each, typed plain, as `rush <program>`, reading the list again before every prompt). A listed CLI
+    (bin/) or a name bashrc defines is never remembered: those are recorded already or are the shell's own."""
+
+    def __init__(self, scratch: Path) -> None:
+        self.path = scratch / AGENTS_FILE
+        self.workspaces: set[Path] = set()
+
+    def names(self) -> list[str]:
+        return json.loads(self.path.read_text(encoding="utf-8")) if self.path.is_file() else []
+
+    def attach(self, workspace: Path) -> None:
+        """A session's workspace, listed from now until ``detach``."""
+        self.workspaces.add(workspace)
+        self._write_to(workspace, self.names())
+
+    def detach(self, workspace: Path) -> None:
+        self.workspaces.discard(workspace)
+
+    def remember(self, command: str) -> None:
+        """Remember the program ``command`` (a run's argv[0]) names, if it is a bare name that can be remembered."""
+        names = self.names()
+        if command in names or not AGENT_NAME.match(command) or command in CLIS or command in SHELL_NAMES or command.startswith("rush_"):
+            return
+        self._save(sorted([*names, command]))
+
+    def forget(self, name: str) -> None:
+        names = self.names()
+        if name not in names:
+            raise ServiceError(404, "not_remembered", f"{name} is not a remembered program; remembered: {', '.join(names) or 'none'}")
+        self._save([each for each in names if each != name])
+
+    def _save(self, names: list[str]) -> None:
+        staged = self.path.with_suffix(".tmp")
+        staged.write_text(json.dumps(names), encoding="utf-8")
+        staged.rename(self.path)
+        for workspace in self.workspaces:
+            self._write_to(workspace, names)
+
+    @staticmethod
+    def _write_to(workspace: Path, names: list[str]) -> None:
+        listed = workspace / WORKSPACE_AGENTS
+        listed.parent.mkdir(parents=True, exist_ok=True)
+        staged = listed.with_suffix(".tmp")
+        staged.write_text("".join(f"{name}\n" for name in names), encoding="utf-8")
+        staged.rename(listed)  # whole: a shell reads it before every prompt
 
 
 def run_figures(records: Sequence[Mapping[str, Any]], run: str) -> dict[str, Any]:
@@ -516,6 +566,7 @@ class AttemptRunner:
         self.services_factory = services_factory
         self.verify_task_case = verify_task_case
         self.project = project
+        self.agents = RememberedAgents(config.scratch)
         self._recipe: WarmRecipe | None = None  # the last Terminal session's, which the warm terminal is made of
         self._rewarm = anyio.Event()  # set when the recipe changes or the warm terminal is taken
         self._warm: WarmTerminal | None = None
@@ -906,22 +957,24 @@ class AttemptRunner:
         yield {"path": f"{CLIS_DIR}/{key}/harness", "key": key}
 
     async def _rush_run(
-        self, job: AttemptJob, runs: RushRuns, emit: Emitter, journal: RushJournal, services: AttemptServices, commands: CaseCommands, work: Path,
-        action: str, body: Mapping[str, Any],
+        self, runs: RushRuns, emit: Emitter, journal: RushJournal, services: AttemptServices, action: str, body: Mapping[str, Any]
     ) -> Mapping[str, Any]:
-        """One request of a Terminal session's `rush <command>` run (the shell's rush.py, app RUN_ACTIONS). `prompt`: the plugin task's
-        prompt, its case pinned the first time. `start` ({pid, title}): a run of process ``pid`` begins, its id answered, its title (a
-        one-shot run's prompt argument) kept on its process (records.ProcessRush), which the Dashboard titles its row by, with the run's id,
-        which every model call its process tree makes names (rush.py gives the command the key `<token>.<run>`). `title`
-        ({run, title}): an interactive run's, the first line typed into it. `end` ({run, exit_code, scored}): what its model calls took
-        (run_figures); a scored one (given the task's prompt) is verified on the answer.json it left in the workspace, as a harness's is,
-        its verdict (right or wrong) kept on its process too, for its Dashboard row, and answered."""
-        if action == "prompt":
-            return {"prompt": (await self._score_case(job, runs, work))["prompt"]}
+        """One request of a Terminal session's `rush <command>` run (the shell's rush.py, app RUN_ACTIONS). `start` ({pid, title,
+        command}): a run of process ``pid`` begins, its id answered, its title (a one-shot run's prompt argument) kept on its process
+        (records.ProcessRush), which the Dashboard titles its row by, with the run's id, which every model call its process tree makes
+        names (rush.py gives the command the key `<token>.<run>`); its command (argv[0]) is remembered (RememberedAgents). `title`
+        ({run, title}): an interactive run's, the first line typed into it. `end` ({run, exit_code}): what its model calls took
+        (run_figures). `forget` ({program}): a remembered program is no longer."""
+        if action == "forget":
+            if not isinstance(body.get("program"), str):
+                raise ServiceError(400, "invalid_request", "forget names a program")
+            self.agents.forget(body["program"])
+            return {}
         if action == "start":
-            pid, title = body.get("pid"), body.get("title")
-            if not isinstance(pid, int) or not (title is None or isinstance(title, str)):
-                raise ServiceError(400, "invalid_request", "a run starts with its process's pid and its title, or null")
+            pid, title, command = body.get("pid"), body.get("title"), body.get("command")
+            if not isinstance(pid, int) or not (title is None or isinstance(title, str)) or not isinstance(command, str):
+                raise ServiceError(400, "invalid_request", "a run starts with its process's pid, its title, or null, and its command")
+            self.agents.remember(command)
             run = uuid.uuid4().hex
             runs.running[run] = pid
             await emit.emit(rec.ProcessRush(pid, self.clock_ns(), title=title or None, run=run))
@@ -935,50 +988,11 @@ class AttemptRunner:
                 raise ServiceError(400, "invalid_request", "a title is a string")
             await emit.emit(rec.ProcessRush(pid, self.clock_ns(), title=body["title"]))
             return {}
-        code, scored = body.get("exit_code"), body.get("scored")
-        if not isinstance(code, int) or not isinstance(scored, bool):
-            raise ServiceError(400, "invalid_request", "a run ends with its exit_code and whether it is scored")
+        if not isinstance(body.get("exit_code"), int):
+            raise ServiceError(400, "invalid_request", "a run ends with its exit_code")
         del runs.running[run]
         await services.flush()  # the run's last calls are in the journal
-        ran = run_figures(journal.records, run)
-        if not scored:
-            return ran
-        if runs.case is None or runs.manifest is None:
-            raise ServiceError(409, "no_task_prompt", "this session has not pinned the task's prompt")
-        case, workspace = runs.case, commands.handle.workspace
-        if code:
-            outcome: dict[str, Any] = {"status": "execution_failed", "reason": "nonzero_exit"}
-        else:
-            answer, refusal, failure = await in_thread(read_answer, workspace)
-            if failure is not None:
-                outcome = {"status": "execution_failed", "reason": "missing_result" if failure == MISSING_ANSWER else "invalid_result"}
-            elif refusal is not None:
-                outcome = {"status": "refused", "reason": refusal}
-            else:
-                outcome = {"status": "answered", "answer": answer}
-        pinned = case["case"]
-        try:
-            verdict = await in_thread(
-                self.verify_task_case, runs.manifest, case["task"]["id"], dict(pinned["arguments"]), outcome, pinned["reference"], workspace
-            )
-        except (VerifierError, ValueError) as error:
-            LOG.warning("attempt %s: the verifier of a rush run: %s", job.attempt_id, error)
-            raise ServiceError(502, "verifier_error", "the plugin's verifier failed on this run, so it is not scored") from error
-        said = "right" if verdict.verdict == "pass" else "wrong"
-        await emit.emit(rec.ProcessRush(pid, self.clock_ns(), verdict=said))
-        return {**ran, "verdict": said, "explanation": verdict.explanation}
-
-    async def _score_case(self, job: AttemptJob, runs: RushRuns, work: Path) -> Mapping[str, Any]:
-        """The case the session's scored runs work (RUSH pins it the first time it is asked), its plugin unpacked to verify them."""
-        async with runs.pinning:
-            if runs.case is None:
-                try:
-                    case = await self.worker.score_case(job.attempt_id, job.fence)
-                except RushUnavailable as error:
-                    raise ServiceError(503, "rush_unavailable", f"RUSH could not be reached: {error}") from error
-                runs.manifest = await in_thread(self._plugin, case["plugin"], base64.b64decode(case["package"]), work, False)
-                runs.case = case
-        return runs.case
+        return run_figures(journal.records, run)
 
     def _build_now(self, attempt_id: str, run_limits: Mapping[str, Any], archive: Any, profile: ToolchainProfile, work: Path) -> BuildArtifact:
         source_root = work / "source"
@@ -1048,7 +1062,7 @@ class AttemptRunner:
             policy=policy, endpoint=cfg.endpoint, admission=RushAdmission(self.worker, lease), journal=journal, tool_runner=runner,
             command_runner=commands, workspace=workspace, clock_ns=self.clock_ns,
             install_cli=lambda name: self._install_cli(job, name),
-            rush_run=None if not job.free_form else lambda action, body: self._rush_run(job, runs, emit, journal, services, commands, work, action, body),
+            rush_run=None if not job.free_form else lambda action, body: self._rush_run(runs, emit, journal, services, action, body),
             start_tools=None if late is None else late.start,
         )
         services.attempt.lease_lapsed = lease.lapsed  # the services refuse new work once the lease's known expiry passes
@@ -1082,6 +1096,9 @@ class AttemptRunner:
             LOG.info("attempt %s: resuming %s: %s", job.attempt_id, job.resume.attempt_id, said["line"])
         if job.start is not None:  # the agent CLI its first terminal runs, as a resumed one runs its agent's resume command
             await in_thread(start_cli, handle.workspace, job.start)
+        if job.free_form:  # the member's remembered programs, over any list a resumed session brought back
+            self.agents.attach(handle.workspace)
+            stack.callback(self.agents.detach, handle.workspace)
         # The conversations its agents kept as it starts (a resumed session's are back): it holds those it talks in (chats.talked).
         restored = await in_thread(chats.read, handle.workspace) if job.free_form else {}
         if tools:

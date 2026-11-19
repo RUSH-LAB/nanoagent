@@ -1,7 +1,7 @@
 """The member's own terminal in the attempt's VM: bash in the workspace, with every model SDK pointed at the attempt's gateway and
 the reference CLIs (bin/: nanoagent and mgen, claude, codex, pi, hermes, dsh) set up for it, NanoAgent alone given the plugin's
 tools. The session is free-form: the member installs and runs any agent there (pip and npm install into .rush/) and prompts it
-themselves; its model calls and commands are recorded, and only a `rush <command>` given the task's prompt is scored (rush.py).
+themselves; its model calls and commands are recorded, and nothing in it is scored (rush.py).
 
 Started again for another terminal the member opens (``RUSH_TERMINAL`` 1, 2, ...), it is one more bash in the same workspace, with the
 environment the first terminal's shell set up (TERMINAL_ENV).

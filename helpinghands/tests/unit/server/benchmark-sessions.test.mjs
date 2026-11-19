@@ -231,7 +231,7 @@ describe('POST /api/benchmark/sessions', () => {
   });
 });
 
-describe('a Terminal session\'s plugin: POST /api/benchmark-worker/attempts/{id}/score and .../tools', () => {
+describe('a Terminal session\'s plugin: POST /api/benchmark-worker/attempts/{id}/tools', () => {
   const ATTEMPT = '00000000-0000-4000-8000-000000000009';
   const scoring = () => {
     const {ctx, calls} = ctxFor();
@@ -267,14 +267,9 @@ describe('a Terminal session\'s plugin: POST /api/benchmark-worker/attempts/{id}
     assert.deepEqual(calls.filter(([what]) => what !== 'open'), [['frame', SHA, {task: 'sum', text: 'Add two numbers'}], ['package', sha]]);
   });
 
-  it('pins the case a scored `rush` run works, filled from the first task\'s description, with its prompt, its reference and the package', async () => {
-    const {score, calls, sha} = installedAs('zip', 'zip');
-    const {status, payload} = await score();
-    assert.equal(status, 200);
-    assert.deepEqual([payload.plugin, payload.task, payload.package], [{id: 'p', name: 'P', version: '1.0.0', sha256: sha}, {id: 'sum', plugin_name: 'P', ...pinned.task}, Buffer.from('zip').toString('base64')]);
-    assert.deepEqual([payload.case.case_id, payload.case.arguments, payload.case.reference], ['p-01', {x: 1, y: 2}, {sum: 3}]);
-    assert.match(payload.prompt, /^Task: d\.\n\nAdd one and two\n\nThe task's input:\n\{\n  "x": 1,\n  "y": 2\n\}[\s\S]*answer\.json/);
-    assert.deepEqual(calls.filter(([what]) => what === 'pin'), [['pin', SHA, {task: 'sum', text: 'Add two numbers', model: MODEL}]]);
+  it('serves no scored case: nothing in a Terminal session is scored', async () => {
+    const {score} = installedAs('zip', 'zip');
+    assert.equal((await score()).status, 404);
   });
 
   it('refuses a package that is not the version installed', async () => {

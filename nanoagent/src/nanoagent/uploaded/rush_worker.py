@@ -369,12 +369,6 @@ class RushWorkerClient:
         response = await self._send("GET", f"/attempts/{attempt_id}/case", headers={FENCE_HEADER: str(fence)})
         return None if response.status_code == 204 else response.json()
 
-    async def score_case(self, attempt_id: str, fence: int) -> Mapping[str, Any]:
-        """The case a scored `rush <command>` in the attempt's Terminal session works: the first task of the session's plugin, its case
-        pinned now from the task's description as a one-shot session's is, ``{case, prompt, plugin, task, package}``: the case with its
-        private reference, the coding prompt rendered for it, and the package installed on the member's computer, its bytes in base64."""
-        return await self._json("POST", f"/attempts/{attempt_id}/score", {"fence": fence}, retry=False)
-
     async def tools(self, attempt_id: str, fence: int) -> Mapping[str, Any]:
         """What the attempt's Terminal session's `nanoagent` works with: the first task of the plugin whose page opened the session,
         opened on the member's computer, ``{plugin: {id, name, version, sha256}, task: {id, kind, description, instructions,
