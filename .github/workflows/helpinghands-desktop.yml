@@ -224,9 +224,10 @@ jobs:
             echo "${{ github.sha }} was merged by no pull request, so nothing it built was checked" >&2
             exit 1
           fi
-          run=$(gh run list -R "${{ github.repository }}" -w helpinghands-desktop.yml -c "$head" -e pull_request -s success -L 1 --json databaseId --jq '.[0].databaseId')
+          # The newest run for the head, by its latest attempt: -s success leaves out a run that succeeded on a rerun.
+          run=$(gh run list -R "${{ github.repository }}" -w helpinghands-desktop.yml -c "$head" -e pull_request -L 1 --json databaseId,conclusion --jq '.[0] | select(.conclusion == "success") | .databaseId')
           if [ -z "$run" ]; then
-            echo "The release pull request's head $head has no successful desktop run to upload" >&2
+            echo "The release pull request's head $head has no successful desktop run to upload (its newest run did not succeed)" >&2
             exit 1
           fi
           gh run download "$run" -R "${{ github.repository }}" -D "$RUNNER_TEMP/built"
