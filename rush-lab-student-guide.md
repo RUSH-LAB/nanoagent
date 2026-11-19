@@ -44,7 +44,12 @@ Open **the plugin you created**. You'll use three tabs:
 - Use **any agent, any way you like**, to match or beat nanoagent's results and efficiency.
 - Not allowed: copying nanoagent, or giving the agent the answer directly.
 - Write down **what you tried, and why**.
-- If nanoagent is hard to beat, explain why, or open a PR that improves nanoagent.
+- If nanoagent is hard to beat, explain why, or open a PR that improves nanoagent to push the boundary.
+
+### 4c. Bonus: find a bug in nanoagent (optional)
+
+- Find a bug in nanoagent, of any kind (a wrong answer, a crash, a wrong number on the Dashboard, …).
+- Open a PR that fixes it at [github.com/RUSH-LAB/nanoagent](https://github.com/RUSH-LAB/nanoagent). Each accepted bug fix earns bonus points.
 
 ## 5. Report
 
@@ -57,7 +62,7 @@ Open **the plugin you created**. You'll use three tabs:
 
 \* Only nanoagent's latency is measured. Other agents show "—".
 
-**b. Write down** what you did in 4a and 4b: prompts, setup, what worked and what didn't.
+**b. Write down** what you did in 4a and 4b: prompts, setup, what worked and what didn't. Add links to any PRs you opened (4b, 4c).
 
 **c. Attach your traces:**
 1. **Dashboard → Download traces (JSON)**
