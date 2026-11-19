@@ -365,6 +365,14 @@ def _processes(j: _Join) -> None:
             j.links.append(LinkOut("process_lineage", pid[p.parent], pid[ident], "clone", {"evidence": list(p.evidence)}))  # fmt: skip
 
 
+def _terminal_turns(j: _Join) -> None:
+    """Each turn at a terminal someone was at (a `TerminalTurn`): what an interactive session's agents worked through, its waits left out."""
+    for r in j.n.worker.get(R.TERMINAL_TURN, ()):
+        j.add(id=f"turn:{r.event_id}", kind="terminal_turn", name=f"terminal {r.data['terminal']}", parent="root", scope=None, status="ok",
+              start_ns=int(r.data["start_ns"]), end_ns=int(r.data["end_ns"]), provenance=OBSERVED, target=None,
+              attributes={"terminal": r.data["terminal"], "until_ns": int(r.data["until_ns"]), "evidence": [r.event_id]})  # fmt: skip
+
+
 def _coverage(n: Normalized, redactions: Mapping[str, str]) -> TraceCoverage:
     w = n.worker
     reasons: list[str] = []
@@ -438,6 +446,7 @@ def project(
     _tools(j)
     _commands(j)
     _processes(j)
+    _terminal_turns(j)
     _causal_proposals(j)
     _causal_results(j)
     _retries(j)

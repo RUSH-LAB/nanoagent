@@ -6,6 +6,7 @@ import pytest
 
 from nanoagent.uploaded.compare import compare
 from nanoagent.uploaded.projection import PARSER_VERSION, project, to_compare_attempt
+from nanoagent.uploaded import records as R
 from nanoagent.uploaded.records import Record
 from test_projection_trace import S, T0, Trace, chat_request, sec
 
@@ -79,6 +80,15 @@ def test_a_model_call_span_names_the_client_that_made_it_and_its_prompt() -> Non
     spans = {s.id: s for s in run(t).spans}
     assert (spans["m:m1"].attributes["client"], spans["m:m2"].attributes["client"]) == ("codex-tui/0.167.0 (Debian 12.0.0; aarch64)", None)
     assert (spans["m:m1"].attributes["prompt"], spans["m:m2"].attributes["prompt"]) == ("fix the bug", None)
+
+
+def test_a_terminal_turn_is_a_span_from_enter_to_its_last_output() -> None:
+    t = Trace()
+    t.started()
+    t.fact(R.TerminalTurn(1, T0 + sec(0.5), T0 + sec(1.5), T0 + sec(9)), T0 + sec(9))  # recorded when the member next typed
+    t.lifecycle(quiesce=10.0, cpu=(1, 1))
+    turn = next(s for s in run(t).spans if s.kind == "terminal_turn")
+    assert (turn.parent, turn.start_ns, turn.end_ns, turn.attributes["terminal"], turn.attributes["until_ns"]) == ("root", T0 + sec(0.5), T0 + sec(1.5), 1, T0 + sec(9))
 
 
 def test_spans_request_has_the_server_shape() -> None:

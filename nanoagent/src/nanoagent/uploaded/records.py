@@ -30,6 +30,7 @@ PROCESS_CLONE = "process.clone"
 PROCESS_EXEC = "process.exec"
 PROCESS_EXIT = "process.exit"
 PROCESS_RUSH = "process.rush"
+TERMINAL_TURN = "terminal.turn"
 
 
 class RecordError(ValueError):
@@ -189,6 +190,20 @@ class CpuCounters(Fact):
     source: ClassVar[str] = WORKER
     kind: ClassVar[str] = CPU_COUNTERS
     processes: Sequence[Mapping[str, Any]]
+
+
+@dataclass(frozen=True)
+class TerminalTurn(Fact):
+    """One turn at terminal ``terminal`` of a session someone is at, on the worker monotonic clock: from when they pressed Enter
+    (or the terminal opened) to its last output before they next typed, which is when what they started was done and waiting;
+    ``until_ns`` is when they next typed (or the session ended)."""
+
+    source: ClassVar[str] = WORKER
+    kind: ClassVar[str] = TERMINAL_TURN
+    terminal: int
+    start_ns: int
+    end_ns: int
+    until_ns: int
 
 
 @dataclass(frozen=True)

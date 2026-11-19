@@ -101,9 +101,10 @@ const counted = (count, unit = "session") => h("p", { class: "muted small-text",
 /** "4.3k" with "4,321" for its title: a count of tokens. */
 const tokens = (count) => [thousands(Math.round(count)), Math.round(count).toLocaleString()];
 // The figures the dashboard's usage shows, a column each, in the order of a run's graph summary:
-// each one's label, the field it is, and how a value of it is written, with a title for the exact figure.
+// each one's label, the field it is, how a value of it is written (with a title for the exact
+// figure), and what its header's title says it is.
 const FIGURES = [
-  ["End-to-End Latency", "durationS", (value) => [formatSeconds(value)]],
+  ["End-to-End Latency", "durationS", (value) => [formatSeconds(value)], "agent working time; time waiting for you is excluded"],
   ["Model Time", "modelS", (value) => [formatSeconds(value)]],
   ["Tool Time", "toolsS", (value) => [formatSeconds(value)]],
   ["Input Tokens", "inputTokens", tokens],
@@ -136,7 +137,7 @@ function harnessUsage(usages, units, unit) {
       "table",
       {},
       h("caption", { class: "visually-hidden", text: `Usage: in all, and on average per ${unit}` }),
-      h("thead", {}, h("tr", {}, h("td"), FIGURES.map(([label]) => h("th", { scope: "col", text: label })))),
+      h("thead", {}, h("tr", {}, h("td"), FIGURES.map(([label, , , title]) => h("th", { scope: "col", text: label, title })))),
       h("tbody", {}, row("Total", undefined, figures.map((figure) => figure.total)), row("Average", `Per ${unit}`, figures.map((figure) => figure.average))),
     ),
   );

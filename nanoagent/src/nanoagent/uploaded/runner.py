@@ -1050,7 +1050,10 @@ class AttemptRunner:
             relay = await self.relay.start(job.attempt_id, network, services.app, work)
         stack.push_async_callback(shielded, relay.aclose)
         request = self._request(job, tools, relay.base_url)
-        terminal = Terminal(self.worker, job.attempt_id, job.fence, terminals=MAX_TERMINALS if job.free_form else 1, scratch=cfg.scratch if job.free_form else None)
+        terminal = Terminal(
+            self.worker, job.attempt_id, job.fence, emit.emit, terminals=MAX_TERMINALS if job.free_form else 1, scratch=cfg.scratch if job.free_form else None,
+            clock_ns=self.clock_ns,
+        )
         offset = self.wall_clock_ns() - self.clock_ns()
         if warm is not None:
             handle = warm.handle

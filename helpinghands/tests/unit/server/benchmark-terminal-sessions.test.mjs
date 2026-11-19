@@ -26,8 +26,10 @@ const CLAUDE = ['/opt/rush/clis/k/harness/node_modules/@anthropic-ai/claude-code
 const CODEX = ['node', '/opt/rush/clis/k/harness/node_modules/@openai/codex/bin/codex.js'];
 const row = (fields = {}) => ({
   attempt_id: ATTEMPT, state: 'final', finalized_at: '2026-11-18T01:00:00Z', elapsed_ms: 60000, harness_name: 'shell', task_id: 'sum',
-  created_at: '2026-11-18T00:00:00Z', calls: [], processes: [], costs: {}, ...fields,
+  created_at: '2026-11-18T00:00:00Z', interactive: true, calls: [], processes: [], turns: [], costs: {}, ...fields,
 });
+// A turn at terminal 0: the member pressed Enter at `start` (s), it last wrote at `end` and they next typed at `until`.
+const turn = (start, end, until) => ({terminal: 0, start_ns: String(start * S), end_ns: String(end * S), until_ns: String(until * S)});
 const usageOf = session => Object.fromEntries(session.harnesses.map(({harness, usage}) => [harness, usage]));
 
 describe('a Harness tab session on the Dashboard', () => {
@@ -158,7 +160,10 @@ describe('the chats of a Harness tab session on the Dashboard', () => {
     const bash = process(BASH, 0, null);
     const first = process([...CLAUDE, '-p', 'say ok'], 9, 13, bash);
     const second = process([...CLAUDE, '-p', 'list the files'], 19, 26, bash);
-    const recorded = {calls: [call('c1', 10, 12), call('c2', 20, 22), call('c3', 23, 25)], processes: [bash, first, second], costs: {c1: 0.01, c2: 0.02, c3: 0.03}};
+    const recorded = {
+      calls: [call('c1', 10, 12), call('c2', 20, 22), call('c3', 23, 25)], processes: [bash, first, second], costs: {c1: 0.01, c2: 0.02, c3: 0.03},
+      turns: [turn(9, 13, 19), turn(19, 26, 30)],
+    };
     // While it runs, each run of claude is a chat, named by what was typed.
     const running = terminalChats(free({...recorded, state: 'leased', finalized_at: null}));
     assert.deepEqual(running.map(chat => [chat.agent, chat.title, chat.conversation, chat.running, chat.usage.inputTokens.sum]), [
@@ -208,6 +213,32 @@ describe('the chats of a Harness tab session on the Dashboard', () => {
     assert.deepEqual(chats.map(chat => [chat.agent, chat.title, chat.run.argv]), [['claude', 'say ok', ['rush', 'claude', '-p', 'say ok']]]);
   });
 
+  it('counts only the time an interactive run worked, leaving out its long wait for the member, and its cost and tool time', () => {
+    const bash = process(BASH, 0, null);
+    const install = process(['pip', 'install', 'aider-chat'], 1, 4, bash);  // before the run: not its time
+    const rush = process(RUSH(['aider', '--model', 'm']), 6, 1000, bash);
+    const aider = process(['/usr/local/bin/python3.12', '/usr/local/bin/aider', '--model', 'm'], 6, 1000, rush);  // the agent itself: no tool
+    const git = process(['git', 'status'], 120, 127, aider);  // a tool, partly during its model call
+    const curl = process(['curl', 'https://example.org'], 126, 140, aider);  // a tool still running after the terminal's last output
+    const chats = terminalChats(free({
+      calls: [call('c1', 110, 125, undefined, 'fix it')], processes: [bash, install, rush, aider, git, curl], costs: {c1: 0.00106}, chats: [],
+      // Enter on `rush aider` at 5, its prompt at 8; the member asks at 100, it answers by 130 (curl ends at 140), they type again at 900 and
+      // quit at once: 2 s + 40 s + 5 s of work over a 994 s run.
+      turns: [turn(5, 8, 100), turn(100, 130, 900), turn(900, 905, 1000)],
+    }));
+    assert.deepEqual(chats.map(chat => [chat.agent, chat.usage.durationS, chat.usage.toolsS, chat.usage.cost, chat.usage.modelS]), [
+      ['aider', {sum: 47, count: 1}, {sum: 15, count: 1}, {sum: 0.00106, count: 1}, {sum: 15, count: 1}],
+    ]);
+  });
+
+  it('knows no latency for an interactive session that recorded no turns, and keeps a one-shot run\'s wall time', () => {
+    const bash = process(BASH, 0, null);
+    const [old] = terminalChats(free({calls: [call('c1', 2, 3)], processes: [bash, process(RUSH(['aider']), 1, 4, bash)], chats: []}));
+    assert.deepEqual(old.usage.durationS, {sum: 0, count: 0});
+    const [oneShot] = terminalChats(row({harness_name: 'codex', interactive: false, calls: [call('c1', 2, 3)]}));
+    assert.deepEqual(oneShot.usage.durationS, {sum: 60, count: 1});
+  });
+
   it('names a module run with python -m by the module and a package run with npx by its command', () => {
     const bash = process(BASH, 0, null);
     const named = argv => terminalChats(free({calls: [call('c1', 2, 3)], processes: [bash, process(RUSH(argv), 1, 4, bash)], chats: []}))[0].agent;
@@ -228,9 +259,12 @@ describe('the chats of a Harness tab session on the Dashboard', () => {
   });
 
   it('makes one conversation resumed in a later session one chat, reopened from the later one, which takes its archive', () => {
-    const one = terminalChats(free({attempt_id: ATTEMPT, finalized_at: '2026-11-18T01:00:00Z', chats: [reported('aaaa', 'say ok', 10, 12)], archived_chats: {'claude:aaaa': '2026-11-18T02:00:00Z'}}));
+    const one = terminalChats(free({
+      attempt_id: ATTEMPT, finalized_at: '2026-11-18T01:00:00Z', chats: [reported('aaaa', 'say ok', 10, 12)], archived_chats: {'claude:aaaa': '2026-11-18T02:00:00Z'},
+      turns: [turn(0, 60, 60)],
+    }));
     const later = {...reported('aaaa', 'say ok', 10, 40), ended_at: '2026-11-18T03:00:00Z'};
-    const two = terminalChats(free({attempt_id: OTHER, finalized_at: '2026-11-18T03:00:00Z', chats: [later], resumable: false}));
+    const two = terminalChats(free({attempt_id: OTHER, finalized_at: '2026-11-18T03:00:00Z', chats: [later], resumable: false, turns: [turn(0, 60, 60)]}));
     const [chat] = memberChats([two, one]);
     assert.deepEqual([chat.attemptId, chat.title, chat.archivedAt, chat.resumable, chat.usage.durationS], [OTHER, 'say ok', null, false, {sum: 32, count: 1}]);
   });
