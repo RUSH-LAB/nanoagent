@@ -40,7 +40,8 @@ class AttemptServices:
     checked as a source is and handed to ``save_harness``, whose answer (RUSH's) it returns; and, given ``install_cli``, `/cli`:
     {"name", "expect"} installs a terminal CLI (nanoagent.uploaded.clis), answered with ``install_cli``'s events, one JSON line each;
     and, given ``score_harness``, `/score`: {"name"} scores the member's saved harness on the session's task (`rush score`), answered
-    with ``score_harness``'s events the same way."""
+    with ``score_harness``'s events the same way; and, given ``start_tools``, `/tools/start`: the plugin's tools started for a Terminal
+    session's `nanoagent`, answered with ``start_tools``'s {token, system, tools}, the token the one the broker then serves them to."""
 
     def __init__(
         self,
@@ -58,6 +59,7 @@ class AttemptServices:
         save_harness: Callable[[bytes], Awaitable[Mapping[str, Any]]] | None = None,
         install_cli: Callable[[str, str | None], AsyncIterator[Mapping[str, Any]]] | None = None,
         score_harness: Callable[[str], AsyncIterator[Mapping[str, Any]]] | None = None,
+        start_tools: Callable[[], Awaitable[Mapping[str, Any]]] | None = None,
     ) -> None:
         recorder = Recorder(journal, clock_ns, [policy.token, endpoint.api_key])
         self.attempt = Attempt(policy, recorder, workspace, clock_ns)
@@ -79,6 +81,9 @@ class AttemptServices:
         self._score_harness = score_harness
         if score_harness is not None:
             routes.append(Route("/score", self._score, methods=["POST"]))
+        self._start_tools = start_tools
+        if start_tools is not None:
+            routes.append(Route("/tools/start", self._tools_start, methods=["POST"]))
         routes += [
             Route("/tools", self.broker.handle, methods=["POST"]),
             Route("/exec", self.exec.handle, methods=["POST"]),
@@ -176,6 +181,19 @@ class AttemptServices:
             return error_response(error)
         events = self._score_harness(name)
         return StreamingResponse((json.dumps(dict(event)) + "\n" async for event in events), media_type="application/x-ndjson")
+
+    async def _tools_start(self, request: Request) -> Response:
+        assert self._start_tools is not None
+        try:
+            self.attempt.require_auth(request)
+            self.attempt.require_active()
+            try:
+                started = await self._start_tools()
+            except RushError as error:
+                raise ServiceError(error.status, error.code, error.message) from error
+        except ServiceError as error:
+            return error_response(error)
+        return JSONResponse(dict(started))
 
     async def _event(self, request: Request) -> Response:
         received_ns = self.attempt.clock_ns()  # before anything is journaled: the event's time is when it arrived

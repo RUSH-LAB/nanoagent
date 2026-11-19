@@ -8,10 +8,6 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [os.path.join(HERE, "site"), HERE]
 
-from taskharness import shims  # noqa: E402
-
-shims.install()
-
 from taskharness.run import attempt, write_result  # noqa: E402
 
 

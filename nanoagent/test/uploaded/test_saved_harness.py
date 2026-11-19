@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from nanoagent import __version__
 from nanoagent.uploaded.clis import CLIS
 from nanoagent.uploaded.contract import parse_manifest
 from nanoagent.uploaded.reference import FOLDER
@@ -95,10 +96,12 @@ def test_a_harness_saved_after_installing_clis_records_those_installs() -> None:
 
 def test_each_terminal_cli_is_its_reference_harness_at_the_version_its_lock_pins() -> None:
     assert {name: (cli.reference, cli.version()) for name, cli in CLIS.items()} == {
-        "claude": ("claude-code", "2.1.325"), "codex": ("codex", "0.167.0"), "pi": ("pi", "0.84.4"), "dsh": ("dsh", "0.2.2-rc.1"), "hermes": ("hermes", "0.19.0"),
+        "nanoagent": ("nanoagent", __version__), "claude": ("claude-code", "2.1.325"), "codex": ("codex", "0.167.0"), "pi": ("pi", "0.84.4"),
+        "dsh": ("dsh", "0.2.2-rc.1"), "hermes": ("hermes", "0.19.0"),
     }  # fmt: skip
-    claude = CLIS["claude"]
-    assert claude.key("node@sha256:a") == claude.key("node@sha256:a") != claude.key("node@sha256:b")  # one install per lock, image and machine
+    claude, nanoagent = CLIS["claude"], CLIS["nanoagent"]
+    assert claude.key("node@sha256:a", "s1") == claude.key("node@sha256:a", "s2") != claude.key("node@sha256:b", "s1")  # one install per lock, image and machine
+    assert nanoagent.key("python@sha256:a", "s1") != nanoagent.key("python@sha256:a", "s2")  # and NanoAgent's per its own source too
 
 
 async def test_the_services_stream_a_cli_install_one_json_line_per_event(tmp_path: Path) -> None:

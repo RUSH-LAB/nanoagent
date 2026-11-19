@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -16,7 +18,7 @@ from starlette.responses import JSONResponse, Response
 
 from nanoagent.plugin.manifest import PluginManifest
 from nanoagent.plugin.runtime import PluginLauncher, PluginSession
-from nanoagent.uploaded.attempt import CALL_HEADER, Attempt, ServiceError, ToolPolicy, error_response, from_contract, new_call_id
+from nanoagent.uploaded.attempt import CALL_HEADER, Attempt, ServiceError, ToolPolicy, carries, error_response, from_contract, new_call_id
 from nanoagent.uploaded.contract import _FORMATS, ContractError, decode_and_validate, validate
 from nanoagent.uploaded.evidence import json_bytes
 from nanoagent.uploaded.gateway import ProposalRegistry
@@ -108,12 +110,24 @@ class ToolBroker:
         self.proposal_wait_s = proposal_wait_s
         self._lock = WorkspaceLock()
         self._validators = {tool.name: (_validator(tool.input_schema), _validator(tool.output_schema)) for tool in attempt.policy.tools}
+        self._token_digest: bytes | None = None  # the late tools' own token, which only the process they were started for holds
+
+    def serve(self, tools: tuple[ToolPolicy, ...], runner: ToolRunner, token: str) -> None:
+        """Serves ``tools`` through ``runner`` from now on, to calls carrying ``token`` alone: a Terminal session's plugin tools,
+        started for its `nanoagent` (the attempt token, which every process in the session holds, calls none of them)."""
+        self.attempt.policy = replace(self.attempt.policy, tools=tools)
+        self._validators = {tool.name: (_validator(tool.input_schema), _validator(tool.output_schema)) for tool in tools}
+        self.runner = runner
+        self._token_digest = hashlib.sha256(token.encode()).digest()
 
     async def handle(self, request: Request) -> Response:
         call_id, context = new_call_id(), {"span_id": None, "tool": None, "cause": None}
         received_ns = self.attempt.clock_ns()  # the harness's call starts here, before verification and journaling queue it
         try:
-            self.attempt.require_auth(request)
+            if self._token_digest is None:
+                self.attempt.require_auth(request)
+            elif not carries(request, self._token_digest):
+                raise ServiceError(401, "unauthorized", "missing or invalid tools token: the plugin's tools serve the nanoagent they were started for")
             context["span_id"] = self.attempt.span_id(request)
             self.attempt.require_active()
             try:

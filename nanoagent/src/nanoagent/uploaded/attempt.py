@@ -112,6 +112,17 @@ class AttemptPolicy:
         return next((tool for tool in self.tools if tool.name == name), None)
 
 
+def carries(request: Request, digest: bytes) -> bool:
+    """Constant-time check that ``request`` carries the token whose sha256 is ``digest``, in `Authorization: Bearer` or `x-api-key`."""
+    offered = [request.headers.get("x-api-key")]
+    authorization = request.headers.get("authorization", "")
+    scheme, _, credential = authorization.partition(" ")
+    offered.append(credential.strip() if scheme.lower() == "bearer" else None)
+    # Both candidates are always compared so the outcome does not depend on which header carried the token.
+    matches = [hmac.compare_digest(hashlib.sha256(value.encode()).digest(), digest) for value in offered if value is not None]
+    return any(matches)
+
+
 class Attempt:
     """The per-attempt context: authentication, the revoked flag and the in-flight work revocation stops."""
 
@@ -128,13 +139,7 @@ class Attempt:
 
     def authenticate(self, request: Request) -> bool:
         """Constant-time check of the attempt token in `Authorization: Bearer` or `x-api-key`."""
-        offered = [request.headers.get("x-api-key")]
-        authorization = request.headers.get("authorization", "")
-        scheme, _, credential = authorization.partition(" ")
-        offered.append(credential.strip() if scheme.lower() == "bearer" else None)
-        # Both candidates are always compared so the outcome does not depend on which header carried the token.
-        matches = [hmac.compare_digest(hashlib.sha256(value.encode()).digest(), self._token_digest) for value in offered if value is not None]
-        return any(matches)
+        return carries(request, self._token_digest)
 
     def require_auth(self, request: Request) -> None:
         if not self.authenticate(request):

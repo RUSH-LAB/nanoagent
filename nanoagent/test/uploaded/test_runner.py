@@ -188,6 +188,44 @@ async def test_a_free_form_session_has_no_case_reads_no_result_and_ends_unscored
     assert rig.supervisor.probed == ["python-3"]  # the tracer proven in the toolchain's image before the build
 
 
+async def test_a_free_form_sessions_nanoagent_starts_the_plugins_tools_which_serve_its_token_alone(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, script=fx.CaseScript(block=True, result=SandboxError("missing_result", "ignored")))
+    seen: dict[str, Any] = {}
+
+    async def nanoagent(client: httpx.AsyncClient) -> None:
+        assert rig.supervisor.attached == [] and rig.rush.opened == []  # the shell starts with no tools VM
+        started = [(await client.post("/tools/start")).json() for _ in range(2)]
+        token = started[0]["token"]
+        seen["started"] = started
+        seen["theirs"] = await client.post("/tools", json={"name": "wait", "arguments": {}}, headers={"authorization": f"Bearer {token}"})
+        seen["shell"] = await client.post("/tools", json={"name": "wait", "arguments": {}})  # the attempt token every process holds
+
+    result = await _with_harness(rig, nanoagent, fx.free_job())
+    first, again = seen["started"]
+    assert first == again and rig.rush.opened == [fx.ATTEMPT_ID]  # started once, for the session's first `nanoagent`
+    assert [tool["name"] for tool in first["tools"]] == ["wait"] and first["system"].endswith("Task: Sum the numbers..\nBe exact.")
+    [attached] = rig.supervisor.attached  # one tool VM, booted beside the running case
+    assert attached.egress_hosts == ("api.example.com",)
+    assert seen["theirs"].json()["output"] == {"waited": 0.0} and seen["shell"].status_code == 401
+    assert result.execution == {"status": "ended", "reason": None} and rig.rush.of("tool.completed")
+
+
+async def test_a_free_form_sessions_tools_that_cannot_start_say_why_to_each_nanoagent(tmp_path: Path) -> None:
+    rush = fx.FakeRush()
+    rush.tools_error = fx.RushError(409, "package_unavailable", "acceptance-probe's installed version is not published")
+    rig = Rig(tmp_path, rush=rush, script=fx.CaseScript(block=True, result=SandboxError("missing_result", "ignored")))
+    answers: list[httpx.Response] = []
+
+    async def nanoagent(client: httpx.AsyncClient) -> None:
+        answers.extend([await client.post("/tools/start"), await client.post("/tools/start")])
+
+    result = await _with_harness(rig, nanoagent, fx.free_job())
+    assert [answer.status_code for answer in answers] == [503, 503], answers[0].text
+    assert rush.opened == [fx.ATTEMPT_ID]
+    assert answers[0].json()["error"]["message"] == "the plugin's tools could not start: acceptance-probe's installed version is not published"
+    assert rig.supervisor.attached == [] and result.execution == {"status": "ended", "reason": None}
+
+
 async def test_a_free_form_session_is_kept_to_resume_and_a_resuming_one_starts_on_its_workspace(tmp_path: Path) -> None:
     made = {"notes.txt": b"made here", ".rush/clis/claude": b"key", ".rush/claude/.claude/projects/-rush-workspace/s.jsonl": b'{"sessionId": "s-1", "cwd": "/rush/workspace"}\n'}
     rig = Rig(tmp_path / "first", script=fx.CaseScript(made=made))
@@ -842,7 +880,7 @@ async def test_a_snapshot_event_carries_the_diff_that_fits_and_says_when_it_is_c
         assert [entry["path"] for entry in snapshot["diff"]] == ["out.txt"] and snapshot["diff_truncated"] is False
 
 
-async def _with_harness(rig: Rig, post: Any) -> Any:
+async def _with_harness(rig: Rig, post: Any, job: Any = None) -> Any:
     """Runs the attempt with a blocked case; `post(client)` is the harness talking to its /events, then the harness exits."""
 
     async def harness() -> None:
@@ -857,7 +895,7 @@ async def _with_harness(rig: Rig, post: Any) -> Any:
 
     async with anyio.create_task_group() as group:
         group.start_soon(harness)
-        return await rig.run()
+        return await rig.run(job)
 
 
 async def test_a_huge_refusal_in_answer_json_is_still_scored_on_the_whole_answer(tmp_path: Path) -> None:
@@ -1018,12 +1056,12 @@ async def test_the_clis_install_ahead_of_sessions_and_a_session_typing_one_meanw
     with anyio.fail_after(5):
         while not built:
             await anyio.sleep(0.01)
-    typed = runner._install_cli(fx.free_job(), "claude", None)
-    assert await anext(typed) == {"installing": "Claude Code", "version": CLIS["claude"].version()}
+    typed = runner._install_cli(fx.free_job(), "nanoagent", None)
+    assert await anext(typed) == {"installing": "NanoAgent", "version": CLIS["nanoagent"].version()}
     gate.set()
     events = [event async for event in typed]
-    assert events[-1]["path"].startswith(f"{CLIS_DIR}/") and events[-2]["installed"] == "Claude Code"
+    assert events[-1]["path"].startswith(f"{CLIS_DIR}/") and events[-2]["installed"] == "NanoAgent"
     await ahead
-    assert built == ["cli-claude", "cli-codex", "cli-pi", "cli-hermes", "cli-dsh"]  # each once, claude's shared with the session
+    assert built == ["cli-nanoagent", "cli-claude", "cli-codex", "cli-pi", "cli-hermes", "cli-dsh"]  # each once, NanoAgent's shared with the session
     [found] = [event async for event in runner._install_cli(fx.free_job(), "dsh", None)]  # typed later: there at once
     assert found["path"] == f"{CLIS_DIR}/{found['key']}/harness"

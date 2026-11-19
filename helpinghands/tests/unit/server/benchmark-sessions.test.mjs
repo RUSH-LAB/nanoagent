@@ -249,6 +249,18 @@ describe('`rush score`: POST /api/benchmark-worker/attempts/{id}/score and GET .
     });
     assert.deepEqual([read.status, read.payload], [200, {attempt: {attempt_id: SCORED, sealed: true, verdict: 'pass'}, totals: {calls: 2, settled_usd: 0.011}}]);
   });
+
+  it('opens the first task of the session\'s plugin, with its published package, for the session\'s `nanoagent`', async () => {
+    const {ctx, calls} = scoring();
+    ctx.benchmark.worker.publishedPackage = async (pluginId, sha256) => { calls.push(['package', pluginId, sha256]); return {data: Buffer.from('zip'), sha256}; };
+    const opened = await invoke(workerRoute, {
+      method: 'POST', path: `/api/benchmark-worker/attempts/${ATTEMPT}/tools`, headers: {authorization: 'Bearer cred'}, body: {fence: 3}, ctx, auth: null,
+    });
+    assert.deepEqual([opened.status, opened.payload], [200, {
+      plugin: {id: 'p', name: 'P', version: '1.0.0', sha256: SHA}, task: {id: 'sum', plugin_name: 'P', ...pinned.task}, package: Buffer.from('zip').toString('base64'),
+    }]);
+    assert.deepEqual(calls.filter(([what]) => what !== 'open'), [['frame', SHA, {task: 'sum', text: 'Add two numbers'}], ['package', 'p', SHA]]);
+  });
 });
 
 describe('a session\'s run', () => {

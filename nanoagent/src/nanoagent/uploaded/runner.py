@@ -52,11 +52,12 @@ import anyio.to_thread
 
 from nanoagent import __version__
 from nanoagent.plugin.manifest import PluginManifest, load_manifest
+from nanoagent.plugin.tasks import tools_prompt
 from nanoagent.plugin.verifier import VerifierError, verify_task_verifier_case
 from nanoagent.uploaded import records as rec
 from nanoagent.uploaded.answer import read_answer
 from nanoagent.uploaded.app import AttemptServices
-from nanoagent.uploaded.attempt import AttemptPolicy, ToolPolicy
+from nanoagent.uploaded.attempt import AttemptPolicy, ServiceError, ToolPolicy
 from nanoagent.uploaded.broker import PluginToolRunner, ToolError
 from nanoagent.uploaded.clis import CLIS, Cli
 from nanoagent.uploaded.collector import ProcessEvent, ProcessEventKind, ProcessEvidence, launched_processes
@@ -131,6 +132,7 @@ class Supervisor(Protocol):
 
     def prepare_plugin(self, root: Path, timeout_s: float) -> None: ...
 
+    def attach_tool(self, case: Any, tool: ToolContainerSpec) -> None: ...
 
     def tool_launcher(self, name: str) -> ToolLauncher: ...
 
@@ -245,6 +247,24 @@ class WarmTerminal:
     folder: Path
     born: float
     taken: anyio.Event = field(default_factory=anyio.Event)
+
+
+class LateTools:
+    """A Terminal session's plugin tools, which its shell starts without: started the first time its `nanoagent` asks
+    (`/tools/start`, `AttemptRunner._late_tools`) and kept up until the session ends; what started them answers every ask after."""
+
+    def __init__(self) -> None:
+        self.asked = anyio.Event()
+        self.up = anyio.Event()
+        self.started: Mapping[str, Any] | None = None  # {token, system, tools}
+        self.error = "the session ended before its tools came up"
+
+    async def start(self) -> Mapping[str, Any]:
+        self.asked.set()
+        await self.up.wait()
+        if self.started is None:
+            raise ServiceError(503, "tools_unavailable", f"the plugin's tools could not start: {self.error}")
+        return self.started
 
 
 class NoTools:
@@ -703,7 +723,7 @@ class AttemptRunner:
         LOG.info("attempt %s: harness built", job.attempt_id)  # with the worker log's times, these lines show where a session's start goes
         manifest = None
         if package is not None:
-            manifest = await in_thread(self._plugin, job, package, work, bool(tools))
+            manifest = await in_thread(self._plugin, job.plugin, package, work, bool(tools))
             LOG.info("attempt %s: plugin ready", job.attempt_id)
             if (ended := await self._ended(job, lease, journal)) is not None:
                 return ended
@@ -742,12 +762,12 @@ class AttemptRunner:
             return BuildArtifact(kept / "harness", tuple(built["outputs"]), built["digest"], b"", b"", 0.0)
         return self._keep(self._build_now(attempt_id, run_limits, archive, profile, work), kept)
 
-    def _plugin(self, job: AttemptJob, package: bytes, work: Path, tooled: bool) -> PluginManifest:
-        """The attempt's plugin. Without tools it is unpacked into the attempt's folder. With them it is the one an earlier attempt
-        unpacked and synced (`prepare_plugin`) of the same package, prep image and architecture, kept under the scratch folder's
+    def _plugin(self, plugin: Mapping[str, Any], package: bytes, work: Path, tooled: bool) -> PluginManifest:
+        """The attempt's plugin (``{id, sha256, ...}``). Without tools it is unpacked into the attempt's folder. With them it is the one
+        an earlier attempt unpacked and synced (`prepare_plugin`) of the same package, prep image and architecture, kept under the scratch folder's
         plugins/ (read-only to every tool VM, so one serves all), or unpacked and synced now and kept there: a session's tools start
         without a `uv sync` once its plugin has run here."""
-        sha256, plugin_id = job.plugin["sha256"], job.plugin["id"]
+        sha256, plugin_id = plugin["sha256"], plugin["id"]
         if not tooled:
             return self.plugins.load(package, sha256, plugin_id, work / "plugin")
         kept = self.config.scratch / PLUGINS / hashlib.sha256(f"{sha256}\0{PLUGIN_PREP_IMAGE}\0{platform.machine()}".encode()).hexdigest()[:32]
@@ -796,7 +816,7 @@ class AttemptRunner:
     def _cli_source(self, cli: Cli) -> tuple[Any, ToolchainProfile, str]:
         archive = inspect_zip(build_reference(cli.reference), self.config.source_limits)
         profile = toolchain(archive.manifest.toolchain)
-        return archive, profile, cli.key(profile.build_image)
+        return archive, profile, cli.key(profile.build_image, archive.source_sha256)
 
     def _cli_install(self, cli: Cli, archive: Any, profile: ToolchainProfile, key: str, run_limits: Mapping[str, Any]) -> tuple[asyncio.Future[None], Path]:
         """The install of ``cli`` under ``key`` and its scratch: the one under way, or one started now that whoever asks next
@@ -944,12 +964,14 @@ class AttemptRunner:
             prompt_bound=run["prompt_bound"],
         )
         commands = CaseCommands(limits)
+        late = LateTools() if job.free_form else None  # a Terminal session's `nanoagent` asks for the plugin's tools
         services = self.services_factory(
             policy=policy, endpoint=cfg.endpoint, admission=RushAdmission(self.worker, lease), journal=journal, tool_runner=runner,
             command_runner=commands, workspace=workspace, clock_ns=self.clock_ns,
             save_harness=lambda data: self.worker.save_harness(job.attempt_id, job.fence, data),
             install_cli=lambda name, expect: self._install_cli(job, name, expect),
             score_harness=lambda name: self._score(job, name),
+            start_tools=None if late is None else late.start,
         )
         services.attempt.lease_lapsed = lease.lapsed  # the services refuse new work once the lease's known expiry passes
         if warm is not None:
@@ -973,6 +995,10 @@ class AttemptRunner:
             LOG.info("attempt %s: case VMs up", job.attempt_id)
         stack.push_async_callback(shielded, lambda: in_thread(handle.close))
         stack.push_async_callback(shielded, lambda: self._revoke(services))  # a fault after this leaves no in-flight call or tool behind
+        if late is not None:  # closed before the case (the stack unwinds in reverse), the tools' session first
+            group = await stack.enter_async_context(anyio.create_task_group())
+            stack.callback(group.cancel_scope.cancel)
+            group.start_soon(self._late_tools, late, job, work, handle, services)
         if job.resume is not None:  # the session it resumes, back in its workspace before the shell starts
             said = await in_thread(restore, cfg.scratch, job.resume, handle.workspace)
             LOG.info("attempt %s: resuming %s: %s", job.attempt_id, job.resume.attempt_id, said["line"])
@@ -1082,6 +1108,37 @@ class AttemptRunner:
         }
         validate("Request", request)
         return request
+
+    async def _late_tools(self, late: LateTools, job: AttemptJob, work: Path, handle: CaseHandle, services: AttemptServices) -> None:
+        """Once the session's `nanoagent` asks (`late.asked`): the first task of the session's plugin, as RUSH opens it on the member's
+        computer, its plugin prepared (`_plugin`), its tool VM booted beside the case and its tools' session open until the session ends,
+        served by the broker to the token handed to that `nanoagent` alone. Why they could not come up answers each ask instead."""
+        await late.asked.wait()
+        try:
+            opened = await self.worker.tools(job.attempt_id, job.fence)
+            task = opened["task"]
+            manifest = await in_thread(self._plugin, opened["plugin"], base64.b64decode(opened["package"]), work, True)
+            name = f"rush-tool-{job.attempt_id}-{secrets.token_hex(4)}"
+            await in_thread(self.supervisor.attach_tool, handle, ToolContainerSpec(name, manifest.root, None, tuple(task["egress_hosts"])))
+            names = tuple(tool["name"] for tool in task["tools"])
+            runner = self.plugins.tool_runner(manifest, Path(WORKSPACE), names, self.supervisor.tool_launcher(name))
+            async with runner:
+                token = secrets.token_urlsafe(32)
+                policies = tuple(ToolPolicy(tool["name"], bool(tool["writes"]), tool["input_schema"], tool["output_schema"]) for tool in task["tools"])
+                services.broker.serve(policies, runner, token)
+                late.started = {
+                    "token": token,
+                    "system": tools_prompt(task["plugin_name"], task["description"], task["instructions"]),
+                    "tools": [{key: tool[key] for key in ("name", "description", "input_schema", "output_schema")} for tool in task["tools"]],
+                }
+                late.up.set()
+                LOG.info("attempt %s: plugin tools up for nanoagent", job.attempt_id)
+                await anyio.sleep_forever()
+        except Exception as error:
+            LOG.warning("attempt %s: the plugin's tools could not start: %s", job.attempt_id, error)
+            late.error = error.message if isinstance(error, RushError) else f"{type(error).__name__}: {error}"
+        finally:
+            late.up.set()
 
     async def _wait(self, lease: Lease, handle: CaseHandle, services: AttemptServices, terminal: Terminal, *, interactive: bool, free_form: bool) -> Any:
         """The case's outcome, or None if the lease was lost or canceled first (the case is killed and drained). A free-form session's

@@ -66,3 +66,6 @@ def test_an_agent_that_kept_no_conversation_has_nothing_to_run(tmp_path: Path) -
     assert resume_command(tmp_path, "hermes") is None
     workspace(tmp_path, {".rush/hermes/state.db": b""})
     assert resume_command(tmp_path, "hermes") == "hermes --continue"
+    assert resume_command(tmp_path, "nanoagent") is None
+    workspace(tmp_path, {".rush/nanoagent/261118-181932.traj.json": b"{}"})
+    assert resume_command(tmp_path, "nanoagent") == "mgen -c"  # NanoAgent's last session, chat or mgen, with the plugin's tools again

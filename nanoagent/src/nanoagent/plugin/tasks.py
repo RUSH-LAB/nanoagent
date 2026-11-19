@@ -74,14 +74,18 @@ class SubmitTool(Tool):
         return "Submitted."
 
 
+def tools_prompt(plugin_name: str, description: str, instructions: str) -> str:
+    """The system prompt of an agent given a task's tools: the plugin, the workspace and the task's instructions."""
+    return (
+        f"You work one task with the {plugin_name} plugin's tools. Every file a tool saves goes "
+        "into your workspace; paths you pass to tools are relative to it.\n\n"
+        f"Task: {description}.\n{instructions}"
+    )
+
+
 def task_prompt(manifest: PluginManifest, task: TaskDefinition, arguments: dict[str, Any]) -> tuple[str, str]:
     """The system prompt and the opening user message for an agent working ``task``."""
-    system = (
-        f"You work one task with the {manifest.name} plugin's tools. Every file a tool saves goes "
-        "into your workspace; paths you pass to tools are relative to it.\n\n"
-        f"Task: {task.description}.\n{task.instructions}\n\n"
-        f"When the task is done, call {SUBMIT} with its result."
-    )
+    system = f"{tools_prompt(manifest.name, task.description, task.instructions)}\n\nWhen the task is done, call {SUBMIT} with its result."
     return system, f"Task input:\n{json.dumps(arguments, indent=2)}"
 
 

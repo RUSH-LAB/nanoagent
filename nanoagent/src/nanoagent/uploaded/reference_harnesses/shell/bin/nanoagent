@@ -1,0 +1,4 @@
+#!/bin/sh
+# NanoAgent's chat (`nanoagent chat`), the one agent in the terminal given the plugin's task tools, which the worker starts for it
+# the first time (rush.py nanoagent).
+exec python /harness/rush.py nanoagent "$@"

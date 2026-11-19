@@ -61,6 +61,13 @@ describe('a Harness tab session on the Dashboard', () => {
     assert.deepEqual([codex.title, rush.title, terminalSession(row({harness_name: 'claude-code'})).title], ['codex', 'nanoagent', 'claude']);
   });
 
+  it('names NanoAgent\'s model calls nanoagent, whether its chat or mgen made them', () => {
+    const chat = process(['python', '-m', 'nanoagent.cli.repl.app', 'mgen_cfg=/opt/rush/clis/k/harness/nanoagent/configs/mgen.yaml'], 5, 20);
+    const mgen = process(['python', '-m', 'nanoagent.cli.mgen', '--config', 'mgen.yaml', '-p', 'rain?'], 25, 40);
+    const session = terminalSession(row({calls: [call('c1', 10, 12), call('c2', 30, 33)], processes: [chat, mgen]}));
+    assert.deepEqual([session.title, session.harnesses.map(one => one.harness)], ['nanoagent', ['nanoagent']]);
+  });
+
   it('gives a session no agent made a model call in no agent, titled by its main command, its calls, or no agent', () => {
     const bash = process(BASH, 0, null);
     const ran = terminalSession(row({processes: [bash, process(['ls'], 1, 2, bash), process(['/usr/bin/python3', 'train.py'], 3, 40, bash)]}));

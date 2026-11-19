@@ -10,7 +10,7 @@ rush() {
 }
 # The banner at the top of every terminal (each is a bash on this rc), and again when the member clears it: `clear` or Ctrl-L.
 rush_banner() {
-  printf '%s\n' 'Run any CLI agent here (claude, codex, pi, hermes, dsh)' 'Models and tracing are set up.'
+  printf '%s\n' 'Run any CLI agent here (nanoagent, claude, codex, pi, hermes, dsh)' 'Models and tracing are set up.'
 }
 clear() {
   command clear "$@" && rush_banner

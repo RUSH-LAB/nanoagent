@@ -355,6 +355,12 @@ class RushWorkerClient:
         response = await self._send("GET", f"/attempts/{attempt_id}/score/{scored_id}", headers={FENCE_HEADER: str(fence)})
         return response.json()
 
+    async def tools(self, attempt_id: str, fence: int) -> Mapping[str, Any]:
+        """What the attempt's Terminal session's `nanoagent` works with: the first task of the plugin whose page opened the session,
+        opened on the member's computer, ``{plugin: {id, name, version, sha256}, task: {id, kind, description, instructions,
+        plugin_name, tools, egress_hosts}, package}``, the package's bytes in base64."""
+        return await self._json("POST", f"/attempts/{attempt_id}/tools", {"fence": fence}, retry=False)
+
     async def spans(self, attempt_id: str, body: Mapping[str, Any]) -> None:
         await self._json("POST", f"/attempts/{attempt_id}/spans", body)
 

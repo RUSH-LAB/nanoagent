@@ -1,0 +1,3 @@
+#!/bin/sh
+# NanoAgent's `mgen` (`mgen -p "<request>"` asks once), with the plugin's task tools as `nanoagent` has them (rush.py nanoagent).
+exec python /harness/rush.py mgen "$@"

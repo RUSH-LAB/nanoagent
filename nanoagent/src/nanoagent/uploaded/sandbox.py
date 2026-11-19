@@ -937,6 +937,22 @@ class MicrosandboxSupervisor:
             bridge.close()
             raise
 
+    def attach_tool(self, handle: _Case, tool: ToolContainerSpec) -> None:
+        """Boots the tool VM ``tool`` beside the running case ``handle``: a Terminal session's, whose shell starts with none and whose
+        `nanoagent` asks for the plugin's tools."""
+        spec = replace(handle.spec, tool=tool)
+        ports: list[int] = []
+        proxy: str | None = None
+        if tool.egress_hosts:
+            ports = [handle.bridge.enter_context(egress_port(tool.egress_hosts))]
+            proxy = f"http://{GUEST_HOST}:{ports[0]}"
+        sandbox = self._loop.run(self._start_tool(spec, handle.workspace, self._require_tools(), ports))
+        if handle._closing.is_set():  # the case closed while its tool VM booted
+            self._loop.run(self._destroy(sandbox))
+            raise SandboxError("closed", "the case closed before its tool VM was up")
+        handle.spec, handle._tool, handle.tool_proxy = spec, sandbox, proxy
+        self._tool_cases[tool.name] = handle
+
     async def _start_tool(self, spec: CaseSpec, workspace: Path, tools: Path, ports: Sequence[int]) -> Sandbox:
         """The tool VM: no network but, when the plugin declares hosts, the egress proxy's; the case workspace at the
         harness's path, plugin and fixtures read-only."""

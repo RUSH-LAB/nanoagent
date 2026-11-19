@@ -8,7 +8,7 @@
  */
 const crypto = require('crypto');
 const {BenchmarkError} = require('../benchmark/errors');
-const {stringifyJson} = require('../benchmark/json');
+const {parseJson, stringifyJson} = require('../benchmark/json');
 const {UUID, jsonBody, rawBody, sendFailure} = require('../benchmark/http');
 const v = require('../benchmark/validate');
 const {MAX_SOURCE_BYTES, positiveSetting} = require('../benchmark/limits');
@@ -29,7 +29,7 @@ const REDACTIONS = ['none', 'redacted', 'truncated'];
 const ROUTE = new RegExp([
   '^/api/benchmark-worker/(?:',
   '(claim|started)',
-  '|attempts/([^/]+)/(renew|source|package|case|admissions|events|terminal|terminal-link|watch|harness|score|spans|finalize|accounting)',
+  '|attempts/([^/]+)/(renew|source|package|case|admissions|events|terminal|terminal-link|watch|harness|score|tools|spans|finalize|accounting)',
   '|attempts/([^/]+)/score/([^/]+)',
   '|attempts/([^/]+)/admissions/([^/]+)/(settle)',
   '|attempts/([^/]+)/payloads/([^/]+)',
@@ -163,6 +163,24 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
         if (!computer) throw new BenchmarkError(503, 'runner_offline', RUNNER_OFFLINE);
         const [task] = (await openApp(ctx, {userId, workspaceId}, pluginId, computer)).tasks;
         return json(res, 201, await startSession(ctx, {userId, workspaceId}, {pluginId, taskId: task.id, harness: v.string(input.harness, 'harness'), interactive: false, text: task.description}));
+      }
+      // The plugin's tools a Terminal session's `nanoagent` asks for (the worker starts them then, for it alone): the first task of the
+      // plugin whose page opened the session, opened on the member's computer as `rush score` opens it, and its published package.
+      if (jobPart === 'tools') {
+        wanted('POST', jobId);
+        const {workspaceId, pluginId} = await worker.terminalSession(userId, jobId, v.fenceOf(v.object(await body(), 'The body')));
+        const computer = ctx.runners.computer(userId);
+        if (!computer) throw new BenchmarkError(503, 'runner_offline', RUNNER_OFFLINE);
+        const {sha256, tasks: [first]} = await openApp(ctx, {userId, workspaceId}, pluginId, computer);
+        const framed = await computer.benchmarkSessionFrame(sha256, JSON.stringify({task: first.id, text: first.description}));
+        if (framed.error) throw new BenchmarkError(framed.status, 'app_unavailable', framed.error);
+        const frame = parseJson(framed.value);
+        const {data} = await worker.publishedPackage(frame.plugin_id, frame.package_sha256);
+        return json(res, 200, {
+          plugin: {id: frame.plugin_id, name: frame.plugin_name, version: frame.version, sha256: frame.package_sha256},
+          task: {id: frame.task_id, plugin_name: frame.plugin_name, ...frame.task},
+          package: data.toString('base64'),
+        });
       }
       wanted('POST', jobId);
       const input = await body();

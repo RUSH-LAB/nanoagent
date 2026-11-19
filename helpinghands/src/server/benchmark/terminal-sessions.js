@@ -3,15 +3,15 @@
 const {REFERENCE_LABELS} = require('./leaderboard');
 
 /**
- * The agent CLIs a Terminal session installs, by what the member types: its package's path, or for Hermes its module, appears in
- * the argv of the process its wrapper execs (the shell reference harness's bin/, nanoagent.uploaded.clis), and the wrapper itself
- * runs as /harness/bin/<name> until it execs.
+ * The agent CLIs a Terminal session installs, by what the member types: its package's path, or for Hermes and NanoAgent its module
+ * (NanoAgent's `nanoagent` and `mgen` both run nanoagent.cli), appears in the argv of the process its wrapper execs (the shell
+ * reference harness's bin/, nanoagent.uploaded.clis), and the wrapper itself runs as /harness/bin/<name> until it execs.
  */
 const CLI_MARKERS = Object.freeze([
   ['claude', '@anthropic-ai/claude-code'], ['codex', '@openai/codex'], ['pi', '@earendil-works/pi-coding-agent'],
-  ['hermes', 'hermes_cli'], ['dsh', '@deepseek-ai/dsh'],
+  ['hermes', 'hermes_cli'], ['dsh', '@deepseek-ai/dsh'], ['nanoagent', 'nanoagent.cli.'],
 ]);
-const WRAPPER = /\/harness\/bin\/(claude|codex|pi|hermes|dsh)(?:\s|$)/;
+const WRAPPER = /\/harness\/bin\/(claude|codex|pi|hermes|dsh|nanoagent)(?:\s|$)/;
 // The Terminal's own processes (its bash's shell.py, `rush` and a CLI's install), which run no agent.
 const HARNESS = /\/harness\/(?:shell|rush)\.py(?:\s|$)/;
 const SHELLS = new Set(['sh', 'bash', 'dash', 'zsh', 'fish', 'ash']);

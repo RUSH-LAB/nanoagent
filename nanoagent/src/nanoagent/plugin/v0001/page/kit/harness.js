@@ -35,7 +35,8 @@ const failedText = (reason) => `Couldn't start the terminal: ${reason}`;
 
 /**
  * The Harness tab: a free-form Terminal session that starts when the tab is first shown, nothing of the plugin loaded in it: the
- * member runs any agent there and prompts it themselves. As in an editor's
+ * member runs any agent there and prompts it themselves, and only `nanoagent` (and `mgen`) is given the plugin's tools, which start
+ * the first time it runs. As in an editor's
  * terminal panel, they open more terminals in the same VM and workspace ("+"), switch between them by their tabs and close one (×);
  * a terminal whose shell they leave (exit, Ctrl-D) closes too. The session ends with its last terminal; its time, tokens and cost
  * print there, and Enter then starts a new one. `resume(id)` starts a new one that resumes their ended session `id` (the Dashboard's):

@@ -526,6 +526,10 @@ Header `X-Rush-Fence`, `Content-Type: application/zip`. A harness the member sav
 
 `rush score [<name>]` in the attempt's session. The POST body is `{fence, harness}`: the member's saved harness worked once on the session's plugin and task, as `POST /sessions` with `interactive: false` and the task's description as `text` starts it (the case filled and pinned the same way, scored, and on the plugin's Leaderboard): `201 {run, attempt_id}`, with that route's errors. The GET, with header `X-Rush-Fence`, reads how that attempt is going: `200 {attempt, totals}`, the attempt as `GET /attempts/{id}` gives it and its accounting's totals. Both answer `403 not_a_session` for a run nobody works in.
 
+## `POST /attempts/{id}/tools`
+
+`{fence}`. What `nanoagent` (and `mgen`) in the attempt's Terminal session works with, asked for the first time either runs there: the first task of the session's plugin, opened on the member's computer as `rush score` opens it, and that version's published package. `200 {plugin: {id, name, version, sha256}, task: {id, kind, description, instructions, plugin_name, input_schema, output_schema, tools, egress_hosts}, package}`, `package` the package's bytes in base64. The worker then boots the plugin's tool VM beside the session's case and serves its tools through the broker to a token only that NanoAgent process holds; no other process in the session calls them. `409 package_unavailable` when the installed version is not published, `503 runner_offline` without the member's computer, `403 not_a_session` for a run nobody works in.
+
 ## `POST /attempts/{id}/spans`
 
 The span index and causal links, apart from events. Rejected after the seal.

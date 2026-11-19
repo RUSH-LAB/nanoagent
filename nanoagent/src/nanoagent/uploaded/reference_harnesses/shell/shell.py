@@ -1,6 +1,7 @@
 """The member's own terminal in the attempt's VM: bash in the workspace, with every model SDK pointed at the attempt's gateway and
-the reference CLIs (bin/: claude, codex, pi, hermes, dsh) set up for it. The session is free-form: the member installs and runs any
-agent there (pip and npm install into .rush/) and prompts it themselves; its model calls and commands are recorded, and nothing scores it.
+the reference CLIs (bin/: nanoagent and mgen, claude, codex, pi, hermes, dsh) set up for it, NanoAgent alone given the plugin's
+tools. The session is free-form: the member installs and runs any agent there (pip and npm install into .rush/) and prompts it
+themselves; its model calls and commands are recorded, and nothing scores it.
 
 Given a command (a harness `rush save` made), it runs that command instead, once, in the same workspace and environment, after
 putting back the files the member built (``workspace/``) and with the Python packages they installed (``packages/``).

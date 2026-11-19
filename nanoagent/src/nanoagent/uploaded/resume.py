@@ -142,6 +142,8 @@ def resume_command(workspace: Path, name: str) -> str | None:
             return "pi --continue" if any((rush / "pi" / "sessions").rglob("*.jsonl")) else None
         case "hermes":
             return "hermes --continue" if (rush / "hermes" / "state.db").is_file() else None
+        case "nanoagent":
+            return "mgen -c" if any((rush / "nanoagent").rglob("*.traj.json")) else None
     return None  # dsh runs one task at a time, headless: it has nothing to continue
 
 

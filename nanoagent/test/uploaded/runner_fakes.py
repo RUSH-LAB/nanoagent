@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import io
 import json
 import threading
@@ -126,6 +127,8 @@ class FakeRush:
         self.pinned_case: Any = None  # what GET /attempts/{id}/case answers (a body, or an exception it raises), after case_delay_s
         self.case_delay_s = 0.0
         self.packages = 0  # how many times the plugin package was fetched
+        self.opened: list[str] = []  # the sessions whose `nanoagent` asked for the plugin's tools (POST /attempts/{id}/tools)
+        self.tools_error: Exception | None = None  # what that answers instead, e.g. a RushError
 
     def _fenced(self) -> None:
         if self.sealed:
@@ -139,6 +142,13 @@ class FakeRush:
     async def package(self, attempt_id: str, fence: int) -> bytes:
         self.packages += 1
         return b"package"
+
+    async def tools(self, attempt_id: str, fence: int) -> dict[str, Any]:
+        self.opened.append(attempt_id)
+        if self.tools_error is not None:
+            raise self.tools_error
+        task = {**job_body()["task"], "tools": [WAIT_TOOL]}
+        return {"plugin": job_body()["plugin"], "task": task, "package": base64.b64encode(b"package").decode()}
 
     async def case(self, attempt_id: str, fence: int) -> Any:
         self._fenced()
@@ -366,6 +376,7 @@ class FakeSupervisor:
         self.case: FakeCase | None = None
         self.specs: list[Any] = []
         self.prepared: list[Path] = []
+        self.attached: list[Any] = []
         self.probed: list[str] = []
 
     def create_network(self, attempt_id: str, *, internet: bool = False) -> FakeNetwork:
@@ -388,6 +399,9 @@ class FakeSupervisor:
 
     def prepare_plugin(self, root: Path, timeout_s: float) -> None:
         self.prepared.append(root)
+
+    def attach_tool(self, case: Any, tool: Any) -> None:
+        self.attached.append(tool)
 
     def ready(self, profile: Any) -> None:
         self.probed.append(profile.id)

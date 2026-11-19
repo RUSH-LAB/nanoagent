@@ -4,10 +4,12 @@ version: "1"
 dialects: [chat_completions]
 toolchain: python-3
 lockfiles: [requirements.txt]
-# The build has no network: pip installs the hashed closure the worker staged under /deps (PIP_FIND_LINKS). `nanoagent/`
-# is assembled from NanoAgent's working tree by assemble.py before the folder is uploaded; it is not committed here.
+# The build has no network: pip installs the hashed closure the worker staged under /deps (PIP_FIND_LINKS), with --no-deps as
+# omegaconf's antlr4 runtime, which no wheel carries, is copied in beside slimconfig. `nanoagent/`, `slimconfig/` and `antlr4/` are
+# assembled from NanoAgent's working tree and environment by assemble.py before the folder is uploaded; they are not committed here.
+# The same build is the RUSH terminal's `nanoagent` and `mgen` (nanoagent.uploaded.clis): NanoAgent's CLI, run from site/ and here.
 build:
-  argv: [sh, -c, "python -m pip install --quiet --no-index --find-links /deps --require-hashes --target /build-out/site -r requirements.txt && cp -r main.py taskharness nanoagent /build-out/"]
-  outputs: [main.py, taskharness, nanoagent, site]
+  argv: [sh, -c, "python -m pip install --quiet --no-index --find-links /deps --require-hashes --no-deps --target /build-out/site -r requirements.txt && cp -r main.py taskharness nanoagent slimconfig antlr4 /build-out/"]
+  outputs: [main.py, taskharness, nanoagent, slimconfig, antlr4, site]
 run:
   argv: [python, /harness/main.py]

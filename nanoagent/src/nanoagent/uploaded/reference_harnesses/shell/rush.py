@@ -2,7 +2,8 @@
 `rush score [<name>]` scores it on the first task of the plugin whose page opened the session, through the attempt's services (the worker's `_score`). `rush help` says
 what the terminal holds.
 And `rush.py cli <name>`, which bin/'s wrappers run: where the worker installed the CLI <name> (nanoagent.uploaded.clis), installed
-there the first time, with its progress on the terminal.
+there the first time, with its progress on the terminal. And `rush.py nanoagent|mgen [<args>]`, which bin/nanoagent and bin/mgen run:
+NanoAgent's own CLI (its chat, or `mgen`), the one agent here given the plugin's task tools.
 
 The snapshot is the case workspace as it is: every file in it but the case's own (prompt.md, request.json, answer.json) and
 .rush/, the terminal's own folder (packages installed with npm -g are not kept). A link in it fails the save, as a source holds
@@ -38,7 +39,8 @@ UV = "/opt/rush-tools/uv"
 USAGE = "usage: rush save <name> [-- <command>] | rush score [<name>] | rush help"
 STATES = {"queued": "waiting for RUSH Lab's worker", "leased": "running"}  # a scored attempt's state, as `rush score` shows it
 HELP = """\
-agents          claude, codex, pi, hermes and dsh install the first time you type them. dsh runs headless: dsh "<task>".
+agents          nanoagent, claude, codex, pi, hermes and dsh install the first time you type them. dsh runs headless: dsh "<task>".
+nanoagent       NanoAgent's chat with this plugin's tools (only NanoAgent has them); mgen -p "<request>" asks it once.
 model           $RUSH_MODEL, through RUSH's gateway, which records every call. These are set for any SDK:
                 OPENAI_BASE_URL, OPENAI_API_KEY, ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY.
 packages        pip install and npm install -g put packages in .rush/.
@@ -118,8 +120,8 @@ def requirements() -> bytes | None:
 
 
 # The terminal's own files, which build and run a saved harness as they build and run the terminal (build.sh).
-TERMINAL = ("shell.py", "bashrc", "rush.py", "build.sh")
-CLIS = ("claude", "codex", "pi", "hermes", "dsh")
+TERMINAL = ("shell.py", "bashrc", "rush.py", "build.sh", "nanoagent_tools.py")
+CLIS = ("nanoagent", "mgen", "claude", "codex", "pi", "hermes", "dsh")
 
 
 def manifest(name: str, version: str, command: str, locked: bool, clis: bool = False) -> str:
@@ -218,8 +220,8 @@ def score(name: str | None) -> None:
     fail(f"scoring {name} ended without a result")
 
 
-def cli(name: str) -> None:
-    """Prints where the CLI ``name`` is installed, installing it first if it is not yet (its progress on stderr, the terminal)."""
+def installed(name: str) -> str:
+    """Where the CLI ``name`` is installed, installing it first if it is not yet (its progress on stderr, the terminal)."""
     request = json.loads(Path(os.environ["RUSH_REQUEST"]).read_text(encoding="utf-8"))
     recorded = HERE / "clis.json"  # a saved harness runs the installs its session ran
     expect = json.loads(recorded.read_text(encoding="utf-8")).get(name) if recorded.is_file() else None
@@ -241,11 +243,10 @@ def cli(name: str) -> None:
                 elif "installed" in event:
                     print(f"\rinstalled {label} ({event['bytes'] / 1e6:.0f} MB) in {event['seconds']} s", file=sys.stderr, flush=True)
                 elif "path" in event:
-                    installed = Path(request["workspace"]) / INSTALLED
-                    installed.mkdir(parents=True, exist_ok=True)
-                    (installed / name).write_text(event["key"], encoding="utf-8")
-                    print(event["path"])
-                    return
+                    kept = Path(request["workspace"]) / INSTALLED
+                    kept.mkdir(parents=True, exist_ok=True)
+                    (kept / name).write_text(event["key"], encoding="utf-8")
+                    return event["path"]
     except urllib.error.HTTPError as error:
         fail(f"RUSH Lab did not install {label}: {error.code} {error.read().decode(errors='replace')}")
     except OSError as error:
@@ -253,9 +254,56 @@ def cli(name: str) -> None:
     fail(f"installing {label} ended without saying where it is")
 
 
+def nanoagent(entry: str, argv: list[str]) -> None:
+    """NanoAgent's own CLI, `nanoagent` its chat and `mgen` its one-shot (`-p`) and Claude Code-grammar CLI, with ``argv`` after: given
+    the plugin's task tools alone, which the worker starts for this process the first time (`/tools/start`: the plugin's first task, its
+    tool VM beside this one) and serves to the token only this process holds, the task's instructions its system prompt, and the
+    session's model through the gateway. Every model call (the gateway) and every tool call (the broker) is recorded. It replaces this
+    process, so the Dashboard names its model calls nanoagent."""
+    request = json.loads(Path(os.environ["RUSH_REQUEST"]).read_text(encoding="utf-8"))
+    install = installed("nanoagent")
+    print("starting this plugin's tools…", end="", file=sys.stderr, flush=True)
+    sent = urllib.request.Request(request["exec_url"].removesuffix("/exec") + "/tools/start", data=b"{}", method="POST", headers={
+        "Content-Type": "application/json", "Authorization": f"Bearer {os.environ['RUSH_ATTEMPT_TOKEN']}",
+    })  # fmt: skip
+    try:
+        with urllib.request.urlopen(sent, timeout=3600) as response:
+            started = json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        print(file=sys.stderr)
+        fail(f"this plugin's tools did not start: {json.loads(error.read())['error']['message']}")
+    print(f"\rstarted this plugin's tools: {', '.join(tool['name'] for tool in started['tools'])}", file=sys.stderr, flush=True)
+    home = Path(request["workspace"]) / ".rush" / "nanoagent"  # its sessions too, kept to resume as the other CLIs' homes are
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "tools.json").write_text(json.dumps({"url": request["tools"]["url"], "tools": started["tools"]}), encoding="utf-8")
+    (home / "tools.yaml").write_text(json.dumps({"code": str(HERE / "nanoagent_tools.py")}), encoding="utf-8")  # a NanoAgent tool config
+    # Over NanoAgent's own mgen.yaml, as JSON (which YAML reads): the gateway, the plugin's tools alone, its instructions, no confirming.
+    (home / "config.yaml").write_text(json.dumps({
+        "_ > nanoagent.runtime.config.InteractiveConfig": None,
+        "model > nanoagent.runtime.config.ModelConfig": {
+            "model": os.environ["RUSH_MODEL"], "provider": "openrouter", "base_url": os.environ["OPENAI_BASE_URL"], "api_key": None,
+            "max_tokens": int(os.environ["RUSH_MAX_OUTPUT_TOKENS"]),
+        },
+        "agent > nanoagent.runtime.config.AgentConfig": {"system_prompt": started["system"], "context_files": []},
+        "tools": [str(home / "tools.yaml")], "output": str(home), "yolo": True,
+    }), encoding="utf-8")  # fmt: skip
+    config = f"{install}/nanoagent/configs/mgen.yaml"
+    command = ["-m", "nanoagent.cli.mgen", "--config", config, "--set", f"rush_cfg={home / 'config.yaml'}"] if entry == "mgen" else [
+        "-m", "nanoagent.cli.repl.app", f"mgen_cfg={config}", f"rush_cfg={home / 'config.yaml'}",
+    ]  # fmt: skip
+    env = {
+        **os.environ, "PYTHONPATH": os.pathsep.join([f"{install}/site", install]), "OPENROUTER_API_KEY": os.environ["RUSH_ATTEMPT_TOKEN"],
+        "RUSH_TOOLS": str(home / "tools.json"), "RUSH_TOOLS_TOKEN": started["token"],
+    }  # fmt: skip
+    os.execvpe(sys.executable, [sys.executable, *command, *argv], env)
+
+
 def main(argv: list[str]) -> None:
     if len(argv) == 2 and argv[0] == "cli":
-        cli(argv[1])
+        print(installed(argv[1]))
+        return
+    if argv[:1] in (["nanoagent"], ["mgen"]):
+        nanoagent(argv[0], argv[1:])
         return
     if argv == ["help"]:
         print(HELP)

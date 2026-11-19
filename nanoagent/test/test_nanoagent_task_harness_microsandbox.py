@@ -47,11 +47,11 @@ def test_the_harness_builds_offline_from_its_hashed_wheels_and_imports() -> None
         supervisor.startup(PROFILE)
         closure = resolve_dependencies(PROFILE, source, manifest.lockfiles, root / "deps", index_url=INDEX)
         artifact = supervisor.build(BuildSpec("nanoagent-harness", PROFILE, manifest, source, closure, root / "build-work", Limits(wall_s=300)))
-        assert {"main.py", "taskharness", "nanoagent", "site"} <= {path.name for path in artifact.directory.iterdir()}
+        assert {"main.py", "taskharness", "nanoagent", "slimconfig", "antlr4", "site"} <= {path.name for path in artifact.directory.iterdir()}
         # The runtime image, as at run time: the artifact at /harness, nothing else.
         probe = (
-            "import sys; sys.path[:0] = ['/harness/site', '/harness']; from taskharness import shims; shims.install();"
-            "import taskharness.run, taskharness.work; print('imported')"
+            "import sys; sys.path[:0] = ['/harness/site', '/harness'];"
+            "import taskharness.run, taskharness.work, nanoagent.cli.mgen, nanoagent.cli.repl.app; print('imported')"
         )
         async def run_probe():
             vm = await supervisor._create(
