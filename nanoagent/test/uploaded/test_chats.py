@@ -69,3 +69,12 @@ def test_codex_pi_and_hermes_chats_reopen_by_their_own_ids(tmp_path: Path) -> No
         (("hermes", "h-1"), "hi hermes", "hermes --resume h-1"),
         (("pi", "p-1"), "hello pi", "cd /rush/workspace/app && pi --session p-1"),
     ]
+
+
+def test_a_request_is_titled_by_its_last_user_message_in_each_dialect() -> None:
+    said = {"messages": [{"role": "user", "content": "first"}, {"role": "assistant", "content": "ok"}, {"role": "user", "content": [{"type": "text", "text": "fix  the\nbug"}]}]}
+    assert chats.prompt_of("anthropic_messages", said) == "fix the bug"
+    assert chats.prompt_of("chat_completions", {"messages": [{"role": "system", "content": "be brief"}, {"role": "user", "content": "x" * 200}]}) == "x" * 119 + "…"
+    assert chats.prompt_of("responses", {"input": "hi there"}) == "hi there"
+    assert chats.prompt_of("responses", {"input": [{"role": "user", "content": [{"type": "input_text", "text": "add tests"}]}]}) == "add tests"
+    assert chats.prompt_of("chat_completions", {"messages": [{"role": "system", "content": "be brief"}]}) is None

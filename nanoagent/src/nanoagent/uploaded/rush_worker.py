@@ -133,10 +133,13 @@ def rush_error(response: httpx.Response) -> RushError:
 @dataclass(frozen=True)
 class ChatOf:
     """One chat of a Terminal session, which a new one reopens: its agent's CLI command and that CLI's conversation id, or None for a
-    run of the agent (as the recording shows it), whose last conversation it reopens."""
+    run of a program (as the recording shows it), which it reruns: the command line the member typed (``argv``) in the folder it ran in
+    (``cwd``)."""
 
     agent: str
     id: str | None
+    argv: tuple[str, ...] | None = None
+    cwd: str | None = None
 
 
 @dataclass(frozen=True)
@@ -181,9 +184,15 @@ class AttemptJob:
         return replace(self, case=body["case"], prompt=body["prompt"], private_reference=body["private_reference"], case_pending=False)
 
 
+def chat_of(chat: Mapping[str, Any]) -> ChatOf:
+    """A chat as RUSH and the page name it: ``{agent, id, run}``, ``run`` null or ``{argv, cwd}``."""
+    run = chat["run"]
+    return ChatOf(chat["agent"], chat["id"]) if run is None else ChatOf(chat["agent"], chat["id"], tuple(run["argv"]), run["cwd"])
+
+
 def _resume_of(resume: Mapping[str, Any]) -> ResumeOf:
     chat = resume["chat"]
-    return ResumeOf(resume["attempt_id"], resume["at"], None if chat is None else ChatOf(chat["agent"], chat["id"]))
+    return ResumeOf(resume["attempt_id"], resume["at"], None if chat is None else chat_of(chat))
 
 
 def parse_job(body: Mapping[str, Any]) -> AttemptJob:

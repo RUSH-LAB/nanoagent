@@ -36,7 +36,7 @@ from anyio.abc import SocketAttribute, SocketStream
 from anyio.streams.buffered import BufferedByteReceiveStream
 
 from nanoagent.uploaded.resume import reopen_in, start_cli
-from nanoagent.uploaded.rush_worker import ChatOf, ResumeOf, RushWorkerClient
+from nanoagent.uploaded.rush_worker import ResumeOf, RushWorkerClient, chat_of
 
 SEND_S = 0.05
 MAX_SEND_BYTES = 256 * 1024  # one request's or link line's bytes of output at most
@@ -58,6 +58,12 @@ class LinkRefused(Exception):
 def _size(rows: object, cols: object) -> None:
     if not all(type(n) is int and 1 <= n <= 1000 for n in (rows, cols)):
         raise LinkRefused("a size is rows and cols, each 1 to 1000")
+
+
+def _run(run: object) -> bool:
+    """Whether ``run`` is a chat's run of a program: ``{argv, cwd}``, its command line (strings, at least one) and its folder or None."""
+    return isinstance(run, dict) and set(run) == {"argv", "cwd"} and isinstance(run["argv"], list) and bool(run["argv"]) \
+        and all(isinstance(arg, str) for arg in run["argv"]) and (run["cwd"] is None or isinstance(run["cwd"], str))  # fmt: skip
 
 
 class Terminal:
@@ -267,7 +273,7 @@ class Terminal:
 
     async def _reopen(self, case: Any, item: dict[str, Any]) -> None:
         """A chat the member clicked on the Dashboard, opened in a new terminal of this live session (the next id), ``rows`` by ``cols``:
-        ``{"resume": attempt id, "chat": {agent, id}}`` reopens it from the session this computer kept (resume.reopen_in); ``{"start":
+        ``{"resume": attempt id, "chat": {agent, id, run}}`` reopens it from the session this computer kept (resume.reopen_in); ``{"start":
         agent, "line": why}``, one that cannot be reopened, starts its agent anew, saying why."""
         spec, rows, cols = item["reopen"], item.get("rows"), item.get("cols")
         _size(rows, cols)
@@ -277,15 +283,15 @@ class Terminal:
             raise LinkRefused("reopen is {resume, chat} or {start, line}")
         chat = spec.get("chat")
         if set(spec) == {"resume", "chat"} and isinstance(spec["resume"], str) and UUID.fullmatch(spec["resume"]) and isinstance(chat, dict) \
-                and set(chat) == {"agent", "id"} and isinstance(chat["agent"], str) and CLI.fullmatch(chat["agent"]) \
-                and (chat["id"] is None or (isinstance(chat["id"], str) and CONVERSATION.fullmatch(chat["id"]))):  # fmt: skip
-            of = ResumeOf(spec["resume"], "", ChatOf(chat["agent"], chat["id"]))
+                and set(chat) == {"agent", "id", "run"} and isinstance(chat["agent"], str) and CLI.fullmatch(chat["agent"]) \
+                and ((isinstance(chat["id"], str) and CONVERSATION.fullmatch(chat["id"]) and chat["run"] is None) or (chat["id"] is None and _run(chat["run"]))):  # fmt: skip
+            of = ResumeOf(spec["resume"], "", chat_of(chat))
             prepare = lambda: reopen_in(self._scratch, of, case.workspace, terminal)  # noqa: E731
         elif set(spec) == {"start", "line"} and isinstance(spec["start"], str) and CLI.fullmatch(spec["start"]) \
                 and isinstance(spec["line"], str) and 0 < len(spec["line"]) <= 500:  # fmt: skip
             prepare = lambda: start_cli(case.workspace, spec["start"], terminal, spec["line"])  # noqa: E731
         else:
-            raise LinkRefused("reopen is {resume: a session's id, chat: {agent, id}} or {start: an agent's CLI command, line: why}")
+            raise LinkRefused("reopen is {resume: a session's id, chat: {agent, id, run}} or {start: an agent's CLI command, line: why}")
         terminal = max(self._opened) + 1
         if terminal >= self._terminals:
             shown = self._opened - case.ended_terminals() - self._failed

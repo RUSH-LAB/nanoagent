@@ -146,16 +146,25 @@ describe('POST /api/benchmark/sessions', () => {
   it('resumes an ended session for one of its chats, which its first terminal reopens, and for no chat it did not hold', async () => {
     const OLD = '11111111-1111-4111-8111-111111111111';
     const chat = {agent: 'claude', id: 'aaaa', title: 'say ok', started_at: '2026-11-18T00:00:00Z', ended_at: '2026-11-18T00:00:05Z', started_ns: '1', ended_ns: '5'};
-    const row = {attempt_id: OLD, harness_name: 'shell', task_id: null, state: 'final', calls: [], processes: [], costs: {}, chats: [chat]};
+    const aider = {span_id: 'p:1', parent_id: 'process-tree', argv: ['aider', '--yes'], cwd: '/rush/workspace', start_ns: '10', end_ns: '20'};
+    const row = {
+      attempt_id: OLD, harness_name: 'shell', task_id: null, state: 'final', calls: [{call_id: 'c1', status: 'ok', start_ns: '12', end_ns: '13', prompt: 'hi'}],
+      processes: [aider], costs: {}, chats: [chat],
+    };
     const {ctx, calls} = ctxFor();
     ctx.benchmark.repository.terminalRows = async () => [row];
     const body = extra => ({plugin_id: 'p', harness: 'shell', interactive: true, resume: OLD, ...extra});
-    assert.equal((await post(ctx, body({chat: {agent: 'claude', id: 'aaaa'}}))).status, 201);
-    assert.deepEqual(calls.find(([what]) => what === 'session')[4].resumeChat, {agent: 'claude', id: 'aaaa'});
+    assert.equal((await post(ctx, body({chat: {agent: 'claude', id: 'aaaa', run: null}}))).status, 201);
+    assert.deepEqual(calls.find(([what]) => what === 'session')[4].resumeChat, {agent: 'claude', id: 'aaaa', run: null});
+    const run = {argv: ['aider', '--yes'], cwd: '/rush/workspace'};  // a run of a program, which its first terminal reruns
+    assert.equal((await post(ctx, body({chat: {agent: 'aider', id: null, run}}))).status, 201);
+    assert.deepEqual(calls.filter(([what]) => what === 'session').at(-1)[4].resumeChat, {agent: 'aider', id: null, run});
     const status = async extra => (await post(ctx, body(extra))).status;
     assert.deepEqual(
-      [await status({chat: {agent: 'claude', id: 'bbbb'}}), await status({chat: {agent: 'claude', id: '$(rm -rf /)'}}), await status({chat: {agent: 'claude', id: 'aaaa'}, resume: undefined})],
-      [404, 400, 400],
+      [await status({chat: {agent: 'claude', id: 'bbbb', run: null}}), await status({chat: {agent: 'aider', id: null, run: {...run, argv: ['rm', '-rf', '/']}}}),
+        await status({chat: {agent: 'claude', id: '$(rm -rf /)', run: null}}), await status({chat: {agent: 'aider', id: null, run: null}}),
+        await status({chat: {agent: 'claude', id: 'aaaa', run: null}, resume: undefined})],
+      [404, 404, 400, 400, 400],
     );
   });
 

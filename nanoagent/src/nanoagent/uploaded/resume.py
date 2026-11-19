@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import stat
 from datetime import datetime
@@ -159,14 +160,15 @@ def _relocate(workspace: Path, root: str, chat: chats.Chat) -> None:
 
 def _reopen(workspace: Path, chat: ChatOf, since: str, root: str = WORKSPACE) -> dict:
     """What a terminal reopening one of the chats of the session put back in ``workspace`` (``root`` in the VM) says and runs: that
-    chat's own resume command, or why it cannot be reopened and its agent started anew. A chat with no id is a run of its agent (one
-    recorded before its conversations were read): its agent's last conversation."""
-    if chat.agent not in chats.READERS:
-        return fresh(chat.agent, f"{chat.agent} has no command to reopen a session")
-    kept = [found for found in chats.read(workspace, root).values() if found.agent == chat.agent and chat.id in (None, found.id)]
+    chat's own resume command, or why it cannot be reopened and its agent started anew. A chat with no id is a run of a program: the
+    command line the member typed, again, in the folder it ran in."""
+    if chat.id is None:
+        cwd = chats.in_root(chat.cwd or WORKSPACE, root)
+        return {"line": f"Reran your {chat.agent} session from {since}", "run": f"cd {shlex.quote(cwd)} && {shlex.join(chat.argv)}"}
+    kept = [found for found in chats.read(workspace, root).values() if found.agent == chat.agent and found.id == chat.id]
     if not kept:
-        return fresh(chat.agent, f"Your session from {since} kept no {chat.agent} conversation {chat.id or ''}".rstrip())
-    found = max(kept, key=lambda one: one.ended_at)
+        return fresh(chat.agent, f"Your session from {since} kept no {chat.agent} conversation {chat.id}")
+    found = kept[0]
     if root != WORKSPACE:
         _relocate(workspace, root, found)
     return {"line": f"Reopened your {chat.agent} session from {since}: {found.title}", "run": found.resume()}
@@ -213,7 +215,7 @@ def restore(scratch: Path, of: ResumeOf, workspace: Path) -> dict:
 def reopen_in(scratch: Path, of: ResumeOf, workspace: Path, terminal: int) -> dict:
     """Has terminal ``terminal`` of a live session reopen ``of.chat``, a chat of the kept session ``of``, and returns what it says and
     runs: the kept session's files go to a folder of their own in ``workspace`` (CHATS/<its conversation id>, or the session's id for a
-    run of an agent), not over the live session's, where its agent reopens it. A folder already there (the chat reopened before in this
+    run of a program), not over the live session's, where its agent reopens it. A folder already there (the chat reopened before in this
     session) is used as it is. A chat whose files are gone starts its agent anew in the workspace, saying why."""
     folder = scratch / SESSIONS / of.attempt_id
     gone = _gone(folder)

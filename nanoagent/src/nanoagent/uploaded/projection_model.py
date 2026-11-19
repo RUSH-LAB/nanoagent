@@ -106,6 +106,7 @@ class ModelCall:
     rejected: Mapping[str, Any] | None
     evidence: tuple[str, ...]
     client: str | None = None  # the user-agent the call came with, which tells which agent CLI of a Terminal session made it
+    prompt: str | None = None  # its request's last user message, titled (chats.prompt_of): a run's first call titles its chat
     parser_version: str = PARSER_VERSION
 
 

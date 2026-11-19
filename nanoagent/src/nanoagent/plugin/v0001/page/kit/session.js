@@ -159,7 +159,7 @@ export function reopening(chat) {
   if (chat.running) return {};
   if (!chat.freeForm) return fresh("That session ran in a harness run, not a terminal");
   if (!chat.resumable) return fresh("That session's files are no longer on this computer");
-  return { resume: chat.attemptId, chat: { agent: chat.agent, id: chat.conversation } };
+  return { resume: chat.attemptId, chat: { agent: chat.agent, id: chat.conversation, run: chat.run } };
 }
 
 /**

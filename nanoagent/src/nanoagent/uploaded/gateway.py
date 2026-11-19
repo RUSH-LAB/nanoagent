@@ -21,6 +21,7 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 from nanoagent.uploaded.attempt import CALL_HEADER, Attempt, ServiceError, error_response, from_contract, new_call_id
+from nanoagent.uploaded.chats import prompt_of
 from nanoagent.uploaded.contract import ContractError, decode_json_object
 from nanoagent.uploaded.dialects import AssembledResponse, MalformedCaptureError, SseDecoder, SseFrame, ToolProposal, assemble_body, assemble_stream
 from nanoagent.uploaded.endpoint import EndpointProfile
@@ -324,6 +325,7 @@ class Gateway:
                 "bound_usd": str(bound),
                 "output_cap": cap,
                 "request_headers": recorded,
+                "prompt": prompt_of(dialect, body),
                 "submitted_request_sha256": submitted_sha,
                 "effective_request_sha256": call.effective_sha,
             },

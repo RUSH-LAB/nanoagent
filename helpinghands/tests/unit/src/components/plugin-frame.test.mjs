@@ -92,11 +92,11 @@ describe('nanoagent.ui/v1 requests', () => {
       ['harness.run', {harness: 'shell'}],
       ['harness.run', {harness: 'shell', resume: SESSION}],
       ['harness.run', {harness: 'shell', start: 'claude'}],
-      ['harness.run', {harness: 'shell', resume: SESSION, chat: {agent: 'claude', id: 'aaaa-1'}}],
-      ['harness.run', {harness: 'shell', resume: SESSION, chat: {agent: 'dsh', id: null}}],
-      ['harness.run', {harness: 'shell', resume: SESSION, chat: {agent: 'claude', id: 'aaaa-1'}, join: true}],
+      ['harness.run', {harness: 'shell', resume: SESSION, chat: {agent: 'claude', id: 'aaaa-1', run: null}}],
+      ['harness.run', {harness: 'shell', resume: SESSION, chat: {agent: 'dsh', id: null, run: {argv: ['dsh', 'fix it'], cwd: '/rush/workspace'}}}],
+      ['harness.run', {harness: 'shell', resume: SESSION, chat: {agent: 'claude', id: 'aaaa-1', run: null}, join: true}],
       ['harness.run', {harness: 'shell', start: 'claude', join: true}],
-      ['harness.reopen', {runId: 'harness-1', rows: 40, cols: 120, reopen: {resume: SESSION, chat: {agent: 'codex', id: 'c-1'}}}],
+      ['harness.reopen', {runId: 'harness-1', rows: 40, cols: 120, reopen: {resume: SESSION, chat: {agent: 'codex', id: 'c-1', run: null}}}],
       ['harness.reopen', {runId: 'harness-1', rows: 40, cols: 120, reopen: {start: 'claude', line: "That session ran in a harness run, not a terminal, so it can't be reopened; started a new claude session"}}],
       ['harness.cancel', {runId: 'harness-1'}],
       ['harness.input', {runId: 'harness-1', terminal: 0, data: '\x03'}],
@@ -138,7 +138,7 @@ describe('nanoagent.ui/v1 requests', () => {
       ['harness.run', {harness: 'shell', join: true}],
       ['harness.run', {harness: 'shell', start: 'claude', join: false}],
       ['harness.reopen', {runId: 'harness-1', rows: 40, cols: 120, reopen: {start: 'claude; reboot', line: 'x'}}],
-      ['harness.reopen', {runId: 'harness-1', rows: 40, cols: 120, reopen: {resume: 'not-an-id', chat: {agent: 'claude', id: 'a'}}}],
+      ['harness.reopen', {runId: 'harness-1', rows: 40, cols: 120, reopen: {resume: 'not-an-id', chat: {agent: 'claude', id: 'a', run: null}}}],
       ['harness.reopen', {runId: 'harness-1', rows: 40, cols: 120, reopen: {start: 'claude', line: ''}}],
       ['harness.cancel', {}],
       ['harness.input', {runId: 'harness-1', terminal: 0, data: ''}],
@@ -151,8 +151,8 @@ describe('nanoagent.ui/v1 requests', () => {
       ['terminal.archive', {attemptId: SESSION, chat: 'claude:aaaa'}],
       ['terminal.archive', {attemptId: SESSION, archived: true}],
       ['terminal.archive', {attemptId: 'not-an-id', chat: 'claude:aaaa', archived: false}],
-      ['harness.run', {harness: 'shell', start: 'claude', chat: {agent: 'claude', id: 'aaaa'}}],
-      ['harness.run', {harness: 'shell', resume: SESSION, chat: {agent: 'claude', id: '$(reboot)'}}],
+      ['harness.run', {harness: 'shell', start: 'claude', chat: {agent: 'claude', id: 'aaaa', run: null}}],
+      ['harness.run', {harness: 'shell', resume: SESSION, chat: {agent: 'claude', id: '$(reboot)', run: null}}],
     ];
     for (const [method, params] of invalid) assert.equal(typeof invalidRequest({method, params}), 'string', method);
   });
@@ -561,14 +561,14 @@ describe('the bridge host', () => {
       '/api/benchmark/attempts/a1/terminal-link': () => Response.json({port: 51234, token: 't0k'}),
     };
     const {posted, calls, send} = await hostWith(path => answers[path](), {started: false});
-    send('h', 'harness.run', {harness: 'shell', resume: SESSION, chat: {agent: 'claude', id: 'aaaa'}});  // a chat the Dashboard reopens
+    send('h', 'harness.run', {harness: 'shell', resume: SESSION, chat: {agent: 'claude', id: 'aaaa', run: null}});  // a chat the Dashboard reopens
     await until(() => messages(posted).some(message => message.event === 'harness.done'));
     assert.deepEqual(eventsOf(posted, 'harness-1'), [
       ['harness.session', {attemptId: 'a1', joined: false}],
       ['harness.error', {message: 'The Harness terminal runs on your computer, through RUSH Lab: open this page in the RUSH Lab app.'}], ['harness.done', {}],
     ]);
     const queued = JSON.parse(calls.find(call => call.path === '/api/benchmark/sessions').init.body);
-    assert.deepEqual([queued.harness, queued.resume, queued.chat, queued.interactive], ['shell', SESSION, {agent: 'claude', id: 'aaaa'}, true]);
+    assert.deepEqual([queued.harness, queued.resume, queued.chat, queued.interactive], ['shell', SESSION, {agent: 'claude', id: 'aaaa', run: null}, true]);
     assert.ok(!calls.some(call => call.path.endsWith('/cancel')));
   });
 
@@ -648,7 +648,7 @@ describe('the bridge host', () => {
 
 describe('a session clicked on the Dashboard', () => {
   it('goes to the live session as a line opening it in the next terminal', () => {
-    const reopen = {resume: SESSION, chat: {agent: 'claude', id: 'aaaa-1'}};
+    const reopen = {resume: SESSION, chat: {agent: 'claude', id: 'aaaa-1', run: null}};
     assert.deepEqual(linkLine({reopen, rows: 24, cols: 90}), {reopen, rows: 24, cols: 90});
   });
 });

@@ -23,16 +23,24 @@ const figure = (sum, known) => ({sum: known ? sum : 0, count: known ? 1 : 0});
 /** A run's agent: a reference harness's CLI command, a saved harness by its name. */
 const harnessLabel = name => REFERENCE_LABELS[name] ?? name;
 
+const PYTHON = /^python[0-9.]*$/;
+const base = path => path.slice(path.lastIndexOf('/') + 1);
+
 /**
  * The agent a process is, by its argv: one of the CLIs a Terminal session installs, by what the member types, or any other program
- * by its executable's name (aider, python, node); null for a shell or the Terminal's own processes, which run none.
+ * by its command (argv[0]'s name: aider, node), a module run with `python -m` by that module and a package run with `npx` by that
+ * package's command (`npx @scope/tool@1` is tool); null for a shell or the Terminal's own processes, which run none.
  */
 function agentOf(argv) {
   const line = argv.join(' ');
   const cli = CLI_MARKERS.find(([, marker]) => line.includes(marker))?.[0] ?? WRAPPER.exec(line)?.[1];
   if (cli) return cli;
   if (!argv.length || HARNESS.test(line)) return null;
-  const name = argv[0].slice(argv[0].lastIndexOf('/') + 1);
+  const name = base(argv[0]);
+  const module = PYTHON.test(name) && argv.indexOf('-m') > 0 ? argv[argv.indexOf('-m') + 1] : undefined;
+  if (module) return module;
+  const pkg = name === 'npx' ? argv.slice(1).find(arg => !arg.startsWith('-')) : undefined;
+  if (pkg) return base(pkg.replace(/(.)@[^/]*$/, '$1'));
   return SHELLS.has(name) ? null : name;
 }
 
@@ -133,13 +141,10 @@ function terminalSession(row) {
   };
 }
 
-// The agents whose chats the worker reads from their own state when a session ends (nanoagent.uploaded.chats), by their CLI's
-// conversation id, which each reopens (claude --resume, codex resume, pi --session, hermes --resume). Any other agent's chat is one run
-// of it, as the recording shows it, and so is theirs while the session runs.
-const READABLE = new Set(['claude', 'codex', 'pi', 'hermes']);
 const TITLE_CHARS = 120;
 
-/** "claude -p say hi": what the member typed to run agent process `process`, from its argv after its program. */
+/** "claude -p say hi": what the member typed to run agent process `process`, from its argv after its program: a run's title when its
+ * calls were recorded before the gateway kept their prompts. */
 function typed(process) {
   const {argv, agent} = process;
   const line = argv.join(' ');
@@ -151,12 +156,14 @@ function typed(process) {
 
 /**
  * The chats of one of the member's Harness tab sessions (a `benchmark_run` with `session`, its attempt's row as `terminalRows` reads
- * it): each conversation of an agent CLI it held, which the Dashboard lists under that agent. An ended free-form Terminal session holds
- * the chats its worker read from the CLIs' own state (READABLE; `row.chats`), each its CLI's conversation, titled by its first prompt;
- * every other agent's chat, and every agent's while the session runs or in a session from before chats were read, is one run of it
- * (an outermost agent process that made a model call), titled by what the member typed. A session of a harness of its own is one chat
- * of it. Each model call goes to the chat of its agent whose time holds it, or the nearest; a call no process ties to one agent is no
- * chat's. A chat has `key` ("<agent>:<id>"), its `conversation` id (null for a run, which nothing reopens by id), its session's
+ * it): each conversation of an agent CLI it held, which the Dashboard lists under that agent. A chat is one run of a program that
+ * made model calls (an outermost agent process: what the member typed at the shell, named by its command, agentOf), titled by the
+ * last user message of its first call's request (`prompt`, from the gateway), from that call on; it reruns as the member typed it
+ * (`run`: its argv and the folder it ran in). An ended free-form Terminal session also holds the chats its worker read from the CLIs'
+ * own state (claude, codex, pi, hermes; `row.chats`), each its CLI's conversation, titled by its first prompt and reopened by its id,
+ * which take the calls of their agent's runs in place of those runs: each such call goes to the chat of its agent whose time holds
+ * it, or the nearest. A session of a harness of its own is one chat of it. A call no process ties to one agent is no chat's. A chat
+ * has `key` ("<agent>:<id>"), its `conversation` id (null for a run, which nothing reopens by id), its session's
  * `attemptId`, whether that one is `running`, `resumable` (kept on the member's computer) and `freeForm`, when it was archived, and its
  * figures (`usage`, as a chat's), its End-to-End Latency its own span.
  */
@@ -169,13 +176,14 @@ function terminalChats(row) {
   };
   const archived = key => row.archived_chats?.[key] ?? null;
   const processes = row.processes.map(process => ({
-    id: process.span_id, parent: process.parent_id, start: ns(process.start_ns), end: ns(process.end_ns), argv: process.argv ?? [], agent: agentOf(process.argv ?? []),
+    id: process.span_id, parent: process.parent_id, start: ns(process.start_ns), end: ns(process.end_ns), argv: process.argv ?? [], cwd: process.cwd ?? null,
+    agent: agentOf(process.argv ?? []),
   }));
   const calls = row.calls.filter(call => call.status !== 'rejected').map(call => {
     const start = ns(call.start_ns);
     const end = ns(call.end_ns);
     return {
-      start, process: row.harness_name === 'shell' ? processAt(processes, start, call.client) : null, durationS: seconds(start, end),
+      start, prompt: call.prompt ?? null, process: row.harness_name === 'shell' ? processAt(processes, start, call.client) : null, durationS: seconds(start, end),
       inputTokens: call.usage?.input ?? null, outputTokens: call.usage?.output ?? null,
       cost: typeof row.costs[call.call_id] === 'number' ? row.costs[call.call_id] : null,
     };
@@ -183,10 +191,9 @@ function terminalChats(row) {
   if (row.harness_name !== 'shell') {
     const key = `${label}:${row.attempt_id}`;
     const elapsed = typeof row.elapsed_ms === 'number' ? row.elapsed_ms / 1000 : null;
-    return [{...session, key, agent: label, conversation: null, title: label, archivedAt: archived(key), usage: usageOf(calls, final, elapsed)}];
+    return [{...session, key, agent: label, conversation: null, run: null, title: label, archivedAt: archived(key), usage: usageOf(calls, final, elapsed)}];
   }
   const reported = final && Array.isArray(row.chats) ? row.chats : [];
-  const read = agent => final && Array.isArray(row.chats) && READABLE.has(agent);
   // How far call `call` started from `chat`'s span (0 within it): each call is the nearest chat's of its agent.
   const away = (chat, call) => Math.max(ns(chat.started_ns) - call.start, call.start - ns(chat.ended_ns), 0);
   const nearest = call => reported.filter(chat => chat.agent === call.process?.agent).reduce((best, chat) => (best && away(best, call) <= away(chat, call) ? best : chat), null);
@@ -194,18 +201,22 @@ function terminalChats(row) {
   const chats = reported.map(chat => {
     const key = `${chat.agent}:${chat.id}`;
     return {
-      ...session, key, agent: chat.agent, conversation: chat.id, title: chat.title, startedAt: chat.started_at, updatedAt: chat.ended_at,
+      ...session, key, agent: chat.agent, conversation: chat.id, run: null, title: chat.title, startedAt: chat.started_at, updatedAt: chat.ended_at,
       archivedAt: archived(key), usage: usageOf(calls.filter(call => owner.get(call) === chat), final, seconds(ns(chat.started_ns), ns(chat.ended_ns))),
     };
   });
   const runs = new Map();
   for (const call of calls) {
-    if (call.process === null || read(call.process.agent)) continue;
+    if (call.process === null || owner.get(call)) continue;
     runs.set(call.process, [...(runs.get(call.process) ?? []), call]);
   }
   for (const [process, made] of runs) {
     const key = `${process.agent}:${row.attempt_id}/${process.id}`;
-    chats.push({...session, key, agent: process.agent, conversation: null, title: typed(process), archivedAt: archived(key), usage: usageOf(made, final, seconds(process.start, process.end))});
+    const first = made.reduce((x, y) => ((y.start ?? Infinity) < (x.start ?? Infinity) ? y : x));
+    chats.push({
+      ...session, key, agent: process.agent, conversation: null, run: {argv: process.argv, cwd: process.cwd}, title: first.prompt ?? typed(process),
+      archivedAt: archived(key), usage: usageOf(made, final, seconds(process.start, process.end)),
+    });
   }
   return chats;
 }

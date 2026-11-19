@@ -69,15 +69,16 @@ def test_worked_example_links_and_tree() -> None:
     assert spans["snapshot"].attributes["changes"] == {"added": 1, "modified": 1, "deleted": 0}
 
 
-def test_a_model_call_span_names_the_client_that_made_it() -> None:
+def test_a_model_call_span_names_the_client_that_made_it_and_its_prompt() -> None:
     t = Trace()
     t.started()
-    t.model_call("m1", ordinal=1, start=0.2, end=1.2, client="codex-tui/0.167.0 (Debian 12.0.0; aarch64)")
+    t.model_call("m1", ordinal=1, start=0.2, end=1.2, client="codex-tui/0.167.0 (Debian 12.0.0; aarch64)", prompt="fix the bug")
     t.model_call("m2", ordinal=2, start=1.3, end=1.8)
     t.lifecycle(quiesce=2.0, cpu=(1, 1))
     t.finish(2.1)
     spans = {s.id: s for s in run(t).spans}
     assert (spans["m:m1"].attributes["client"], spans["m:m2"].attributes["client"]) == ("codex-tui/0.167.0 (Debian 12.0.0; aarch64)", None)
+    assert (spans["m:m1"].attributes["prompt"], spans["m:m2"].attributes["prompt"]) == ("fix the bug", None)
 
 
 def test_spans_request_has_the_server_shape() -> None:

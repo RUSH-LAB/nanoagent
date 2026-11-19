@@ -11,12 +11,12 @@ const ATTEMPT = '00000000-0000-4000-8000-000000000001';
 const OTHER = '00000000-0000-4000-8000-000000000002';
 const S = 1e9;
 
-const call = (id, start, end, usage = {input: 100, output: 10}) => ({
-  call_id: id, status: 'ok', model: 'm', start_ns: String(start * S), end_ns: String(end * S), usage, request_sha256: 'a'.repeat(64), response_sha256: 'b'.repeat(64),
+const call = (id, start, end, usage = {input: 100, output: 10}, prompt = null) => ({
+  prompt, call_id: id, status: 'ok', model: 'm', start_ns: String(start * S), end_ns: String(end * S), usage, request_sha256: 'a'.repeat(64), response_sha256: 'b'.repeat(64),
 });
 let pid = 0;
-const process = (argv, start, end, parent = null) => ({
-  span_id: `p:${++pid}`, parent_id: parent?.span_id ?? 'process-tree', argv, start_ns: String(start * S), end_ns: end === null ? null : String(end * S), exit_code: 0,
+const process = (argv, start, end, parent = null, cwd = '/rush/workspace') => ({
+  span_id: `p:${++pid}`, parent_id: parent?.span_id ?? 'process-tree', argv, cwd, start_ns: String(start * S), end_ns: end === null ? null : String(end * S), exit_code: 0,
 });
 const SHELL = ['python', '/harness/shell.py'];
 const BASH = ['bash', '--rcfile', '/harness/bashrc', '-i'];
@@ -173,6 +173,38 @@ describe('the chats of a Harness tab session on the Dashboard', () => {
     const chats = terminalChats(free({calls: [call('c1', 6, 7)], processes: [bash, dsh], chats: []}));
     assert.deepEqual(chats.map(chat => [chat.agent, chat.title, chat.conversation]), [['dsh', 'dsh --profile headless fix it', null]]);
     assert.deepEqual(terminalChats(free({processes: [bash, process(['ls'], 1, 2, bash)], chats: []})), []);
+  });
+
+  it('makes any program the member ran that made model calls one chat per run: named by its command, titled by its first prompt, rerun as typed', () => {
+    const bash = process(BASH, 0, null);
+    const aider = process(['aider', '--model', 'x y'], 5, 20, bash, '/rush/workspace/app');
+    const child = process(['git', 'status'], 6, 7, aider);  // what it starts is its own
+    const recorded = {calls: [call('c1', 8, 9, undefined, 'fix the bug'), call('c2', 10, 11, undefined, 'and the test')], processes: [bash, aider, child], chats: []};
+    for (const state of [{state: 'leased', finalized_at: null}, {}]) {  // live, at its first call, and ended alike
+      const chats = terminalChats(free({...recorded, ...state}));
+      assert.deepEqual(chats.map(chat => [chat.key, chat.agent, chat.title, chat.conversation, chat.run, chat.usage.inputTokens.sum]), [
+        [`aider:${ATTEMPT}/${aider.span_id}`, 'aider', 'fix the bug', null, {argv: ['aider', '--model', 'x y'], cwd: '/rush/workspace/app'}, 200],
+      ]);
+    }
+  });
+
+  it('names a module run with python -m by the module and a package run with npx by its command', () => {
+    const bash = process(BASH, 0, null);
+    const named = argv => terminalChats(free({calls: [call('c1', 2, 3)], processes: [bash, process(argv, 1, 4, bash)], chats: []}))[0].agent;
+    assert.deepEqual([
+      named(['python3', '-m', 'aider', '--yes']), named(['/usr/bin/python3.12', '-u', '-m', 'goose']), named(['npx', '-y', '@scope/tool@1.2.0', 'go']),
+      named(['npx', 'gemini']), named(['python', 'run.py']),
+    ], ['aider', 'goose', 'tool', 'gemini', 'python']);
+  });
+
+  it('gives a known CLI one chat per conversation once ended, never its run beside it', () => {
+    const bash = process(BASH, 0, null);
+    const claude = process([...CLAUDE], 5, 20, bash);
+    const recorded = {calls: [call('c1', 8, 9, undefined, 'say ok')], processes: [bash, claude]};
+    const live = terminalChats(free({...recorded, state: 'leased', finalized_at: null}));
+    assert.deepEqual(live.map(chat => [chat.agent, chat.title, chat.conversation]), [['claude', 'say ok', null]]);
+    const ended = terminalChats(free({...recorded, chats: [reported('aaaa', 'say ok', 6, 19)]}));
+    assert.deepEqual(ended.map(chat => [chat.key, chat.conversation, chat.run, chat.usage.inputTokens.sum]), [['claude:aaaa', 'aaaa', null, 100]]);
   });
 
   it('makes one conversation resumed in a later session one chat, reopened from the later one, which takes its archive', () => {

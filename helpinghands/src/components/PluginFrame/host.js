@@ -37,7 +37,7 @@ import {
  * going away, or the page no longer following it, leaves the session running: started again with neither `resume` nor `start`, the
  * page is given it again (RUSH answers with the member's free-form session on the plugin that still runs), and its link replays each
  * terminal's output from its first byte. A free-form session started with `resume` (an ended one's attempt id, clicked on the
- * Dashboard) resumes it: the worker puts back what it kept of it on this computer, and with `chat` too (`{agent, id}`, one of its chats) reopens that
+ * Dashboard) resumes it: the worker puts back what it kept of it on this computer, and with `chat` too (`{agent, id, run}`, one of its chats) reopens that
  * conversation. One started with `start` (an agent's CLI command, the Dashboard's New session under that agent) runs it in its first
  * terminal. Either one started with `join` (a chat clicked on the Dashboard) is, while the member's free-form session still runs, that
  * session instead, `harness.session` saying so (`joined`), and `harness.reopen` then opens the chat in its next terminal: from the ended

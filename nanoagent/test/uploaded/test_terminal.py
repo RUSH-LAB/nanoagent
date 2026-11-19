@@ -270,7 +270,7 @@ async def test_a_chat_clicked_while_the_session_is_live_opens_in_its_next_termin
     async with linked(terminal, case) as page:
         page.send(terminal=1, rows=20, cols=80)  # the member's own second terminal
         page.send(reopen={"start": "claude", "line": why}, rows=24, cols=90)
-        page.send(reopen={"resume": "11111111-1111-4111-8111-000000000001", "chat": {"agent": "codex", "id": "c-1"}}, rows=24, cols=90)
+        page.send(reopen={"resume": "11111111-1111-4111-8111-000000000001", "chat": {"agent": "codex", "id": "c-1", "run": None}}, rows=24, cols=90)
         await page.writer.drain()
         with anyio.fail_after(2):
             while len(case.calls) < 3:

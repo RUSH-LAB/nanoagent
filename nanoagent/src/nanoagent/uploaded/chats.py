@@ -85,6 +85,16 @@ def _text(content: object) -> str:
     return ""
 
 
+def prompt_of(dialect: str, body: dict) -> str | None:
+    """The title of a model request's last user message (``body`` in ``dialect``: Anthropic Messages, Chat Completions or Responses),
+    or None when it has no user text: the first request of a run of an agent titles that run's chat."""
+    said = body.get("input") if dialect == "responses" else body.get("messages")
+    if isinstance(said, str):
+        return _title(said) or None
+    users = [item for item in said if isinstance(item, dict) and item.get("role") == "user"] if isinstance(said, list) else []
+    return _title(_text(users[-1].get("content"))) or None if users else None
+
+
 def _claude(home: Path) -> list[Chat]:
     """Claude Code's sessions: one JSON-lines file each under projects/<dir>/ (a session's subagents live in a folder beside it). The
     title is its first prompt the member typed, not a command's output or a note Claude Code adds (``isMeta``)."""

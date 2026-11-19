@@ -94,10 +94,12 @@ def test_a_chat_reopens_its_own_conversation_or_says_why_it_cannot(tmp_path: Pat
     assert said["line"].startswith("Reopened your claude session from ") and said["line"].endswith(": List the files in this folder")
     nope = restore(tmp_path / "scratch", ResumeOf("s1", AT, ChatOf("claude", "nope")), tmp_path / "b2")
     assert "kept no claude conversation nope, so it can't be reopened" in nope["line"] and nope["run"] == "claude"  # the agent, anew
-    newest = restore(tmp_path / "scratch", ResumeOf("s1", AT, ChatOf("claude", None)), tmp_path / "b3")  # a run of it: its last conversation
-    assert newest["run"] == f"cd /rush/workspace/app && claude --resume {second}"
-    dsh = restore(tmp_path / "scratch", ResumeOf("s1", AT, ChatOf("dsh", None)), tmp_path / "b4")
-    assert dsh == {"line": "dsh has no command to reopen a session, so it can't be reopened; started a new dsh session", "run": "dsh"}
+    aider = ChatOf("aider", None, ("aider", "--model", "x y"), "/rush/workspace/app")  # a run of a program: its command line again
+    rerun = restore(tmp_path / "scratch", ResumeOf("s1", AT, aider), tmp_path / "b3")
+    assert rerun["run"] == "cd /rush/workspace/app && aider --model 'x y'" and rerun["line"].startswith("Reran your aider session from ")
+    assert (tmp_path / "b3/.rush/claude").is_dir()  # its files back first
+    live = reopen_in(tmp_path / "scratch", ResumeOf("s1", "", aider), tmp_path / "b4", 2)  # in a live session: its own folder
+    assert live["run"] == "cd /rush/workspace/.rush/chats/s1/app && aider --model 'x y'" and (tmp_path / "b4/.rush/chats/s1/.rush/claude").is_dir()
     gone = restore(tmp_path / "scratch", ResumeOf("never", AT, ChatOf("claude", second)), tmp_path / "b5")
     assert gone["line"].startswith("That session's files are no longer on this computer (it is not on this computer") and gone["run"] == "claude"
 

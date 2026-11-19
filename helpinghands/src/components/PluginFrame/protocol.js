@@ -20,9 +20,12 @@ const HARNESS_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 // A Harness tab session's terminals: 0 the first, then each one the page opens (RUSH keeps 32).
 const isTerminal = terminal => Number.isInteger(terminal) && terminal >= 0 && terminal < 32;
 const isSize = (rows, cols) => [rows, cols].every(n => Number.isInteger(n) && n >= 1 && n <= 1000);
-// One chat of a Terminal session: its agent's CLI command and its CLI's conversation id, or null for a run of an agent.
+// One chat of a Terminal session: its agent's CLI command and its CLI's conversation id with no run, or a null id and the run of a
+// program it is (`{argv, cwd}`), which reruns.
+const isRun = run => typeof run === 'object' && run !== null && Array.isArray(run.argv) && run.argv.length > 0
+  && run.argv.every(arg => typeof arg === 'string') && (run.cwd === null || typeof run.cwd === 'string');
 const isChat = chat => typeof chat === 'object' && chat !== null && HARNESS_NAME.test(chat.agent ?? '')
-  && (chat.id === null || (typeof chat.id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,199}$/.test(chat.id)));
+  && ((chat.run === null && typeof chat.id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,199}$/.test(chat.id)) || (chat.id === null && isRun(chat.run)));
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const isObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -59,7 +62,7 @@ const PARAMS = {
     ? null
     : 'terminal.archive needs an attempt id, a chat (its key) and archived, true or false'),
   // The Terminal (`shell`) is free-form, so it takes no task and no text, and may resume an ended session (its id), reopening one of its
-  // chats (`chat`, `{agent, id}`), or start an agent's CLI in its first terminal (`start`, its command), either one with `join` (a chat
+  // chats (`chat`, `{agent, id, run}`), or start an agent's CLI in its first terminal (`start`, its command), either one with `join` (a chat
   // clicked on the Dashboard) taking the member's live session instead when there is one; any other harness works the text to a task.
   'harness.run': ({harness, task, text, resume, start, chat, join}) => (HARNESS_NAME.test(harness ?? '')
     && (harness === 'shell'

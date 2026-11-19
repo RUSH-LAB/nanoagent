@@ -6,11 +6,13 @@ globalThis.window ??= {addEventListener() {}, parent: {postMessage() {}}};
 const {reopening} = await import('../../../../../nanoagent/src/nanoagent/plugin/v0001/page/kit/session.js');
 
 const ATTEMPT = '11111111-1111-4111-8111-111111111111';
-const chat = fields => ({attemptId: ATTEMPT, agent: 'claude', conversation: 'aaaa-1', freeForm: true, resumable: true, running: false, ...fields});
+const chat = fields => ({attemptId: ATTEMPT, agent: 'claude', conversation: 'aaaa-1', run: null, freeForm: true, resumable: true, running: false, ...fields});
 
 describe('a session clicked on the Dashboard always opens in a terminal', () => {
-  it('resumes one whose files this computer kept', () => {
-    assert.deepEqual(reopening(chat({})), {resume: ATTEMPT, chat: {agent: 'claude', id: 'aaaa-1'}});
+  it('resumes one whose files this computer kept: its conversation, or a run of a program to rerun', () => {
+    assert.deepEqual(reopening(chat({})), {resume: ATTEMPT, chat: {agent: 'claude', id: 'aaaa-1', run: null}});
+    const run = {argv: ['aider', '--yes'], cwd: '/rush/workspace'};
+    assert.deepEqual(reopening(chat({agent: 'aider', conversation: null, run})), {resume: ATTEMPT, chat: {agent: 'aider', id: null, run}});
   });
 
   it('starts its agent anew, saying why, for one from a harness run or whose files are gone', () => {

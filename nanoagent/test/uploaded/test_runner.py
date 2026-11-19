@@ -244,7 +244,7 @@ async def test_a_free_form_session_is_kept_to_resume_and_a_resuming_one_starts_o
 
     first = "aaaa1111-0000-4000-8000-000000000001"
     rig = later("second")
-    resume = {"attempt_id": "11111111-1111-4111-8111-000000000001", "at": "2026-11-18T22:31:00Z", "chat": {"agent": "claude", "id": first}}
+    resume = {"attempt_id": "11111111-1111-4111-8111-000000000001", "at": "2026-11-18T22:31:00Z", "chat": {"agent": "claude", "id": first, "run": None}}
     await rig.run(fx.free_job(attempt_id="11111111-1111-4111-8111-000000000002", resume=resume))
     found = rig.supervisor.case.found  # the workspace as the shell started
     assert {name: found[name] for name in made} == made

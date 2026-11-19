@@ -133,10 +133,10 @@ async function openApp(ctx, context, pluginId, computer) {
  * attempt id), it resumes that one: its run is a new session linked to it (`resumed_from`), and the worker puts back what it kept of
  * it on the member's computer before the shell starts, or says it has nothing kept. Given `start` instead, an agent's CLI command
  * (`claude`), its first terminal runs it at its first prompt (`start_cli`), as a resumed one runs its agent's resume command. Given
- * `chat` with `resume`, one of that session's chats (`{agent, id}`, the Dashboard's chat row, its CLI's conversation id or null for a
- * run of an agent), its first terminal reopens that conversation (`resume_chat`). Given neither, while the member's free-form session on
- * that plugin still runs, it is that session's run, not a new one; given `join` (true, with `resume` or `start`: a chat clicked on the
- * Dashboard), so is it, answered with `joined`, and the page opens the chat in a new terminal of it. `{run, attempt_id, joined?}`.
+ * `chat` with `resume`, one of that session's chats (`{agent, id, run}`, the Dashboard's chat row, its CLI's conversation id or null
+ * for a run of a program, with that run), its first terminal reopens that conversation or reruns that run (`resume_chat`). Given
+ * neither, while the member's free-form session on that plugin still runs, it is that session's run, not a new one; given `join`
+ * (true, with `resume` or `start`: a chat clicked on the Dashboard), so is it, answered with `joined`, and the page opens the chat in a new terminal of it. `{run, attempt_id, joined?}`.
  */
 async function startSession(ctx, context, {pluginId, taskId, harness, interactive, text, model, resume, start, chat, join}) {
   const {repository, service} = ctx.benchmark;
@@ -217,16 +217,20 @@ async function resumable(repository, context, free, resume) {
   return id;
 }
 
-/** The chat `chat` of the session `resumedFrom` resumes, which its first terminal reopens: `{agent, id}`. */
+/**
+ * The chat `chat` of the session `resumedFrom` resumes, which its first terminal reopens: `{agent, id, run}`, its CLI's conversation id
+ * or, for a run of a program, null and the run (`{argv, cwd}`), which it reruns.
+ */
 async function chatOf(repository, context, resumedFrom, chat) {
   if (resumedFrom === null) throw new BenchmarkError(400, 'invalid_request', 'A chat is reopened by resuming the session that holds it');
-  const {agent, id} = object(chat, 'chat');
-  if (typeof agent !== 'string' || !CLI_COMMAND.test(agent) || !(id === null || (typeof id === 'string' && CONVERSATION_ID.test(id)))) {
-    throw new BenchmarkError(400, 'invalid_request', "chat is {agent, id}: an agent's CLI command and its conversation id, or null");
+  const {agent, id, run} = object(chat, 'chat');
+  if (typeof agent !== 'string' || !CLI_COMMAND.test(agent) || !(id === null || (typeof id === 'string' && CONVERSATION_ID.test(id))) || (id === null) === (run === null)) {
+    throw new BenchmarkError(400, 'invalid_request', "chat is {agent, id, run}: an agent's CLI command and its conversation id, or null and the run it reruns");
   }
   const [row] = await repository.terminalRows(context, {attemptId: resumedFrom, atCalls: true});
-  if (!terminalChats(row).some(one => one.agent === agent && one.conversation === id)) throw new BenchmarkError(404, 'unknown_chat', 'That session is not one RUSH kept from that terminal session');
-  return {agent, id};
+  const same = one => one.agent === agent && one.conversation === id && JSON.stringify(one.run) === JSON.stringify(run);
+  if (!terminalChats(row).some(same)) throw new BenchmarkError(404, 'unknown_chat', 'That session is not one RUSH kept from that terminal session');
+  return {agent, id, run};
 }
 
 /** The agent CLI command `start` names, which a new free-form session runs first. */

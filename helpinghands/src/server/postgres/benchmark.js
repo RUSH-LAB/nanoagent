@@ -669,10 +669,10 @@ function createPostgresBenchmark({pool}) {
       return member(context, async client => (await client.query(
         `select a.attempt_id, a.state, a.finalized_at, a.resumable, a.chats, r.resumed_from, r.archived_chats, (a.metrics->>'elapsed_ms')::float8 as elapsed_ms, r.harness_name, r.task_id, r.created_at,
            coalesce((select json_agg(json_build_object('call_id', s.attributes->>'call_id', 'status', s.status, 'client', s.attributes->>'client',
-               'start_ns', s.start_ns::text, 'end_ns', s.end_ns::text, 'usage', s.attributes->'usage') order by s.start_ns)
+               'prompt', s.attributes->>'prompt', 'start_ns', s.start_ns::text, 'end_ns', s.end_ns::text, 'usage', s.attributes->'usage') order by s.start_ns)
               from benchmark_span s where s.attempt_id = a.attempt_id and s.kind = 'model_call'), '[]') as calls,
            coalesce((select json_agg(json_build_object('span_id', s.span_id, 'parent_id', s.parent_id, 'argv', s.attributes->'argv',
-               'start_ns', s.start_ns::text, 'end_ns', s.end_ns::text) order by s.start_ns nulls first)
+               'cwd', s.attributes->>'cwd', 'start_ns', s.start_ns::text, 'end_ns', s.end_ns::text) order by s.start_ns nulls first)
               from benchmark_span s where s.attempt_id = a.attempt_id and s.kind = 'process'
                and (not $3::boolean or not exists (select 1 from benchmark_span c where c.attempt_id = a.attempt_id and c.kind = 'model_call')
                  or exists (select 1 from benchmark_span c where c.attempt_id = a.attempt_id and c.kind = 'model_call'
