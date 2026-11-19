@@ -40,7 +40,7 @@ const ROUTE = new RegExp([
   '|worker-credentials/([^/]+)',
   '|benchmarks/([^/]+)(?:/(results))?',
   '|runs/([^/]+)(?:/(cancel)|/cases/([^/]+)/(rerun))?',
-  '|attempts/([^/]+)(?:/(events|stream|terminal-link|spans|accounting|recording)|/payloads/([^/]+))?',
+  '|attempts/([^/]+)(?:/(events|stream|terminal-link|spans|accounting|recording|archive)|/payloads/([^/]+))?',
   '|sources/references/([^/]+)(?:/(computer))?',
   ')$',
 ].join(''));
@@ -312,10 +312,7 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       read();
       const pluginId = string(url.searchParams.get('plugin_id'), 'plugin_id');
       const rows = await repository.terminalRows(context, {pluginId, atCalls: true});
-      return json(res, 200, {sessions: rows.map(row => {
-        const {calls, commands, ...session} = terminalSession(row);
-        return session;
-      })});
+      return json(res, 200, {sessions: rows.map(terminalSession)});
     }
     // A run of a reference harness made outside RUSH (examples/benchmark in the NanoAgent project), kept as the member's scored run, on
     // the package of its plugin version as published: its task must be that version's.
@@ -396,6 +393,14 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
     }
 
     if (!UUID.test(attemptId)) return notFound('attempt');
+    // A Harness tab session archived from the Dashboard leaves its list for its Archived view, as a chat does; `archived` false restores it.
+    if (attemptPart === 'archive') {
+      if (req.method !== 'POST') return wrongMethod();
+      write();
+      const {archived} = await jsonBody(req, readBody);
+      if (typeof archived !== 'boolean') throw new BenchmarkError(400, 'invalid_request', 'archived is true or false');
+      return (await repository.archiveTerminal(context, attemptId, archived)) ? json(res, 200, {archived}) : notFound('session');
+    }
     if (req.method !== 'GET') return wrongMethod();
     read();
     if (!attemptPart && !payload) {
@@ -435,7 +440,7 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       });
       return found ? json(res, 200, found) : notFound('attempt');
     }
-    // One of the member's Harness tab sessions, to replay: what each terminal wrote, its model calls, its commands and its figures.
+    // One of the member's Harness tab sessions, to replay (the CLI's `harness=shell`): what each terminal wrote, and its figures.
     if (attemptPart === 'recording') {
       const [row] = await repository.terminalRows(context, {attemptId});
       if (!row) return notFound('session');

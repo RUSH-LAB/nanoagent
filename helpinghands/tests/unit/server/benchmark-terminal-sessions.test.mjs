@@ -8,6 +8,7 @@ const {terminalSession} = require('../../../src/server/benchmark/terminal-sessio
 const route = loadRoute('benchmark');
 const CONTEXT = {userId: 'me', workspaceId: 'w', membershipId: 'm', role: 'owner'};
 const ATTEMPT = '00000000-0000-4000-8000-000000000001';
+const OTHER = '00000000-0000-4000-8000-000000000002';
 const S = 1e9;
 
 const call = (id, start, end, usage = {input: 100, output: 10}) => ({
@@ -38,8 +39,8 @@ describe('a Harness tab session on the Dashboard', () => {
       costs: {c1: 0.01, c2: 0.02},
     }));
     assert.equal(session.title, 'claude, codex, aider');
-    assert.deepEqual(session.calls.map(one => [one.agent, one.startS, one.durationS]), [['claude', 10, 2], ['codex', 30, 3], ['aider', 50, 1], [null, 70, 1]]);
     const usage = usageOf(session);
+    assert.deepEqual(Object.values(usage).map(one => one.modelS.sum), [2, 3, 1]);
     assert.deepEqual(Object.keys(usage), ['claude', 'codex', 'aider']);
     assert.deepEqual([session.usage.modelS, session.usage.durationS], [{sum: 1, count: 1}, {sum: 0, count: 0}]);
     assert.deepEqual(usage.claude, {
@@ -54,7 +55,7 @@ describe('a Harness tab session on the Dashboard', () => {
     const one = terminalSession(row({calls: [call('c1', 10, 12)], processes: [wrapper, process(['python', '/harness/rush.py', 'cli', 'claude'], 6, 7, wrapper)], costs: {c1: 0.01}}));
     assert.deepEqual([one.title, usageOf(one).claude.durationS], ['claude', {sum: 60, count: 1}]);
     const both = terminalSession(row({calls: [call('c1', 10, 12)], processes: [process(CLAUDE, 5, null), process(CODEX, 6, null)]}));
-    assert.deepEqual([both.title, both.calls[0].agent, both.harnesses, both.usage.durationS], ['claude', null, [], {sum: 60, count: 1}]);
+    assert.deepEqual([both.title, both.harnesses, both.usage.modelS, both.usage.durationS], ['claude', [], {sum: 2, count: 1}, {sum: 60, count: 1}]);
     const codex = terminalSession(row({harness_name: 'codex', calls: [call('c1', 10, 12)]}));
     const rush = terminalSession(row({harness_name: 'nanoagent', calls: [call('c1', 10, 12)]}));
     assert.deepEqual([codex.title, rush.title, terminalSession(row({harness_name: 'claude-code'})).title], ['codex', 'nanoagent', 'claude']);
@@ -89,15 +90,26 @@ describe('the Dashboard\'s Harness session routes', () => {
     const {status, payload} = await invoke(route, {method: 'GET', path: '/api/benchmark/terminal-sessions', query: {plugin_id: 'p'}, requestContext: CONTEXT, ctx});
     assert.equal(status, 200);
     assert.deepEqual(calls, [{pluginId: 'p', atCalls: true}]);
-    assert.deepEqual([payload.sessions[0].title, 'calls' in payload.sessions[0]], ['claude', false]);
+    assert.deepEqual([payload.sessions[0].title, payload.sessions[0].archivedAt], ['claude', null]);
   });
 
-  it('replays one: its terminals, model calls and commands', async () => {
+  it('replays one: its terminals and its figures', async () => {
     const {ctx, calls} = ctxWith();
     const {status, payload} = await invoke(route, {method: 'GET', path: `/api/benchmark/attempts/${ATTEMPT}/recording`, requestContext: CONTEXT, ctx});
     assert.equal(status, 200);
     assert.deepEqual(calls, [{attemptId: ATTEMPT}]);
     assert.deepEqual(payload.terminals, [{terminal: 0, data: Buffer.from('$ ls\r\n').toString('base64')}]);
-    assert.deepEqual([payload.session.calls[0].agent, payload.session.commands[0].durationS], ['claude', 15]);
+    assert.equal(payload.session.title, 'claude');
+  });
+
+  it('archives and restores one of the member\'s sessions, and no one else\'s', async () => {
+    const archived = [];
+    const ctx = makeCtx({benchmark: {service: {}, repository: {
+      archiveTerminal: async (context, attemptId, value) => { archived.push([attemptId, value]); return attemptId === ATTEMPT; },
+    }}});
+    const post = (id, body) => invoke(route, {method: 'POST', path: `/api/benchmark/attempts/${id}/archive`, body, requestContext: CONTEXT, ctx});
+    const answers = [await post(ATTEMPT, {archived: true}), await post(ATTEMPT, {archived: false}), await post(OTHER, {archived: true}), await post(ATTEMPT, {})];
+    assert.deepEqual(answers.map(({status, payload}) => [status, status === 200 ? payload : null]), [[200, {archived: true}], [200, {archived: false}], [404, null], [400, null]]);
+    assert.deepEqual(archived, [[ATTEMPT, true], [ATTEMPT, false], [OTHER, true]]);
   });
 });

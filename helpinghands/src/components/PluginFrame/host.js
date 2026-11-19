@@ -40,9 +40,8 @@ import {
  * The Leaderboard tab reads the harnesses ranked on the plugin, whatever task (`leaderboard`), and the trace of one of the member's
  * own runs on it (`leaderboard.trace`, its attempt's events).
  *
- * The Dashboard lists the member's Harness tab sessions on the plugin beside their chats (`sessions.list`'s `terminals`), and replays
- * one (`recording`: what its terminals wrote, its model calls and commands), each call's request and response read when opened
- * (`recording.payload`).
+ * The Dashboard lists the member's Harness tab sessions on the plugin beside their chats (`sessions.list`'s `terminals`), and archives
+ * or restores one as it does a chat (`terminal.archive`).
  */
 // As long as the member's computer holds a run for RUSH to take up again (runner/protocol.js HOLD_MS).
 const RECONNECT_MS = 10 * 60_000;
@@ -320,15 +319,14 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
       if (!terminals.ok) throw await failed(terminals, 'Could not list the Harness sessions');
       return {result: {sessions: (await chats.json()).sessions, terminals: (await terminals.json()).sessions}};
     },
-    'recording': async ({attemptId}) => {
-      const response = await request(`/api/benchmark/attempts/${attemptId}/recording`);
-      if (!response.ok) throw await failed(response, 'Could not read the session\'s recording');
+    'terminal.archive': async ({attemptId, archived}) => {
+      const response = await request(`/api/benchmark/attempts/${attemptId}/archive`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({archived}),
+      });
+      if (!response.ok) throw await failed(response, archived ? 'Could not archive the session' : 'Could not restore the session');
       return {result: await response.json()};
-    },
-    'recording.payload': async ({attemptId, sha256}) => {
-      const response = await request(`/api/benchmark/attempts/${attemptId}/payloads/${sha256}`);
-      if (!response.ok) throw await failed(response, 'Could not read the model call');
-      return {result: {text: await response.text()}};
     },
     'session.get': async ({id}) => ({
       result: {session: await readSession(`${sessionsPath}/${id}`, undefined, 'Could not read the session')},

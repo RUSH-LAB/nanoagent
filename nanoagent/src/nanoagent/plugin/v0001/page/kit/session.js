@@ -7,7 +7,6 @@
 import { onSessionRequest, request } from "./bridge.js";
 import { formatDuration, h, icon, plural } from "./dom.js";
 import { statItems, statusPill } from "./display.js";
-import { recording } from "./recording.js";
 
 let current = null;
 // Starts the page's session on the host, if it has not started yet.
@@ -143,6 +142,18 @@ function harnessUsage(usages, units, unit) {
   );
 }
 
+/** Sum the known `{sum, count}` figure `key` of `usages`: known when any of them is. */
+function known(usages, key) {
+  const counted = usages.filter((usage) => usage[key].count);
+  return { sum: counted.reduce((total, usage) => total + usage[key].sum, 0), count: counted.length };
+}
+
+/** What a Harness session cost and took over every agent in it and the calls no agent's. */
+function whole({ usage, harnesses }) {
+  const usages = [usage, ...harnesses.map((one) => one.usage)];
+  return { usage: { cost: known(usages, "cost"), durationS: known(usages, "durationS") } };
+}
+
 /** What the dashboard's list says with no session in view. */
 function emptyText(archived, closed) {
   if (archived) return closed ? "Every session is archived." : "Every session is archived. Start a new one with New session.";
@@ -157,7 +168,7 @@ function emptyText(archived, closed) {
  * can be opened or restored; chatting in one again restores it. Every agent's list has the person's
  * Harness tab sessions it made calls in (a free-form Terminal one under each agent that did), with
  * its figures there, and the ones no agent made a call in, with their own: a free-form Terminal one
- * resumes in the Harness tab, and any of them shows its read-only recording.
+ * resumes in the Harness tab. A Harness session is archived and restored as a chat is.
  * @param {object} options
  * @param {(session: object|null) => void} options.onOpen With what `session.resume` answered,
  *   or null for a new session.
@@ -181,10 +192,12 @@ export function dashboard({ onOpen, onResume, closed = false }) {
     refresh();
   });
 
-  async function archive(session, button) {
+  async function archive(session, button, terminal) {
     button.disabled = true;
     try {
-      await request("session.archive", { id: session.id, archived: !session.archivedAt });
+      await request(...(terminal
+        ? ["terminal.archive", { attemptId: session.id, archived: !session.archivedAt }]
+        : ["session.archive", { id: session.id, archived: !session.archivedAt }]));
       await refresh();
     } catch (problem) {
       status.textContent = problem.message;
@@ -205,47 +218,39 @@ export function dashboard({ onOpen, onResume, closed = false }) {
     }
   }
 
-  function row(session) {
-    // Its title over when it was last used, and what it cost and took at the row's end, in line with the others'.
+  // A row: its title over when it was last used, what it cost and took at its end, in line with the others', and Archive (or Restore).
+  // `onClick` opens it; a row with none (a Harness session that cannot resume) only reads.
+  function line(session, { title, running, cost, took, onClick, terminal }) {
     const open = h(
-      "button",
-      { type: "button", class: "session-open", title: "Resume this session" },
-      h("span", { class: "session-title", text: titled(session) }),
-      h("span", { class: "session-meta" }, session.running ? statusPill("Answering", "info") : null, when(session.updatedAt)),
+      onClick ? "button" : "div",
+      { ...(onClick ? { type: "button", title: "Resume this session" } : {}), class: "session-open" },
+      h("span", { class: "session-title", text: title }),
+      h("span", { class: "session-meta" }, running ? statusPill(running, "info") : null, when(session.updatedAt)),
     );
-    const took = session.usage.durationS.count ? formatSeconds(session.usage.durationS.sum) : "—";
-    const spent = h("span", { class: "session-cost", title: "Cost / End-to-End Latency", text: `${formatCost(session.cost)} / ${took}` });
-    open.addEventListener("click", () => resume(session.id, open));
+    if (onClick) open.addEventListener("click", () => onClick(open));
+    const spent = h("span", { class: "session-cost", title: "Cost / End-to-End Latency", text: `${cost} / ${took}` });
     const label = session.archivedAt ? "Restore" : "Archive";
-    const archiving = h("button", { type: "button", class: "button small ghost", text: label, title: `${label} ${titled(session)}` });
-    archiving.addEventListener("click", () => archive(session, archiving));
+    const archiving = h("button", { type: "button", class: "button small ghost", text: label, title: `${label} ${title}` });
+    archiving.addEventListener("click", () => archive(session, archiving, terminal));
     return h("li", { class: "session-row" }, h("div", { class: "session-line" }, open, spent, archiving));
   }
 
-  // A Harness session, with what the chosen agent's calls in it cost and took, or its own `usage` when no agent made a call in it.
-  // A free-form Terminal one opens in the Harness tab, resumed where it was left (`onResume`), and shows its recording under it with
-  // Recording; any other opens as its recording.
-  function terminalRow(session) {
-    const { usage } = session.harnesses.find((one) => one.harness === chosen) ?? session;
-    const resumes = session.freeForm && !closed;
-    const open = h(
-      "button",
-      { type: "button", class: "session-open", title: resumes ? "Resume this session in the Harness tab" : "Show this session's recording", ...(resumes ? {} : { "aria-expanded": "false" }) },
-      h("span", { class: "session-title", text: session.title }),
-      h("span", { class: "session-meta" }, session.running ? statusPill("Running", "info") : null, when(session.updatedAt)),
-    );
-    const took = usage.durationS.count ? formatSeconds(usage.durationS.sum) : "—";
-    const spent = h("span", { class: "session-cost", title: "Cost / End-to-End Latency", text: `${usage.cost.count ? formatCost(usage.cost.sum) : "—"} / ${took}` });
-    const replay = resumes ? h("button", { type: "button", class: "button small ghost", text: "Recording", title: "Show this session's recording", "aria-expanded": "false" }) : open;
-    const item = h("li", { class: "session-row" }, h("div", { class: "session-line" }, open, spent, resumes ? replay : null));
-    let shown = null;
-    replay.addEventListener("click", () => {
-      if (shown) shown.remove();
-      shown = shown ? null : item.appendChild(recording(session.id));
-      replay.setAttribute("aria-expanded", String(Boolean(shown)));
+  function row(session) {
+    return line(session, {
+      title: titled(session), running: session.running && "Answering", cost: formatCost(session.cost),
+      took: session.usage.durationS.count ? formatSeconds(session.usage.durationS.sum) : "—", onClick: (open) => resume(session.id, open),
     });
-    if (resumes) open.addEventListener("click", () => onResume(session));
-    return item;
+  }
+
+  // A Harness session, with what the chosen agent's calls in it cost and took, or what the whole session did (`whole`) when the chosen
+  // agent made none in it. A free-form Terminal one opens in the Harness tab, resumed where it was left (`onResume`).
+  function terminalRow(session) {
+    const { usage } = session.harnesses.find((one) => one.harness === chosen) ?? whole(session);
+    return line(session, {
+      title: session.title, running: session.running && "Running", cost: usage.cost.count ? formatCost(usage.cost.sum) : "—",
+      took: usage.durationS.count ? formatSeconds(usage.durationS.sum) : "—", terminal: true,
+      onClick: session.freeForm && !closed ? () => onResume(session) : null,
+    });
   }
 
   async function refresh() {
@@ -258,10 +263,12 @@ export function dashboard({ onOpen, onResume, closed = false }) {
       status.textContent = problem.message;
       return;
     }
-    const used = [...new Set([NANOAGENT, ...terminals.flatMap((one) => one.harnesses.map(({ harness }) => harness)).sort()])];
-    if (!used.includes(chosen)) chosen = NANOAGENT;
-    const archived = all.filter((one) => one.archivedAt);
-    if (!archived.length || chosen !== NANOAGENT) archivedView = false;
+    const live = terminals.filter((one) => !one.archivedAt);
+    const used = [...new Set([NANOAGENT, ...live.flatMap((one) => one.harnesses.map(({ harness }) => harness)).sort()])];
+    const archived = [...all, ...terminals].filter((one) => one.archivedAt);
+    if (!archived.length) archivedView = false;
+    // The Archived view lists every archived session, chats and Harness sessions alike.
+    if (!used.includes(chosen) || archivedView) chosen = NANOAGENT;
     chips.hidden = used.length < 2 || archivedView;
     chips.replaceChildren(...used.map((harness) => h("button", {
       type: "button", class: "harness-chip", text: harness, "aria-pressed": String(harness === chosen),
@@ -271,11 +278,12 @@ export function dashboard({ onOpen, onResume, closed = false }) {
       },
     })));
     newButton.hidden = closed || chosen !== NANOAGENT;
-    viewButton.hidden = !archived.length || chosen !== NANOAGENT;
+    viewButton.hidden = !archived.length;
     viewButton.textContent = archivedView ? "Back to sessions" : `Archived (${archived.length})`;
     heading.textContent = archivedView ? "Archived sessions" : "Sessions";
-    const mine = terminals.filter((one) => one.harnesses.some(({ harness }) => harness === chosen));
-    const shown = archivedView ? [] : [...mine, ...terminals.filter((one) => !one.harnesses.length)].map((one) => [one, terminalRow]);
+    const mine = live.filter((one) => one.harnesses.some(({ harness }) => harness === chosen));
+    const shown = (archivedView ? terminals.filter((one) => one.archivedAt) : [...mine, ...live.filter((one) => !one.harnesses.length)])
+      .map((one) => [one, terminalRow]);
     const newest = (rows) => rows.sort(([x], [y]) => new Date(y.updatedAt) - new Date(x.updatedAt)).map(([one, made]) => made(one));
     if (chosen !== NANOAGENT) {
       const usages = mine.map((one) => one.harnesses.find(({ harness }) => harness === chosen).usage);
@@ -283,7 +291,7 @@ export function dashboard({ onOpen, onResume, closed = false }) {
       list.replaceChildren(...newest(shown));
       return;
     }
-    const sessions = archivedView ? archived : all.filter((one) => !one.archivedAt);
+    const sessions = all.filter((one) => Boolean(one.archivedAt) === archivedView);
     const runs = sessions.reduce((sum, one) => sum + one.runs, 0);
     stats.replaceChildren(...(runs && !archivedView ? [counted(sessions.length), harnessUsage(sessions.map((one) => one.usage), runs, "message")] : []));
     const rows = [...sessions.map((one) => [one, row]), ...shown];

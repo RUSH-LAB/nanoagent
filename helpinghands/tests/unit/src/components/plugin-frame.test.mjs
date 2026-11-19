@@ -97,8 +97,7 @@ describe('nanoagent.ui/v1 requests', () => {
       ['harness.close', {runId: 'harness-1', terminal: 0}],
       ['leaderboard', {}],
       ['leaderboard.trace', {attemptId: SESSION}],
-      ['recording', {attemptId: SESSION}],
-      ['recording.payload', {attemptId: SESSION, sha256: 'a'.repeat(64)}],
+      ['terminal.archive', {attemptId: SESSION, archived: true}],
     ];
     for (const [method, params] of valid) assert.equal(invalidRequest({method, params}), null, method);
     const invalid = [
@@ -134,8 +133,8 @@ describe('nanoagent.ui/v1 requests', () => {
       ['harness.open', {runId: 'harness-1', terminal: 32, rows: 40, cols: 120}],
       ['harness.close', {runId: 'harness-1', terminal: -1}],
       ['leaderboard.trace', {attemptId: 'not-an-id'}],
-      ['recording', {}],
-      ['recording.payload', {attemptId: SESSION, sha256: 'not-a-sha'}],
+      ['terminal.archive', {attemptId: SESSION}],
+      ['terminal.archive', {attemptId: 'not-an-id', archived: false}],
     ];
     for (const [method, params] of invalid) assert.equal(typeof invalidRequest({method, params}), 'string', method);
   });
@@ -395,16 +394,6 @@ describe('the bridge host', () => {
     ]);
   });
 
-  it('reads a Harness session\'s recording and a model call\'s request from the attempt\'s routes', async () => {
-    const {posted, calls, send} = await hostWith(path => (path.includes('/payloads/') ? new Response('{"messages":[]}') : Response.json({session: {id: SESSION}, terminals: []})));
-    send('r', 'recording', {attemptId: SESSION});
-    send('p', 'recording.payload', {attemptId: SESSION, sha256: 'a'.repeat(64)});
-    await until(() => posted.length === 2);
-    const byId = Object.fromEntries(messages(posted).map(message => [message.id, message.result]));
-    assert.deepEqual(byId, {r: {session: {id: SESSION}, terminals: []}, p: {text: '{"messages":[]}'}});
-    assert.deepEqual(calls.map(({path}) => path), [`/api/benchmark/attempts/${SESSION}/recording`, `/api/benchmark/attempts/${SESSION}/payloads/${'a'.repeat(64)}`]);
-  });
-
   it('archives and restores a session through its route', async () => {
     const {posted, calls, send} = await hostWith(() => Response.json({session: {id: SESSION, archivedAt: null}}));
     send('a', 'session.archive', {id: SESSION, archived: true});
@@ -413,6 +402,14 @@ describe('the bridge host', () => {
     assert.deepEqual(calls.map(({path, init}) => [path, init.method, JSON.parse(init.body)]), [
       [`${SESSIONS}/${SESSION}`, 'PATCH', {archived: true}], [`${SESSIONS}/${SESSION}`, 'PATCH', {archived: false}],
     ]);
+  });
+
+  it('archives and restores a Harness session through its attempt\'s route', async () => {
+    const {posted, calls, send} = await hostWith(() => Response.json({archived: true}));
+    send('a', 'terminal.archive', {attemptId: SESSION, archived: true});
+    await until(() => posted.length === 1);
+    assert.deepEqual(messages(posted)[0].result, {archived: true});
+    assert.deepEqual(calls.map(({path, init}) => [path, init.method, JSON.parse(init.body)]), [[`/api/benchmark/attempts/${SESSION}/archive`, 'POST', {archived: true}]]);
   });
 
   it('ends a failed prompt with chat.error and chat.done, and leaves it out of the conversation', async () => {

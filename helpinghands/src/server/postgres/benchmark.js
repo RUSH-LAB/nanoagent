@@ -667,13 +667,12 @@ function createPostgresBenchmark({pool}) {
     async terminalRows(context, {pluginId = null, attemptId = null, atCalls = false}) {
       await sweep();
       return member(context, async client => (await client.query(
-        `select a.attempt_id, a.state, a.finalized_at, a.resumable, r.resumed_from, (a.metrics->>'elapsed_ms')::float8 as elapsed_ms, r.harness_name, r.task_id, r.created_at,
-           coalesce((select json_agg(json_build_object('call_id', s.attributes->>'call_id', 'status', s.status, 'model', s.target,
-               'start_ns', s.start_ns::text, 'end_ns', s.end_ns::text, 'usage', s.attributes->'usage',
-               'request_sha256', s.attributes->>'submitted_request_sha256', 'response_sha256', s.attributes->>'response_sha256') order by s.start_ns)
+        `select a.attempt_id, a.state, a.finalized_at, a.resumable, r.resumed_from, r.archived_at, (a.metrics->>'elapsed_ms')::float8 as elapsed_ms, r.harness_name, r.task_id, r.created_at,
+           coalesce((select json_agg(json_build_object('call_id', s.attributes->>'call_id', 'status', s.status,
+               'start_ns', s.start_ns::text, 'end_ns', s.end_ns::text, 'usage', s.attributes->'usage') order by s.start_ns)
               from benchmark_span s where s.attempt_id = a.attempt_id and s.kind = 'model_call'), '[]') as calls,
            coalesce((select json_agg(json_build_object('span_id', s.span_id, 'parent_id', s.parent_id, 'argv', s.attributes->'argv',
-               'start_ns', s.start_ns::text, 'end_ns', s.end_ns::text, 'exit_code', s.attributes->'exit_code') order by s.start_ns nulls first)
+               'start_ns', s.start_ns::text, 'end_ns', s.end_ns::text) order by s.start_ns nulls first)
               from benchmark_span s where s.attempt_id = a.attempt_id and s.kind = 'process'
                and (not $3::boolean or not exists (select 1 from benchmark_span c where c.attempt_id = a.attempt_id and c.kind = 'model_call')
                  or exists (select 1 from benchmark_span c where c.attempt_id = a.attempt_id and c.kind = 'model_call'
@@ -691,6 +690,18 @@ function createPostgresBenchmark({pool}) {
         `select terminal, string_agg(data, ''::bytea order by byte_offset) as data from benchmark_terminal
           where attempt_id = $1 group by terminal order by terminal`, [attemptId],
       )).rows);
+    },
+    /** Archive the caller's Harness tab session `attemptId`, or with `archived` false restore it; false when it is not theirs. */
+    async archiveTerminal(context, attemptId, archived) {
+      return member(context, async client => {
+        const [run] = (await client.query(
+          'select r.run_id from benchmark_run r join benchmark_attempt a on a.run_id = r.run_id where a.attempt_id = $1 and r.session', [attemptId],
+        )).rows;
+        if (!run) return false;
+        await client.query("select set_config('app.benchmark_system', 'on', true)");
+        await client.query('update benchmark_run set archived_at = case when $2 then coalesce(archived_at, now()) end where run_id = $1', [run.run_id, archived]);
+        return true;
+      });
     },
 
     /** Published plugin version `version` of `pluginId`: `{entry, sha256}`, or null. */

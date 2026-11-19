@@ -81,13 +81,12 @@ function usageOf(calls, final, elapsed) {
  * each model call is the agent's whose process ran when it started (agentAt); a call tied to none is no agent's and counts only in
  * the session's own `usage`, which, for a session no agent made a call in, also has its latency. The session is titled by its agents
  * in the order they first called a model ("claude, codex"); with none, by what it did: its main command (its longest-running
- * outermost process) or its calls ("3 model calls"), or "no agent". `calls` and `commands` are what its recording shows.
+ * outermost process) or its calls ("3 model calls"), or "no agent".
  */
 function terminalSession(row) {
   const shell = row.harness_name === 'shell';
   const processes = row.processes.map(process => ({
-    id: process.span_id, parent: process.parent_id, argv: process.argv ?? [], start: ns(process.start_ns), end: ns(process.end_ns),
-    exitCode: process.exit_code ?? null, agent: agentOf(process.argv ?? []),
+    id: process.span_id, parent: process.parent_id, start: ns(process.start_ns), end: ns(process.end_ns), agent: agentOf(process.argv ?? []),
   }));
   const label = harnessLabel(row.harness_name);
   const calls = row.calls
@@ -96,10 +95,9 @@ function terminalSession(row) {
       const start = ns(call.start_ns);
       const end = ns(call.end_ns);
       return {
-        callId: call.call_id, model: call.model, start, agent: shell ? agentAt(processes, start) : label, durationS: seconds(start, end),
+        start, agent: shell ? agentAt(processes, start) : label, durationS: seconds(start, end),
         inputTokens: call.usage?.input ?? null, outputTokens: call.usage?.output ?? null,
         cost: typeof row.costs[call.call_id] === 'number' ? row.costs[call.call_id] : null,
-        request: call.request_sha256 ?? null, response: call.response_sha256 ?? null,
       };
     })
     .sort((x, y) => (x.start ?? Infinity) - (y.start ?? Infinity));
@@ -112,9 +110,6 @@ function terminalSession(row) {
   const harnesses = agents.map(agent => ({
     harness: agent, usage: usageOf(calls.filter(call => call.agent === agent), final, agents.length === 1 ? elapsed : null),
   }));
-  // The recording's clock starts at the first thing it recorded.
-  const starts = [...calls, ...processes].map(one => one.start).filter(start => start !== null);
-  const begun = starts.length ? Math.min(...starts) : null;
   return {
     id: row.attempt_id,
     title: agents.length ? agents.join(', ') : did,
@@ -125,10 +120,9 @@ function terminalSession(row) {
     freeForm: shell && row.task_id === null,
     resumable: row.resumable === true,
     resumedFrom: row.resumed_from ?? null,
+    archivedAt: row.archived_at ?? null,
     harnesses,
     usage: usageOf(calls.filter(call => call.agent === null), final, agents.length ? null : elapsed),
-    calls: calls.map(({start, ...call}) => ({...call, startS: seconds(begun, start)})),
-    commands: processes.map(({argv, start, end, exitCode}) => ({argv, startS: seconds(begun, start), durationS: seconds(start, end), exitCode})),
   };
 }
 

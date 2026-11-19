@@ -52,6 +52,9 @@ const PARAMS = {
   'session.archive': ({id, archived}) => (UUID.test(id ?? '') && typeof archived === 'boolean'
     ? null
     : 'session.archive needs a session id and archived, true or false'),
+  'terminal.archive': ({attemptId, archived}) => (UUID.test(attemptId ?? '') && typeof archived === 'boolean'
+    ? null
+    : 'terminal.archive needs an attempt id and archived, true or false'),
   // The Terminal (`shell`) is free-form, so it takes no task and no text, and may resume an ended session (its id); any other harness
   // works the text to a task.
   'harness.run': ({harness, task, text, resume}) => (HARNESS_NAME.test(harness ?? '')
@@ -75,10 +78,6 @@ const PARAMS = {
     : 'harness.close needs a runId and a terminal (0 to 31)'),
   'leaderboard': () => null,
   'leaderboard.trace': ({attemptId}) => (UUID.test(attemptId ?? '') ? null : 'leaderboard.trace needs an attempt id'),
-  'recording': ({attemptId}) => (UUID.test(attemptId ?? '') ? null : 'recording needs an attempt id'),
-  'recording.payload': ({attemptId, sha256}) => (UUID.test(attemptId ?? '') && /^[0-9a-f]{64}$/.test(sha256 ?? '')
-    ? null
-    : 'recording.payload needs an attempt id and a sha256'),
   'plugin.version': ({version}) => (version === null || (typeof version === 'string' && version)
     ? null
     : 'plugin.version needs version, a published version or null'),
