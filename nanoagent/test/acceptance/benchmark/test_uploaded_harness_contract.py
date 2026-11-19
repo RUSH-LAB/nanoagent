@@ -157,6 +157,7 @@ def test_uploaded_python_wire_contract_with_mock_provider_and_real_verifier(
         "attempt_id": "8d95587d-b8aa-4d38-841b-38020be439da",
         "policy": "coding",
         "task": {"id": task.id, "kind": task.runner, "description": task.description, "instructions": task.instructions, "plugin_name": manifest.name},
+        "free_form": False,
         "case": {"case_id": "probe-01", "arguments": arguments, "context": "Use the acceptance probe inputs.", "input_schema": task.input, "output_schema": task.output},
         "prompt": {"system": None, "user": prompt, "sha256": hashlib.sha256(prompt.encode()).hexdigest()},
         "workspace": "/rush/workspace",

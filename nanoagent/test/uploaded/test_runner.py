@@ -1072,8 +1072,8 @@ async def test_a_terminal_session_is_handed_the_warm_terminal_the_one_before_it_
         with anyio.fail_after(5):
             while rig.runner._warm is None:
                 await anyio.sleep(0.01)
-        warm = rig.supervisor.case
-        assert warm.launched and json.loads(rig.supervisor.specs[-1].request_json) == {"wait_go": True}
+        warm = rig.runner._warm.handle  # not the supervisor's last case: the CLIs' installs ahead of a session make cases too
+        assert warm.launched and {"wait_go": True} in [json.loads(spec.request_json) for spec in rig.supervisor.specs]
         rig.rush = rig.runner.worker = fx.FakeRush()  # the next session's attempt
         # opened from another plugin's page: one warm terminal serves every plugin
         second = await rig.run(fx.free_job(attempt_id="33333333-3333-4333-8333-333333333333", plugin={"id": "another-plugin"}))

@@ -81,8 +81,9 @@ def test_chat_stream_matches_scenario_and_ledger(mock: MockProvider) -> None:
     assert first.usage.prompt_tokens == 1000
     assert first.usage.prompt_tokens_details.cached_tokens == 600
     assert first.usage.completion_tokens_details.reasoning_tokens == 20
-    # ttfb 0.2 + 5 chunks * 0.05
-    assert 0.45 <= elapsed < 0.9
+    # ttfb 0.2 + 5 chunks * 0.05 at the least; the pacing's upper bounds are the server's (the ledger's spans below), as the
+    # client's own time also counts a slow runner's
+    assert elapsed >= 0.45
     with chat_stream(client) as stream:
         second = stream.get_final_completion()
     [call] = second.choices[0].message.tool_calls
