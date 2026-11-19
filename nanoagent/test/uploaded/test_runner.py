@@ -55,7 +55,7 @@ class Rig:
 
         config = RunnerConfig(
             "w-1", sf.make_endpoint(), {"test/model": (sf.Decimal("0.000001"), sf.Decimal("0.000004"))}, tmp_path / "scratch",
-            capabilities=fx.CAPABILITIES, renew_interval_s=0.05, drain_timeout_s=3,
+            output_maxima={"test/model": 64_000}, capabilities=fx.CAPABILITIES, renew_interval_s=0.05, drain_timeout_s=3,
         )
         (tmp_path / "scratch").mkdir(parents=True)
         self.runner = AttemptRunner(

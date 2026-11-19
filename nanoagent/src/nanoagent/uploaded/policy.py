@@ -77,8 +77,9 @@ def _check_media(node: Any) -> None:
             _check_media(value)
 
 
-def _output_cap(dialect: str, body: Mapping[str, Any], cap: int) -> tuple[int | None, str]:
-    """The largest requested output-token value (None when the caller set none) and the field to set when it is absent."""
+def _output_cap(dialect: str, body: Mapping[str, Any], policy: AttemptPolicy) -> tuple[int | None, str]:
+    """The largest requested output-token value (None when the caller set none) and the field to set when it is absent. A scored
+    run allows its configured cap; a Terminal session anything up to the pinned model's own maximum output."""
     requested = []
     for name in OUTPUT_FIELDS[dialect]:
         value = body.get(name)
@@ -86,14 +87,19 @@ def _output_cap(dialect: str, body: Mapping[str, Any], cap: int) -> tuple[int | 
             continue
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise PolicyViolation("invalid_request", f"`{name}` must be a positive integer")
-        if value > cap:
-            raise PolicyViolation("output_cap_exceeded", f"`{name}` is {value}; the attempt allows at most {cap} output tokens per call")
+        if policy.prompt_bound and value > policy.max_output_tokens_per_call:
+            raise PolicyViolation("output_cap_exceeded", f"`{name}` is {value}; the attempt allows at most {policy.max_output_tokens_per_call} output tokens per call")
+        if not policy.prompt_bound and value > policy.model_max_output_tokens:
+            raise PolicyViolation(
+                "output_cap_exceeded", f"`{name}` is {value}; {policy.model} writes at most {policy.model_max_output_tokens} output tokens per call. Set it to {policy.model_max_output_tokens} or less."
+            )
         requested.append(value)
     return (max(requested) if requested else None), OUTPUT_FIELDS[dialect][0]
 
 
-def apply_policy(dialect: str, body: dict[str, Any], policy: AttemptPolicy, *, first_prompt_required: bool) -> tuple[dict[str, Any], int]:
-    """Validate ``body`` and return ``(effective upstream body, output-token cap used for the spend bound)``."""
+def apply_policy(dialect: str, body: dict[str, Any], policy: AttemptPolicy, *, first_prompt_required: bool) -> tuple[dict[str, Any], int | None, int]:
+    """Validate ``body`` and return ``(effective upstream body, requested output tokens or None, effective output-token cap,
+    which bounds the spend)``."""
     for name, (code, why) in FORBIDDEN_FIELDS.items():
         if body.get(name) is not None:
             raise PolicyViolation(code, f"`{name}`: {why}")
@@ -111,7 +117,7 @@ def apply_policy(dialect: str, body: dict[str, Any], policy: AttemptPolicy, *, f
         raise PolicyViolation("model_not_pinned", f"the attempt is pinned to model {policy.model!r}, the request asked for {body.get('model')!r}")
     _check_tools(dialect, body)
     _check_media([body.get("messages"), body.get("input"), body.get("system")])
-    requested, default_field = _output_cap(dialect, body, policy.max_output_tokens_per_call)
+    requested, default_field = _output_cap(dialect, body, policy)
     if first_prompt_required and not contains_first_prompt(dialect, body, policy.prompt_user, policy.prompt_system):
         raise PolicyViolation(
             "first_prompt_missing",
@@ -130,4 +136,4 @@ def apply_policy(dialect: str, body: dict[str, Any], policy: AttemptPolicy, *, f
         effective["stream_options"] = {**(stream_options or {}), "include_usage": True}
     if requested is None:
         effective[default_field] = policy.max_output_tokens_per_call
-    return effective, requested or policy.max_output_tokens_per_call
+    return effective, requested, requested or policy.max_output_tokens_per_call

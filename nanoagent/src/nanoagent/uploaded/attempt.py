@@ -89,6 +89,8 @@ class AttemptPolicy:
     # Whether calls must carry the pinned prompt until one completes (the run's `prompt_bound`): every run's but a session of the
     # Terminal or of a harness saved from it, where the agent is anything a member runs.
     prompt_bound: bool = True
+    # The pinned model's own maximum output tokens per call (OpenRouter's), which a session not bound to the prompt may ask up to.
+    model_max_output_tokens: int | None = None
 
     def __post_init__(self) -> None:
         if not self.token or not self.model:
@@ -100,6 +102,8 @@ class AttemptPolicy:
             raise ValueError("a prompt-bound attempt policy needs a user prompt, a system prompt or both")
         if self.max_model_calls < 1 or self.max_output_tokens_per_call < 1:
             raise ValueError("max_model_calls and max_output_tokens_per_call must be positive")
+        if not self.prompt_bound and (self.model_max_output_tokens is None or self.model_max_output_tokens < 1):
+            raise ValueError("an attempt not bound to the prompt needs the model's maximum output tokens")
         for name, price in (("input_price_bound", self.input_price_bound), ("output_price_bound", self.output_price_bound)):
             if not price.is_finite() or price < 0:
                 raise ValueError(f"{name} must be a finite non-negative Decimal, got {price}")

@@ -20,13 +20,14 @@ import os
 import sys
 import tempfile
 import time
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from collections.abc import Callable, Collection
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
 
 import anyio
+import httpx
 from omegaconf import MISSING
 from slimconfig import Config, Run
 
@@ -264,6 +265,22 @@ def runner_config(config: WorkerConfig, env: dict[str, str], machine: Machine) -
     )
 
 
+async def output_maxima(endpoint: EndpointProfile, models: Collection[str], client: httpx.AsyncClient | None = None) -> dict[str, int]:
+    """Each model's own maximum output tokens per call, from OpenRouter's model list: a Terminal session may ask up to it."""
+    async with client or httpx.AsyncClient(timeout=30, follow_redirects=False) as http:
+        response = await http.get(endpoint.url_for("/models"), headers={"Authorization": f"Bearer {endpoint.api_key}"})
+    response.raise_for_status()
+    listed = {entry["id"]: entry["top_provider"]["max_completion_tokens"] for entry in response.json()["data"]}
+    maxima = {}
+    for model in models:
+        if model not in listed:
+            raise WorkerConfigError(f"{endpoint.url_for('/models')} does not list {model!r}")
+        if not isinstance(listed[model], int) or listed[model] < 1:
+            raise WorkerConfigError(f"{endpoint.url_for('/models')} states no maximum output for {model!r}")
+        maxima[model] = listed[model]
+    return maxima
+
+
 def pull_progress(interval_s: float = 1.0) -> Callable[[int, int], None]:
     """Logs the bytes of the startup images pulled so far, at most once per ``interval_s``: RUSH Lab shows it as the worker's progress."""
     last = -math.inf
@@ -292,6 +309,8 @@ async def serve(config: WorkerConfig, env: dict[str, str] | None = None) -> None
     with tempfile.TemporaryDirectory() as probe:
         sandbox.check(Path(probe))
     LOG.info("plugin sandbox verified")
+    settings = replace(settings, output_maxima=await output_maxima(settings.endpoint, settings.prices))
+    LOG.info("models' maximum output tokens: %s", json.dumps(settings.output_maxima, sort_keys=True))
     supervisor = MicrosandboxSupervisor(
         tools=settings.scratch / "guest-tools", clock=lambda: time.monotonic_ns() / 1e9, wall_clock_ns=time.time_ns, internet=config.egress.enabled,
         model_hosts=config.egress.model_hosts,

@@ -311,6 +311,7 @@ class RunnerConfig:
     endpoint: EndpointProfile
     prices: Mapping[str, tuple[Decimal, Decimal]]  # model -> (input, output) USD per token, upper bounds
     scratch: Path
+    output_maxima: Mapping[str, int] = field(default_factory=dict)  # model -> its own maximum output tokens per call (OpenRouter's)
     limits: Limits = Limits()  # the worker's own bounds for what a run's limits do not set (captured output, snapshot size)
     capabilities: Mapping[str, Any] = field(default_factory=dict)  # the worker's maximum for each numeric limit, and internet support
     source_limits: SourceLimits = SourceLimits()
@@ -1038,7 +1039,7 @@ class AttemptRunner:
             max_model_calls=run_limits["max_model_calls"],
             max_output_tokens_per_call=run_limits["max_output_tokens_per_call"], input_price_bound=input_price, output_price_bound=output_price,
             tools=tuple(ToolPolicy(tool["name"], bool(tool["writes"]), tool["input_schema"], tool["output_schema"]) for tool in tools),
-            prompt_bound=run["prompt_bound"],
+            prompt_bound=run["prompt_bound"], model_max_output_tokens=cfg.output_maxima.get(model),
         )
         commands = CaseCommands(limits)
         late = LateTools() if job.free_form else None  # a Terminal session's `nanoagent` asks for the plugin's tools

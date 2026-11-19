@@ -14,7 +14,7 @@ STRUCTURED = {"type": "json_schema", "json_schema": {"name": "answer", "schema":
 
 
 def apply(body: dict[str, Any], **policy: Any) -> dict[str, Any]:
-    effective, _ = apply_policy("chat_completions", body, make_policy(**policy), first_prompt_required=True)
+    effective, _, _ = apply_policy("chat_completions", body, make_policy(**policy), first_prompt_required=True)
     return effective
 
 

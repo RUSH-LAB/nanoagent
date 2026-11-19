@@ -554,3 +554,24 @@ def test_pulled_image_bytes_are_logged_at_most_once_per_interval_in_the_form_rus
         report(0, 20_000_000)
         report(5_000_000, 20_000_000)
     assert [record.getMessage() for record in caplog.records] == ["pulling images: 0 of 20000000 bytes"]  # helpinghands/src/runner/worker.mjs PULLING
+
+
+async def test_output_maxima_are_each_priced_models_own_from_openrouter_and_a_model_it_does_not_bound_stops_the_worker() -> None:
+    from nanoagent.uploaded.endpoint import parse_endpoint
+    from nanoagent.uploaded.worker import WorkerConfigError, output_maxima
+
+    endpoint = parse_endpoint({"label": "o", "mode": "openrouter", "upstream_base_url": "https://openrouter.ai/api/v1", "api_key_env": "K"}, {"K": "k"})
+    listed = {"data": [{"id": "a/one", "top_provider": {"max_completion_tokens": 131072}}, {"id": "b/two", "top_provider": {"max_completion_tokens": None}}]}
+
+    def client() -> httpx.AsyncClient:
+        def answer(request: httpx.Request) -> httpx.Response:
+            assert str(request.url) == "https://openrouter.ai/api/v1/models" and request.headers["authorization"] == "Bearer k"
+            return httpx.Response(200, json=listed)
+
+        return httpx.AsyncClient(transport=httpx.MockTransport(answer))
+
+    assert await output_maxima(endpoint, ["a/one"], client()) == {"a/one": 131072}
+    with pytest.raises(WorkerConfigError, match="states no maximum output for 'b/two'"):
+        await output_maxima(endpoint, ["b/two"], client())
+    with pytest.raises(WorkerConfigError, match="does not list 'c/three'"):
+        await output_maxima(endpoint, ["c/three"], client())
