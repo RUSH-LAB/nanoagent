@@ -17,7 +17,6 @@ const {UUID, jsonBody, losslessBody, rawBody, sendFailure} = require('../benchma
 const {REFERENCE_HARNESSES, checkReference, referenceHarnessOf, referencePolicy, uploadedHarnessOf} = require('../benchmark/harness');
 const {previewBody, runBody, benchmarkPublication, importBody, publicationFrame, SHA256, object, string, CLI_COMMAND, CONVERSATION_ID} = require('../benchmark/validate');
 const {checkTaskAgainstEntry} = require('../benchmark/entry-check');
-const {leaderboard} = require('../benchmark/leaderboard');
 const {terminalSession, terminalChats, memberChats} = require('../benchmark/terminal-sessions');
 const {listen, wake} = require('../benchmark/wake');
 const {MAX_SOURCE_BYTES, TERMINAL_LIMITS} = require('../benchmark/limits');
@@ -36,7 +35,7 @@ const PAGE = 1000;
 
 const ROUTE = new RegExp([
   '^/api/benchmark/(?:',
-  '(defaults|benchmarks|benchmarks/pinned|sessions|previews|sources|runs|compare|compare/attempts|worker-credentials|leaderboard|terminal-sessions|imports)',
+  '(defaults|benchmarks|benchmarks/pinned|sessions|previews|sources|runs|compare|compare/attempts|worker-credentials|terminal-sessions|imports)',
   '|worker-credentials/([^/]+)',
   '|benchmarks/([^/]+)(?:/(results))?',
   '|runs/([^/]+)(?:/(cancel)|/cases/([^/]+)/(rerun))?',
@@ -118,10 +117,8 @@ async function openApp(ctx, context, pluginId, computer) {
 }
 
 /**
- * One session of a plugin page's Harness tab, of `nanoagent harness`, or of `rush score` in a Terminal session (the worker's
- * attempts/{id}/score): the member's request `text` to task `taskId` of their installed app `pluginId`, worked once by a reference
- * harness, or by a harness of theirs that a Terminal session saved (`rush save`), which works the coding prompt like any harness but
- * NanoAgent's. Its run is queued at once, on its case set's frame (the plugin and the task, read from the member's computer) and the
+ * One session of a plugin page's Harness tab, or of `nanoagent harness`: the member's request `text` to task `taskId` of their
+ * installed app `pluginId`, worked once by a reference harness. Its run is queued at once, on its case set's frame (the plugin and the task, read from the member's computer) and the
  * endpoint RUSH Lab's worker serves, so the harness starts while the member's computer fills the task's input from the request with
  * the model every plugin run uses and pins the case, as it pins a benchmark's; the worker then reads the case (or why it could not be
  * pinned) from the attempt. `interactive` says whether the member is at the harness's terminal (the tab, the command without a
@@ -164,10 +161,8 @@ async function startSession(ctx, context, {pluginId, taskId, harness, interactiv
     if (live) return {run: await repository.run(context, live.run_id), attempt_id: live.attempt_id};
   }
   const harnessModel = string(model, 'model', {optional: true}) ?? aiSettings.MODEL.model;
-  const reference = REFERENCE_HARNESSES.includes(harness);
-  const saved = reference ? null : await repository.savedHarness(context, harness);
-  if (!reference && !saved) {
-    throw new BenchmarkError(400, 'unknown_harness', `${harness} is neither a reference harness (${REFERENCE_HARNESSES.join(', ')}) nor one you saved from a Terminal session in this workspace`);
+  if (!REFERENCE_HARNESSES.includes(harness)) {
+    throw new BenchmarkError(400, 'unknown_harness', `${harness} is not a reference harness (${REFERENCE_HARNESSES.join(', ')})`);
   }
   const computer = ctx.runners.computer(context.userId);
   if (!computer) throw new BenchmarkError(503, 'runner_offline', RUNNER_OFFLINE);
@@ -184,13 +179,10 @@ async function startSession(ctx, context, {pluginId, taskId, harness, interactiv
     const parsed = parseJson(framed.value);
     frame = {...publicationFrame({...parsed, model: harnessModel, endpoint_profile: SESSION_ENDPOINT}), case_id: string(parsed.case_id, 'case_id')};
   }
-  let source = saved;
-  if (reference) {
-    const built = await computer.benchmarkReferenceHarness(harness);
-    if (built.error) throw new BenchmarkError(built.status, 'reference_unavailable', built.error);
-    source = await repository.saveSource(context, built.value, referenceHarnessOf(built.value, harness));
-  }
-  const policy = reference ? referencePolicy(harness) : 'coding';
+  const built = await computer.benchmarkReferenceHarness(harness);
+  if (built.error) throw new BenchmarkError(built.status, 'reference_unavailable', built.error);
+  const source = await repository.saveSource(context, built.value, referenceHarnessOf(built.value, harness));
+  const policy = referencePolicy(harness);
   const {run_id: id, attempt_id: attemptId, session} = await service.session(context, frame, source, policy, {interactive, resumedFrom, startCli, resumeChat});
   wake(`claim:${context.userId}`);
   if (!free) {
@@ -344,13 +336,6 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       const [pluginId, harness] = ['plugin_id', 'harness'].map(name => string(body[name], name));
       if (typeof body.interactive !== 'boolean') throw new BenchmarkError(400, 'invalid_request', 'interactive must be a boolean');
       return json(res, 201, await startSession(ctx, context, {pluginId, taskId: body.task_id, harness, interactive: body.interactive, text: body.text, model: body.model, resume: body.resume, start: body.start, chat: body.chat, join: body.join}));
-    }
-    // A plugin page's Leaderboard tab: the harnesses run on the plugin, whatever task, ranked from every member's scored runs.
-    if (top === 'leaderboard') {
-      if (req.method !== 'GET') return wrongMethod();
-      read();
-      const pluginId = string(url.searchParams.get('plugin_id'), 'plugin_id');
-      return json(res, 200, leaderboard(await repository.leaderboard(context, pluginId), context.userId));
     }
     // A plugin page's Dashboard: the chats the member's own Harness tab sessions on the plugin held, by agent, beside their own chats.
     if (top === 'terminal-sessions') {
@@ -515,5 +500,5 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
   }
 };
 
-module.exports.startSession = startSession;
+module.exports.SESSION_ENDPOINT = SESSION_ENDPOINT;
 module.exports.openApp = openApp;

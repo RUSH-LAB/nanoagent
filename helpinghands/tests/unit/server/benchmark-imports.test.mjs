@@ -4,66 +4,12 @@ import {createRequire} from 'node:module';
 import {invoke, loadRoute, makeCtx} from '../_harness.mjs';
 
 const require = createRequire(import.meta.url);
-const {REFERENCE_HARNESSES} = require('../../../src/server/benchmark/harness.js');
-const {REFERENCE_LABELS, leaderboard} = require('../../../src/server/benchmark/leaderboard.js');
 const {createPostgresBenchmark} = require('../../../src/server/postgres/benchmark.js');
 const route = loadRoute('benchmark');
 const CONTEXT = {userId: 'me', workspaceId: 'w', membershipId: 'm', role: 'owner'};
 const SHA = 'a'.repeat(64);
 
 const PROFILE = {model_ms: 800, tools_ms: 150, overhead_ms: 50, cache_read_tokens: 4, model_calls: 3, tool_calls: 2};
-const row = (harness, verdict, {user = 'me', elapsed = 1000, cost = 0.01, at = '2026-11-12T00:00:00Z', attempt = 'a1', digest = 'd1', policy = 'coding', profile = PROFILE} = {}) => ({
-  run_id: `r-${attempt}`, attempt_id: attempt, user_id: user, user_name: `${user} name`, user_github: user === 'me' ? 'me-gh' : null,
-  harness_name: harness, policy, model: 'm', case_id: 'p-01', kind: 'answer', content_digest: digest, arguments: {x: digest},
-  prompt_system: policy === 'coding' ? null : 'system', prompt_user: `${policy} ${digest}`, tools: [{name: 'add'}], reference: {y: 1}, verdict,
-  explanation: verdict === 'fail' ? 'invalid_answer' : null, execution_status: 'answered', execution_reason: null,
-  metrics: {elapsed_ms: elapsed, input_tokens: 10, output_tokens: 2, total_tokens: 12, ...profile}, cost_usd: cost, created_at: at,
-});
-
-describe('a plugin\'s leaderboard', () => {
-  it('names every reference harness', () => {
-    assert.deepEqual(Object.keys(REFERENCE_LABELS).sort(), [...REFERENCE_HARNESSES].sort());
-  });
-
-  it('ranks by correct rate, then average latency, then average cost, naming a saved harness by its owner', () => {
-    const {harnesses: board} = leaderboard([
-      row('codex', 'pass', {elapsed: 3000}), row('codex', 'fail', {elapsed: 1000}),
-      row('pi', 'pass', {elapsed: 2000, cost: 0.02}), row('pi', 'fail', {elapsed: 2000, cost: 0.02}),
-      row('dsh', 'pass', {elapsed: 2000, cost: 0.01}), row('dsh', 'fail', {elapsed: 2000, cost: null}),
-      row('nanoagent', 'pass'),
-      row('my-agent', 'fail', {user: 'other'}),
-    ], 'me');
-    assert.deepEqual(board.map(({rank, harness, passed, scored}) => [rank, harness, passed, scored]), [
-      [1, 'nanoagent', 1, 1], [2, 'codex', 1, 2], [3, 'pi', 1, 2], [4, 'dsh', 1, 2], [5, 'my-agent (@other name)', 0, 1],
-    ]);
-    assert.deepEqual([board[1].avg_latency_ms, board[1].avg_model_ms, board[1].avg_cached_tokens, board[1].avg_tool_calls], [2000, 800, 4, 2]);
-    assert.deepEqual([board[2].avg_cost_usd, board[3].avg_cost_usd], [0.02, null]);
-  });
-
-  it('averages a figure only when every run recorded it', () => {
-    const {harnesses: [codex]} = leaderboard([row('codex', 'pass'), row('codex', 'pass', {attempt: 'a2', profile: {}})], 'me');
-    assert.deepEqual([codex.avg_latency_ms, codex.avg_input_tokens, codex.avg_model_ms, codex.avg_tool_calls], [1000, 10, null, null]);
-  });
-
-  it('groups the runs by case, nanoagent first, showing the case and the attempt of the viewer\'s own runs only', () => {
-    const {cases} = leaderboard([
-      row('pi', 'fail', {user: 'other', at: '2026-11-14T00:00:00Z', attempt: 'theirs'}),
-      row('pi', 'pass', {at: '2026-11-13T00:00:00Z', attempt: 'mine-pi'}),
-      row('nanoagent', 'pass', {at: '2026-11-12T00:00:00Z', attempt: 'mine-rush', policy: 'task_tools'}),
-      row('codex', 'fail', {user: 'other', digest: 'd2', attempt: 'only-theirs'}),
-    ], 'me');
-    assert.deepEqual(cases.map(shown => [shown.content_digest, shown.arguments, shown.reference]), [['d1', {x: 'd1'}, {y: 1}], ['d2', null, null]]);
-    assert.deepEqual(cases[0].runs.map(run => [run.harness, run.rush, run.mine, run.attempt_id, run.input_tokens, run.tool_calls]), [
-      ['nanoagent', true, true, 'mine-rush', 10, 2], ['pi', false, false, null, 10, 2], ['pi', false, true, 'mine-pi', 10, 2],
-    ]);
-    assert.deepEqual(cases[0].runs.map(run => run.inputs), [
-      {policy: 'task_tools', system: 'system', user: 'task_tools d1', tools: ['add', 'submit']}, null,
-      {policy: 'coding', system: null, user: 'coding d1', tools: []},
-    ]);
-    assert.equal(cases[1].runs[0].explanation, null);
-  });
-});
-
 const ENTRY = {name: 'P', tasks: [{id: 'sum', runner: 'agent', description: 'd', instructions: 'i', tools: [], reference: null}]};
 const FRAME = {
   name: 'step3-batch-runs', plugin_id: 'p', plugin_name: 'P', version: '1.0.0', task_id: 'sum',
@@ -83,7 +29,6 @@ function ctxFor(published = {entry: ENTRY, sha256: SHA}) {
     benchmark: {
       service: {},
       repository: {
-        leaderboard: async (context, pluginId) => { calls.push(['board', pluginId]); return [row('pi', 'pass')]; },
         marketVersion: async (context, pluginId, version) => { calls.push(['market', pluginId, version]); return published; },
         importRun: async (context, frame, record) => { calls.push(['import', frame, record]); return {run_id: 'r1', created: calls.length < 3, filled: calls.length < 3}; },
       },
@@ -91,17 +36,6 @@ function ctxFor(published = {entry: ENTRY, sha256: SHA}) {
   });
   return {ctx, calls};
 }
-
-describe('GET /api/benchmark/leaderboard', () => {
-  it('ranks the harnesses of the plugin, whatever task, from every member\'s scored runs, as the caller sees them', async () => {
-    const {ctx, calls} = ctxFor();
-    const {status, payload} = await invoke(route, {method: 'GET', path: '/api/benchmark/leaderboard', query: {plugin_id: 'p'}, requestContext: CONTEXT, ctx});
-    assert.equal(status, 200);
-    assert.deepEqual(calls, [['board', 'p']]);
-    assert.deepEqual([payload.harnesses[0].harness, payload.cases[0].runs[0].attempt_id], ['pi', 'a1']);
-    assert.equal((await invoke(route, {method: 'GET', path: '/api/benchmark/leaderboard', query: {}, requestContext: CONTEXT, ctx})).status, 400);
-  });
-});
 
 describe('POST /api/benchmark/imports', () => {
   const post = (ctx, body) => invoke(route, {method: 'POST', path: '/api/benchmark/imports', body, requestContext: CONTEXT, ctx});

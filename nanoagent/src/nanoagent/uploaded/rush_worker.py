@@ -365,21 +365,11 @@ class RushWorkerClient:
         response = await self._send("GET", f"/attempts/{attempt_id}/case", headers={FENCE_HEADER: str(fence)})
         return None if response.status_code == 204 else response.json()
 
-    async def save_harness(self, attempt_id: str, fence: int, data: bytes) -> Mapping[str, Any]:
-        """Saves the harness ZIP ``data`` that the attempt's session made (`rush save`) as its member's: RUSH's
-        ``{source_sha256, size, harness: {name, version, dialects}}``. Saving the same ZIP again changes nothing."""
-        response = await self._send("POST", f"/attempts/{attempt_id}/harness", content=data, headers={FENCE_HEADER: str(fence), "Content-Type": "application/zip"})
-        return response.json()
-
-    async def score(self, attempt_id: str, fence: int, harness: str) -> Mapping[str, Any]:
-        """Starts the run `rush score` asks for in the attempt's session: the member's saved ``harness`` worked once on the session's
-        task, scored, as `nanoagent harness` runs it. RUSH's ``{run, attempt_id}``."""
-        return await self._json("POST", f"/attempts/{attempt_id}/score", {"fence": fence, "harness": harness}, retry=False)
-
-    async def scored(self, attempt_id: str, fence: int, scored_id: str) -> Mapping[str, Any]:
-        """How the attempt ``scored_id`` of a run :meth:`score` started is going: ``{attempt, totals}`` (its accounting's)."""
-        response = await self._send("GET", f"/attempts/{attempt_id}/score/{scored_id}", headers={FENCE_HEADER: str(fence)})
-        return response.json()
+    async def score_case(self, attempt_id: str, fence: int) -> Mapping[str, Any]:
+        """The case a scored `rush <command>` in the attempt's Terminal session works: the first task of the session's plugin, its case
+        pinned now from the task's description as a one-shot session's is, ``{case, prompt, plugin, task, package}``: the case with its
+        private reference, the coding prompt rendered for it, and the package installed on the member's computer, its bytes in base64."""
+        return await self._json("POST", f"/attempts/{attempt_id}/score", {"fence": fence}, retry=False)
 
     async def tools(self, attempt_id: str, fence: int) -> Mapping[str, Any]:
         """What the attempt's Terminal session's `nanoagent` works with: the first task of the plugin whose page opened the session,

@@ -471,31 +471,6 @@ div.session-open { cursor: default; }
 .harness-terminal { min-height: 0; background: #14161b; border-radius: var(--radius-sm); overflow: hidden; }
 .harness-terminal[hidden] { display: none; }
 .harness-terminal .xterm { height: 100%; box-sizing: border-box; padding: 8px; }
-/* The Leaderboard tab (kit/leaderboard.js): the ranked harnesses, then the runs by case, a card per run side by side; RUSH's tinted with its pill. */
-.leaderboard-page { display: grid; gap: 14px; max-width: 1200px; }
-.leaderboard-page > :empty { display: none; }
-.leaderboard-page h3 { font-size: 14px; }
-.leaderboard-harness { display: inline-flex; align-items: center; gap: 6px; }
-.data-table tr.rush td { color: var(--accent); font-weight: 650; }
-.data-table tr.rush td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
-.rush-pill { --tone: #fff; --tone-soft: var(--accent); padding: 1px 7px; font-size: 11px; font-weight: 700; letter-spacing: .03em; }
-.leaderboard-cases { display: grid; gap: 4px; }
-.leaderboard-case .disclosure-body { padding-left: 2px; }
-.leaderboard-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin-top: 6px; }
-.leaderboard-card { gap: 8px; padding: 14px 16px; }
-.leaderboard-card.rush { border: 2px solid var(--accent); background: var(--accent-soft); }
-.leaderboard-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.leaderboard-card-head h4 { margin: 0; display: inline-flex; align-items: center; gap: 6px; font-size: 14.5px; }
-.leaderboard-figures { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px 12px; }
-.leaderboard-figures > .stat > dd { font-size: 13px; }
-.leaderboard-trace { display: grid; gap: 6px; min-width: 0; }
-.leaderboard-block { min-width: 0; }
-.leaderboard-label, .leaderboard-role { color: var(--muted); font-size: 12px; }
-.leaderboard-role { font-weight: 600; text-transform: uppercase; }
-.leaderboard-text { margin: 3px 0 0; max-height: 480px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
-.leaderboard-more { border: 0; padding: 0; background: none; color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; }
-.leaderboard-steps { list-style: none; margin: 0; padding: 0; display: grid; }
-.leaderboard-step { display: grid; gap: 4px; padding: 6px 0; border-top: 1px solid var(--border); min-width: 0; }
 /* Beside the chat, in two tabs (kit/result.js): a turn's graph, and a task's result. */
 .results-pane { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
 .results-tabs { display: flex; gap: 22px; height: 36px; border-bottom: 1px solid var(--border); }

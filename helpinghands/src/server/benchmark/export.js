@@ -8,7 +8,7 @@
  * each of its terminals wrote. A chat (a plugin page's NanoAgent session) carries its turns, each with what its model saw and did, and
  * its calls.
  */
-const {REFERENCE_LABELS} = require('./leaderboard');
+const {REFERENCE_LABELS} = require('./harness');
 const {runScore} = require('./rules');
 
 /** The `data:` payloads of a server-sent event stream, in order. */

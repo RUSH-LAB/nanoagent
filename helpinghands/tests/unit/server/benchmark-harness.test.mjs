@@ -7,7 +7,7 @@ import {invoke, loadRoute, makeCtx} from '../_harness.mjs';
 
 const require = createRequire(import.meta.url);
 const {strToU8, zipSync} = require('fflate');
-const {REFERENCE_HARNESSES, harnessOf, referenceHarnessOf, uploadedHarnessOf} = require('../../../src/server/benchmark/harness.js');
+const {REFERENCE_HARNESSES, REFERENCE_LABELS, harnessOf, referenceHarnessOf, uploadedHarnessOf} = require('../../../src/server/benchmark/harness.js');
 
 const SHARED_SCHEMA = fileURLToPath(new URL('../../../../nanoagent/src/nanoagent/uploaded/uploaded-harness-v1.schema.json', import.meta.url));
 const REFERENCE_FOLDERS = fileURLToPath(new URL('../../../../nanoagent/src/nanoagent/uploaded/reference_harnesses', import.meta.url));
@@ -50,6 +50,10 @@ describe('the harness a source ZIP declares', () => {
 });
 
 describe('the reference harnesses', () => {
+  it('are each named by its agent\'s CLI command', () => {
+    assert.deepEqual(Object.keys(REFERENCE_LABELS).sort(), [...REFERENCE_HARNESSES].sort());
+  });
+
   it('are the folders NanoAgent ships under reference_harnesses/', () => {
     const folders = readdirSync(REFERENCE_FOLDERS, {withFileTypes: true}).filter(entry => entry.isDirectory() && entry.name !== '__pycache__').map(entry => entry.name).sort();
     assert.deepEqual([...REFERENCE_HARNESSES], folders);

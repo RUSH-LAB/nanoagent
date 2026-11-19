@@ -1,4 +1,4 @@
-"""How a session's result reads, in `nanoagent harness` and in `rush score` (the worker's, so it imports no terminal code)."""
+"""How a session's result reads in `nanoagent harness`."""
 
 from __future__ import annotations
 

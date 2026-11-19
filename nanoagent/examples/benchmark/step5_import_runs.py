@@ -1,4 +1,4 @@
-"""Step 5: step 3's runs kept in a local RUSH as scored runs of its reference harnesses, so every plugin page's Leaderboard ranks them.
+"""Step 5: step 3's runs kept in a local RUSH as scored runs of its reference harnesses.
 
 Each run folder step 3 wrote (<plugin>/<task>/<case>/<harness>, step 2's layout) but those of a plugin step 1 marked as having a bug
 goes to RUSH's POST benchmark/imports, in one of the member's workspaces, as the run of the reference harness RUSH builds under the

@@ -1,16 +1,24 @@
-# The RUSH terminal's bash (shell.py). History stays in memory: `rush` reads its own line from it, as typed (so "$RUSH_PROMPT"
-# after `--` is kept, not expanded), and the last command before it.
+# The RUSH terminal's bash (shell.py). History stays in memory.
 HISTFILE=/dev/null
 HISTCONTROL=
 PS1='\[\e[1m\]rush\[\e[0m\]:\w\$ '
+# `rush <command>`: the command as one recorded run, and `rush help` (rush.py).
 rush() {
-  RUSH_LINE="$(HISTTIMEFORMAT= history 1 | sed 's/^ *[0-9]*\*\{0,1\} *//')" \
-  RUSH_LAST="$(HISTTIMEFORMAT= history | sed 's/^ *[0-9]*\*\{0,1\} *//' | sed '$d' | grep -v '^rush\( \|$\)' | tail -n 1)" \
-    python /harness/rush.py "$@"
+  python /harness/rush.py run "$@"
 }
+# "$RUSH_PROMPT" is the plugin task's prompt, set the first time a command names it, before that command's words expand: its case is
+# pinned then (rush.py prompt). A command whose pin fails does not run (extdebug skips it).
+shopt -s extdebug
+rush_prompt() {
+  [[ -z ${RUSH_PROMPT+x} && $BASH_COMMAND == *RUSH_PROMPT* ]] || return 0
+  local prompt
+  prompt="$(python /harness/rush.py prompt)" || return 1
+  export RUSH_PROMPT="$prompt"
+}
+trap rush_prompt DEBUG
 # The banner at the top of every terminal (each is a bash on this rc), and again when the member clears it: `clear` or Ctrl-L.
 rush_banner() {
-  printf '%s\n' 'Run any CLI agent here (nanoagent, claude, codex, pi, hermes, dsh)' 'Models and tracing are set up.'
+  printf '%s\n' 'Run nanoagent, claude, codex, pi, hermes or dsh here, and any other agent as rush <command>.' 'Models and tracing are set up; rush help says more.'
 }
 clear() {
   command clear "$@" && rush_banner

@@ -101,7 +101,6 @@ from nanoagent.uploaded.sandbox import (
 from nanoagent.uploaded.reference import build_reference
 from nanoagent.uploaded import chats
 from nanoagent.uploaded.resume import keep, restore, start_cli
-from nanoagent.uploaded import session_result
 from nanoagent.uploaded.source import SourceLimits, extract, inspect_zip
 from nanoagent.uploaded.terminal import MAX_TERMINALS, Terminal
 from nanoagent.uploaded.toolchains import CLOSURE_ARCHIVE, ToolchainProfile, resolve_dependencies, toolchain
@@ -171,7 +170,6 @@ class SyncedPlugins:
 WARM_GO = json.dumps({"wait_go": True}).encode()  # a warm terminal's request until a session hands it its own (`CaseHandle.go`)
 WARM_RECIPE = "warm.json"  # under the scratch folder: the last Terminal session's limits, the warm terminal's after a start
 WARM_MAX_AGE_S = 600.0  # a warm terminal nobody took is replaced after this, well within any session's wall time
-SCORE_POLL_S = 2.0  # how often `rush score` reads how its run is going
 LIVE_SPANS_S = 3.0  # how often a free-form session's trace so far goes to RUSH, so the Dashboard names its agents and chats as they work
 
 
@@ -267,6 +265,30 @@ class LateTools:
         if self.started is None:
             raise ServiceError(503, "tools_unavailable", f"the plugin's tools could not start: {self.error}")
         return self.started
+
+
+class RushRuns:
+    """A Terminal session's `rush <command>` runs (the shell's rush.py): the case a scored one works, pinned the first time the session
+    asks for the task's prompt (`/runs/prompt`) and kept for every run after, with its plugin unpacked; and each run under way, by its
+    id: when it started (the worker's clock) and its process."""
+
+    def __init__(self) -> None:
+        self.pinning = anyio.Lock()
+        self.case: Mapping[str, Any] | None = None  # the worker client's score_case
+        self.manifest: PluginManifest | None = None
+        self.running: dict[str, tuple[int, int]] = {}  # run id -> (start ns, pid)
+
+
+def run_figures(records: Sequence[Mapping[str, Any]], start_ns: int, end_ns: int) -> dict[str, Any]:
+    """What the model calls the gateway answered between ``start_ns`` and ``end_ns`` (the worker's clock) took: their tokens, and their
+    cost, None while one of theirs is not known."""
+    calls = [record["data"] for record in records if record["kind"] == "model_call.response" and start_ns <= int(record["occurred_ns"]) <= end_ns]
+    costs = [(call.get("settlement") or {}).get("cost_usd") for call in calls]
+    return {
+        "input_tokens": sum((call.get("usage") or {}).get("input") or 0 for call in calls),
+        "output_tokens": sum((call.get("usage") or {}).get("output") or 0 for call in calls),
+        "cost_usd": None if None in costs else float(sum((Decimal(cost) for cost in costs), Decimal(0))),
+    }
 
 
 class NoTools:
@@ -844,7 +866,7 @@ class AttemptRunner:
         self._installs[key] = (asyncio.ensure_future(install()), scratch)
         return self._installs[key]
 
-    async def _install_cli(self, job: AttemptJob, name: str, expect: str | None) -> AsyncIterator[Mapping[str, Any]]:
+    async def _install_cli(self, job: AttemptJob, name: str) -> AsyncIterator[Mapping[str, Any]]:
         """Installs the terminal's CLI ``name`` (its reference harness, built as any harness is), once per lockfile: what the
         wrapper shows while it waits, then where the install is in the case VM, or why there is none."""
         cli = CLIS.get(name)
@@ -853,9 +875,6 @@ class AttemptRunner:
             return
         archive, profile, key = await in_thread(self._cli_source, cli)
         version = cli.version()
-        if expect is not None and expect != key:
-            yield {"error": f"this harness was saved with another {cli.label} than this RUSH Lab installs ({version}): save it again"}
-            return
         kept = self.config.scratch / CLIS_FOLDER / key
         if not (kept / BUILT).is_file():
             yield {"installing": cli.label, "version": version}
@@ -877,32 +896,81 @@ class AttemptRunner:
             yield {"installed": cli.label, "version": version, "bytes": await in_thread(tree_bytes, kept), "seconds": round(time.monotonic() - started)}
         yield {"path": f"{CLIS_DIR}/{key}/harness", "key": key}
 
-    async def _score(self, job: AttemptJob, name: str) -> AsyncIterator[Mapping[str, Any]]:
-        """`rush score <name>` in the Terminal session ``job``: the run RUSH starts of the member's harness ``name`` on the first task of
-        the session's plugin, its state each time it changes, then its one-line result as `nanoagent harness` prints it, or why there is
-        none."""
+    async def _rush_run(
+        self, job: AttemptJob, runs: RushRuns, emit: Emitter, journal: RushJournal, services: AttemptServices, commands: CaseCommands, work: Path,
+        action: str, body: Mapping[str, Any],
+    ) -> Mapping[str, Any]:
+        """One request of a Terminal session's `rush <command>` run (the shell's rush.py, app RUN_ACTIONS). `prompt`: the plugin task's
+        prompt, its case pinned the first time. `start` ({pid, title}): a run of process ``pid`` begins, its id answered, its title (a
+        one-shot run's prompt argument) kept on its process (records.ProcessRush), which the Dashboard titles its row by. `title`
+        ({run, title}): an interactive run's, the first line typed into it. `end` ({run, exit_code, scored}): what its model calls took
+        (run_figures); a scored one (given the task's prompt) is verified on the answer.json it left in the workspace, as a harness's is,
+        its verdict (right or wrong) kept on its process too, for its Dashboard row, and answered."""
+        if action == "prompt":
+            return {"prompt": (await self._score_case(job, runs, work))["prompt"]}
+        if action == "start":
+            pid, title = body.get("pid"), body.get("title")
+            if not isinstance(pid, int) or not (title is None or isinstance(title, str)):
+                raise ServiceError(400, "invalid_request", "a run starts with its process's pid and its title, or null")
+            run, now = uuid.uuid4().hex, self.clock_ns()
+            runs.running[run] = (now, pid)
+            if title:
+                await emit.emit(rec.ProcessRush(pid, now, title=title))
+            return {"run": run}
+        run = body.get("run")
+        if run not in runs.running:
+            raise ServiceError(404, "unknown_run", "no run under way here has that id")
+        start, pid = runs.running[run]
+        if action == "title":
+            if not isinstance(body.get("title"), str):
+                raise ServiceError(400, "invalid_request", "a title is a string")
+            await emit.emit(rec.ProcessRush(pid, self.clock_ns(), title=body["title"]))
+            return {}
+        code, scored = body.get("exit_code"), body.get("scored")
+        if not isinstance(code, int) or not isinstance(scored, bool):
+            raise ServiceError(400, "invalid_request", "a run ends with its exit_code and whether it is scored")
+        del runs.running[run]
+        end = self.clock_ns()
+        await services.flush()  # the run's last calls are in the journal
+        ran = run_figures(journal.records, start, end)
+        if not scored:
+            return ran
+        if runs.case is None or runs.manifest is None:
+            raise ServiceError(409, "no_task_prompt", "this session has not pinned the task's prompt")
+        case, workspace = runs.case, commands.handle.workspace
+        if code:
+            outcome: dict[str, Any] = {"status": "execution_failed", "reason": "nonzero_exit"}
+        else:
+            answer, refusal, failure = await in_thread(read_answer, workspace)
+            if failure is not None:
+                outcome = {"status": "execution_failed", "reason": "missing_result" if failure == MISSING_ANSWER else "invalid_result"}
+            elif refusal is not None:
+                outcome = {"status": "refused", "reason": refusal}
+            else:
+                outcome = {"status": "answered", "answer": answer}
+        pinned = case["case"]
         try:
-            started = await self.worker.score(job.attempt_id, job.fence, name)
-            yield {"run_id": started["run"]["run_id"]}
-            state = None
-            while not (read := await self.worker.scored(job.attempt_id, job.fence, started["attempt_id"]))["attempt"]["sealed"]:
-                if read["attempt"]["state"] != state:
-                    state = read["attempt"]["state"]
-                    yield {"state": state}
-                await asyncio.sleep(SCORE_POLL_S)
-        except RushError as error:
-            yield {"error": error.message}
-            return
-        except RushUnavailable as error:
-            yield {"error": f"RUSH could not be reached: {error}"}
-            return
-        attempt, metrics = read["attempt"], read["attempt"].get("metrics") or {}
-        result = {
-            "harness": name, "plugin": job.plugin["id"], "verdict": session_result.verdict(attempt), "cost_usd": read["totals"]["settled_usd"],
-            "elapsed_s": None if metrics.get("elapsed_ms") is None else metrics["elapsed_ms"] / 1000,
-            "input_tokens": metrics.get("input_tokens"), "output_tokens": metrics.get("output_tokens"),
-        }  # fmt: skip
-        yield {"line": session_result.summary_line(result), "explanation": attempt.get("explanation") or attempt.get("verifier_error")}
+            verdict = await in_thread(
+                self.verify_task_case, runs.manifest, case["task"]["id"], dict(pinned["arguments"]), outcome, pinned["reference"], workspace
+            )
+        except (VerifierError, ValueError) as error:
+            LOG.warning("attempt %s: the verifier of a rush run: %s", job.attempt_id, error)
+            raise ServiceError(502, "verifier_error", "the plugin's verifier failed on this run, so it is not scored") from error
+        said = "right" if verdict.verdict == "pass" else "wrong"
+        await emit.emit(rec.ProcessRush(pid, self.clock_ns(), verdict=said))
+        return {**ran, "verdict": said, "explanation": verdict.explanation}
+
+    async def _score_case(self, job: AttemptJob, runs: RushRuns, work: Path) -> Mapping[str, Any]:
+        """The case the session's scored runs work (RUSH pins it the first time it is asked), its plugin unpacked to verify them."""
+        async with runs.pinning:
+            if runs.case is None:
+                try:
+                    case = await self.worker.score_case(job.attempt_id, job.fence)
+                except RushUnavailable as error:
+                    raise ServiceError(503, "rush_unavailable", f"RUSH could not be reached: {error}") from error
+                runs.manifest = await in_thread(self._plugin, case["plugin"], base64.b64decode(case["package"]), work, False)
+                runs.case = case
+        return runs.case
 
     def _build_now(self, attempt_id: str, run_limits: Mapping[str, Any], archive: Any, profile: ToolchainProfile, work: Path) -> BuildArtifact:
         source_root = work / "source"
@@ -967,12 +1035,12 @@ class AttemptRunner:
         )
         commands = CaseCommands(limits)
         late = LateTools() if job.free_form else None  # a Terminal session's `nanoagent` asks for the plugin's tools
+        runs = RushRuns()  # and its `rush <command>` runs
         services = self.services_factory(
             policy=policy, endpoint=cfg.endpoint, admission=RushAdmission(self.worker, lease), journal=journal, tool_runner=runner,
             command_runner=commands, workspace=workspace, clock_ns=self.clock_ns,
-            save_harness=lambda data: self.worker.save_harness(job.attempt_id, job.fence, data),
-            install_cli=lambda name, expect: self._install_cli(job, name, expect),
-            score_harness=lambda name: self._score(job, name),
+            install_cli=lambda name: self._install_cli(job, name),
+            rush_run=None if not job.free_form else lambda action, body: self._rush_run(job, runs, emit, journal, services, commands, work, action, body),
             start_tools=None if late is None else late.start,
         )
         services.attempt.lease_lapsed = lease.lapsed  # the services refuse new work once the lease's known expiry passes

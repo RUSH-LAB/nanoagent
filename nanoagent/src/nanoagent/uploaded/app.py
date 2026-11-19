@@ -25,23 +25,20 @@ from nanoagent.uploaded.evidence import Journal, Recorder
 from nanoagent.uploaded.execservice import CommandRunner, ExecService
 from nanoagent.uploaded.gateway import SUFFIXES, Admission, Gateway, HttpxTransport, ProposalRegistry, UpstreamTransport
 from nanoagent.uploaded.rush_worker import RushError
-from nanoagent.uploaded.source import SourceLimits, inspect_zip
 
 API = "/api/v1"
 # Event errors that mean the same event arrived with conflicting content.
 CONFLICTS = {"conflicting_duplicate"}
-# What a harness saved from the attempt may weigh: what RUSH takes of a source upload (BENCHMARK_SOURCE_MAX_BYTES's default).
-MAX_HARNESS_BYTES = 50 << 20
+RUN_ACTIONS = ("prompt", "start", "title", "end")  # a `rush <command>` run's requests (`/runs/<action>`)
 
 
 class AttemptServices:
     """One service instance per attempt. ``app`` serves `/api/v1/{chat/completions,responses,messages}`, `/tools`, `/exec`, `/events`,
-    and, given ``save_harness``, `/harness`: a harness ZIP the attempt saves as its member's (`rush save` in the RUSH terminal),
-    checked as a source is and handed to ``save_harness``, whose answer (RUSH's) it returns; and, given ``install_cli``, `/cli`:
-    {"name", "expect"} installs a terminal CLI (nanoagent.uploaded.clis), answered with ``install_cli``'s events, one JSON line each;
-    and, given ``score_harness``, `/score`: {"name"} scores the member's saved harness on the session's task (`rush score`), answered
-    with ``score_harness``'s events the same way; and, given ``start_tools``, `/tools/start`: the plugin's tools started for a Terminal
-    session's `nanoagent`, answered with ``start_tools``'s {token, system, tools}, the token the one the broker then serves them to."""
+    and, given ``install_cli``, `/cli`: {"name"} installs a terminal CLI (nanoagent.uploaded.clis), answered with ``install_cli``'s
+    events, one JSON line each; and, given ``rush_run``, `/runs/<action>` (RUN_ACTIONS): a JSON object for one of a Terminal session's
+    `rush <command>` runs (the shell's rush.py), handed to ``rush_run`` with its action and answered with what it returns; and, given
+    ``start_tools``, `/tools/start`: the plugin's tools started for a Terminal session's `nanoagent`, answered with ``start_tools``'s
+    {token, system, tools}, the token the one the broker then serves them to."""
 
     def __init__(
         self,
@@ -56,9 +53,8 @@ class AttemptServices:
         transport: UpstreamTransport | None = None,
         clock_ns: Callable[[], int] = time.monotonic_ns,
         proposal_wait_s: float = 30.0,
-        save_harness: Callable[[bytes], Awaitable[Mapping[str, Any]]] | None = None,
-        install_cli: Callable[[str, str | None], AsyncIterator[Mapping[str, Any]]] | None = None,
-        score_harness: Callable[[str], AsyncIterator[Mapping[str, Any]]] | None = None,
+        install_cli: Callable[[str], AsyncIterator[Mapping[str, Any]]] | None = None,
+        rush_run: Callable[[str, Mapping[str, Any]], Awaitable[Mapping[str, Any]]] | None = None,
         start_tools: Callable[[], Awaitable[Mapping[str, Any]]] | None = None,
     ) -> None:
         recorder = Recorder(journal, clock_ns, [policy.token, endpoint.api_key])
@@ -72,15 +68,12 @@ class AttemptServices:
         self.events = HarnessEventLog()
         self._received: set[tuple[str, int]] = set()
         routes = [Route(API + suffix, self._generation(dialect), methods=["POST"]) for dialect, suffix in SUFFIXES.items()]
-        self._save_harness = save_harness
-        if save_harness is not None:
-            routes.append(Route("/harness", self._harness, methods=["POST"]))
         self._install_cli = install_cli
         if install_cli is not None:
             routes.append(Route("/cli", self._cli, methods=["POST"]))
-        self._score_harness = score_harness
-        if score_harness is not None:
-            routes.append(Route("/score", self._score, methods=["POST"]))
+        self._rush_run = rush_run
+        if rush_run is not None:
+            routes.append(Route("/runs/{action}", self._run, methods=["POST"]))
         self._start_tools = start_tools
         if start_tools is not None:
             routes.append(Route("/tools/start", self._tools_start, methods=["POST"]))
@@ -127,28 +120,6 @@ class AttemptServices:
         with anyio.fail_after(drain_timeout):
             await self.flush()
 
-    async def _harness(self, request: Request) -> Response:
-        assert self._save_harness is not None
-        try:
-            self.attempt.require_auth(request)
-            self.attempt.require_active()
-            data = bytearray()
-            async for chunk in request.stream():
-                data += chunk
-                if len(data) > MAX_HARNESS_BYTES:
-                    raise ServiceError(413, "source_too_large", f"a saved harness is at most {MAX_HARNESS_BYTES} bytes")
-            try:
-                inspect_zip(bytes(data), SourceLimits())  # what its build would refuse is refused now, with the same reason
-            except ContractError as error:
-                raise ServiceError(422, error.code, error.message) from error
-            try:
-                saved = await self._save_harness(bytes(data))
-            except RushError as error:
-                raise ServiceError(error.status, error.code, error.message) from error
-        except ServiceError as error:
-            return error_response(error)
-        return JSONResponse(dict(saved))
-
     async def _cli(self, request: Request) -> Response:
         assert self._install_cli is not None
         try:
@@ -158,29 +129,33 @@ class AttemptServices:
                 body = decode_json_object(await request.body())
             except ContractError as error:
                 raise ServiceError(400, error.code, error.message) from error
-            name, expect = body.get("name"), body.get("expect")
-            if not isinstance(name, str) or not (expect is None or isinstance(expect, str)):
-                raise ServiceError(400, "invalid_request", "a CLI install takes a name and, from a saved harness, the install it expects")
+            name = body.get("name")
+            if not isinstance(name, str):
+                raise ServiceError(400, "invalid_request", "a CLI install takes a name")
         except ServiceError as error:
             return error_response(error)
-        events = self._install_cli(name, expect)
+        events = self._install_cli(name)
         return StreamingResponse((json.dumps(dict(event)) + "\n" async for event in events), media_type="application/x-ndjson")
 
-    async def _score(self, request: Request) -> Response:
-        assert self._score_harness is not None
+    async def _run(self, request: Request) -> Response:
+        assert self._rush_run is not None
         try:
             self.attempt.require_auth(request)
             self.attempt.require_active()
+            action = request.path_params["action"]
+            if action not in RUN_ACTIONS:
+                raise ServiceError(404, "not_found", f"a run's requests are {', '.join(RUN_ACTIONS)}")
             try:
-                name = decode_json_object(await request.body()).get("name")
+                body = decode_json_object(await request.body())
             except ContractError as error:
                 raise ServiceError(400, error.code, error.message) from error
-            if not isinstance(name, str):
-                raise ServiceError(400, "invalid_request", "a score takes the name of a harness you saved")
+            try:
+                answer = await self._rush_run(action, body)
+            except RushError as error:
+                raise ServiceError(error.status, error.code, error.message) from error
         except ServiceError as error:
             return error_response(error)
-        events = self._score_harness(name)
-        return StreamingResponse((json.dumps(dict(event)) + "\n" async for event in events), media_type="application/x-ndjson")
+        return JSONResponse(dict(answer))
 
     async def _tools_start(self, request: Request) -> Response:
         assert self._start_tools is not None

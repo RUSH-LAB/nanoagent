@@ -1,6 +1,6 @@
 'use strict';
 
-const {REFERENCE_LABELS} = require('./leaderboard');
+const {REFERENCE_LABELS} = require('./harness');
 
 /**
  * The agent CLIs a Terminal session installs, by what the member types: its package's path, or for Hermes and NanoAgent its module
@@ -12,36 +12,46 @@ const CLI_MARKERS = Object.freeze([
   ['hermes', 'hermes_cli'], ['dsh', '@deepseek-ai/dsh'], ['nanoagent', 'nanoagent.cli.'],
 ]);
 const WRAPPER = /\/harness\/bin\/(claude|codex|pi|hermes|dsh|nanoagent)(?:\s|$)/;
-// The Terminal's own processes (its bash's shell.py, `rush` and a CLI's install), which run no agent.
-const HARNESS = /\/harness\/(?:shell|rush)\.py(?:\s|$)/;
-const SHELLS = new Set(['sh', 'bash', 'dash', 'zsh', 'fish', 'ash']);
 
 const ns = value => (value === null || value === undefined ? null : Number(value));
 const seconds = (start, end) => (start === null || end === null ? null : (end - start) / 1e9);
 const figure = (sum, known) => ({sum: known ? sum : 0, count: known ? 1 : 0});
 
-/** A run's agent: a reference harness's CLI command, a saved harness by its name. */
+/** A run's agent: a reference harness's CLI command. */
 const harnessLabel = name => REFERENCE_LABELS[name] ?? name;
 
 const PYTHON = /^python[0-9.]*$/;
 const base = path => path.slice(path.lastIndexOf('/') + 1);
 
+/** Where `rush <command>` (the Terminal's rush.py, `python /harness/rush.py run <command>`) has its command in `argv`, or -1. */
+const rushAt = argv => {
+  const at = argv.findIndex((arg, index) => arg.endsWith('/harness/rush.py') && argv[index + 1] === 'run');
+  return at === -1 || at + 2 >= argv.length ? -1 : at + 2;
+};
+
 /**
- * The agent a process is, by its argv: one of the CLIs a Terminal session installs, by what the member types, or any other program
- * by its command (argv[0]'s name: aider, node), a module run with `python -m` by that module and a package run with `npx` by that
- * package's command (`npx @scope/tool@1` is tool); null for a shell or the Terminal's own processes, which run none.
+ * The program `command` runs (argv[0]'s name: aider), a module run with `python -m` by that module and a package run with `npx` by
+ * that package's command (`npx @scope/tool@1` is tool), as rush.py program_of names it.
+ */
+function programOf(command) {
+  const name = base(command[0]);
+  const module = PYTHON.test(name) && command.indexOf('-m') > 0 && command.indexOf('-m') < command.length - 1 ? command[command.indexOf('-m') + 1] : undefined;
+  if (module) return module;
+  const pkg = name === 'npx' ? command.slice(1).find(arg => !arg.startsWith('-')) : undefined;
+  if (pkg) return base(pkg.replace(/(.)@[^/]*$/, '$1'));
+  return name;
+}
+
+/**
+ * The agent a process is, by its argv: a `rush <command>` run by its command's program (rush.py), else one of the CLIs a Terminal
+ * session installs, by what the member types; null for any other process. Only these are tracked: any other program is an agent
+ * only when it is run as `rush <command>`.
  */
 function agentOf(argv) {
+  const at = rushAt(argv);
+  if (at !== -1) return programOf(argv.slice(at));
   const line = argv.join(' ');
-  const cli = CLI_MARKERS.find(([, marker]) => line.includes(marker))?.[0] ?? WRAPPER.exec(line)?.[1];
-  if (cli) return cli;
-  if (!argv.length || HARNESS.test(line)) return null;
-  const name = base(argv[0]);
-  const module = PYTHON.test(name) && argv.indexOf('-m') > 0 ? argv[argv.indexOf('-m') + 1] : undefined;
-  if (module) return module;
-  const pkg = name === 'npx' ? argv.slice(1).find(arg => !arg.startsWith('-')) : undefined;
-  if (pkg) return base(pkg.replace(/(.)@[^/]*$/, '$1'));
-  return SHELLS.has(name) ? null : name;
+  return CLI_MARKERS.find(([, marker]) => line.includes(marker))?.[0] ?? WRAPPER.exec(line)?.[1] ?? null;
 }
 
 /** The processes with no agent above them in the process tree: what the member ran, leaving out what an agent itself starts. */
@@ -149,17 +159,20 @@ function typed(process) {
   const {argv, agent} = process;
   const line = argv.join(' ');
   const marker = CLI_MARKERS.find(([name]) => name === agent)?.[1];
-  const at = argv.findIndex(arg => (marker && arg.includes(marker)) || WRAPPER.test(arg) || arg.endsWith(`/${agent}`) || arg === agent);
+  const rush = rushAt(argv);
+  const at = rush !== -1 ? rush : argv.findIndex(arg => (marker && arg.includes(marker)) || WRAPPER.test(arg) || arg.endsWith(`/${agent}`) || arg === agent);
   const text = [agent, ...(at === -1 || !line ? [] : argv.slice(at + 1))].join(' ').replace(/\s+/g, ' ');
   return text.length <= TITLE_CHARS ? text : `${text.slice(0, TITLE_CHARS - 1)}…`;
 }
 
 /**
  * The chats of one of the member's Harness tab sessions (a `benchmark_run` with `session`, its attempt's row as `terminalRows` reads
- * it): each conversation of an agent CLI it held, which the Dashboard lists under that agent. A chat is one run of a program that
- * made model calls (an outermost agent process: what the member typed at the shell, named by its command, agentOf), titled by the
- * last user message of its first call's request (`prompt`, from the gateway), from that call on; it reruns as the member typed it
- * (`run`: its argv and the folder it ran in). An ended free-form Terminal session also holds the chats its worker read from the CLIs'
+ * it): each conversation of an agent CLI it held, which the Dashboard lists under that agent. A chat is one run of an agent that
+ * made model calls (an outermost agent process: what the member typed at the shell, named by its command, agentOf), from its first
+ * call on; it reruns as the member typed it (`run`: its argv and the folder it ran in). A `rush <command>` run is titled by what the
+ * member said to it (its process's `title`: its prompt argument, or the first line typed into it, from rush.py; its command until
+ * then), carries its `verdict` (right or wrong) when it was given the task's prompt, and reruns as `rush <command>`; a listed CLI's
+ * run is titled by the last user message of its first call's request (`prompt`, from the gateway). An ended free-form Terminal session also holds the chats its worker read from the CLIs'
  * own state (claude, codex, pi, hermes; `row.chats`), each its CLI's conversation, titled by its first prompt and reopened by its id,
  * which take the calls of their agent's runs in place of those runs: each such call goes to the chat of its agent whose time holds
  * it, or the nearest. A session of a harness of its own is one chat of it. A call no process ties to one agent is no chat's. A chat
@@ -177,7 +190,7 @@ function terminalChats(row) {
   const archived = key => row.archived_chats?.[key] ?? null;
   const processes = row.processes.map(process => ({
     id: process.span_id, parent: process.parent_id, start: ns(process.start_ns), end: ns(process.end_ns), argv: process.argv ?? [], cwd: process.cwd ?? null,
-    agent: agentOf(process.argv ?? []),
+    title: process.title ?? null, verdict: process.verdict ?? null, agent: agentOf(process.argv ?? []),
   }));
   const calls = row.calls.filter(call => call.status !== 'rejected').map(call => {
     const start = ns(call.start_ns);
@@ -191,7 +204,7 @@ function terminalChats(row) {
   if (row.harness_name !== 'shell') {
     const key = `${label}:${row.attempt_id}`;
     const elapsed = typeof row.elapsed_ms === 'number' ? row.elapsed_ms / 1000 : null;
-    return [{...session, key, agent: label, conversation: null, run: null, title: label, archivedAt: archived(key), usage: usageOf(calls, final, elapsed)}];
+    return [{...session, key, agent: label, conversation: null, run: null, title: label, verdict: null, archivedAt: archived(key), usage: usageOf(calls, final, elapsed)}];
   }
   const reported = final && Array.isArray(row.chats) ? row.chats : [];
   // How far call `call` started from `chat`'s span (0 within it): each call is the nearest chat's of its agent.
@@ -201,7 +214,7 @@ function terminalChats(row) {
   const chats = reported.map(chat => {
     const key = `${chat.agent}:${chat.id}`;
     return {
-      ...session, key, agent: chat.agent, conversation: chat.id, run: null, title: chat.title, startedAt: chat.started_at, updatedAt: chat.ended_at,
+      ...session, key, agent: chat.agent, conversation: chat.id, run: null, title: chat.title, verdict: null, startedAt: chat.started_at, updatedAt: chat.ended_at,
       archivedAt: archived(key), usage: usageOf(calls.filter(call => owner.get(call) === chat), final, seconds(ns(chat.started_ns), ns(chat.ended_ns))),
     };
   });
@@ -213,8 +226,11 @@ function terminalChats(row) {
   for (const [process, made] of runs) {
     const key = `${process.agent}:${row.attempt_id}/${process.id}`;
     const first = made.reduce((x, y) => ((y.start ?? Infinity) < (x.start ?? Infinity) ? y : x));
+    const at = rushAt(process.argv);
+    const rush = at !== -1;
     chats.push({
-      ...session, key, agent: process.agent, conversation: null, run: {argv: process.argv, cwd: process.cwd}, title: first.prompt ?? typed(process),
+      ...session, key, agent: process.agent, conversation: null, run: {argv: rush ? ['rush', ...process.argv.slice(at)] : process.argv, cwd: process.cwd},
+      title: rush ? process.title ?? typed(process) : first.prompt ?? typed(process), verdict: process.verdict,
       archivedAt: archived(key), usage: usageOf(made, final, seconds(process.start, process.end)),
     });
   }

@@ -1096,12 +1096,12 @@ async def test_the_clis_install_ahead_of_sessions_and_a_session_typing_one_meanw
     with anyio.fail_after(5):
         while not built:
             await anyio.sleep(0.01)
-    typed = runner._install_cli(fx.free_job(), "nanoagent", None)
+    typed = runner._install_cli(fx.free_job(), "nanoagent")
     assert await anext(typed) == {"installing": "NanoAgent", "version": CLIS["nanoagent"].version()}
     gate.set()
     events = [event async for event in typed]
     assert events[-1]["path"].startswith(f"{CLIS_DIR}/") and events[-2]["installed"] == "NanoAgent"
     await ahead
     assert built == ["cli-nanoagent", "cli-claude", "cli-codex", "cli-pi", "cli-hermes", "cli-dsh"]  # each once, NanoAgent's shared with the session
-    [found] = [event async for event in runner._install_cli(fx.free_job(), "dsh", None)]  # typed later: there at once
+    [found] = [event async for event in runner._install_cli(fx.free_job(), "dsh")]  # typed later: there at once
     assert found["path"] == f"{CLIS_DIR}/{found['key']}/harness"

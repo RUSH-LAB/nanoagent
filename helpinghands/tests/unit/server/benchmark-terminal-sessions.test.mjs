@@ -15,9 +15,11 @@ const call = (id, start, end, usage = {input: 100, output: 10}, prompt = null) =
   prompt, call_id: id, status: 'ok', model: 'm', start_ns: String(start * S), end_ns: String(end * S), usage, request_sha256: 'a'.repeat(64), response_sha256: 'b'.repeat(64),
 });
 let pid = 0;
-const process = (argv, start, end, parent = null, cwd = '/rush/workspace') => ({
-  span_id: `p:${++pid}`, parent_id: parent?.span_id ?? 'process-tree', argv, cwd, start_ns: String(start * S), end_ns: end === null ? null : String(end * S), exit_code: 0,
+const process = (argv, start, end, parent = null, cwd = '/rush/workspace', said = {}) => ({
+  span_id: `p:${++pid}`, parent_id: parent?.span_id ?? 'process-tree', argv, cwd, start_ns: String(start * S), end_ns: end === null ? null : String(end * S), exit_code: 0, ...said,
 });
+/** `rush <command>` as its process runs it (the shell's rush.py). */
+const RUSH = command => ['python', '/harness/rush.py', 'run', ...command];
 const SHELL = ['python', '/harness/shell.py'];
 const BASH = ['bash', '--rcfile', '/harness/bashrc', '-i'];
 const CLAUDE = ['/opt/rush/clis/k/harness/node_modules/@anthropic-ai/claude-code-linux-x64/claude'];
@@ -35,7 +37,7 @@ describe('a Harness tab session on the Dashboard', () => {
     const claude = process(CLAUDE, 5, 20, bash);
     const session = terminalSession(row({
       calls: [call('c1', 10, 12), call('c2', 30, 33), call('c3', 50, 51, null), call('c4', 70, 71)],
-      processes: [shell, bash, claude, process(['rg', 'TODO'], 9, 11, claude), process(CODEX, 25, 40, bash), process(['/usr/bin/aider'], 45, 55, bash)],
+      processes: [shell, bash, claude, process(['rg', 'TODO'], 9, 11, claude), process(CODEX, 25, 40, bash), process(RUSH(['/usr/bin/aider']), 45, 55, bash)],
       costs: {c1: 0.01, c2: 0.02},
     }));
     assert.equal(session.title, 'claude, codex, aider');
@@ -80,9 +82,15 @@ describe('a Harness tab session on the Dashboard', () => {
     assert.deepEqual([session.title, session.harnesses.map(one => one.harness)], ['nanoagent', ['nanoagent']]);
   });
 
+  it('tracks any other program only when it runs as `rush <command>`', () => {
+    const bash = process(BASH, 0, null);
+    const session = terminalSession(row({calls: [call('c1', 2, 3), call('c2', 12, 13)], processes: [bash, process(['aider'], 1, 4, bash), process(RUSH(['aider']), 11, 14, bash)]}));
+    assert.deepEqual([session.title, Object.keys(usageOf(session)), session.usage.inputTokens], ['aider', ['aider'], {sum: 100, count: 1}]);
+  });
+
   it('gives a session no agent made a model call in no agent, titled by its main command, its calls, or no agent', () => {
     const bash = process(BASH, 0, null);
-    const ran = terminalSession(row({processes: [bash, process(['ls'], 1, 2, bash), process(['/usr/bin/python3', 'train.py'], 3, 40, bash)]}));
+    const ran = terminalSession(row({processes: [bash, process(['ls'], 1, 2, bash), process(RUSH(['/usr/bin/python3', 'train.py']), 3, 40, bash)]}));
     assert.deepEqual([ran.title, ran.harnesses], ['python3', []]);
     assert.deepEqual([terminalSession(row({processes: [bash]})).title, terminalSession(row({calls: [call('c1', 1, 2), call('c2', 3, 4)]})).title], ['no agent', '2 model calls']);
   });
@@ -175,22 +183,34 @@ describe('the chats of a Harness tab session on the Dashboard', () => {
     assert.deepEqual(terminalChats(free({processes: [bash, process(['ls'], 1, 2, bash)], chats: []})), []);
   });
 
-  it('makes any program the member ran that made model calls one chat per run: named by its command, titled by its first prompt, rerun as typed', () => {
+  it('makes each `rush <command>` run that made model calls a chat: named by its program, titled by what the member said to it, with its verdict, rerun as rush', () => {
     const bash = process(BASH, 0, null);
-    const aider = process(['aider', '--model', 'x y'], 5, 20, bash, '/rush/workspace/app');
-    const child = process(['git', 'status'], 6, 7, aider);  // what it starts is its own
-    const recorded = {calls: [call('c1', 8, 9, undefined, 'fix the bug'), call('c2', 10, 11, undefined, 'and the test')], processes: [bash, aider, child], chats: []};
+    const said = {title: 'list three ids', verdict: 'right'};
+    const aider = process(RUSH(['aider', '--model', 'x y']), 5, 20, bash, '/rush/workspace/app', said);
+    const child = process(['aider', '--model', 'x y'], 5, 20, aider, '/rush/workspace/app');  // what it starts is its own
+    const recorded = {calls: [call('c1', 8, 9, undefined, 'list three ids To suggest changes to a file'), call('c2', 10, 11)], processes: [bash, aider, child], chats: []};
     for (const state of [{state: 'leased', finalized_at: null}, {}]) {  // live, at its first call, and ended alike
       const chats = terminalChats(free({...recorded, ...state}));
-      assert.deepEqual(chats.map(chat => [chat.key, chat.agent, chat.title, chat.conversation, chat.run, chat.usage.inputTokens.sum]), [
-        [`aider:${ATTEMPT}/${aider.span_id}`, 'aider', 'fix the bug', null, {argv: ['aider', '--model', 'x y'], cwd: '/rush/workspace/app'}, 200],
+      assert.deepEqual(chats.map(chat => [chat.key, chat.agent, chat.title, chat.verdict, chat.conversation, chat.run, chat.usage.inputTokens.sum]), [
+        [`aider:${ATTEMPT}/${aider.span_id}`, 'aider', 'list three ids', 'right', null, {argv: ['rush', 'aider', '--model', 'x y'], cwd: '/rush/workspace/app'}, 200],
       ]);
     }
+    // Before the member has said anything to it, its title is its command; unscored, it has no verdict; unprefixed, it is no chat.
+    const untitled = terminalChats(free({...recorded, processes: [bash, process(RUSH(['aider', '--model', 'x y']), 5, 20, bash), child]}));
+    assert.deepEqual(untitled.map(chat => [chat.title, chat.verdict]), [['aider --model x y', null]]);
+    assert.deepEqual(terminalChats(free({...recorded, processes: [bash, process(['aider'], 5, 20, bash)]})), []);
+  });
+
+  it('makes `rush claude` one chat, as claude is, never its run and its CLI\'s both', () => {
+    const bash = process(BASH, 0, null);
+    const rush = process(RUSH(['claude', '-p', 'say ok']), 5, 20, bash, '/rush/workspace', {title: 'say ok'});
+    const chats = terminalChats(free({calls: [call('c1', 8, 9)], processes: [bash, rush, process([...CLAUDE, '-p', 'say ok'], 6, 19, rush)], chats: []}));
+    assert.deepEqual(chats.map(chat => [chat.agent, chat.title, chat.run.argv]), [['claude', 'say ok', ['rush', 'claude', '-p', 'say ok']]]);
   });
 
   it('names a module run with python -m by the module and a package run with npx by its command', () => {
     const bash = process(BASH, 0, null);
-    const named = argv => terminalChats(free({calls: [call('c1', 2, 3)], processes: [bash, process(argv, 1, 4, bash)], chats: []}))[0].agent;
+    const named = argv => terminalChats(free({calls: [call('c1', 2, 3)], processes: [bash, process(RUSH(argv), 1, 4, bash)], chats: []}))[0].agent;
     assert.deepEqual([
       named(['python3', '-m', 'aider', '--yes']), named(['/usr/bin/python3.12', '-u', '-m', 'goose']), named(['npx', '-y', '@scope/tool@1.2.0', 'go']),
       named(['npx', 'gemini']), named(['python', 'run.py']),

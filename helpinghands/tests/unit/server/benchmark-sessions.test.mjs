@@ -10,7 +10,6 @@ const {allowed} = require('../../../src/runner/protocol.js');
 const {MODEL} = require('../../../src/server/ai-settings.js');
 const {createBenchmarkService} = require('../../../src/server/benchmark/service.js');
 const {benchmarkPublication, publicationFrame} = require('../../../src/server/benchmark/validate.js');
-const {BenchmarkError} = require('../../../src/server/benchmark/errors.js');
 const {TERMINAL_LIMITS} = require('../../../src/server/benchmark/limits.js');
 const route = loadRoute('benchmark');
 const workerRoute = require('../../../src/server/routes/benchmark-worker.js');
@@ -34,7 +33,6 @@ build: {argv: [npm, ci], outputs: [node_modules]}
 run: {argv: [node, main.js]}
 `)}));
 
-const SAVED = {source_sha256: 'c'.repeat(64), size: 9, harness: {name: 'my-agent', version: '0123456789ab', dialects: ['chat_completions']}};
 /** The case set but its case, which NanoAgent reads from the installed plugin at once. */
 const {cases: _cases, private: _private, ...frame} = {...pinned, case_id: 'p-01'};
 /** Let the session's pin, which runs after the answer, finish. */
@@ -56,7 +54,6 @@ function ctxFor({computer, app = {value: {id: 'p', sha256: SHA, status: 'ready',
       repository: {
         saveSource: async (context, data, harness) => ({source_sha256: 'b'.repeat(64), size: data.length, harness}),
         run: async (context, id) => ({run_id: id}),
-        savedHarness: async (context, name) => (name === 'my-agent' ? SAVED : null),
         liveTerminal: async () => null,
         failSessionCase: async (context, runId, caseId, error) => { calls.push(['failed', runId, caseId, error]); },
       },
@@ -146,7 +143,7 @@ describe('POST /api/benchmark/sessions', () => {
   it('resumes an ended session for one of its chats, which its first terminal reopens, and for no chat it did not hold', async () => {
     const OLD = '11111111-1111-4111-8111-111111111111';
     const chat = {agent: 'claude', id: 'aaaa', title: 'say ok', started_at: '2026-11-18T00:00:00Z', ended_at: '2026-11-18T00:00:05Z', started_ns: '1', ended_ns: '5'};
-    const aider = {span_id: 'p:1', parent_id: 'process-tree', argv: ['aider', '--yes'], cwd: '/rush/workspace', start_ns: '10', end_ns: '20'};
+    const aider = {span_id: 'p:1', parent_id: 'process-tree', argv: ['python', '/harness/rush.py', 'run', 'aider', '--yes'], cwd: '/rush/workspace', start_ns: '10', end_ns: '20'};
     const row = {
       attempt_id: OLD, harness_name: 'shell', task_id: null, state: 'final', calls: [{call_id: 'c1', status: 'ok', start_ns: '12', end_ns: '13', prompt: 'hi'}],
       processes: [aider], costs: {}, chats: [chat],
@@ -156,7 +153,7 @@ describe('POST /api/benchmark/sessions', () => {
     const body = extra => ({plugin_id: 'p', harness: 'shell', interactive: true, resume: OLD, ...extra});
     assert.equal((await post(ctx, body({chat: {agent: 'claude', id: 'aaaa', run: null}}))).status, 201);
     assert.deepEqual(calls.find(([what]) => what === 'session')[4].resumeChat, {agent: 'claude', id: 'aaaa', run: null});
-    const run = {argv: ['aider', '--yes'], cwd: '/rush/workspace'};  // a run of a program, which its first terminal reruns
+    const run = {argv: ['rush', 'aider', '--yes'], cwd: '/rush/workspace'};  // a `rush <command>` run, which its first terminal reruns
     assert.equal((await post(ctx, body({chat: {agent: 'aider', id: null, run}}))).status, 201);
     assert.deepEqual(calls.filter(([what]) => what === 'session').at(-1)[4].resumeChat, {agent: 'aider', id: null, run});
     const status = async extra => (await post(ctx, body(extra))).status;
@@ -210,14 +207,6 @@ describe('POST /api/benchmark/sessions', () => {
     assert.deepEqual(failing.calls.at(-1), ['failed', 'r1', 'p-01', 'the model could not make task sum\'s input']);
   });
 
-  it('reruns a harness the member saved from a Terminal session, its latest version under the coding prompt, with nothing to build', async () => {
-    const {ctx, calls} = ctxFor();
-    assert.equal((await post(ctx, {...BODY, harness: 'my-agent'})).status, 201);
-    await settled();
-    assert.deepEqual(calls.map(([what]) => what), ['open', 'frame', 'session', 'pin', 'pinned']);
-    assert.deepEqual([calls[2][2], calls[2][3]], [SAVED, 'coding']);
-  });
-
   it('runs only on the member\'s own computer, and only an app of theirs that is ready', async () => {
     const offline = makeCtx({benchmark: {repository: {}, service: {}}, runners: {computer: () => null}, workspaceApps: {open: async () => assert.fail('must not open')}});
     assert.equal((await post(offline, BODY)).status, 503);
@@ -231,52 +220,8 @@ describe('POST /api/benchmark/sessions', () => {
   });
 });
 
-describe('POST /api/benchmark-worker/attempts/{id}/harness', () => {
+describe('a Terminal session\'s plugin: POST /api/benchmark-worker/attempts/{id}/score and .../tools', () => {
   const ATTEMPT = '00000000-0000-4000-8000-000000000009';
-  const savedZip = name => Buffer.from(zipSync({'harness.yaml': strToU8(`protocol: rush.harness.v1
-name: ${name}
-version: "0123456789ab"
-dialects: [chat_completions]
-toolchain: python-3
-lockfiles: []
-build: {argv: [sh, -c, "cp -R shell.py executables workspace /build-out/"], outputs: [shell.py, executables, workspace]}
-run: {argv: [python, /harness/shell.py, "bash run.sh"]}
-`)}));
-  const send = async (data, session = true) => {
-    const saved = [];
-    const ctx = makeCtx({benchmark: {
-      worker: {
-        authenticate: async bearer => (bearer === 'cred' ? 'u' : null),
-        terminalSession: async (userId, attemptId, fence) => {
-          if (!session) throw new BenchmarkError(403, 'not_a_session', 'Only a session someone works in saves a harness');
-          return userId === 'u' && attemptId === ATTEMPT && fence === 3 ? {workspaceId: 'w'} : null;
-        },
-      },
-      repository: {saveSource: async (context, zip, harness) => { saved.push([context, harness]); return {source_sha256: 'c'.repeat(64), size: zip.length, harness}; }},
-    }});
-    const result = await invoke(workerRoute, {
-      method: 'POST', path: `/api/benchmark-worker/attempts/${ATTEMPT}/harness`, headers: {authorization: 'Bearer cred', 'x-rush-fence': '3'}, ctx, auth: null,
-      onRequest: req => setTimeout(() => { req.emit('data', data); req.emit('end'); }, 5),
-    });
-    return {...result, saved};
-  };
-
-  it('keeps the harness a session saved as the member\'s own upload to the run\'s workspace', async () => {
-    const {status, payload, saved} = await send(savedZip('my-agent'));
-    assert.deepEqual([status, payload.harness.name], [201, 'my-agent']);
-    assert.deepEqual(saved, [[{userId: 'u', workspaceId: 'w'}, {name: 'my-agent', version: '0123456789ab', dialects: ['chat_completions']}]]);
-  });
-
-  it('refuses a reference harness\'s name and a run nobody works in', async () => {
-    assert.equal((await send(savedZip('shell'))).payload.code, 'reserved_harness_name');
-    const refused = await send(savedZip('my-agent'), false);
-    assert.deepEqual([refused.status, refused.payload.code, refused.saved], [403, 'not_a_session', []]);
-  });
-});
-
-describe('`rush score`: POST /api/benchmark-worker/attempts/{id}/score and GET .../score/{attempt}', () => {
-  const ATTEMPT = '00000000-0000-4000-8000-000000000009';
-  const SCORED = '00000000-0000-4000-8000-00000000000a';
   const scoring = () => {
     const {ctx, calls} = ctxFor();
     ctx.benchmark.worker = {
@@ -286,29 +231,8 @@ describe('`rush score`: POST /api/benchmark-worker/attempts/{id}/score and GET .
         return {workspaceId: 'w', pluginId: 'p'};
       },
     };
-    ctx.benchmark.repository.attempt = async (context, id) => (id === SCORED ? {attempt_id: id, sealed: true, verdict: 'pass'} : null);
-    ctx.benchmark.repository.accounting = async () => ({totals: {calls: 2, settled_usd: 0.011}});
     return {ctx, calls};
   };
-
-  it('works the member\'s saved harness once on the first task of the session\'s plugin, as the one-shot `nanoagent harness` does, the task\'s description its request', async () => {
-    const {ctx, calls} = scoring();
-    const started = await invoke(workerRoute, {
-      method: 'POST', path: `/api/benchmark-worker/attempts/${ATTEMPT}/score`, headers: {authorization: 'Bearer cred'}, body: {fence: 3, harness: 'my-agent'}, ctx, auth: null,
-    });
-    assert.deepEqual([started.status, started.payload], [201, {run: {run_id: 'r1'}, attempt_id: 'a1'}]);
-    await settled();
-    assert.deepEqual(calls.map(([what]) => what), ['open', 'open', 'frame', 'session', 'pin', 'pinned']);
-    assert.deepEqual([calls[2][2], calls[3][2], calls[3][3], calls[3][4]], [{task: 'sum', text: 'Add two numbers'}, SAVED, 'coding', {interactive: false, resumedFrom: null, startCli: null, resumeChat: null}]);
-  });
-
-  it('reads how the scored attempt went, and what its calls cost', async () => {
-    const {ctx} = scoring();
-    const read = await invoke(workerRoute, {
-      method: 'GET', path: `/api/benchmark-worker/attempts/${ATTEMPT}/score/${SCORED}`, headers: {authorization: 'Bearer cred', 'x-rush-fence': '3'}, ctx, auth: null,
-    });
-    assert.deepEqual([read.status, read.payload], [200, {attempt: {attempt_id: SCORED, sealed: true, verdict: 'pass'}, totals: {calls: 2, settled_usd: 0.011}}]);
-  });
 
   // The member's computer, its plugin installed as the sha256 of `kept`, and the package it serves for that install, `served`.
   const installedAs = (kept, served) => {
@@ -317,10 +241,10 @@ describe('`rush score`: POST /api/benchmark-worker/attempts/{id}/score and GET .
     const on = ctx.runners.computer();
     on.benchmarkSessionFrame = async (at, bodyText) => { calls.push(['frame', at, JSON.parse(bodyText)]); return {value: JSON.stringify({...frame, package_sha256: sha})}; };
     on.installedPackage = async at => { calls.push(['package', at]); return {value: Buffer.from(served)}; };
-    const tools = () => invoke(workerRoute, {
-      method: 'POST', path: `/api/benchmark-worker/attempts/${ATTEMPT}/tools`, headers: {authorization: 'Bearer cred'}, body: {fence: 3}, ctx, auth: null,
+    const ask = part => () => invoke(workerRoute, {
+      method: 'POST', path: `/api/benchmark-worker/attempts/${ATTEMPT}/${part}`, headers: {authorization: 'Bearer cred'}, body: {fence: 3}, ctx, auth: null,
     });
-    return {tools, calls, sha};
+    return {tools: ask('tools'), score: ask('score'), calls, sha};
   };
 
   it('opens the first task of the session\'s plugin, with the package installed on the member\'s computer, for the session\'s `nanoagent`', async () => {
@@ -330,6 +254,16 @@ describe('`rush score`: POST /api/benchmark-worker/attempts/{id}/score and GET .
       plugin: {id: 'p', name: 'P', version: '1.0.0', sha256: sha}, task: {id: 'sum', plugin_name: 'P', ...pinned.task}, package: Buffer.from('zip').toString('base64'),
     }]);
     assert.deepEqual(calls.filter(([what]) => what !== 'open'), [['frame', SHA, {task: 'sum', text: 'Add two numbers'}], ['package', sha]]);
+  });
+
+  it('pins the case a scored `rush` run works, filled from the first task\'s description, with its prompt, its reference and the package', async () => {
+    const {score, calls, sha} = installedAs('zip', 'zip');
+    const {status, payload} = await score();
+    assert.equal(status, 200);
+    assert.deepEqual([payload.plugin, payload.task, payload.package], [{id: 'p', name: 'P', version: '1.0.0', sha256: sha}, {id: 'sum', plugin_name: 'P', ...pinned.task}, Buffer.from('zip').toString('base64')]);
+    assert.deepEqual([payload.case.case_id, payload.case.arguments, payload.case.reference], ['p-01', {x: 1, y: 2}, {sum: 3}]);
+    assert.match(payload.prompt, /^Task: d\.\n\nAdd one and two\n\nThe task's input:\n\{\n  "x": 1,\n  "y": 2\n\}[\s\S]*answer\.json/);
+    assert.deepEqual(calls.filter(([what]) => what === 'pin'), [['pin', SHA, {task: 'sum', text: 'Add two numbers', model: MODEL}]]);
   });
 
   it('refuses a package that is not the version installed', async () => {

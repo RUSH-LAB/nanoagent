@@ -7,7 +7,7 @@ lockfiles: []
 # The member's own terminal: bash in the case workspace, the gateway preset (shell.py), with the reference CLIs on its PATH (bin/:
 # nanoagent and mgen, claude, codex, pi, hermes, dsh) at the versions the reference harnesses lock, each installed by the worker the first time it is
 # typed and kept for every session after (nanoagent.uploaded.clis), so this build only copies these files.
-# `rush save` (rush.py) makes what the member built a harness of its own, built by this same build.sh and run by this shell.py.
+# `rush <command>` (rush.py) runs any other agent as one recorded run, scored when given the task's prompt.
 build:
   argv: [sh, build.sh]
   outputs: [shell.py, bashrc, rush.py, build.sh, nanoagent_tools.py, bin]

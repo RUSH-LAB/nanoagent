@@ -1,12 +1,12 @@
 """Integration test: the RUSH terminal (reference harness `shell`) in a real microVM, through the runner, relay, gateway and
-verifier, with a fake worker API that types at its PTY, then a rerun of the harness `rush save` made there.
+verifier, with a fake worker API that types at its PTY, and a scored `rush <command>` run there.
 
     .venv/bin/python -m pytest -p no:cacheprovider -m microsandbox test/uploaded/test_shell_microsandbox.py -s
 
 The member checks the toolchain (node, npm, git, curl), installs from npm and pip (internet egress), calls the model with the
 OpenAI SDK and with Claude Code from the preset environment, neither carrying the case's prompt (recorded by the gateway, the
-upstream the scripted MockProvider), writes a tiny agent that answers, runs it, saves it and exits. The saved harness then works
-the case on its own: its files back in the workspace, its packages installed from the lock by the build.
+upstream the scripted MockProvider), writes a tiny agent that answers, runs it as `rush python agent.py "$RUSH_PROMPT"` (the
+task's case pinned by the fake worker API, the run verified on the answer.json it leaves) and exits.
 """
 
 from __future__ import annotations
@@ -14,21 +14,18 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
-import io
 import json
 import os
 import shutil
 import sys
 import time
 import uuid
-import zipfile
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import pytest
 import runner_fakes as fx
-import yaml
 from nanoagent.plugin.package import pack
 from nanoagent.uploaded.endpoint import EndpointProfile
 from nanoagent.uploaded.plugin_package import isolate
@@ -47,7 +44,8 @@ HOME = Path(os.environ.get("RUSH_WORKER_HOME", Path.home() / "rush-worker"))
 MODEL = "test/model"
 TOKEN = "alpha"
 DIGEST = hashlib.sha256(TOKEN.encode()).hexdigest()[:12]
-AGENT = 'import json, hashlib; a = json.load(open("request.json")); json.dump({"digest": hashlib.sha256(a["token"].encode()).hexdigest()[:12]}, open("answer.json", "w"))'
+PROMPT = f'Task: probe.\n\nThe task\'s input:\n{{"token": "{TOKEN}"}}\n\nWrite your answer to /rush/workspace/answer.json.'
+AGENT = 'import json, hashlib, sys; a = json.loads(sys.argv[1].split("input:")[1].split("Write")[0]); json.dump({"digest": hashlib.sha256(a["token"].encode()).hexdigest()[:12]}, open("answer.json", "w"))'
 TYPED = [
     "node --version; npm --version; git --version; curl --version | head -n 1",
     "npm install -g --silent is-number && ls .rush/npm/lib/node_modules",
@@ -58,8 +56,7 @@ TYPED = [
     'claude -p "say ok"',
     "echo \"$OPENAI_BASE_URL $ANTHROPIC_BASE_URL $RUSH_MODEL\"; ls",
     f"printf '%s\\n' '{AGENT}' > agent.py",
-    "python agent.py && cat answer.json",
-    'rush save my-agent -- python agent.py "$RUSH_PROMPT"',
+    'rush python agent.py "$RUSH_PROMPT" && cat answer.json',
     "exit",
 ]
 
@@ -69,7 +66,7 @@ class Rush(fx.FakeRush):
 
     def __init__(self, source: bytes, package: bytes, typed: list[str]) -> None:
         super().__init__(source)
-        self._package, self._typed, self.saved = package, typed, []
+        self._package, self._typed = package, typed
 
     async def package(self, attempt_id: str, fence: int) -> bytes:
         return self._package
@@ -89,10 +86,12 @@ class Rush(fx.FakeRush):
         await reader.read()
         writer.close()
 
-    async def save_harness(self, attempt_id: str, fence: int, data: bytes) -> dict[str, Any]:
-        self.saved.append(data)
-        manifest = yaml.safe_load(zipfile.ZipFile(io.BytesIO(data)).read("harness.yaml"))
-        return {"source_sha256": hashlib.sha256(data).hexdigest(), "size": len(data), "harness": {"name": manifest["name"], "version": manifest["version"], "dialects": manifest["dialects"]}}
+    async def score_case(self, attempt_id: str, fence: int) -> dict[str, Any]:
+        return {
+            "case": {"case_id": "c1", "kind": "answer", "arguments": {"token": TOKEN, "wait_seconds": 0.0}, "reference": {"digest": DIGEST}},
+            "prompt": PROMPT, "plugin": {"id": "probe-plugin", "sha256": hashlib.sha256(self._package).hexdigest()}, "task": {"id": "probe"},
+            "package": base64.b64encode(self._package).decode(),
+        }  # fmt: skip
 
 
 async def attempt(root: Path, source: bytes, package: bytes, interactive: bool, provider: MockProvider, typed: list[str]) -> tuple[Rush, Any, Any]:
@@ -122,7 +121,7 @@ async def attempt(root: Path, source: bytes, package: bytes, interactive: bool, 
     return rush, result, handle
 
 
-async def test_the_terminal_is_scored_and_what_it_saved_reruns() -> None:
+async def test_the_terminal_records_its_agents_and_scores_a_rush_run_given_the_tasks_prompt() -> None:
     package = pack(fx.PROBE)
     root = HOME / "scratch" / f"shell-{uuid.uuid4().hex[:8]}"  # one worker's scratch, where builds are kept between attempts
     root.mkdir(parents=True)
@@ -142,28 +141,15 @@ async def scenario(root: Path, package: bytes) -> None:
         assert final["execution"] == {"status": "answered", "reason": None} and final["verdict"] == "pass", final
         assert "MODEL SAID: ok" in screen and "/api/v1 " in screen and "prompt.md" in screen and "request.json" in screen
         assert "v22." in screen and "git version" in screen and "curl " in screen and "is-number" in screen
-        # Claude Code is installed the first time it is typed, its progress on the terminal; the saved harness records it.
+        # Claude Code is installed the first time it is typed, its progress on the terminal.
         assert "installing Claude Code 2.1.325" in screen and "installed Claude Code 2.1.325" in screen and "2.1.325 (Claude Code)" in screen
         # The SDK's call and Claude Code's, neither carrying the case's prompt, both recorded.
         responses = rush.of("model_call.response")
         assert len(handle.ledger.calls) >= 2 and len(responses) == len(handle.ledger.calls) and all(r["terminal"] == "completed" for r in responses)
         assert {call["dialect"] for call in rush.of("model_call.admitted")} >= {"chat_completions", "anthropic_messages"}
-        [saved] = rush.saved
-        archive = zipfile.ZipFile(io.BytesIO(saved))
-        names = set(archive.namelist())
-        assert {"harness.yaml", "shell.py", "build.sh", "bin/claude", "executables", "workspace/agent.py", "requirements.txt"} <= names, names
-        assert not names & {"workspace/answer.json", "workspace/prompt.md", "workspace/request.json"}
-        assert "openai==" in archive.read("requirements.txt").decode()
-        assert set(json.loads(archive.read("clis.json"))) == {"claude"}
-        manifest = yaml.safe_load(archive.read("harness.yaml"))
-        assert manifest["run"]["argv"] == ["python", "/harness/shell.py", 'python agent.py "$RUSH_PROMPT"']
-        print(archive.read("harness.yaml").decode())
-
-        again, rerun, _ = await attempt(root, saved, package, False, provider, [])
-        print(again.screen.decode(errors="replace"))
-        assert rerun.outcome == "finalized", rerun
-        [final] = again.finalized
-        assert final["execution"] == {"status": "answered", "reason": None} and final["verdict"] == "pass", final
+        # The rush run, given the task's prompt, is verified on the answer it left: right.
+        assert "rush · python · right · " in screen, screen
+        assert any(data["verdict"] == "right" for data in rush.of("process.rush"))
 
         # The next terminal opens on the build the first kept and runs the install it made at once; one left without an answer
         # has no verdict.
@@ -172,4 +158,4 @@ async def scenario(root: Path, package: bytes) -> None:
         print(screen)
         assert "2.1.325 (Claude Code)" in screen and "installing" not in screen
         assert opened.outcome == "finalized" and cached.finalized[0]["execution"] == {"status": "execution_failed", "reason": "missing_result"}
-        assert len(list((root / "builds").iterdir())) == 2  # the terminal's build and the saved harness's
+        assert len(list((root / "builds").iterdir())) == 1  # the terminal's build, kept

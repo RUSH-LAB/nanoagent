@@ -104,8 +104,6 @@ describe('nanoagent.ui/v1 requests', () => {
       ['harness.resize', {runId: 'harness-1', terminal: 2, rows: 40, cols: 120}],
       ['harness.open', {runId: 'harness-1', terminal: 1, rows: 40, cols: 120}],
       ['harness.close', {runId: 'harness-1', terminal: 0}],
-      ['leaderboard', {}],
-      ['leaderboard.trace', {attemptId: SESSION}],
       ['traces.scope', {}],
       ['traces.download', {all: false}],
       ['terminal.archive', {attemptId: SESSION, chat: 'claude:aaaa', archived: true}],
@@ -150,7 +148,6 @@ describe('nanoagent.ui/v1 requests', () => {
       ['harness.open', {runId: 'harness-1', terminal: 0, rows: 40, cols: 120}],
       ['harness.open', {runId: 'harness-1', terminal: 32, rows: 40, cols: 120}],
       ['harness.close', {runId: 'harness-1', terminal: -1}],
-      ['leaderboard.trace', {attemptId: 'not-an-id'}],
       ['traces.download', {all: 'yes'}],
       ['terminal.archive', {attemptId: SESSION, chat: 'claude:aaaa'}],
       ['terminal.archive', {attemptId: SESSION, archived: true}],
@@ -394,25 +391,6 @@ describe('the bridge host', () => {
     });
     assert.deepEqual(calls.map(({path, init}) => [path, init?.method ?? 'GET']), [
       [SESSIONS, 'GET'], ['/api/benchmark/terminal-sessions?plugin_id=arxiv-source', 'GET'], [`${SESSIONS}/${SESSION}`, 'GET'], [SESSIONS, 'POST'],
-    ]);
-  });
-
-  it('reads the plugin\'s leaderboard, whatever task, and the whole trace of one of the member\'s runs on it, page by page', async () => {
-    const pages = {
-      0: {events: [{cursor: 1, kind: 'verifier.verdict', data: {correct: true}}], has_more: true},
-      1: {events: [{cursor: 2, kind: 'trajectory.step', data: {step_id: 1}}], has_more: false},
-    };
-    const {posted, calls, send} = await hostWith(path => (path.includes('/events')
-      ? Response.json(pages[new URL(path, 'http://rush').searchParams.get('after')])
-      : Response.json({harnesses: [{rank: 1, harness: 'nanoagent'}], cases: []})));
-    send('b', 'leaderboard', {});
-    send('t', 'leaderboard.trace', {attemptId: SESSION});
-    await until(() => posted.length === 2);
-    const byId = Object.fromEntries(messages(posted).map(message => [message.id, message.result]));
-    assert.deepEqual(byId, {b: {harnesses: [{rank: 1, harness: 'nanoagent'}], cases: []}, t: {events: [...pages[0].events, ...pages[1].events]}});
-    assert.deepEqual(calls.map(({path}) => path), [
-      '/api/benchmark/leaderboard?plugin_id=arxiv-source',
-      `/api/benchmark/attempts/${SESSION}/events?limit=1000&after=0`, `/api/benchmark/attempts/${SESSION}/events?limit=1000&after=1`,
     ]);
   });
 

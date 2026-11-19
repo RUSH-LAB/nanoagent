@@ -1,231 +1,221 @@
-"""`rush save <name> [-- <command>]`, in the RUSH terminal: what the member built there, saved in RUSH as a harness of theirs.
-`rush score [<name>]` scores it on the first task of the plugin whose page opened the session, through the attempt's services (the worker's `_score`). `rush help` says
-what the terminal holds.
+"""`rush <command> [<args>…]` in the RUSH terminal, a prefix like `time`: it runs the command in the foreground on a terminal of its
+own (a pty the member's keys and screen pass through, so interactive CLIs work) as one recorded run, named by its program
+(program_of, as the Dashboard names its chip). The worker (`/runs/…`, the runner's `_rush_run`) ties the run to this process, so its
+model calls, processes and output are its own, and gives it its title: a one-shot run's prompt argument, or the first line the member
+types into an interactive one. When it ends, one line says what it took (summary_line). A run given the plugin task's exact prompt
+(an argument holding "$RUSH_PROMPT", which bashrc pins the first time a command names it, `rush.py prompt`) is scored by the plugin's
+verifier on the answer.json it leaves: right or wrong, on its line and its Dashboard row. `rush help` says what the terminal holds.
+
 And `rush.py cli <name>`, which bin/'s wrappers run: where the worker installed the CLI <name> (nanoagent.uploaded.clis), installed
 there the first time, with its progress on the terminal. And `rush.py nanoagent|mgen [<args>]`, which bin/nanoagent and bin/mgen run:
 NanoAgent's own CLI (its chat, or `mgen`), the one agent here given the plugin's task tools.
-
-The snapshot is the case workspace as it is: every file in it but the case's own (prompt.md, request.json, answer.json) and
-.rush/, the terminal's own folder (packages installed with npm -g are not kept). A link in it fails the save, as a source holds
-none. The Python packages the member installed (`pip install`, which lands in .rush/python) are saved as a hashed requirements.txt
-for this VM's platform, which the harness's build installs from the worker's verified wheels, never from the network. The CLIs the session installed
-are recorded (clis.json), and the harness runs those same installs. The harness runs <command>, as typed after `--`, or
-the last command typed before `rush save`, in a workspace holding the saved files and the next case's prompt.md and
-request.json, with the same environment. It is sent to RUSH through the attempt's services, which check it as any source is
-checked, and becomes the member's harness <name>, at a version of its content.
 """
 
-import hashlib
-import io
+import fcntl
 import json
 import os
-import platform
 import re
-import stat
-import subprocess
+import select
+import shutil
+import signal
 import sys
-import tempfile
+import termios
+import time
+import tty
 import urllib.error
 import urllib.request
-import zipfile
+from collections.abc import Callable
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")  # the harness contract's HarnessName
-CASE_FILES = {"prompt.md", "request.json", "answer.json", ".rush"}
 INSTALLED = ".rush/clis"  # in the workspace: each CLI the session ran, by name, holding its install's key
-SAVED = ".rush/saved"  # in the workspace: the name of the harness this session last saved, which `rush score` scores by default
-UV = "/opt/rush-tools/uv"
-USAGE = "usage: rush save <name> [-- <command>] | rush score [<name>] | rush help"
-STATES = {"queued": "waiting for RUSH Lab's worker", "leased": "running"}  # a scored attempt's state, as `rush score` shows it
+PYTHON = re.compile(r"^python[0-9.]*$")
+TITLE_CHARS = 120  # as the Dashboard trims a title
 HELP = """\
 agents          nanoagent, claude, codex, pi, hermes and dsh install the first time you type them. dsh runs headless: dsh "<task>".
+                Run any other agent as rush <command> so it is recorded: rush aider, rush aider --message "…".
 nanoagent       NanoAgent's chat with this plugin's tools (only NanoAgent has them); mgen -p "<request>" asks it once.
 model           $RUSH_MODEL, through RUSH's gateway, which records every call. These are set for any SDK:
                 OPENAI_BASE_URL, OPENAI_API_KEY, ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY.
 packages        pip install and npm install -g put packages in .rush/.
 exit            (or Ctrl-D) ends the session; its model calls and commands are kept with it.
-rush save <name> [-- <command>]
-                save what you built here as a harness of yours that runs <command> (by default your last command).
-rush score [<name>]
-                score your harness <name> (by default the one you last saved here) on this plugin's first task, as
-                `nanoagent harness plugin=<plugin> harness=<name>` does; the run shows on the plugin's Leaderboard."""
+rush <command>  runs <command> as one recorded run, shown on the Dashboard under its program, and says its time, tokens and cost.
+rush <command> "$RUSH_PROMPT"
+                given this plugin's task prompt, the run is also scored right or wrong by the plugin's verifier."""
 
 
 def fail(message: str) -> None:
     sys.exit(f"rush: {message}")
 
 
-def command_of(argv: list[str]) -> str:
-    """What the saved harness runs: the text after `--` on the `rush save` line as typed, or the command typed before it."""
-    if "--" in argv:
-        line = os.environ["RUSH_LINE"]
-        if " -- " not in line:
-            fail("write the command after ` -- ` on the rush save line")
-        command = line.split(" -- ", 1)[1].strip()
-    else:
-        command = os.environ["RUSH_LAST"].strip()
-    if not command:
-        fail("no command to save: run your agent first, or give its command after --")
-    return command
-
-
-def workspace_files(workspace: Path) -> tuple[dict[str, bytes], list[str]]:
-    """The snapshot's files by their path in the workspace, and the executable ones."""
-    files: dict[str, bytes] = {}
-    executables: list[str] = []
-    links: list[str] = []
-    for root, directories, names in os.walk(workspace):
-        here = Path(root)
-        if here == workspace:
-            directories[:] = [name for name in directories if name not in CASE_FILES]
-            names = [name for name in names if name not in CASE_FILES]
-        for name in [*directories, *names]:
-            if (here / name).is_symlink():
-                links.append((here / name).relative_to(workspace).as_posix())
-        directories[:] = [name for name in directories if not (here / name).is_symlink()]
-        for name in names:
-            entry = here / name
-            mode = entry.lstat().st_mode
-            if stat.S_ISLNK(mode):
-                continue
-            relative = entry.relative_to(workspace).as_posix()
-            if not stat.S_ISREG(mode):
-                fail(f"{relative} is not a regular file")
-            files[relative] = entry.read_bytes()
-            if mode & stat.S_IXUSR:
-                executables.append(relative)
-    if links:
-        fail(f"a harness holds no links; remove or replace: {', '.join(sorted(links))}")
-    return files, sorted(executables)
-
-
-def requirements() -> bytes | None:
-    """The member's installed packages, pinned and hashed for this platform's wheels, or None when they installed none."""
-    frozen = subprocess.run([sys.executable, "-m", "pip", "freeze", "--user", "--exclude-editable"], capture_output=True, text=True, check=True).stdout
-    if not frozen.strip():
-        return None
-    with tempfile.TemporaryDirectory() as scratch:
-        (Path(scratch) / "requirements.in").write_text(frozen, encoding="utf-8")
-        target = f"{platform.machine()}-unknown-linux-gnu"
-        version = f"{sys.version_info.major}.{sys.version_info.minor}"
-        done = subprocess.run(
-            [UV, "pip", "compile", "requirements.in", "--generate-hashes", "--only-binary", ":all:", "--python-platform", target,
-             "--python-version", version, "--no-header", "--quiet", "-o", "requirements.txt"],
-            cwd=scratch, env={**os.environ, "UV_CACHE_DIR": f"{scratch}/cache"}, capture_output=True, text=True,
-        )  # fmt: skip
-        if done.returncode:
-            fail(f"your packages cannot be locked to wheels for {target}:\n{done.stderr.strip()}")
-        return (Path(scratch) / "requirements.txt").read_bytes()
-
-
-# The terminal's own files, which build and run a saved harness as they build and run the terminal (build.sh).
-TERMINAL = ("shell.py", "bashrc", "rush.py", "build.sh", "nanoagent_tools.py")
-CLIS = ("nanoagent", "mgen", "claude", "codex", "pi", "hermes", "dsh")
-
-
-def manifest(name: str, version: str, command: str, locked: bool, clis: bool = False) -> str:
-    outputs = [*TERMINAL, "bin", "workspace", "executables", *(["packages"] if locked else []), *(["clis.json"] if clis else [])]
-    return "\n".join([
-        "protocol: rush.harness.v1",
-        f"name: {name}",
-        f"version: {json.dumps(version)}",
-        "dialects: [chat_completions, responses, anthropic_messages]",
-        "toolchain: shell-1",
-        f"lockfiles: {json.dumps(['requirements.txt'] if locked else [])}",
-        "# Saved by `rush save` in the RUSH terminal: the files built there (workspace/) and the packages installed (requirements.txt).",
-        "build:",
-        "  argv: [sh, build.sh]",
-        f"  outputs: {json.dumps(outputs)}",
-        "run:",
-        f"  argv: {json.dumps(['python', '/harness/shell.py', command])}",
-        "",
-    ])  # fmt: skip
-
-
-def save(name: str, command: str) -> None:
+def service(path: str, body: dict, timeout: float = 600) -> dict:
+    """The attempt services' answer to ``body`` at ``path`` (`/runs/…`), or the end of rush with why they refused it."""
     request = json.loads(Path(os.environ["RUSH_REQUEST"]).read_text(encoding="utf-8"))
-    files, executables = workspace_files(Path(request["workspace"]))
-    locked = requirements()
-    installed = Path(request["workspace"]) / INSTALLED
-    clis = {entry.name: entry.read_text(encoding="utf-8") for entry in sorted(installed.iterdir())} if installed.is_dir() else {}
-    parts = {f"workspace/{path}": data for path, data in files.items()}
-    parts |= {path: (HERE / path).read_bytes() for path in TERMINAL} | {f"bin/{cli}": (HERE / "bin" / cli).read_bytes() for cli in CLIS}
-    parts["executables"] = "".join(f"{path}\n" for path in executables).encode()
-    if locked is not None:
-        parts["requirements.txt"] = locked
-    if clis:
-        parts["clis.json"] = (json.dumps(clis, indent=2) + "\n").encode()
-    digest = hashlib.sha256(command.encode())
-    for path in sorted(parts):
-        digest.update(b"\0" + path.encode() + b"\0" + hashlib.sha256(parts[path]).digest())
-    version = digest.hexdigest()[:12]
-    parts["harness.yaml"] = manifest(name, version, command, locked is not None, bool(clis)).encode()
-    archive = io.BytesIO()
-    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as out:
-        out.writestr(zipfile.ZipInfo("workspace/"), b"")
-        for path in sorted(parts):
-            out.writestr(path, parts[path])
-    url = request["exec_url"].removesuffix("/exec") + "/harness"
-    sent = urllib.request.Request(url, data=archive.getvalue(), method="POST", headers={
-        "Content-Type": "application/zip", "Authorization": f"Bearer {os.environ['RUSH_ATTEMPT_TOKEN']}",
-    })  # fmt: skip
-    try:
-        with urllib.request.urlopen(sent, timeout=300) as response:
-            saved = json.loads(response.read())
-    except urllib.error.HTTPError as error:
-        body = error.read().decode(errors="replace")
-        try:
-            body = json.loads(body)["error"]["message"]  # the attempt services' refusal, RUSH's passed on
-        except (ValueError, KeyError, TypeError):
-            pass
-        fail(f"RUSH did not save it: {error.code} {body}")
-    (Path(request["workspace"]) / SAVED).write_text(name, encoding="utf-8")
-    packages = 0 if locked is None else sum(1 for line in locked.decode().splitlines() if "==" in line)
-    print(f"saved {saved['harness']['name']}@{saved['harness']['version']}: {len(files)} files, {packages} packages, runs: {command}")
-    print(f"score it on this plugin's first task with `rush score`, or run it with `nanoagent harness plugin=<plugin> harness={name} prompt=...`")
-
-
-def score(name: str | None) -> None:
-    """Scores the harness ``name`` (by default the one this session last saved) on the first task of the plugin whose page opened
-    the session: RUSH runs it once, as
-    `nanoagent harness` does, the task's description its request, and the plugin's verifier scores it."""
-    request = json.loads(Path(os.environ["RUSH_REQUEST"]).read_text(encoding="utf-8"))
-    if name is None:
-        saved = Path(request["workspace"]) / SAVED
-        if not saved.is_file():
-            fail("no harness saved in this session to score: `rush save <name>` first, or name one with `rush score <name>`")
-        name = saved.read_text(encoding="utf-8")
-    sent = urllib.request.Request(request["exec_url"].removesuffix("/exec") + "/score", data=json.dumps({"name": name}).encode(), method="POST", headers={
+    sent = urllib.request.Request(request["exec_url"].removesuffix("/exec") + path, data=json.dumps(body).encode(), method="POST", headers={
         "Content-Type": "application/json", "Authorization": f"Bearer {os.environ['RUSH_ATTEMPT_TOKEN']}",
     })  # fmt: skip
-    print(f"scoring {name} on this plugin's first task: the first run of a harness builds it", flush=True)
     try:
-        with urllib.request.urlopen(sent, timeout=3600) as response:
-            for line in response:
-                event = json.loads(line)
-                if "error" in event:
-                    fail(event["error"])
-                if "state" in event:
-                    print(f"  {STATES.get(event['state'], event['state'])}…", flush=True)
-                elif "line" in event:
-                    print(event["line"])
-                    if event["explanation"]:
-                        print(f"  {event['explanation']}")
-                    return
+        with urllib.request.urlopen(sent, timeout=timeout) as response:
+            return json.loads(response.read())
     except urllib.error.HTTPError as error:
-        fail(f"RUSH did not score {name}: {error.code} {error.read().decode(errors='replace')}")
+        said = error.read().decode(errors="replace")
+        try:
+            said = json.loads(said)["error"]["message"]
+        except (ValueError, KeyError, TypeError):
+            pass
+        fail(said)
     except OSError as error:
-        fail(f"scoring {name} stopped: {error}")
-    fail(f"scoring {name} ended without a result")
+        fail(f"RUSH Lab could not be reached: {error}")
+
+
+def program_of(argv: list[str]) -> str:
+    """The program a command runs, as the Dashboard names its chip: argv[0]'s name (aider), a module run with `python -m` by that
+    module, and a package run with `npx` by that package's command (`npx @scope/tool@1` is tool)."""
+    name = os.path.basename(argv[0])
+    if PYTHON.match(name) and "-m" in argv[1:-1]:
+        return argv[argv.index("-m") + 1]
+    if name == "npx":
+        package = next((arg for arg in argv[1:] if not arg.startswith("-")), None)
+        if package is not None:
+            return os.path.basename(re.sub(r"(.)@[^/]*$", r"\1", package))
+    return name
+
+
+def is_scored(argv: list[str], prompt: str | None) -> bool:
+    """Whether a command was given the plugin task's exact prompt (as "$RUSH_PROMPT" expands to) in one of its arguments."""
+    return bool(prompt) and any(prompt in arg for arg in argv[1:])
+
+
+def trimmed(text: str) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= TITLE_CHARS else f"{text[: TITLE_CHARS - 1]}…"
+
+
+def prompt_argument(argv: list[str]) -> str | None:
+    """A one-shot run's title: its prompt argument (the longest argument holding a space), or None for a command given none (an
+    interactive run, titled by the first line the member types)."""
+    spoken = [arg for arg in argv[1:] if " " in arg.strip()]
+    return trimmed(max(spoken, key=len)) if spoken else None
+
+
+def thousands(count: int) -> str:
+    return f"{count / 1000:.1f}k" if count >= 1000 else str(count)
+
+
+def summary_line(program: str, seconds: float, ran: dict) -> str:
+    """`rush · <program> · <time> · <in>/<out> tokens · $<cost>`, a scored run's verdict (right or wrong) after its program. A cost
+    the gateway does not know yet (a call not settled) reads $—."""
+    cost = "$—" if ran["cost_usd"] is None else f"${ran['cost_usd']:.4f}"
+    verdict = [] if ran.get("verdict") is None else [ran["verdict"]]
+    tokens = f"{thousands(ran['input_tokens'])}/{thousands(ran['output_tokens'])} tokens"
+    return " · ".join(["rush", program, *verdict, f"{seconds:.0f} s", tokens, cost])
+
+
+class FirstLine:
+    """The first line the member types into an interactive run, from the keys passed to it: printable characters up to Enter, with
+    Backspace applied and escape sequences (arrows and the like) left out."""
+
+    def __init__(self) -> None:
+        self.text = ""
+        self.escape = False
+        self.line: str | None = None
+
+    def feed(self, data: bytes) -> str | None:
+        """The line, once, when ``data`` ends it; None before and after."""
+        if self.line is not None:
+            return None
+        for char in data.decode(errors="ignore"):
+            if self.escape:
+                self.escape = not (char.isalpha() or char == "~")
+            elif char == "\x1b":
+                self.escape = True
+            elif char in "\r\n" and self.text.strip():
+                self.line = trimmed(self.text)
+                return self.line
+            elif char in "\x7f\b":
+                self.text = self.text[:-1]
+            elif char.isprintable():
+                self.text += char
+        return None
+
+
+def interact(argv: list[str], heard: Callable[[bytes], None]) -> int:
+    """Runs ``argv`` on a pty of its own, passing the member's keys (each also given to ``heard``) and its output through, its window
+    the terminal's as it changes; its exit code (128 + the signal that killed it)."""
+    pid, master = os.forkpty()
+    if pid == 0:
+        os.execvp(argv[0], argv)
+    saved = None
+    if os.isatty(0):
+
+        def resize(*_: object) -> None:
+            fcntl.ioctl(master, termios.TIOCSWINSZ, fcntl.ioctl(0, termios.TIOCGWINSZ, b"\0" * 8))
+
+        resize()
+        signal.signal(signal.SIGWINCH, resize)
+        saved = termios.tcgetattr(0)
+        tty.setraw(0)
+    try:
+        inputs = [master, 0]
+        while True:
+            ready = select.select(inputs, [], [])[0]
+            if master in ready:
+                try:
+                    data = os.read(master, 65536)
+                except OSError:  # EIO: the program and all it started closed the pty
+                    data = b""
+                if not data:
+                    break
+                os.write(1, data)
+            if 0 in ready:
+                data = os.read(0, 65536)
+                if not data:
+                    inputs.remove(0)
+                    continue
+                heard(data)
+                while data:
+                    data = data[os.write(master, data) :]
+    finally:
+        if saved is not None:
+            termios.tcsetattr(0, termios.TCSAFLUSH, saved)
+    code = os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1])
+    return 128 - code if code < 0 else code
+
+
+def run(argv: list[str]) -> None:
+    """`rush <command>`: the run, then its line; rush exits as the command did."""
+    if not argv:
+        fail("usage: rush <command> [<args>…], or rush help")
+    if argv == ["help"]:
+        print(HELP)
+        return
+    if shutil.which(argv[0]) is None:
+        fail(f"{argv[0]}: command not found")
+    prompt = os.environ.get("RUSH_PROMPT")
+    program, scored, title = program_of(argv), is_scored(argv, prompt), prompt_argument(argv)
+    started = service("/runs/start", {"pid": os.getpid(), "title": title})
+    first = FirstLine()
+
+    def heard(data: bytes) -> None:
+        if title is None and (line := first.feed(data)) is not None:
+            service("/runs/title", {"run": started["run"], "title": line})
+
+    began = time.monotonic()
+    code = interact(argv, heard)
+    seconds = time.monotonic() - began
+    if scored:
+        print(f"rush: scoring {program} on this plugin's task…", file=sys.stderr, flush=True)
+    ran = service("/runs/end", {"run": started["run"], "exit_code": code, "scored": scored})
+    print(summary_line(program, seconds, ran))
+    if ran.get("explanation"):
+        print(f"  {ran['explanation']}")
+    sys.exit(code)
 
 
 def installed(name: str) -> str:
     """Where the CLI ``name`` is installed, installing it first if it is not yet (its progress on stderr, the terminal)."""
     request = json.loads(Path(os.environ["RUSH_REQUEST"]).read_text(encoding="utf-8"))
-    recorded = HERE / "clis.json"  # a saved harness runs the installs its session ran
-    expect = json.loads(recorded.read_text(encoding="utf-8")).get(name) if recorded.is_file() else None
-    sent = urllib.request.Request(request["exec_url"].removesuffix("/exec") + "/cli", data=json.dumps({"name": name, "expect": expect}).encode(), method="POST", headers={
+    sent = urllib.request.Request(request["exec_url"].removesuffix("/exec") + "/cli", data=json.dumps({"name": name}).encode(), method="POST", headers={
         "Content-Type": "application/json", "Authorization": f"Bearer {os.environ['RUSH_ATTEMPT_TOKEN']}",
     })  # fmt: skip
     label = name
@@ -305,17 +295,13 @@ def main(argv: list[str]) -> None:
     if argv[:1] in (["nanoagent"], ["mgen"]):
         nanoagent(argv[0], argv[1:])
         return
-    if argv == ["help"]:
-        print(HELP)
+    if argv == ["prompt"]:  # bashrc's RUSH_PROMPT: the plugin task's prompt, its case pinned now (RUSH fills it from the task)
+        print("rush: pinning this plugin's task…", file=sys.stderr, flush=True)
+        print(service("/runs/prompt", {})["prompt"], end="")
         return
-    if argv[:1] == ["score"] and len(argv) <= 2:
-        score(argv[1] if len(argv) == 2 else None)
-        return
-    if len(argv) < 2 or argv[0] != "save" or (len(argv) > 2 and argv[2] != "--"):
-        fail(USAGE)
-    if not NAME.match(argv[1]):
-        fail(f"{argv[1]!r} is not a harness name: lowercase letters, digits, '.', '_' and '-', starting with a letter or digit")
-    save(argv[1], command_of(argv))
+    if argv[:1] != ["run"]:
+        fail(f"rush.py takes run, prompt, cli, nanoagent or mgen, not {argv[:1]}")
+    run(argv[1:])
 
 
 if __name__ == "__main__":

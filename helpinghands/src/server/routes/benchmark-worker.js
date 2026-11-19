@@ -9,13 +9,14 @@
 const crypto = require('crypto');
 const {BenchmarkError} = require('../benchmark/errors');
 const {parseJson, stringifyJson} = require('../benchmark/json');
-const {UUID, jsonBody, rawBody, sendFailure} = require('../benchmark/http');
+const {UUID, jsonBody, sendFailure} = require('../benchmark/http');
 const v = require('../benchmark/validate');
-const {MAX_SOURCE_BYTES, positiveSetting} = require('../benchmark/limits');
-const {uploadedHarnessOf} = require('../benchmark/harness');
+const {positiveSetting} = require('../benchmark/limits');
+const {renderCase} = require('../benchmark/plan');
 const {listen, wake} = require('../benchmark/wake');
 const {PIN_TIMEOUT_MS, RUNNER_OFFLINE} = require('../ai');
-const {openApp, startSession} = require('./benchmark');
+const aiSettings = require('../ai-settings');
+const {SESSION_ENDPOINT, openApp} = require('./benchmark');
 
 const MAX_PAYLOAD_BYTES = positiveSetting('BENCHMARK_PAYLOAD_MAX_BYTES', 16 * 1024 * 1024);
 // A session's watch waits this long for it to be canceled, its lease lost or it sealed, looking every WATCH_POLL_MS.
@@ -29,8 +30,7 @@ const REDACTIONS = ['none', 'redacted', 'truncated'];
 const ROUTE = new RegExp([
   '^/api/benchmark-worker/(?:',
   '(claim|started)',
-  '|attempts/([^/]+)/(renew|source|package|case|admissions|events|terminal|terminal-link|watch|harness|score|tools|spans|finalize|accounting)',
-  '|attempts/([^/]+)/score/([^/]+)',
+  '|attempts/([^/]+)/(renew|source|package|case|admissions|events|terminal|terminal-link|watch|score|tools|spans|finalize|accounting)',
   '|attempts/([^/]+)/admissions/([^/]+)/(settle)',
   '|attempts/([^/]+)/payloads/([^/]+)',
   ')$',
@@ -51,6 +51,32 @@ function sendBytes(res, {data, sha256}) {
   res.end(data);
 }
 
+/** The plugin whose page opened Terminal session `attemptId`, opened on the member's computer: its first task and its frame. */
+async function terminalPlugin(ctx, worker, userId, attemptId, fence) {
+  const {workspaceId, pluginId} = await worker.terminalSession(userId, attemptId, fence);
+  const computer = ctx.runners.computer(userId);
+  if (!computer) throw new BenchmarkError(503, 'runner_offline', RUNNER_OFFLINE);
+  const {sha256, tasks: [first]} = await openApp(ctx, {userId, workspaceId}, pluginId, computer);
+  const framed = await computer.benchmarkSessionFrame(sha256, JSON.stringify({task: first.id, text: first.description}));
+  if (framed.error) throw new BenchmarkError(framed.status, 'app_unavailable', framed.error);
+  return {computer, frame: parseJson(framed.value), sha256, first};
+}
+
+/** The plugin and first task of `frame` with the package installed on the member's `computer`, whose bytes must be its sha256. */
+async function installedPlugin(computer, frame) {
+  const installed = await computer.installedPackage(frame.package_sha256);
+  if (installed.error) throw new BenchmarkError(installed.status, 'package_unavailable', `${frame.plugin_id}'s installed package could not be read: ${installed.error}`);
+  const data = installed.value;
+  if (crypto.createHash('sha256').update(data).digest('hex') !== frame.package_sha256) {
+    throw new BenchmarkError(502, 'package_unavailable', `${frame.plugin_id}'s installed package is not the version installed (${frame.package_sha256})`);
+  }
+  return {
+    plugin: {id: frame.plugin_id, name: frame.plugin_name, version: frame.version, sha256: frame.package_sha256},
+    task: {id: frame.task_id, plugin_name: frame.plugin_name, ...frame.task},
+    package: data.toString('base64'),
+  };
+}
+
 module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
   if (!pathname.startsWith('/api/benchmark-worker/')) return undefined;
   const {readBody, benchmark: services} = ctx;
@@ -64,7 +90,7 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
     const match = ROUTE.exec(pathname);
     if (!match) return json(res, 404, {error: 'Not found', code: 'not_found'});
     const {worker} = services;
-    const [, claim, jobId, jobPart, scoringAttempt, scoredAttempt, settleAttempt, callId, , payloadAttempt, sha256] = match;
+    const [, claim, jobId, jobPart, settleAttempt, callId, , payloadAttempt, sha256] = match;
     const body = () => jsonBody(req, readBody);
     const wanted = (method, id) => {
       if (req.method !== method) throw new BenchmarkError(405, 'method_not_allowed', 'Method not allowed');
@@ -143,50 +169,31 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
         res.writeHead(204);
         return res.end();
       }
-      // A harness the member saved from the attempt's Terminal session (`rush save`): their own, as if uploaded to its workspace.
-      if (jobPart === 'harness') {
-        wanted('POST', jobId);
-        const fence = fenceHeader(req);
-        req.setTimeout(120_000);
-        const data = await rawBody(req, MAX_SOURCE_BYTES, 'source_too_large');
-        const {workspaceId} = await worker.terminalSession(userId, jobId, fence);
-        return json(res, 201, await services.repository.saveSource({userId, workspaceId}, data, uploadedHarnessOf(data)));
-      }
-      // `rush score [<name>]` in the attempt's Terminal session: the member's harness <name> worked once on the first task of the plugin
-      // whose page opened the session, as `nanoagent harness plugin=<p> harness=<name> prompt=<the task's description>` works it, scored
-      // and on the plugin's Leaderboard.
+      // The case a scored `rush <command>` in the attempt's Terminal session works (its "$RUSH_PROMPT"): the first task of the plugin
+      // whose page opened the session, its case filled from the task's description and pinned on the member's computer as a one-shot
+      // session's is; the case with its private reference, the coding prompt rendered for it, and the package installed there, with
+      // which the worker verifies the run.
       if (jobPart === 'score') {
         wanted('POST', jobId);
-        const input = v.object(await body(), 'The body');
-        const {workspaceId, pluginId} = await worker.terminalSession(userId, jobId, v.fenceOf(input));
-        const computer = ctx.runners.computer(userId);
-        if (!computer) throw new BenchmarkError(503, 'runner_offline', RUNNER_OFFLINE);
-        const [task] = (await openApp(ctx, {userId, workspaceId}, pluginId, computer)).tasks;
-        return json(res, 201, await startSession(ctx, {userId, workspaceId}, {pluginId, taskId: task.id, harness: v.string(input.harness, 'harness'), interactive: false, text: task.description}));
+        const {computer, frame, sha256, first} = await terminalPlugin(ctx, worker, userId, jobId, v.fenceOf(v.object(await body(), 'The body')));
+        const pinned = await computer.benchmarkSession(sha256, JSON.stringify({task: first.id, text: first.description, model: aiSettings.MODEL}));
+        if (pinned.error) throw new BenchmarkError(pinned.status, 'pin_failed', pinned.error);
+        const publication = v.benchmarkPublication({...parseJson(pinned.value), model: aiSettings.MODEL.model, endpoint_profile: SESSION_ENDPOINT});
+        const [c] = publication.cases;
+        const prompt = renderCase({
+          benchmark: {task: publication.task, context: publication.context, plugin: {name: publication.plugin_name}}, policy: 'coding', text: publication.coding_template, c,
+        });
+        return json(res, 200, {
+          ...await installedPlugin(computer, frame), case: {...c, reference: publication.private[c.case_id]}, prompt: prompt.user,
+        });
       }
       // The plugin's tools a Terminal session's `nanoagent` asks for (the worker starts them then, for it alone): the first task of the
-      // plugin whose page opened the session, opened on the member's computer as `rush score` opens it, and the package installed there
+      // plugin whose page opened the session, opened on the member's computer as a scored `rush` run's is, and the package installed there
       // (as the Session tab's agent runs it), whose bytes must be the sha256 it is installed as.
       if (jobPart === 'tools') {
         wanted('POST', jobId);
-        const {workspaceId, pluginId} = await worker.terminalSession(userId, jobId, v.fenceOf(v.object(await body(), 'The body')));
-        const computer = ctx.runners.computer(userId);
-        if (!computer) throw new BenchmarkError(503, 'runner_offline', RUNNER_OFFLINE);
-        const {sha256, tasks: [first]} = await openApp(ctx, {userId, workspaceId}, pluginId, computer);
-        const framed = await computer.benchmarkSessionFrame(sha256, JSON.stringify({task: first.id, text: first.description}));
-        if (framed.error) throw new BenchmarkError(framed.status, 'app_unavailable', framed.error);
-        const frame = parseJson(framed.value);
-        const installed = await computer.installedPackage(frame.package_sha256);
-        if (installed.error) throw new BenchmarkError(installed.status, 'package_unavailable', `${frame.plugin_id}'s installed package could not be read: ${installed.error}`);
-        const data = installed.value;
-        if (crypto.createHash('sha256').update(data).digest('hex') !== frame.package_sha256) {
-          throw new BenchmarkError(502, 'package_unavailable', `${frame.plugin_id}'s installed package is not the version installed (${frame.package_sha256})`);
-        }
-        return json(res, 200, {
-          plugin: {id: frame.plugin_id, name: frame.plugin_name, version: frame.version, sha256: frame.package_sha256},
-          task: {id: frame.task_id, plugin_name: frame.plugin_name, ...frame.task},
-          package: data.toString('base64'),
-        });
+        const {computer, frame} = await terminalPlugin(ctx, worker, userId, jobId, v.fenceOf(v.object(await body(), 'The body')));
+        return json(res, 200, await installedPlugin(computer, frame));
       }
       wanted('POST', jobId);
       const input = await body();
@@ -221,16 +228,6 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
       }
       const {callId: id, version, record} = v.accountingBody(input);
       return json(res, 200, await worker.putAccounting(userId, jobId, id, version, record));
-    }
-    // How a run `rush score` started from the attempt's Terminal session is going: its attempt, and what its model calls cost.
-    if (scoringAttempt !== undefined) {
-      wanted('GET', scoringAttempt);
-      if (!UUID.test(scoredAttempt)) throw new BenchmarkError(404, 'unknown_attempt', 'No such attempt');
-      const {workspaceId} = await worker.terminalSession(userId, scoringAttempt, fenceHeader(req));
-      const context = {userId, workspaceId};
-      const attempt = await services.repository.attempt(context, scoredAttempt);
-      if (!attempt) throw new BenchmarkError(404, 'unknown_attempt', 'No such attempt');
-      return json(res, 200, {attempt, totals: (await services.repository.accounting(context, scoredAttempt)).totals});
     }
     if (settleAttempt !== undefined) {
       wanted('POST', settleAttempt);

@@ -295,10 +295,14 @@ def _commands(n: Normalized, payloads: Mapping[str, bytes]) -> None:
 def _processes(n: Normalized) -> None:
     info: dict[tuple[int, int], dict[str, Any]] = {}
     order: list[tuple[int, int]] = []
+    said: list[tuple[int, int, dict[str, str]]] = []
     for r in n.records:
         if r.source != R.PROCESS:
             continue
         d = r.data
+        if r.kind == R.PROCESS_RUSH:
+            said.append((int(d["tgid"]), int(d["time_ns"]), {key: str(d[key]) for key in ("title", "verdict") if d.get(key) is not None}))
+            continue
         try:
             ident = (int(d["tgid"]), int(d["start_time"]))
         except (KeyError, TypeError, ValueError):
@@ -319,10 +323,18 @@ def _processes(n: Normalized) -> None:
                 rec["launch_id"] = d["launch_id"]
         elif r.kind == R.PROCESS_EXIT:
             rec["end"], rec["exit_code"], rec["signal"] = t, d.get("exit_code"), d.get("signal")
+    # What is said of a `rush` run is the process's with its tgid that ran then (the latest such to start): its records may come after.
+    for tgid, at, facts in said:
+        running = [ident for ident in order if ident[0] == tgid and (info[ident].get("start") or 0) <= at and (info[ident].get("end") is None or info[ident]["end"] >= at)]
+        if running:
+            info[max(running, key=lambda ident: info[ident].get("start") or 0)].update(facts)
     for ident in order:
         p = info[ident]
         n.processes.append(
-            ProcessInfo(ident, p.get("parent"), p.get("argv"), p.get("cwd"), p.get("launch_id"), p.get("start"), p.get("end"), p.get("exit_code"), p.get("signal"), tuple(p["evidence"]))
+            ProcessInfo(
+                ident, p.get("parent"), p.get("argv"), p.get("cwd"), p.get("launch_id"), p.get("start"), p.get("end"), p.get("exit_code"), p.get("signal"),
+                tuple(p["evidence"]), p.get("title"), p.get("verdict"),
+            )
         )
 
 

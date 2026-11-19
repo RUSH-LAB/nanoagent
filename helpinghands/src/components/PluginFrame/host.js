@@ -45,9 +45,6 @@ import {
  * session that holds it (`{resume, chat}`) or, one that cannot be reopened, its agent anew with why (`{start, line}`). Once RUSH has
  * queued it, `harness.session` names its attempt.
  *
- * The Leaderboard tab reads the harnesses ranked on the plugin, whatever task (`leaderboard`), and the trace of one of the member's
- * own runs on it (`leaderboard.trace`, its attempt's events).
- *
  * The Dashboard lists the chats the member's Harness tab sessions on the plugin held beside their own chats (`sessions.list`'s
  * `terminals`, each a conversation of an agent CLI), and archives or restores one as it does a chat (`terminal.archive`, by its key).
  * Its Download traces (JSON) downloads the plugin's traces as JSON Lines (`traces.download`): the member's own, or every member's for a
@@ -304,22 +301,6 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     'harness.close': async ({runId, terminal}) => toTerminal(runId, {terminal, close: true}),
     // A chat clicked on the Dashboard, in the next terminal of the session, whose output comes over the link as the others' does.
     'harness.reopen': async ({runId, rows, cols, reopen}) => toTerminal(runId, {reopen, rows, cols}),
-    'leaderboard': async () => {
-      const response = await request(`/api/benchmark/leaderboard?${new URLSearchParams({plugin_id: plugin.id})}`);
-      if (!response.ok) throw await failed(response, 'Could not read the leaderboard');
-      return {result: await response.json()};
-    },
-    'leaderboard.trace': async ({attemptId}) => {
-      const events = [];
-      for (let more = true; more;) {
-        const response = await request(`/api/benchmark/attempts/${attemptId}/events?limit=1000&after=${events.at(-1)?.cursor ?? 0}`);
-        if (!response.ok) throw await failed(response, 'Could not read the run\'s trace');
-        const page = await response.json();
-        events.push(...page.events);
-        more = page.has_more;
-      }
-      return {result: {events}};
-    },
     'traces.scope': async () => {
       const response = await request('/api/users/me');
       if (!response.ok) throw await failed(response, 'Could not read your role');

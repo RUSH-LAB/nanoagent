@@ -357,7 +357,7 @@ def _processes(j: _Join) -> None:
         status = "unfinished" if p.end_ns is None else ("ok" if p.exit_code == 0 and p.signal is None else "error")
         j.add(id=pid[ident], kind="process", name=base, parent=parent, scope=None, status=status, start_ns=p.start_ns, end_ns=p.end_ns, provenance=OBSERVED, target=p.argv[0] if p.argv else None,
               attributes={"tgid": ident[0], "start_time": ident[1], "argv": p.argv, "cwd": p.cwd, "exit_code": p.exit_code, "signal": p.signal, "launch_id": p.launch_id,
-                          "linked_command": parent_link[0] if parent_link else None, "evidence": list(p.evidence)})  # fmt: skip
+                          "title": p.title, "verdict": p.verdict, "linked_command": parent_link[0] if parent_link else None, "evidence": list(p.evidence)})  # fmt: skip
         if parent_link:
             j.links.append(LinkOut("command_process", parent_link[0], pid[ident], parent_link[1],
                                    {"launch_id": p.launch_id, "exit_code": p.exit_code, "signal": p.signal, "evidence": list(p.evidence)}))  # fmt: skip

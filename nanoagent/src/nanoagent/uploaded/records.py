@@ -29,6 +29,7 @@ CPU_COUNTERS = "cpu.counters"
 PROCESS_CLONE = "process.clone"
 PROCESS_EXEC = "process.exec"
 PROCESS_EXIT = "process.exit"
+PROCESS_RUSH = "process.rush"
 
 
 class RecordError(ValueError):
@@ -224,3 +225,16 @@ class ProcessExit(Fact):
     time_ns: int
     exit_code: int | None = None
     signal: int | None = None
+
+
+@dataclass(frozen=True)
+class ProcessRush(Fact):
+    """What is known of a `rush <command>` run, the process ``tgid`` running at ``time_ns`` (the shell's rush.py): its ``title`` (its
+    prompt argument, or the first line the member typed into it), or its ``verdict`` (right or wrong, a run given the task's prompt)."""
+
+    source: ClassVar[str] = PROCESS
+    kind: ClassVar[str] = PROCESS_RUSH
+    tgid: int
+    time_ns: int
+    title: str | None = None
+    verdict: str | None = None

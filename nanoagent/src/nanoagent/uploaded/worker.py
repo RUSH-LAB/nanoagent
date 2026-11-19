@@ -46,7 +46,7 @@ LOG = logging.getLogger(__name__)
 # The one place the worker's OpenRouter key comes from: the worker's environment, set by RUSH Lab from the member's settings.
 OPENROUTER_KEY_ENV = "OPENROUTER_API_KEY"
 # The slots kept for a session someone works at (a Terminal), apart from `concurrency`: RUSH ends a member's other interactive
-# sessions when they open one, and a scored run (`rush score`, the one-shot `nanoagent harness`, a benchmark) runs beside it.
+# sessions when they open one, and a scored run (the one-shot `nanoagent harness`, a benchmark) runs beside it.
 INTERACTIVE_SLOTS = 1
 
 

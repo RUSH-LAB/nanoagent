@@ -348,20 +348,6 @@ function createPostgresBenchmark({pool}) {
       });
       return {source_sha256: sha256, size: data.length, harness};
     },
-    /**
-     * The latest version of the caller's own harness `name` whose source this workspace keeps, as `saveSource` answers: a harness
-     * a Terminal session saved (no reference harness's name is ever a member's). Null when they have none.
-     */
-    async savedHarness(context, name) {
-      return member(context, async client => {
-        const row = (await client.query(
-          `select s.sha256, s.size, s.harness_name, s.harness_version, s.dialects from benchmark_harness_version v
-             join benchmark_source s on s.sha256 = v.source_sha256 and s.user_id = v.owner_id and s.workspace_id = $3
-            where v.owner_id = $1 and v.name = $2 order by v.created_at desc limit 1`, [context.userId, name, context.workspaceId],
-        )).rows[0];
-        return row ? {source_sha256: row.sha256, size: row.size, harness: {name: row.harness_name, version: row.harness_version, dialects: row.dialects}} : null;
-      });
-    },
     /** The caller's source `sha256`: `{harness: {name, version, dialects}}`, or null. */
     async source(context, sha256) {
       return member(context, async client => {
@@ -652,12 +638,6 @@ function createPostgresBenchmark({pool}) {
       )).rows.map(row => [row.attempt_id, {cost_usd: row.cost_usd, calls: row.calls, uncertain_calls: row.uncertain_calls}])));
     },
 
-    /** Every member's scored attempts on plugin `pluginId`, whatever task (`benchmark_leaderboard`), newest first. */
-    async leaderboard(context, pluginId) {
-      await sweep();
-      return member(context, async client => (await client.query('select * from benchmark_leaderboard($1)', [pluginId])).rows);
-    },
-
     /**
      * The caller's own Harness tab sessions (runs with `session`), newest first, each attempt with its model calls (the gateway's
      * spans), the processes the process record shows (with `atCalls`, only those running when one of its model calls started, or all
@@ -672,7 +652,8 @@ function createPostgresBenchmark({pool}) {
                'prompt', s.attributes->>'prompt', 'start_ns', s.start_ns::text, 'end_ns', s.end_ns::text, 'usage', s.attributes->'usage') order by s.start_ns)
               from benchmark_span s where s.attempt_id = a.attempt_id and s.kind = 'model_call'), '[]') as calls,
            coalesce((select json_agg(json_build_object('span_id', s.span_id, 'parent_id', s.parent_id, 'argv', s.attributes->'argv',
-               'cwd', s.attributes->>'cwd', 'start_ns', s.start_ns::text, 'end_ns', s.end_ns::text) order by s.start_ns nulls first)
+               'cwd', s.attributes->>'cwd', 'title', s.attributes->>'title', 'verdict', s.attributes->>'verdict', 'start_ns', s.start_ns::text,
+               'end_ns', s.end_ns::text) order by s.start_ns nulls first)
               from benchmark_span s where s.attempt_id = a.attempt_id and s.kind = 'process'
                and (not $3::boolean or not exists (select 1 from benchmark_span c where c.attempt_id = a.attempt_id and c.kind = 'model_call')
                  or exists (select 1 from benchmark_span c where c.attempt_id = a.attempt_id and c.kind = 'model_call'

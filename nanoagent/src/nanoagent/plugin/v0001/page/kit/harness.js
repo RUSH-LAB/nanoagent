@@ -1,7 +1,7 @@
 // The Harness tab every plugin's page has (kit/shell.js): the person's own terminals on their computer, in the harness VM, an empty
 // workspace with the model a call away through RUSH (which records every call) and the reference CLIs installed, the same whichever
-// plugin's page opened it. They run any agent there and prompt it themselves; nothing scores it, and `rush save <name>` there keeps
-// what they built as a harness of theirs.
+// plugin's page opened it. They run any agent there and prompt it themselves; only a `rush <command>` given the task's prompt is
+// scored (the shell reference harness's rush.py).
 
 import { startRun, request } from "./bridge.js";
 import { h, icon } from "./dom.js";

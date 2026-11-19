@@ -8,7 +8,6 @@ const {
 } = require('../benchmark/limits');
 const {chargeAttemptStorage, chargeStorage, inTransaction} = require('./benchmark-context');
 const {sweepExpired} = require('./benchmark-sweep');
-const {REFERENCE_HARNESSES} = require('../benchmark/harness');
 
 const TODAY = "(now() at time zone 'utc')::date";
 
@@ -97,9 +96,9 @@ function createPostgresBenchmarkWorker({pool, config}) {
         run: {
           run_id: run.run_id, model: run.model, endpoint_profile: run.endpoint_label, dialects: run.dialects, source_sha256: run.source_sha256,
           policy: run.policy, limits: run.limits, prompt_source: 'benchmark', renderer_version: run.renderer_version, interactive: run.interactive,
-          // The gateway holds a run to its pinned prompt (the first call carries it) but for a session of the Terminal or of a harness
-          // saved from one, whose agent is anything a member runs and phrases its own calls.
-          prompt_bound: !(run.session && (run.harness_name === 'shell' || !REFERENCE_HARNESSES.includes(run.harness_name))),
+          // The gateway holds a run to its pinned prompt (the first call carries it) but for a session of the Terminal, whose agent is
+          // anything a member runs and phrases its own calls.
+          prompt_bound: !(run.session && run.harness_name === 'shell'),
         },
         plugin: {id: run.plugin_id, name: run.plugin_name, version: run.version, sha256: run.package_sha256},
         task: free ? null : {
@@ -274,12 +273,12 @@ function createPostgresBenchmarkWorker({pool, config}) {
       });
     },
 
-    /** The attempt's run, a session a member works in, who saves (`rush save`) or scores (`rush score`) a harness from it: its workspace and
-     * plugin; 403 `not_a_session` for any other run. */
+    /** The attempt's run, a session a member works in, whose `rush` runs and `nanoagent` open its plugin: its workspace and plugin;
+     * 403 `not_a_session` for any other run. */
     async terminalSession(userId, attemptId, fence) {
       return fenced(userId, attemptId, fence, async (client, attempt) => {
         const run = (await client.query('select interactive, plugin_id from benchmark_run where run_id = $1', [attempt.run_id])).rows[0];
-        if (!run.interactive) throw new BenchmarkError(403, 'not_a_session', 'Only a session someone works in saves or scores a harness');
+        if (!run.interactive) throw new BenchmarkError(403, 'not_a_session', 'Only a session someone works in opens its plugin');
         return {workspaceId: attempt.workspace_id, pluginId: run.plugin_id};
       });
     },

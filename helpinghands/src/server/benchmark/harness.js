@@ -71,4 +71,9 @@ function referenceHarnessOf(data, name) {
   return harness;
 }
 
-module.exports = {REFERENCE_HARNESSES, checkReference, referencePolicy, harnessOf, referenceHarnessOf, uploadedHarnessOf};
+// What each reference harness is called: its agent's CLI command (a unit test keeps these equal to REFERENCE_HARNESSES).
+const REFERENCE_LABELS = Object.freeze({
+  'nanoagent': 'nanoagent', 'claude-code': 'claude', 'codex': 'codex', 'dsh': 'dsh', 'hermes': 'hermes', 'pi': 'pi', 'shell': 'shell',
+});
+
+module.exports = {REFERENCE_HARNESSES, REFERENCE_LABELS, checkReference, referencePolicy, harnessOf, referenceHarnessOf, uploadedHarnessOf};
