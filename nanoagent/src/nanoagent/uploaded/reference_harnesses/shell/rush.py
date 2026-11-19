@@ -104,11 +104,14 @@ def thousands(count: int) -> str:
 
 def summary_line(program: str, seconds: float, ran: dict) -> str:
     """`rush · <program> · <time> · <in>/<out> tokens · $<cost>`, a scored run's verdict (right or wrong) after its program. A cost
-    the gateway does not know yet (a call not settled) reads $—."""
+    the gateway does not know yet (a call not settled) reads $—. Calls the gateway refused for naming another model than the
+    session's end it: `2 calls rejected: asked for claude-sonnet-4-5`."""
     cost = "$—" if ran["cost_usd"] is None else f"${ran['cost_usd']:.4f}"
     verdict = [] if ran.get("verdict") is None else [ran["verdict"]]
     tokens = f"{thousands(ran['input_tokens'])}/{thousands(ran['output_tokens'])} tokens"
-    return " · ".join(["rush", program, *verdict, f"{seconds:.0f} s", tokens, cost])
+    rejected = ran.get("rejected") or []
+    refused = [f"{len(rejected)} call{'s' * (len(rejected) != 1)} rejected: asked for {', '.join(sorted(set(rejected)))}"] if rejected else []
+    return " · ".join(["rush", program, *verdict, f"{seconds:.0f} s", tokens, cost, *refused])
 
 
 class FirstLine:

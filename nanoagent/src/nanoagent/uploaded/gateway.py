@@ -64,6 +64,14 @@ class AdmissionDenied(Exception):
         self.code = code
 
 
+class PolicyRefused(ServiceError):
+    """A request the policy refused; ``model`` is the model it asked for, kept on its rejection record."""
+
+    def __init__(self, violation: PolicyViolation, model: Any) -> None:
+        super().__init__(400, violation.code, violation.message)
+        self.model = model
+
+
 class Admission(Protocol):
     async def reserve(self, call_id: str, bound_usd: Decimal) -> None:
         """Reserve the call's spend bound under the current lease, or raise [AdmissionDenied]."""
@@ -286,7 +294,7 @@ class Gateway:
         try:
             effective, cap = apply_policy(dialect, body, policy, first_prompt_required=policy.prompt_bound and not self._prompt_satisfied)
         except PolicyViolation as violation:
-            raise ServiceError(400, violation.code, violation.message) from violation
+            raise PolicyRefused(violation, body.get("model")) from violation
         if self._admitted >= policy.max_model_calls:
             raise ServiceError(403, "model_call_limit", f"the attempt admits at most {policy.max_model_calls} model calls")
         effective_bytes = json_bytes(effective)
@@ -345,6 +353,7 @@ class Gateway:
                 "code": error.code,
                 "message": error.message,
                 "http_status": error.status,
+                "requested_model": error.model if isinstance(error, PolicyRefused) else None,
                 "span_id": span_id,
                 "admitted": False,
                 "submitted_request_sha256": submitted_sha,

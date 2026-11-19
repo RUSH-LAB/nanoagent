@@ -63,6 +63,9 @@ def test_the_summary_line_says_time_tokens_and_cost_and_a_scored_runs_verdict() 
     assert rush.summary_line("aider", 48.2, ran) == "rush · aider · 48 s · 152.3k/612 tokens · $0.0110"
     assert rush.summary_line("aider", 48.2, ran | {"verdict": "right"}) == "rush · aider · right · 48 s · 152.3k/612 tokens · $0.0110"
     assert rush.summary_line("aider", 0.4, {"input_tokens": 0, "output_tokens": 0, "cost_usd": None}) == "rush · aider · 0 s · 0/0 tokens · $—"
+    rejected = ran | {"rejected": ["claude-sonnet-4-5", "claude-haiku-4-5", "claude-sonnet-4-5"]}
+    assert rush.summary_line("aider", 48.2, rejected) == "rush · aider · 48 s · 152.3k/612 tokens · $0.0110 · 3 calls rejected: asked for claude-haiku-4-5, claude-sonnet-4-5"
+    assert rush.summary_line("aider", 48.2, ran | {"rejected": ["x/y"]}).endswith(" · 1 call rejected: asked for x/y")
 
 
 def test_rush_help_says_the_prefix_and_its_scored_form() -> None:
@@ -124,9 +127,17 @@ def response(at: int, input_tokens: int, output_tokens: int, cost: str | None) -
 
 def test_a_runs_figures_are_its_calls_answered_while_it_ran() -> None:
     records = [response(5, 100, 10, "0.001"), response(15, 200, 20, "0.002"), response(25, 400, 40, "0.004"), {"kind": "model_call.admitted", "occurred_ns": 16, "data": {}}]
-    assert run_figures(records, 10, 30) == {"input_tokens": 600, "output_tokens": 60, "cost_usd": pytest.approx(0.006)}
+    assert run_figures(records, 10, 30) == {"input_tokens": 600, "output_tokens": 60, "cost_usd": pytest.approx(0.006), "rejected": []}
     assert run_figures([*records, response(20, 1, 1, None)], 10, 30)["cost_usd"] is None  # a call not settled
-    assert run_figures(records, 30, 40) == {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
+    assert run_figures(records, 30, 40) == {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "rejected": []}
+
+
+def test_a_runs_figures_name_the_models_its_refused_calls_asked_for() -> None:
+    def rejected(at: int, code: str, model: str | None) -> dict:
+        return {"kind": "model_call.rejected", "occurred_ns": at, "data": {"code": code, "requested_model": model}}
+
+    records = [rejected(5, "model_not_pinned", "early"), rejected(15, "model_not_pinned", "claude-sonnet-4-5"), rejected(16, "output_cap_exceeded", None)]
+    assert run_figures(records, 10, 30)["rejected"] == ["claude-sonnet-4-5"]
 
 
 class Runs:
@@ -175,7 +186,7 @@ async def test_an_interactive_run_is_titled_by_its_first_line_and_ends_with_what
     run = (await runs("start", {"pid": 42, "title": None}))["run"]
     assert runs.emitted == []
     assert await runs("title", {"run": run, "title": "list three ids"}) == {}
-    assert await runs("end", {"run": run, "exit_code": 0, "scored": False}) == {"input_tokens": 1200, "output_tokens": 30, "cost_usd": pytest.approx(0.0021)}
+    assert await runs("end", {"run": run, "exit_code": 0, "scored": False}) == {"input_tokens": 1200, "output_tokens": 30, "cost_usd": pytest.approx(0.0021), "rejected": []}
     assert runs.emitted == [rec.ProcessRush(42, 200, title="list three ids")]
     assert runs.verified == []  # an unscored run is not verified
     with pytest.raises(ServiceError, match="no run under way"):
@@ -188,7 +199,7 @@ async def test_a_scored_run_is_verified_on_the_answer_it_left_and_its_verdict_ke
     (tmp_path / "answer.json").write_text('{"temp": 20}')
     run = (await runs("start", {"pid": 42, "title": "the weather"}))["run"]
     ended = await runs("end", {"run": run, "exit_code": 0, "scored": True})
-    assert ended == {"input_tokens": 1200, "output_tokens": 30, "cost_usd": pytest.approx(0.0021), "verdict": "right", "explanation": "20 °C is right"}
+    assert ended == {"input_tokens": 1200, "output_tokens": 30, "cost_usd": pytest.approx(0.0021), "rejected": [], "verdict": "right", "explanation": "20 °C is right"}
     assert runs.verified == [("weather", {"city": "Paris"}, {"status": "answered", "answer": {"temp": 20}}, {"temp": 20}, tmp_path)]
     assert runs.emitted == [rec.ProcessRush(42, 100, title="the weather"), rec.ProcessRush(42, 300, verdict="right")]
 

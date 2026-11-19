@@ -173,6 +173,19 @@ async def test_an_unbound_session_admits_a_first_call_without_the_prompt_and_rec
     assert len(rig.journal.of("model_call.admitted")) == 1 and len(rig.journal.of("model_call.response")) == 1
 
 
+async def test_a_session_call_to_another_model_is_told_to_use_rush_model_and_its_model_recorded(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, ScriptedTransport(), policy=make_policy(prompt_bound=False))
+    async with rig.client() as client:
+        response = await client.post(PATHS["anthropic_messages"], json={**REQUESTS["anthropic_messages"](), "model": "claude-sonnet-4-5"})
+    error = response.json()["error"]
+    assert response.status_code == 400 and error["code"] == "model_not_pinned" and response.json()["type"] == "error"
+    assert error["message"] == (
+        "This RUSH terminal runs every agent on test/model, and this call asked for 'claude-sonnet-4-5'. "
+        "Set your agent's model to $RUSH_MODEL (e.g. --model openai/$RUSH_MODEL)."
+    )
+    assert last(rig, "model_call.rejected")["requested_model"] == "claude-sonnet-4-5" and rig.transport.requests == []
+
+
 async def test_effective_request_adds_policy_and_both_requests_are_kept(tmp_path: Path) -> None:
     rig = make_rig(tmp_path, ScriptedTransport(chat_ok()))
     submitted = chat_request(stream=False, temperature=0.2)

@@ -1,7 +1,8 @@
 #!/bin/sh
 # Claude Code on RUSH's gateway (its Anthropic Messages dialect), as the claude-code reference harness runs it: a home whose
 # first-run questions are answered and the workspace trusted, the attempt token as its auth token (an API key would ask to be
-# approved), and the session's model for every call it makes, its smaller model's too.
+# approved), and the session's model for every call it makes: its main, small (background) and subagent models, and what its
+# haiku, sonnet and opus aliases name.
 # Its home is in the workspace's .rush/, which is kept when the session ends, so resuming it continues its conversations
 # (nanoagent.uploaded.resume); the gateway reaches it by the environment, which each session sets anew.
 home="$RUSH_WORKSPACE/.rush/claude"
@@ -13,5 +14,6 @@ fi
 install="$(python /harness/rush.py cli claude)" || exit 1  # installed the first time it is typed (rush.py cli)
 HOME="$home" ANTHROPIC_BASE_URL="$ANTHROPIC_BASE_URL" ANTHROPIC_AUTH_TOKEN="$RUSH_ATTEMPT_TOKEN" ANTHROPIC_API_KEY= \
   ANTHROPIC_MODEL="$RUSH_MODEL" ANTHROPIC_SMALL_FAST_MODEL="$RUSH_MODEL" ANTHROPIC_DEFAULT_HAIKU_MODEL="$RUSH_MODEL" \
+  ANTHROPIC_DEFAULT_SONNET_MODEL="$RUSH_MODEL" ANTHROPIC_DEFAULT_OPUS_MODEL="$RUSH_MODEL" CLAUDE_CODE_SUBAGENT_MODEL="$RUSH_MODEL" \
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 CLAUDE_CODE_MAX_OUTPUT_TOKENS="$RUSH_MAX_OUTPUT_TOKENS" \
   exec "$install/node_modules/@anthropic-ai/claude-code-linux-$(node -p process.arch)/claude" "$@"

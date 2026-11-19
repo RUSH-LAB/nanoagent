@@ -102,6 +102,12 @@ def apply_policy(dialect: str, body: dict[str, Any], policy: AttemptPolicy, *, f
     if body.get("store") is True:
         raise PolicyViolation("provider_state_forbidden", "`store: true` asks the provider to keep state, which is not allowed")
     if body.get("model") != policy.model:
+        if not policy.prompt_bound:  # a Terminal session: the agent's CLI shows the member this message
+            raise PolicyViolation(
+                "model_not_pinned",
+                f"This RUSH terminal runs every agent on {policy.model}, and this call asked for {body.get('model')!r}. "
+                "Set your agent's model to $RUSH_MODEL (e.g. --model openai/$RUSH_MODEL).",
+            )
         raise PolicyViolation("model_not_pinned", f"the attempt is pinned to model {policy.model!r}, the request asked for {body.get('model')!r}")
     _check_tools(dialect, body)
     _check_media([body.get("messages"), body.get("input"), body.get("system")])

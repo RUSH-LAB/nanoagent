@@ -281,10 +281,15 @@ class RushRuns:
 
 def run_figures(records: Sequence[Mapping[str, Any]], start_ns: int, end_ns: int) -> dict[str, Any]:
     """What the model calls the gateway answered between ``start_ns`` and ``end_ns`` (the worker's clock) took: their tokens, and their
-    cost, None while one of theirs is not known."""
-    calls = [record["data"] for record in records if record["kind"] == "model_call.response" and start_ns <= int(record["occurred_ns"]) <= end_ns]
+    cost, None while one of theirs is not known; and the model each call it refused for naming another model than the session's asked
+    for (`rejected`)."""
+    during = [record for record in records if start_ns <= int(record["occurred_ns"]) <= end_ns]
+    calls = [record["data"] for record in during if record["kind"] == "model_call.response"]
     costs = [(call.get("settlement") or {}).get("cost_usd") for call in calls]
     return {
+        "rejected": [
+            str(record["data"].get("requested_model")) for record in during if record["kind"] == "model_call.rejected" and record["data"].get("code") == "model_not_pinned"
+        ],
         "input_tokens": sum((call.get("usage") or {}).get("input") or 0 for call in calls),
         "output_tokens": sum((call.get("usage") or {}).get("output") or 0 for call in calls),
         "cost_usd": None if None in costs else float(sum((Decimal(cost) for cost in costs), Decimal(0))),

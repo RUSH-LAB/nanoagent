@@ -1,7 +1,7 @@
 #!/bin/sh
 # Codex on RUSH's gateway (its Responses dialect), configured as the codex reference harness runs it: a provider keyed by the
-# attempt token, the session's model, the VM its sandbox, no web search, plugins or multi-agent tools, and its thread tools left
-# out (the gateway refuses their `namespace` tool) by a switched-off MCP server holding their name.
+# attempt token, the session's model (its /review model's too), the VM its sandbox, no web search, plugins or multi-agent tools,
+# and its thread tools left out (the gateway refuses their `namespace` tool) by a switched-off MCP server holding their name.
 # It runs wherever it is typed, asking nothing: the workspace and the folder it starts in are trusted (Codex trusts only the
 # folder named, not those under it), it offers no update of itself, and `codex exec` (alias `e`) gets --skip-git-repo-check,
 # since Codex 0.167 runs exec outside a Git repository only with that flag, whatever the folder's trust.
@@ -13,6 +13,7 @@ here="$(pwd -P)"
 mkdir -p "$home"
 cat > "$home/config.toml" <<EOF
 model = "$RUSH_MODEL"
+review_model = "$RUSH_MODEL"
 model_provider = "rush"
 sandbox_mode = "danger-full-access"
 web_search = "disabled"
