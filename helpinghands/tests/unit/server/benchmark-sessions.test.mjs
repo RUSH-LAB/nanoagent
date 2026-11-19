@@ -146,7 +146,7 @@ describe('POST /api/benchmark/sessions', () => {
     const aider = {span_id: 'p:1', parent_id: 'process-tree', argv: ['python', '/harness/rush.py', 'run', 'aider', '--yes'], cwd: '/rush/workspace', start_ns: '10', end_ns: '20'};
     const row = {
       attempt_id: OLD, harness_name: 'shell', task_id: null, state: 'final', calls: [{call_id: 'c1', status: 'ok', start_ns: '12', end_ns: '13', prompt: 'hi'}],
-      processes: [aider], turns: [], costs: {}, chats: [chat],
+      processes: [aider], costs: {}, chats: [chat],
     };
     const {ctx, calls} = ctxFor();
     ctx.benchmark.repository.terminalRows = async () => [row];

@@ -101,25 +101,28 @@ const counted = (count, unit = "session") => h("p", { class: "muted small-text",
 /** "4.3k" with "4,321" for its title: a count of tokens. */
 const tokens = (count) => [thousands(Math.round(count)), Math.round(count).toLocaleString()];
 // The figures the dashboard's usage shows, a column each, in the order of a run's graph summary:
-// each one's label, the field it is, how a value of it is written (with a title for the exact
-// figure), and what its header's title says it is.
+// each one's label, the field it is, how a value of it is written, with a title for the exact figure,
+// and whether only nanoagent measures it (its own steps), every other agent's showing "—".
 const FIGURES = [
-  ["End-to-End Latency", "durationS", (value) => [formatSeconds(value)], "agent working time; time waiting for you is excluded"],
+  ["End-to-End Latency", "durationS", (value) => [formatSeconds(value)], true],
   ["Model Time", "modelS", (value) => [formatSeconds(value)]],
-  ["Tool Time", "toolsS", (value) => [formatSeconds(value)]],
+  ["Tool Time", "toolsS", (value) => [formatSeconds(value)], true],
   ["Input Tokens", "inputTokens", tokens],
   ["Output Tokens", "outputTokens", tokens],
   ["Cost", "cost", (value) => [formatCost(value)]],
 ];
 
+const UNMEASURED = ["—", "not measured for this agent; only nanoagent reports its own steps"];
+
 /**
- * One harness's usage, as the dashboard shows it: a column per figure (FIGURES), its Total over
- * its Average, from `usages` (each a session's, every figure `{sum, count}`) averaged per `unit`:
- * the chats count their messages, a Harness session counts itself. A Total that not every one of
- * the `units` counted says so in its title.
+ * Agent `agent`'s usage, a figure per FIGURES column, each its Total and Average (`[text, title]`),
+ * from `usages` (each a session's, every figure `{sum, count}`) averaged per `unit`: the chats count
+ * their messages, a Harness session counts itself. A Total that not every one of the `units`
+ * counted says so in its title. A figure only nanoagent measures is "—" for every other agent.
  */
-function harnessUsage(usages, units, unit) {
-  const figures = FIGURES.map(([, key, format]) => {
+export function usageFigures(usages, units, unit, agent) {
+  return FIGURES.map(([, key, format, own]) => {
+    if (own && agent !== NANOAGENT) return { total: UNMEASURED, average: UNMEASURED };
     const sum = usages.reduce((total, usage) => total + usage[key].sum, 0);
     const count = usages.reduce((total, usage) => total + usage[key].count, 0);
     const total = count ? format(sum) : ["—"];
@@ -129,6 +132,11 @@ function harnessUsage(usages, units, unit) {
     }
     return { total, average: count ? format(sum / count) : ["—"] };
   });
+}
+
+/** Agent `agent`'s usage, as the dashboard shows it: a column per figure, its Total over its Average (usageFigures). */
+function harnessUsage(usages, units, unit, agent) {
+  const figures = usageFigures(usages, units, unit, agent);
   const row = (head, title, cells) => h("tr", {}, h("th", { scope: "row", text: head, title }), cells.map(([text, cellTitle]) => h("td", { text, title: cellTitle })));
   return h(
     "div",
@@ -137,7 +145,7 @@ function harnessUsage(usages, units, unit) {
       "table",
       {},
       h("caption", { class: "visually-hidden", text: `Usage: in all, and on average per ${unit}` }),
-      h("thead", {}, h("tr", {}, h("td"), FIGURES.map(([label, , , title]) => h("th", { scope: "col", text: label, title })))),
+      h("thead", {}, h("tr", {}, h("td"), FIGURES.map(([label]) => h("th", { scope: "col", text: label })))),
       h("tbody", {}, row("Total", undefined, figures.map((figure) => figure.total)), row("Average", `Per ${unit}`, figures.map((figure) => figure.average))),
     ),
   );
@@ -311,13 +319,13 @@ export function dashboard({ onOpen, onChat, onStart, closed = false }) {
       ...(rows.length ? newest(rows) : [h("li", { class: "session-empty", text: emptyText(archivedView && archived, closed, unit) })]),
     );
     if (chosen !== NANOAGENT) {
-      stats.replaceChildren(...(shown.length && !archivedView ? [counted(shown.length, "session"), harnessUsage(shown.map((one) => one.usage), shown.length, "session")] : []));
+      stats.replaceChildren(...(shown.length && !archivedView ? [counted(shown.length, "session"), harnessUsage(shown.map((one) => one.usage), shown.length, "session", chosen)] : []));
       listed(shown.map((one) => [one, chatRow]), "session");
       return;
     }
     const own = sessions.filter(inView);
     const runs = own.reduce((sum, one) => sum + one.runs, 0);
-    stats.replaceChildren(...(runs && !archivedView ? [counted(own.length), harnessUsage(own.map((one) => one.usage), runs, "message")] : []));
+    stats.replaceChildren(...(runs && !archivedView ? [counted(own.length), harnessUsage(own.map((one) => one.usage), runs, "message", NANOAGENT)] : []));
     listed([...own.map((one) => [one, row]), ...shown.map((one) => [one, chatRow])], "session");
   }
 

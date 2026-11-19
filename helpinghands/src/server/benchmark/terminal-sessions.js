@@ -85,17 +85,19 @@ function processAt(processes, at, client) {
 /** The agent whose process made a call from `client` at `at` (processAt), or null. */
 const agentAt = (processes, at, client) => processAt(processes, at, client)?.agent ?? null;
 
-/** What `calls` took, read and cost, in the figures a chat's usage has, with `elapsed` (s) as its End-to-End Latency when it is its own
- * and `tools` (s) as its Tool Time when it is known. */
-function usageOf(calls, final, elapsed, tools = null) {
+/**
+ * What `calls` took, read and cost, in the figures a chat's usage has, from the gateway's records alone, which measure them exactly.
+ * End-to-End Latency and Tool Time are never known: only nanoagent reports its own steps, and nothing else measures them exactly.
+ */
+function usageOf(calls, final) {
   // A session's calls are known once it is final and the gateway's evidence is in; a session with none made none.
   const all = pick => final && calls.every(call => pick(call) !== null);
   const some = pick => (final && !calls.length) || calls.some(call => pick(call) !== null);
   const sum = pick => calls.reduce((total, call) => total + (pick(call) ?? 0), 0);
   return {
-    durationS: figure(elapsed ?? 0, elapsed !== null),
+    durationS: figure(0, false),
     modelS: figure(sum(call => call.durationS), all(call => call.durationS)),
-    toolsS: figure(tools ?? 0, final && tools !== null),
+    toolsS: figure(0, false),
     inputTokens: figure(sum(call => call.inputTokens), some(call => call.inputTokens)),
     outputTokens: figure(sum(call => call.outputTokens), some(call => call.outputTokens)),
     cost: figure(sum(call => call.cost), all(call => call.cost)),
@@ -106,10 +108,9 @@ function usageOf(calls, final, elapsed, tools = null) {
  * One of the member's Harness tab sessions (a `benchmark_run` with `session`, its attempt's row as `terminalRows` reads it), as the
  * Dashboard shows it beside the chats. `harnesses` are the agents that made model calls in it, named by their CLI command, each with
  * what its calls took, read and cost (from the gateway), in the figures a chat's usage has, each `{sum, count}` with count 1 when this
- * session knows it and 0 when not. Tool time is the plugin tools', which a terminal has none of, so it is never known; the End-to-End
- * Latency (the profiler's) goes to the session's one agent, and to none when several worked in it. In a free-form Terminal session
+ * session knows it and 0 when not; End-to-End Latency and Tool Time are never known (usageOf). In a free-form Terminal session
  * each model call is the agent's whose process ran when it started (agentAt); a call tied to none is no agent's and counts only in
- * the session's own `usage`, which, for a session no agent made a call in, also has its latency. The session is titled by its agents
+ * the session's own `usage`. The session is titled by its agents
  * in the order they first called a model ("claude, codex"); with none, by what it did: its main command (its longest-running
  * outermost process) or its calls ("3 model calls"), or "no agent".
  */
@@ -136,9 +137,8 @@ function terminalSession(row) {
   const lasted = process => (process.start === null ? 0 : (process.end ?? Infinity) - process.start);
   const main = outermost(processes).sort((x, y) => lasted(y) - lasted(x))[0];
   const did = !shell ? label : main?.agent ?? (calls.length ? `${calls.length} model call${calls.length === 1 ? '' : 's'}` : 'no agent');
-  const elapsed = typeof row.elapsed_ms === 'number' ? row.elapsed_ms / 1000 : null;
   const harnesses = agents.map(agent => ({
-    harness: agent, usage: usageOf(calls.filter(call => call.agent === agent), final, agents.length === 1 ? elapsed : null),
+    harness: agent, usage: usageOf(calls.filter(call => call.agent === agent), final),
   }));
   return {
     id: row.attempt_id,
@@ -148,7 +148,7 @@ function terminalSession(row) {
     running: !final,
     resumedFrom: row.resumed_from ?? null,
     harnesses,
-    usage: usageOf(calls.filter(call => call.agent === null), final, agents.length ? null : elapsed),
+    usage: usageOf(calls.filter(call => call.agent === null), final),
   };
 }
 
@@ -179,9 +179,7 @@ function typed(process) {
  * it, or the nearest. A session of a harness of its own is one chat of it. A call no process ties to one agent is no chat's. A chat
  * has `key` ("<agent>:<id>"), its `conversation` id (null for a run, which nothing reopens by id), its session's
  * `attemptId`, whether that one is `running`, `resumable` (kept on the member's computer) and `freeForm`, when it was archived, and its
- * figures (`usage`, as a chat's): in an interactive session its End-to-End Latency is the time its agent worked within its own span
- * (the session's terminal turns, `row.turns`, unknown when none were recorded), and its Tool Time how long the processes its agent
- * started ran outside its model calls.
+ * figures (`usage`, as a chat's).
  */
 function terminalChats(row) {
   const final = row.state === 'final';
@@ -199,33 +197,14 @@ function terminalChats(row) {
     const start = ns(call.start_ns);
     const end = ns(call.end_ns);
     return {
-      start, end, prompt: call.prompt ?? null, process: row.harness_name === 'shell' ? processAt(processes, start, call.client) : null, durationS: seconds(start, end),
+      start, prompt: call.prompt ?? null, process: row.harness_name === 'shell' ? processAt(processes, start, call.client) : null, durationS: seconds(start, end),
       inputTokens: call.usage?.input ?? null, outputTokens: call.usage?.output ?? null,
       cost: typeof row.costs[call.call_id] === 'number' ? row.costs[call.call_id] : null,
     };
   });
-  const children = new Map();
-  for (const process of processes) children.set(process.parent, [...(children.get(process.parent) ?? []), process]);
-  const descendants = process => (children.get(process.id) ?? []).flatMap(child => [child, ...descendants(child)]);
-  // An agent's own process: a `rush <command>` run's is the command rush.py started, its child.
-  const own = process => (rushAt(process.argv) === -1 ? [process] : children.get(process.id) ?? []);
-  const turns = row.turns.map(turn => [ns(turn.start_ns), ns(turn.end_ns), ns(turn.until_ns)]);
-  // A chat's figures from `from` to `to` (ns), of its calls `made` and its agent's processes `agents`. Its Tool Time is how long the
-  // processes they started ran, outside its model calls. Its End-to-End Latency, in an interactive session, is the time its agent
-  // worked (working; known once a turn is recorded), and in a one-shot run its wall time (`elapsed`, s).
-  const usage = (made, agents, from, to, elapsed = null) => {
-    const spans = made.map(call => [call.start, call.end]);
-    const tools = agents.flatMap(own).flatMap(descendants).map(process => [process.start, process.end]);
-    const latency = row.interactive ? (turns.length ? working(turns, [...spans, ...tools], from, to) : null) : elapsed;
-    return usageOf(made, final, latency, total(without(within(tools, from, to), merged(spans))));
-  };
   if (row.harness_name !== 'shell') {
     const key = `${label}:${row.attempt_id}`;
-    const elapsed = typeof row.elapsed_ms === 'number' ? row.elapsed_ms / 1000 : null;
-    return [{
-      ...session, key, agent: label, conversation: null, run: null, title: label, verdict: null, archivedAt: archived(key),
-      usage: usage(calls, outermost(processes), -Infinity, Infinity, elapsed),
-    }];
+    return [{...session, key, agent: label, conversation: null, run: null, title: label, verdict: null, archivedAt: archived(key), usage: usageOf(calls, final)}];
   }
   const reported = final && Array.isArray(row.chats) ? row.chats : [];
   // How far call `call` started from `chat`'s span (0 within it): each call is the nearest chat's of its agent.
@@ -234,10 +213,9 @@ function terminalChats(row) {
   const owner = new Map(calls.filter(call => call.start !== null).map(call => [call, nearest(call)]));
   const chats = reported.map(chat => {
     const key = `${chat.agent}:${chat.id}`;
-    const made = calls.filter(call => owner.get(call) === chat);
     return {
       ...session, key, agent: chat.agent, conversation: chat.id, run: null, title: chat.title, verdict: null, startedAt: chat.started_at, updatedAt: chat.ended_at,
-      archivedAt: archived(key), usage: usage(made, [...new Set(made.map(call => call.process).filter(Boolean))], ns(chat.started_ns), ns(chat.ended_ns)),
+      archivedAt: archived(key), usage: usageOf(calls.filter(call => owner.get(call) === chat), final),
     };
   });
   const runs = new Map();
@@ -253,39 +231,10 @@ function terminalChats(row) {
     chats.push({
       ...session, key, agent: process.agent, conversation: null, run: {argv: rush ? ['rush', ...process.argv.slice(at)] : process.argv, cwd: process.cwd},
       title: rush ? process.title ?? typed(process) : first.prompt ?? typed(process), verdict: process.verdict,
-      archivedAt: archived(key), usage: usage(made, [process], process.start, process.end ?? Infinity),
+      archivedAt: archived(key), usage: usageOf(made, final),
     });
   }
   return chats;
-}
-
-/** `spans` ([start, end] ns) as the sorted, disjoint spans they cover, those of no length or with an end not known left out. */
-function merged(spans) {
-  const out = [];
-  for (const [start, end] of spans.filter(([start, end]) => start !== null && end !== null && end > start).sort((x, y) => x[0] - y[0])) {
-    const last = out[out.length - 1];
-    if (last && start <= last[1]) last[1] = Math.max(last[1], end);
-    else out.push([start, end]);
-  }
-  return out;
-}
-const within = (spans, from, to) => merged(spans.map(([start, end]) => [Math.max(start, from), Math.min(end, to)]));
-// `spans` (merged) without the time `holes` (merged) cover.
-const without = (spans, holes) => spans.flatMap(span => holes.reduce((pieces, [from, to]) => pieces.flatMap(([start, end]) => (
-  to <= start || from >= end ? [[start, end]] : [[start, from], [to, end]].filter(([x, y]) => y > x))), [span]));
-const total = spans => spans.reduce((sum, [start, end]) => sum + end - start, 0) / 1e9;
-
-/**
- * How long, from `from` to `to` (ns), an interactive session's agent worked, in seconds: the time the session's turns cover (`turns`,
- * [start, end, until] ns: from the member's Enter to the terminal's last output before they typed again, at `until`), each run on to
- * the last of `busy` (its model calls and tool processes, [start, end] ns) that started in it and ended before they typed. The time it
- * waited for the member is left out.
- */
-function working(turns, busy, from, to) {
-  const ran = turns.map(([start, end, until]) => [
-    start, busy.filter(([at, done]) => at >= start && done !== null && done <= until).reduce((last, [, done]) => Math.max(last, done), end),
-  ]);
-  return total(within(ran, from, to));
 }
 
 /** Add two of a chat's figures (`{sum, count}`), known when either is. */

@@ -14,9 +14,6 @@ a terminal not yet open), ``{"terminal", "close": true}`` or ``{"reopen", "rows"
 opens in the next terminal of a free-form session: :meth:`Terminal._reopen`), and hears ``{"terminal", "data"}`` (everything that terminal wrote, from
 its first byte, then as it comes) and ``{"terminal", "closed": true}`` once it ended, after its output. A link that sends anything
 else is closed, with ``{"error"}`` why.
-
-Each turn at a terminal is recorded (``record``, a `TerminalTurn`): from when the member pressed Enter there, or it opened, to its last
-output before they next typed, which is how long what they started kept it busy, the time it then waited for them left out.
 """
 
 from __future__ import annotations
@@ -29,8 +26,7 @@ import json
 import re
 import secrets
 import threading
-import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -39,7 +35,6 @@ import anyio
 from anyio.abc import SocketAttribute, SocketStream
 from anyio.streams.buffered import BufferedByteReceiveStream
 
-from nanoagent.uploaded.records import Fact, TerminalTurn
 from nanoagent.uploaded.resume import reopen_in, start_cli
 from nanoagent.uploaded.rush_worker import ResumeOf, RushWorkerClient, chat_of
 
@@ -73,8 +68,7 @@ def _run(run: object) -> bool:
 
 class Terminal:
     def __init__(
-        self, worker: RushWorkerClient, attempt_id: str, fence: int, record: Callable[[Fact], Awaitable[object]], *, terminals: int = 1,
-        scratch: Path | None = None, limit_bytes: int = LIMIT_BYTES, clock_ns: Callable[[], int] = time.monotonic_ns,
+        self, worker: RushWorkerClient, attempt_id: str, fence: int, *, terminals: int = 1, scratch: Path | None = None, limit_bytes: int = LIMIT_BYTES
     ) -> None:
         self._worker = worker
         self._attempt_id = attempt_id
@@ -82,11 +76,6 @@ class Terminal:
         self._terminals = terminals  # the ids the member may use: 0 alone, or all a free-form session opens
         self._scratch = scratch  # a free-form session's: where this computer keeps ended sessions, whose chats it reopens (resume)
         self._limit = limit_bytes
-        self._record = record
-        self._clock_ns = clock_ns
-        self._turns: dict[int, int] = {0: clock_ns()}  # each terminal's turn under way: when it started
-        self._output: dict[int, int] = {}  # when each terminal last wrote
-        self._done: list[TerminalTurn] = []  # the turns that ended, which `flush` has yet to record
         self.token = secrets.token_urlsafe(32)
         self._loop = asyncio.get_running_loop()
         self._lock = threading.Lock()
@@ -104,7 +93,6 @@ class Terminal:
 
     def write(self, terminal: int, data: bytes) -> None:
         with self._lock:
-            self._output[terminal] = self._clock_ns()
             room = self._limit - self._taken
             if terminal in self._cut:
                 return
@@ -126,13 +114,8 @@ class Terminal:
             wake.set()
 
     async def flush(self, case: Any) -> None:
-        """Records the turns that ended, then sends RUSH what every terminal wrote, then that each terminal of ``case`` (a `CaseHandle`)
-        that ended did, after its output."""
+        """Sends RUSH what every terminal wrote, then that each terminal of ``case`` (a `CaseHandle`) that ended did, after its output."""
         async with self._sending:
-            with self._lock:
-                done, self._done = self._done, []
-            for turn in done:
-                await self._record(turn)
             ended = case.ended_terminals() | self._failed  # before the output: a terminal writes nothing after it ended
             for terminal in list(self._pending):
                 while True:
@@ -161,19 +144,8 @@ class Terminal:
             task_status.started(listener.extra(SocketAttribute.local_port))
             await listener.serve(partial(self._link, case))
 
-    def _end_turn(self, terminal: int, until: int) -> None:
-        """Ends the turn under way at ``terminal``, if one is, at its last output (or at its start, with none since), the member typing
-        (or the session ending) at ``until``: `flush` records it."""
-        start = self._turns.pop(terminal, None)
-        if start is not None:
-            with self._lock:
-                self._done.append(TerminalTurn(terminal, start, max(start, self._output.get(terminal, start)), until))
-
     async def close(self) -> None:
-        """Ends each turn under way, for the last `flush` to record, then every link once it has sent what is left: the session is over."""
-        now = self._clock_ns()
-        for terminal in sorted(self._turns):
-            self._end_turn(terminal, now)
+        """Ends every link once it has sent what is left: the session is over."""
         self._ended = True
         self._wake()
         with anyio.move_on_after(CLOSE_S):
@@ -286,17 +258,11 @@ class Terminal:
                 return  # typed at a terminal not yet open: its size opens it
             await self._open(case, terminal, rows, cols)
             return
-        if data is not None:  # typing ends the turn under way; Enter starts the next
-            now = self._clock_ns()
-            self._end_turn(terminal, now)
-            if b"\r" in data or b"\n" in data:
-                self._turns[terminal] = now
         await anyio.to_thread.run_sync(case.terminal_input, terminal, data, rows, cols)
 
     async def _open(self, case: Any, terminal: int, rows: int, cols: int, prepare: Callable[[], object] | None = None) -> None:
         """Opens ``terminal``, after ``prepare`` (what it says and runs as it starts); one that cannot open ends with why in it."""
         self._opened.add(terminal)
-        self._turns[terminal] = self._clock_ns()
         try:
             if prepare is not None:
                 await anyio.to_thread.run_sync(prepare)

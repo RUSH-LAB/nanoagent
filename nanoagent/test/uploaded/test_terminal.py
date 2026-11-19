@@ -19,7 +19,6 @@ import pytest
 
 from microsandbox import ExecEventType
 
-from nanoagent.uploaded.records import Fact, TerminalTurn
 from nanoagent.uploaded.runner import AttemptRunner
 from nanoagent.uploaded.rush_worker import Canceled, Lease
 from nanoagent.uploaded.sandbox import Limits, MicrosandboxSupervisor, _Case
@@ -38,10 +37,6 @@ class Rush:
 
     async def terminal_closed(self, attempt_id: str, fence: int, terminal: int) -> None:
         self.sent.append(("closed", terminal))
-
-
-async def discard(fact: Fact) -> None:
-    pass
 
 
 class Case:
@@ -103,7 +98,7 @@ async def linked(terminal: Terminal, case: Any, token: str | None = None) -> Asy
 
 async def test_output_goes_to_rush_in_order_and_stops_at_its_bound() -> None:
     rush = Rush()
-    terminal = Terminal(rush, "a", 3, discard, limit_bytes=10)  # type: ignore[arg-type]
+    terminal = Terminal(rush, "a", 3, limit_bytes=10)  # type: ignore[arg-type]
     terminal.write(0, b"hello ")
     await terminal.flush(Case())
     terminal.write(0, b"world, again")
@@ -116,7 +111,7 @@ async def test_output_goes_to_rush_in_order_and_stops_at_its_bound() -> None:
 
 async def test_a_terminal_that_ended_is_told_to_rush_once_after_its_output() -> None:
     rush = Rush()
-    terminal = Terminal(rush, "a", 3, discard)  # type: ignore[arg-type]
+    terminal = Terminal(rush, "a", 3)  # type: ignore[arg-type]
     terminal.write(1, b"bye")
     await terminal.flush(Case(frozenset({1})))
     await terminal.flush(Case(frozenset({1})))
@@ -125,7 +120,7 @@ async def test_a_terminal_that_ended_is_told_to_rush_once_after_its_output() -> 
 
 async def test_the_page_sees_output_from_its_first_byte_and_its_input_opens_types_at_and_closes_terminals_in_order() -> None:
     case = Case()
-    terminal = Terminal(Rush(), "a", 3, discard, terminals=32)  # type: ignore[arg-type]
+    terminal = Terminal(Rush(), "a", 3, terminals=32)  # type: ignore[arg-type]
     terminal.write(0, b"$ ")  # before the page connected
     async with linked(terminal, case) as page:
         assert await page.screen(0, b"$ ") == b"$ "
@@ -151,38 +146,12 @@ async def test_the_page_sees_output_from_its_first_byte_and_its_input_opens_type
         assert await page.hear() == {"terminal": 1, "closed": True}
 
 
-async def test_each_turn_runs_from_enter_to_the_last_output_before_the_member_types_again_leaving_out_the_wait() -> None:
-    now = [100]
-    turns: list[Fact] = []
-
-    async def record(fact: Fact) -> None:
-        turns.append(fact)
-
-    case = Case()
-    terminal = Terminal(Rush(), "a", 3, record, clock_ns=lambda: now[0])  # type: ignore[arg-type]
-    async with linked(terminal, case) as page:
-        now[0] = 150
-        terminal.write(0, b"$ ")  # the shell's prompt: the turn its opening started is done
-        for at, text, output in ((1000, b"aider\r", 1400), (5000, b"h", 5000), (5001, b"i\r", 5900)):  # a long wait before "h"
-            now[0] = at
-            page.type(0, text)
-            await page.writer.drain()
-            with anyio.fail_after(2):
-                while case.calls[-1:] != [("input", 0, text, None, None)]:
-                    await anyio.sleep(0.01)
-            now[0] = output
-            terminal.write(0, text)  # its echo, or the agent's answer
-        await terminal.close()
-    await terminal.flush(case)
-    assert turns == [TerminalTurn(0, 100, 150, 1000), TerminalTurn(0, 1000, 1400, 5000), TerminalTurn(0, 5001, 5900, 5900)]
-
-
 async def test_a_link_without_the_sessions_token_is_refused_and_one_naming_another_terminal_is_closed() -> None:
-    async with linked(Terminal(Rush(), "a", 3, discard), Case(), token="guess") as page:  # type: ignore[arg-type]
+    async with linked(Terminal(Rush(), "a", 3), Case(), token="guess") as page:  # type: ignore[arg-type]
         assert await page.hear() == {"error": "the link's token is not this session's"}
         assert await page.reader.read() == b""
     case = Case()
-    async with linked(Terminal(Rush(), "a", 3, discard), case) as page:  # type: ignore[arg-type]
+    async with linked(Terminal(Rush(), "a", 3), case) as page:  # type: ignore[arg-type]
         page.send(terminal=1, rows=20, cols=80)  # a scored case has terminal 0 alone
         assert await page.hear() == {"error": "terminal is a terminal's id, 0 to 0"}
         assert await page.reader.read() == b"" and case.calls == []
@@ -190,7 +159,7 @@ async def test_a_link_without_the_sessions_token_is_refused_and_one_naming_anoth
 
 async def test_a_closing_session_sends_the_page_what_is_left_then_ends_its_link() -> None:
     case = Case()
-    terminal = Terminal(Rush(), "a", 3, discard)  # type: ignore[arg-type]
+    terminal = Terminal(Rush(), "a", 3)  # type: ignore[arg-type]
     async with linked(terminal, case) as page:
         await page.writer.drain()
         await anyio.sleep(0.1)
@@ -266,7 +235,7 @@ async def test_the_member_opens_a_second_terminal_in_the_case_from_the_link(tmp_
         {},  # type: ignore[arg-type]
     )
     case._future, case._env, case._deadline = Future(), {"RUSH_TERMINAL": "0"}, case._s._clock() + 3600
-    async with linked(Terminal(Rush(), "a", 3, discard, terminals=32), case) as page:  # type: ignore[arg-type]
+    async with linked(Terminal(Rush(), "a", 3, terminals=32), case) as page:  # type: ignore[arg-type]
         page.send(terminal=1, rows=20, cols=80)
         with anyio.fail_after(2):
             while len(sandbox.calls) < 3:
@@ -281,7 +250,7 @@ async def test_a_terminal_that_cannot_open_ends_alone_with_why_printed_in_it() -
             raise RuntimeError("no running event loop")
 
     rush, case = Rush(), Failing()
-    terminal = Terminal(rush, "a", 3, discard, terminals=32)  # type: ignore[arg-type]
+    terminal = Terminal(rush, "a", 3, terminals=32)  # type: ignore[arg-type]
     async with linked(terminal, case) as page:
         page.send(terminal=1, rows=20, cols=80)
         page.type(0, b"ls\r")
@@ -296,7 +265,7 @@ async def test_a_terminal_that_cannot_open_ends_alone_with_why_printed_in_it() -
 async def test_a_chat_clicked_while_the_session_is_live_opens_in_its_next_terminal_and_the_session_runs_on(tmp_path: Path) -> None:
     case = Case()
     case.workspace = tmp_path / "workspace"  # type: ignore[attr-defined]
-    terminal = Terminal(Rush(), "a", 3, discard, terminals=32, scratch=tmp_path / "scratch")  # type: ignore[arg-type]
+    terminal = Terminal(Rush(), "a", 3, terminals=32, scratch=tmp_path / "scratch")  # type: ignore[arg-type]
     why = "That session ran in a harness run, not a terminal, so it can't be reopened; started a new claude session"
     async with linked(terminal, case) as page:
         page.send(terminal=1, rows=20, cols=80)  # the member's own second terminal

@@ -641,35 +641,23 @@ function createPostgresBenchmark({pool}) {
     /**
      * The caller's own Harness tab sessions (runs with `session`), newest first, each attempt with its model calls (the gateway's
      * spans), the processes the process record shows (with `atCalls`, only those running when one of its model calls started, or all
-     * of them when it made none: what names its agents, or its main command; and, without their argv and folder, every process those
-     * started, the tools an agent ran), the turns at its terminals (`terminal_turn` spans: from the member's Enter to the last output
-     * before they typed again) and each call's settled cost (null while it is not; jsonb, so a cost reads as a number, not as the
-     * LosslessNumber a json column's decimal reads as): of plugin `pluginId`, or only attempt `attemptId`.
+     * of them when it made none: what names its agents, or its main command), and each call's settled cost (null while it is not): of
+     * plugin `pluginId`, or only attempt `attemptId`.
      */
     async terminalRows(context, {pluginId = null, attemptId = null, atCalls = false}) {
       await sweep();
       return member(context, async client => (await client.query(
-        `select a.attempt_id, a.state, a.finalized_at, a.resumable, a.chats, r.resumed_from, r.archived_chats, (a.metrics->>'elapsed_ms')::float8 as elapsed_ms, r.harness_name, r.task_id, r.interactive, r.created_at,
+        `select a.attempt_id, a.state, a.finalized_at, a.resumable, a.chats, r.resumed_from, r.archived_chats, r.harness_name, r.task_id, r.created_at,
            coalesce((select json_agg(json_build_object('call_id', s.attributes->>'call_id', 'status', s.status, 'client', s.attributes->>'client',
                'prompt', s.attributes->>'prompt', 'start_ns', s.start_ns::text, 'end_ns', s.end_ns::text, 'usage', s.attributes->'usage') order by s.start_ns)
               from benchmark_span s where s.attempt_id = a.attempt_id and s.kind = 'model_call'), '[]') as calls,
-           coalesce((with recursive named as (
-                select s.span_id from benchmark_span s where s.attempt_id = a.attempt_id and s.kind = 'process'
-                 and (not $3::boolean or not exists (select 1 from benchmark_span c where c.attempt_id = a.attempt_id and c.kind = 'model_call')
-                   or exists (select 1 from benchmark_span c where c.attempt_id = a.attempt_id and c.kind = 'model_call'
-                     and s.start_ns <= c.start_ns and (s.end_ns is null or s.end_ns >= c.start_ns)))),
-              tree as (select span_id from named union
-                select c.span_id from benchmark_span c join tree t on c.parent_id = t.span_id where c.attempt_id = a.attempt_id and c.kind = 'process')
-              select json_agg(json_build_object('span_id', s.span_id, 'parent_id', s.parent_id,
-                  'argv', case when s.span_id in (select span_id from named) then s.attributes->'argv' end,
-                  'cwd', case when s.span_id in (select span_id from named) then s.attributes->>'cwd' end,
-                  'title', case when s.span_id in (select span_id from named) then s.attributes->>'title' end,
-                  'verdict', case when s.span_id in (select span_id from named) then s.attributes->>'verdict' end,
-                  'start_ns', s.start_ns::text, 'end_ns', s.end_ns::text) order by s.start_ns nulls first)
-                from benchmark_span s join tree t on t.span_id = s.span_id where s.attempt_id = a.attempt_id), '[]') as processes,
-           coalesce((select json_agg(json_build_object('terminal', s.attributes->'terminal', 'start_ns', s.start_ns::text, 'end_ns', s.end_ns::text,
-               'until_ns', s.attributes->>'until_ns') order by s.start_ns)
-              from benchmark_span s where s.attempt_id = a.attempt_id and s.kind = 'terminal_turn'), '[]') as turns,
+           coalesce((select json_agg(json_build_object('span_id', s.span_id, 'parent_id', s.parent_id, 'argv', s.attributes->'argv',
+               'cwd', s.attributes->>'cwd', 'title', s.attributes->>'title', 'verdict', s.attributes->>'verdict', 'start_ns', s.start_ns::text,
+               'end_ns', s.end_ns::text) order by s.start_ns nulls first)
+              from benchmark_span s where s.attempt_id = a.attempt_id and s.kind = 'process'
+               and (not $3::boolean or not exists (select 1 from benchmark_span c where c.attempt_id = a.attempt_id and c.kind = 'model_call')
+                 or exists (select 1 from benchmark_span c where c.attempt_id = a.attempt_id and c.kind = 'model_call'
+                   and s.start_ns <= c.start_ns and (s.end_ns is null or s.end_ns >= c.start_ns)))), '[]') as processes,
            coalesce((select jsonb_object_agg(d.call_id, d.cost_usd::float8) from benchmark_admission d
               where d.attempt_id = a.attempt_id and d.status = 'settled'), '{}') as costs
            from benchmark_run r join benchmark_attempt a on a.run_id = r.run_id
