@@ -30,7 +30,7 @@ In RUSH Lab, open **the plugin you created**. Its page has these tabs: **Session
 
 1. Open **Harness**. A sandboxed terminal opens;
 2. Run the agent you like: `claude`, `codex`, `pi`, `hermes`, `dsh` or `nanoagent`. Models and tracing are already set up, and every agent uses the same model (DeepSeek V4 Flash).
-   - **Any other agent:** install it, then run it with `rush` in front the first time, e.g. `rush aider`.
+   - **Any other agent:** install it, then run it with `rush` in front the first time, e.g. `rush opencode`.
 3. Quit the agent (or type `exit`) when you're done. Each conversation becomes a row under that agent's chip on the **Dashboard**, and clicking a row reopens it.
 
 ### 4a. Try to match nanoagent's results
