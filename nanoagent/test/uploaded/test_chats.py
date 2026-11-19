@@ -49,7 +49,8 @@ def test_codex_pi_and_hermes_chats_reopen_by_their_own_ids(tmp_path: Path) -> No
     rollout.write_text("\n".join(json.dumps(line) for line in [
         {"timestamp": "2026-11-19T00:00:00Z", "type": "session_meta", "payload": {"id": "c-9", "cwd": "/rush/workspace"}},
         {"timestamp": "2026-11-19T00:00:01Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "<environment_context>"}]}},
-        {"timestamp": "2026-11-19T00:00:01Z", "type": "event_msg", "payload": {"type": "user_message", "message": "fix the test"}},
+        {"timestamp": "2026-11-19T00:00:01Z", "type": "event_msg", "payload": {"type": "item_completed", "item": {"type": "UserMessage", "content": [{"type": "text", "text": "fix the test"}]}}},
+        {"timestamp": "2026-11-19T00:00:02Z", "type": "event_msg", "payload": {"type": "item_completed", "item": {"type": "AgentMessage", "content": [{"type": "Text", "text": "done"}]}}},
     ]) + "\n")  # fmt: skip
     session = tmp_path / ".rush/pi/sessions/--rush-workspace--/1_p-1.jsonl"
     session.parent.mkdir(parents=True)

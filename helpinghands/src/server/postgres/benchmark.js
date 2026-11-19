@@ -668,7 +668,7 @@ function createPostgresBenchmark({pool}) {
       await sweep();
       return member(context, async client => (await client.query(
         `select a.attempt_id, a.state, a.finalized_at, a.resumable, a.chats, r.resumed_from, r.archived_chats, (a.metrics->>'elapsed_ms')::float8 as elapsed_ms, r.harness_name, r.task_id, r.created_at,
-           coalesce((select json_agg(json_build_object('call_id', s.attributes->>'call_id', 'status', s.status,
+           coalesce((select json_agg(json_build_object('call_id', s.attributes->>'call_id', 'status', s.status, 'client', s.attributes->>'client',
                'start_ns', s.start_ns::text, 'end_ns', s.end_ns::text, 'usage', s.attributes->'usage') order by s.start_ns)
               from benchmark_span s where s.attempt_id = a.attempt_id and s.kind = 'model_call'), '[]') as calls,
            coalesce((select json_agg(json_build_object('span_id', s.span_id, 'parent_id', s.parent_id, 'argv', s.attributes->'argv',
@@ -683,6 +683,16 @@ function createPostgresBenchmark({pool}) {
           where r.session and ($1::text is null or r.plugin_id = $1) and ($2::uuid is null or a.attempt_id = $2)
           order by r.created_at desc, a.attempt_no desc`, [pluginId, attemptId, atCalls],
       )).rows);
+    },
+    /** The member's free-form Terminal session on plugin `pluginId` that still runs, `{run_id, attempt_id}`, or null. */
+    async liveTerminal(context, pluginId) {
+      await sweep();
+      return member(context, async client => (await client.query(
+        `select r.run_id, a.attempt_id from benchmark_run r join benchmark_attempt a on a.run_id = r.run_id
+          where r.user_id = $1 and r.plugin_id = $2 and r.session and r.interactive and r.harness_name = 'shell' and r.task_id is null
+            and r.canceled_at is null and a.state <> 'final' and not a.cancel_requested
+          order by r.created_at desc limit 1`, [context.userId, pluginId],
+      )).rows[0] ?? null);
     },
     /** Everything each terminal of attempt `attemptId` wrote, by terminal: `[{terminal, data}]`, data a Buffer. */
     async terminalTranscripts(context, attemptId) {

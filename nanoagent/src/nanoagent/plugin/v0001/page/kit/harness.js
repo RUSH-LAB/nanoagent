@@ -39,8 +39,9 @@ const failedText = (reason) => `Couldn't start the terminal: ${reason}`;
  * the first time it runs. As in an editor's
  * terminal panel, they open more terminals in the same VM and workspace ("+"), switch between them by their tabs and close one (×);
  * a terminal whose shell they leave (exit, Ctrl-D) closes too. The session ends with its last terminal; its time, tokens and cost
- * print there, and Enter then starts a new one. `reopen(chat)` starts a new one that resumes the ended session holding one of their
- * chats (the Dashboard's) and reopens that conversation: the worker puts back what it kept of it on their computer, and its first
+ * print there, and Enter then starts a new one. Another tab shown, or the page left, the session runs on: started again while it runs,
+ * this tab is given it again, and each of its terminals comes back with what it wrote from its first byte. `reopen(chat)` starts a
+ * new one that resumes the ended session holding one of their chats (the Dashboard's) and reopens that conversation: the worker puts back what it kept of it on their computer, and its first
  * terminal runs the agent's resume command, or says why it could not. `startCli(name)` starts a new one whose first terminal runs the
  * agent CLI `name` (`claude`), as a resumed one runs its agent's resume command. `live()` is the attempt id of the session running
  * here, or null.
@@ -121,6 +122,16 @@ export function harnessPage() {
     entry.terminal.onResize((size) => send("harness.resize", { terminal: id, ...size }, entry));
   }
 
+  // A terminal of the session this tab did not open: one the session it was given again already has.
+  function adopt(id) {
+    const entry = view(id);
+    next = Math.max(next, id + 1);
+    updateAdd();
+    entry.terminal.onResize((size) => send("harness.resize", { terminal: id, ...size }, entry));
+    send("harness.resize", { terminal: id, rows: entry.terminal.rows, cols: entry.terminal.cols }, entry);
+    return entry;
+  }
+
   // ×: the worker ends the terminal's processes; its tab goes when RUSH says it ended (harness.closed), the session with its last.
   function close(id) {
     if (runId && !ended) send("harness.close", { terminal: id }, views.get(id));
@@ -184,8 +195,7 @@ export function harnessPage() {
             first.terminal.write(`\r\x1b[KPreparing your computer (${Math.round(data.done / 1e6)} of ${Math.round(data.total / 1e6)} MB): the session starts once it is ready`);
             break;
           case "harness.output": {
-            const entry = views.get(data.terminal);
-            if (!entry) break;
+            const entry = views.get(data.terminal) ?? adopt(data.terminal);
             if (preparing) entry.terminal.write("\r\x1b[K");
             preparing = false;
             started = true;

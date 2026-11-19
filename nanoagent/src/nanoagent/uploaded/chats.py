@@ -95,16 +95,20 @@ def _claude(home: Path) -> list[Chat]:
 
 def _codex(home: Path) -> list[Chat]:
     """Codex's threads: one rollout file each under sessions/<year>/<month>/<day>/, its first line the thread's id and folder, and each
-    prompt the member typed an event of its own (``user_message``)."""
+    prompt the member typed an item of its own (Codex 0.167: ``event_msg`` ``item_completed``, its item a ``UserMessage``)."""
     chats = []
     for path in sorted((home / "sessions").rglob("rollout-*.jsonl")):
         lines = _lines(path)
         meta = next((line["payload"] for line in lines if line.get("type") == "session_meta"), None)
-        prompts = [line for line in lines if line.get("type") == "event_msg" and line["payload"].get("type") == "user_message"]
-        if meta is None or not prompts:
+        prompts = [
+            _text(item.get("content")) for line in lines if line.get("type") == "event_msg" and line["payload"].get("type") == "item_completed"
+            for item in [line["payload"].get("item")] if isinstance(item, dict) and item.get("type") == "UserMessage"
+        ]  # fmt: skip
+        typed = [text for text in prompts if text.strip()]
+        if meta is None or not typed:
             continue
         timed = [line for line in lines if "timestamp" in line]
-        chats.append(Chat("codex", meta["id"], _title(prompts[0]["payload"]["message"]), _at(timed[0]["timestamp"]), _at(timed[-1]["timestamp"]), len(timed), meta.get("cwd")))
+        chats.append(Chat("codex", meta["id"], _title(typed[0]), _at(timed[0]["timestamp"]), _at(timed[-1]["timestamp"]), len(timed), meta.get("cwd")))
     return chats
 
 

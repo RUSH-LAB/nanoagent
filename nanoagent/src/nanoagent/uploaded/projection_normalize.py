@@ -202,6 +202,7 @@ def _model_calls(n: Normalized) -> None:
                 error=resp.get("error"),
                 rejected=None,
                 evidence=evidence,
+                client=(a.get("request_headers") or {}).get("user-agent"),
             )
         )
     n.model_calls.sort(key=lambda c: (c.ordinal if c.ordinal is not None else 1 << 60, c.admitted_ns or 0))

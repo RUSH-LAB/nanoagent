@@ -57,6 +57,7 @@ function ctxFor({computer, app = {value: {id: 'p', sha256: SHA, status: 'ready',
         saveSource: async (context, data, harness) => ({source_sha256: 'b'.repeat(64), size: data.length, harness}),
         run: async (context, id) => ({run_id: id}),
         savedHarness: async (context, name) => (name === 'my-agent' ? SAVED : null),
+        liveTerminal: async () => null,
         failSessionCase: async (context, runId, caseId, error) => { calls.push(['failed', runId, caseId, error]); },
       },
     },
@@ -96,6 +97,16 @@ describe('POST /api/benchmark/sessions', () => {
     await settled();
     assert.ok(!calls.some(([what]) => what === 'pin'));
     for (const extra of [{text: 'hi'}, {task_id: 'sum'}]) assert.equal((await post(ctx, {plugin_id: 'p', harness: 'shell', interactive: true, ...extra})).status, 400);
+  });
+
+  it('gives the member\'s free-form session on the plugin that still runs, not a new one, when it is shown again; resume and start still start one', async () => {
+    const {ctx, calls} = ctxFor();
+    const asked = [];
+    ctx.benchmark.repository.liveTerminal = async (context, pluginId) => { asked.push(pluginId); return {run_id: 'live', attempt_id: 'a-live'}; };
+    const {status, payload} = await post(ctx, {plugin_id: 'p', harness: 'shell', interactive: true});
+    assert.deepEqual([status, payload, asked, calls], [201, {run: {run_id: 'live'}, attempt_id: 'a-live'}, ['p'], []]);
+    assert.equal((await post(ctx, {plugin_id: 'p', harness: 'shell', interactive: true, start: 'codex'})).status, 201);
+    assert.deepEqual([asked, calls.find(([what]) => what === 'session')[4].startCli], [['p'], 'codex']);
   });
 
   it('resumes an ended free-form Terminal session of the member\'s as a new session linked to it, and no other', async () => {

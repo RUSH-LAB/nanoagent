@@ -199,7 +199,7 @@ def _model_calls(j: _Join) -> None:
             provenance=OBSERVED, target=c.model,
             attributes={**extra, "call_id": c.call_id, "dialect": c.dialect, "terminal": c.terminal, "http_status": c.http_status, "stream": c.stream, "ordinal": c.ordinal,
                         "generation_id": c.generation_id, "response_id": c.response_id, "resolved_model": c.resolved_model, "provider": c.provider, "finish_reason": c.finish_reason,
-                        "error": c.error, "rejected": c.rejected, "submitted_request_sha256": c.submitted_sha256, "effective_request_sha256": c.effective_sha256,
+                        "error": c.error, "rejected": c.rejected, "client": c.client, "submitted_request_sha256": c.submitted_sha256, "effective_request_sha256": c.effective_sha256,
                         "response_sha256": c.response_sha256, "frames_sha256": c.frames_sha256, "usage": None if usage is None else {k: getattr(usage, k) for k in ("input", "output", "total", "cache_read", "cache_write", "reasoning")},
                         "evidence": list(c.evidence)},
         )  # fmt: skip

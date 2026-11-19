@@ -33,9 +33,11 @@ import {
  * terminal the member works in: RUSH queues and records it, and the page talks to its terminals on this computer, through RUSH
  * Lab, not through RUSH (./harness.js). The page hears the terminal's output as it comes and the outcome, through `harness.done`,
  * and sends what is typed (`harness.input`) and the terminal's size (`harness.resize`), each to one of its terminals (0 the first);
- * `harness.open` opens another in a free-form session, `harness.close` closes one, and `harness.cancel` cancels the run, as the
- * frame going away does. A free-form session started with `resume` (an ended one's attempt id, clicked on the Dashboard) resumes it:
- * the worker puts back what it kept of it on this computer, and with `chat` too (`{agent, id}`, one of its chats) reopens that
+ * `harness.open` opens another in a free-form session, `harness.close` closes one, and `harness.cancel` cancels the run. The frame
+ * going away, or the page no longer following it, leaves the session running: started again with neither `resume` nor `start`, the
+ * page is given it again (RUSH answers with the member's free-form session on the plugin that still runs), and its link replays each
+ * terminal's output from its first byte. A free-form session started with `resume` (an ended one's attempt id, clicked on the
+ * Dashboard) resumes it: the worker puts back what it kept of it on this computer, and with `chat` too (`{agent, id}`, one of its chats) reopens that
  * conversation. One started with `start` (an agent's CLI command, the Dashboard's New session under that agent) runs it in its first
  * terminal. Once RUSH has queued it, `harness.session` names its attempt.
  *
@@ -241,17 +243,13 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
         if (!response.ok) throw await failed(response, 'Could not start the harness');
         const {run, attempt_id: attempt} = await response.json();
         Object.assign(entry, {run: run.run_id, attempt});
+        // A page given its running session again follows it here alone.
+        for (const other of harnessRuns.values()) if (other !== entry && other.attempt === attempt) other.controller.abort();
         emit('harness.session', {attemptId: attempt});  // the session the page's terminals are, which the Dashboard's chats name
-        // Stopped while RUSH was queuing it: the session it queued ends too.
-        if (controller.signal.aborted) {
-          await cancelHarness(entry);
-          return;
-        }
+        if (controller.signal.aborted) return;
         await followHarness({attemptId: entry.attempt, request, emit, signal: controller.signal, linked});
       } catch (error) {
         if (!controller.signal.aborted) emit('harness.error', {message: error.message});
-        // A session the page cannot reach ends: nobody can work in it.
-        if (entry.run) await cancelHarness(entry).catch(() => {});
       } finally {
         harnessRuns.delete(runId);
         emit('harness.done', {});
@@ -382,9 +380,8 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
       currentTheme = theme;
       post(themeEvent(theme));
     },
-    /** Stop following every run; the frame is going away, and the runs go on but a Harness tab session's, which lives only while its page is open. */
+    /** Stop following every run, a Harness tab session's too; the frame is going away, and the runs go on. */
     close() {
-      for (const run of harnessRuns.values()) cancelHarness(run).catch(() => {});
       for (const run of [...runs.values(), ...harnessRuns.values()]) run.controller.abort();
     },
   };

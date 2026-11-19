@@ -53,7 +53,7 @@ def test_sessions_are_bounded_in_all_and_each_one_not_kept_says_why(tmp_path: Pa
 def test_one_agent_runs_its_resume_and_several_print_theirs(tmp_path: Path) -> None:
     rollout = [
         {"timestamp": "2026-11-18T00:00:00Z", "type": "session_meta", "payload": {"id": "c-9", "cwd": "/rush/workspace/app"}},
-        {"timestamp": "2026-11-18T00:00:01Z", "type": "event_msg", "payload": {"type": "user_message", "message": "hi"}},
+        {"timestamp": "2026-11-18T00:00:01Z", "type": "event_msg", "payload": {"type": "item_completed", "item": {"type": "UserMessage", "content": [{"type": "text", "text": "hi"}]}}},
     ]
     files = {".rush/clis/codex": b"k", ".rush/codex/sessions/2026/11/18/rollout-1.jsonl": b"".join(json.dumps(line).encode() + b"\n" for line in rollout)}
     assert keep(tmp_path / "scratch", "one", workspace(tmp_path / "one", files), START, 1 << 20)[0]

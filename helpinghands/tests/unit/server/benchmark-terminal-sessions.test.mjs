@@ -50,6 +50,18 @@ describe('a Harness tab session on the Dashboard', () => {
     assert.deepEqual([usage.aider.inputTokens, usage.aider.cost], [{sum: 0, count: 0}, {sum: 0, count: 0}]);
   });
 
+  it('gives a call made while agents run in two terminals to the one its client names, live, at its first model call', () => {
+    const claude = process(CLAUDE, 5, null);
+    const codex = process(CODEX, 8, null);
+    const live = terminalChats(row({
+      state: 'leased', finalized_at: null, task_id: null, processes: [claude, codex],
+      calls: [{...call('c1', 6, 7), client: 'claude-cli/2.1.325 (external, cli)'}, {...call('c2', 10, 11), client: 'codex-tui/0.167.0 (Debian 12.0.0; aarch64)'}],
+    }));
+    assert.deepEqual(live.map(chat => [chat.agent, chat.title, chat.usage.inputTokens.sum]), [['claude', 'claude', 100], ['codex', 'codex', 100]]);
+    const unnamed = terminalSession(row({calls: [{...call('c1', 10, 11), client: 'node'}], processes: [claude, codex]}));
+    assert.deepEqual(unnamed.harnesses, []);  // a client no CLI is known by, with two agents running: no agent's
+  });
+
   it('names a session by its one agent, which takes its latency, and ties a call two agents could have made to none', () => {
     const wrapper = process(['sh', '/harness/bin/claude', '-p', 'hi'], 5, null);
     const one = terminalSession(row({calls: [call('c1', 10, 12)], processes: [wrapper, process(['python', '/harness/rush.py', 'cli', 'claude'], 6, 7, wrapper)], costs: {c1: 0.01}}));

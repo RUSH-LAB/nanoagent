@@ -98,6 +98,7 @@ class Trace:
         early: dict[str, int] | None = None,
         maybe_reached: bool = True,
         respond: bool = True,
+        client: str | None = None,
     ) -> str:
         body = request or chat_request(extra=call_id)
         submitted, effective = self.payload(body), self.payload({"effective": body})
@@ -105,7 +106,8 @@ class Trace:
         self.add(
             "gateway", "model_call.admitted", a - 1000,
             {"call_id": call_id, "dialect": "chat_completions", "span_id": span_ref, "model": "vendor/model", "stream": frames is not None, "ordinal": ordinal,
-             "submitted_request_sha256": submitted, "effective_request_sha256": effective}, (submitted, effective),
+             "submitted_request_sha256": submitted, "effective_request_sha256": effective, "request_headers": {} if client is None else {"user-agent": client}},
+            (submitted, effective),
         )  # fmt: skip
         self.add("gateway", "model_call.dispatched", a, {"call_id": call_id, "span_id": span_ref, "effective_request_sha256": effective}, (effective,))
         if not respond:

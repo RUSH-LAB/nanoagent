@@ -134,7 +134,8 @@ async function openApp(ctx, context, pluginId, computer) {
  * it on the member's computer before the shell starts, or says it has nothing kept. Given `start` instead, an agent's CLI command
  * (`claude`), its first terminal runs it at its first prompt (`start_cli`), as a resumed one runs its agent's resume command. Given
  * `chat` with `resume`, one of that session's chats (`{agent, id}`, the Dashboard's chat row, its CLI's conversation id or null for a
- * run of an agent), its first terminal reopens that conversation (`resume_chat`). `{run, attempt_id}`.
+ * run of an agent), its first terminal reopens that conversation (`resume_chat`). Given neither, while the member's free-form session on
+ * that plugin still runs, it is that session's run, not a new one. `{run, attempt_id}`.
  */
 async function startSession(ctx, context, {pluginId, taskId, harness, interactive, text, model, resume, start, chat}) {
   const {repository, service} = ctx.benchmark;
@@ -146,6 +147,12 @@ async function startSession(ctx, context, {pluginId, taskId, harness, interactiv
   const resumedFrom = resume === undefined ? null : await resumable(repository, context, free, resume);
   const resumeChat = chat === undefined ? null : await chatOf(repository, context, resumedFrom, chat);
   const startCli = start === undefined ? null : cliCommand(free, resumedFrom, start);
+  // A new free-form session on a plugin where the member's last one still runs is that one, which the page links to again (the
+  // Harness tab shown again, the plugin opened again): only `exit`, its time limit or another start (resume, start) ends it.
+  if (free && resumedFrom === null && startCli === null) {
+    const live = await repository.liveTerminal(context, pluginId);
+    if (live) return {run: await repository.run(context, live.run_id), attempt_id: live.attempt_id};
+  }
   const harnessModel = string(model, 'model', {optional: true}) ?? aiSettings.MODEL.model;
   const reference = REFERENCE_HARNESSES.includes(harness);
   const saved = reference ? null : await repository.savedHarness(context, harness);

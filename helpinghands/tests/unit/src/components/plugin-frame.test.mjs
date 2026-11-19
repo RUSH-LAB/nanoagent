@@ -459,8 +459,12 @@ describe('the bridge host', () => {
   function fakeLab(script) {
     const callbacks = new Map();
     const lab = {linked: [], sent: [], unlinked: 0};
-    let index = 0;
-    const deliver = (channel, message) => callbacks.get(channel)({message, index: index++});
+    // Each link's channel numbers its messages from 0.
+    const indexes = new Map();
+    const deliver = (channel, message) => {
+      indexes.set(channel, (indexes.get(channel) ?? -1) + 1);
+      callbacks.get(channel)({message, index: indexes.get(channel)});
+    };
     lab.tauri = {
       transformCallback: callback => { callbacks.set(callbacks.size + 1, callback); return callbacks.size; },
       invoke: async (command, args) => {
@@ -540,12 +544,11 @@ describe('the bridge host', () => {
     }
   });
 
-  it('says a Harness tab session\'s terminals are reached only from RUSH Lab, and ends the session', async () => {
+  it('says a Harness tab session\'s terminals are reached only from RUSH Lab, and leaves the session running', async () => {
     const answers = {
       '/api/runner/status': () => Response.json(READY),
       '/api/benchmark/sessions': () => Response.json({run: {run_id: 'r1', cases: [{attempts: [{attempt_id: 'a1'}]}]}, attempt_id: 'a1'}, {status: 201}),
       '/api/benchmark/attempts/a1/terminal-link': () => Response.json({port: 51234, token: 't0k'}),
-      '/api/benchmark/runs/r1/cancel': () => Response.json({}),
     };
     const {posted, calls, send} = await hostWith(path => answers[path](), {started: false});
     send('h', 'harness.run', {harness: 'shell', resume: SESSION, chat: {agent: 'claude', id: 'aaaa'}});  // a chat the Dashboard reopens
@@ -556,7 +559,37 @@ describe('the bridge host', () => {
     ]);
     const queued = JSON.parse(calls.find(call => call.path === '/api/benchmark/sessions').init.body);
     assert.deepEqual([queued.harness, queued.resume, queued.chat, queued.interactive], ['shell', SESSION, {agent: 'claude', id: 'aaaa'}, true]);
-    assert.ok(calls.some(call => call.path === '/api/benchmark/runs/r1/cancel' && call.init.method === 'POST'));
+    assert.ok(!calls.some(call => call.path.endsWith('/cancel')));
+  });
+
+  it('leaves a Harness tab session running when its frame goes away, unlinking its terminals, and links them again when the page is given it again', async () => {
+    const base64 = text => Buffer.from(text).toString('base64');
+    const lab = fakeLab([{line: {terminal: 0, data: base64('$ ')}}, {line: {terminal: 2, data: base64('codex> ')}}]);
+    const answers = {
+      '/api/runner/status': () => Response.json(READY),
+      '/api/benchmark/sessions': () => Response.json({run: {run_id: 'r1'}, attempt_id: 'a1'}, {status: 201}),
+      '/api/benchmark/attempts/a1/terminal-link': () => Response.json({port: 51234, token: 't0k'}),
+    };
+    globalThis.__TAURI_INTERNALS__ = lab.tauri;
+    try {
+      const first = await hostWith(path => answers[path](), {started: false});
+      first.send('h', 'harness.run', {harness: 'shell'});
+      await until(() => eventsOf(first.posted, 'harness-1').some(([name]) => name === 'harness.output'));
+      first.host.close();
+      await until(() => lab.unlinked === 1);
+      assert.ok(!first.calls.some(call => call.path.endsWith('/cancel')));
+      // The page opened again: RUSH answers with the same running session, and its link replays every terminal's output.
+      const again = await hostWith(path => answers[path](), {started: false});
+      again.send('h', 'harness.run', {harness: 'shell'});
+      await until(() => eventsOf(again.posted, 'harness-1').filter(([name]) => name === 'harness.output').length === 2);
+      assert.deepEqual(eventsOf(again.posted, 'harness-1').map(([name, data]) => [name, data.terminal ?? data.attemptId]), [
+        ['harness.session', 'a1'], ['harness.output', 0], ['harness.output', 2],
+      ]);
+      assert.deepEqual(lab.linked.length, 2);
+      again.host.close();
+    } finally {
+      delete globalThis.__TAURI_INTERNALS__;
+    }
   });
 
   it('cancels a Harness tab session\'s run, and says why one could not start', async () => {

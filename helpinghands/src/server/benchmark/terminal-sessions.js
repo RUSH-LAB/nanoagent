@@ -45,19 +45,27 @@ function outermost(processes) {
   });
 }
 
+// The agent CLIs a model call's client (the user-agent it came with) names: a call made while agents run in two terminals is the one's
+// that made it.
+const CLIENTS = Object.freeze([['claude', /^claude-cli\//], ['codex', /^codex[-_]/], ['pi', /^pi \(/]]);
+const clientAgent = client => CLIENTS.find(([, pattern]) => pattern.test(client ?? ''))?.[0] ?? null;
+
 /**
- * The outermost agent process running at `at` (ns), when those running then are all one agent (the latest started of them); otherwise
- * null (no process the record shows ran then, as in a session recorded before process records, or two agents could have made the call).
+ * The outermost agent process running at `at` (ns) that made a call from `client`: of the agent that client names when it names one,
+ * and those running then all one agent (the latest started of them); otherwise null (no process the record shows ran then, as in a
+ * session recorded before process records, or two agents could have made the call).
  */
-function processAt(processes, at) {
+function processAt(processes, at, client) {
   if (at === null) return null;
-  const running = outermost(processes.filter(process => process.start !== null && process.start <= at && (process.end === null || process.end >= at)));
+  const named = clientAgent(client);
+  const running = outermost(processes.filter(process => process.start !== null && process.start <= at && (process.end === null || process.end >= at)))
+    .filter(process => named === null || process.agent === named);
   if (new Set(running.map(process => process.agent)).size !== 1) return null;
   return running.reduce((latest, process) => (process.start > latest.start ? process : latest));
 }
 
-/** The agent whose process ran at `at` (processAt), or null. */
-const agentAt = (processes, at) => processAt(processes, at)?.agent ?? null;
+/** The agent whose process made a call from `client` at `at` (processAt), or null. */
+const agentAt = (processes, at, client) => processAt(processes, at, client)?.agent ?? null;
 
 /** What `calls` took, read and cost, in the figures a chat's usage has, with `elapsed` (s) as its End-to-End Latency when it is its own. */
 function usageOf(calls, final, elapsed) {
@@ -98,7 +106,7 @@ function terminalSession(row) {
       const start = ns(call.start_ns);
       const end = ns(call.end_ns);
       return {
-        start, agent: shell ? agentAt(processes, start) : label, durationS: seconds(start, end),
+        start, agent: shell ? agentAt(processes, start, call.client) : label, durationS: seconds(start, end),
         inputTokens: call.usage?.input ?? null, outputTokens: call.usage?.output ?? null,
         cost: typeof row.costs[call.call_id] === 'number' ? row.costs[call.call_id] : null,
       };
@@ -167,7 +175,7 @@ function terminalChats(row) {
     const start = ns(call.start_ns);
     const end = ns(call.end_ns);
     return {
-      start, process: row.harness_name === 'shell' ? processAt(processes, start) : null, durationS: seconds(start, end),
+      start, process: row.harness_name === 'shell' ? processAt(processes, start, call.client) : null, durationS: seconds(start, end),
       inputTokens: call.usage?.input ?? null, outputTokens: call.usage?.output ?? null,
       cost: typeof row.costs[call.call_id] === 'number' ? row.costs[call.call_id] : null,
     };
