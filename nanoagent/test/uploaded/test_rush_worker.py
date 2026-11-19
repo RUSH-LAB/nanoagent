@@ -113,16 +113,29 @@ async def test_downloads_send_the_fence_and_check_the_declared_digest() -> None:
         await client.package("a", 4)
 
 
-async def test_idempotent_calls_retry_over_5xx_then_give_up() -> None:
-    calls = []
+async def test_calls_retry_over_5xx_and_connection_errors_until_rush_answers_again() -> None:
+    answers: list[Any] = [httpx.ConnectError("refused"), httpx.Response(504), httpx.Response(500), httpx.Response(502)] * 3
+    sleeps: list[float] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        calls.append(1)
-        return httpx.Response(503)
+        if answers:
+            answer = answers.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        return httpx.Response(200, json={"lease_seconds": 30})
 
-    with pytest.raises(RushUnavailable):
-        await client_for(handler, retries=2).renew("a", 1)
-    assert len(calls) == 3
+    async def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://rush.test")
+    client = RushWorkerClient("http://rush.test", "tok", client=http, sleep=sleep, backoff_s=1, max_backoff_s=8)
+    assert await client.renew("a", 1) == 30  # twelve failures, a restart's worth, then RUSH is back
+    assert sleeps == [1, 2, 4, 8, 8, 8, 8, 8, 8, 8, 8, 8]
+    with pytest.raises(RushUnavailable):  # the claim tries once: the worker's poll waits the outage out and logs it
+        await client_for(lambda r: httpx.Response(503)).claim("w", "l", "m", {}, 0, interactive=False)
+    with pytest.raises(LeaseLost):  # a 4xx is an answer, never retried
+        await client_for(lambda r: error(409, "lease_lost")).renew("a", 1)
 
 
 async def test_an_admission_retry_that_finds_its_own_duplicate_succeeds() -> None:
@@ -198,6 +211,30 @@ async def test_journal_commits_in_order_uploads_payloads_first_and_stops_after_l
     await journal.append(EvidenceEvent("gateway-000003", "gateway", "k", 3, 7, {}))
     await journal.append(EvidenceEvent("gateway-000004", "gateway", "k", 4, 8, {}))
     assert lease.reason == "lease_lost" and journal.closed and journal.dropped == 2 and len(journal.records) == 2
+
+
+async def test_evidence_written_while_rush_restarts_is_committed_once_it_is_back_and_the_recorder_keeps_recording() -> None:
+    from nanoagent.uploaded.evidence import Recorder
+
+    down = 6  # event writes that find RUSH restarting
+    committed: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal down
+        if down:
+            down -= 1
+            if down % 2:
+                raise httpx.ConnectError("refused")
+            return httpx.Response(504)
+        committed.extend(event["event_id"] for event in json.loads(request.content)["events"])
+        return httpx.Response(200, json={"receipts": [], "high_water_cursor": len(committed)})
+
+    recorder = Recorder(RushJournal(client_for(handler), Lease("a", 1)), lambda: 1, [])
+    await recorder.record("gateway", "model_call.request", {"n": 1})
+    await recorder.flush()  # waited for RUSH rather than failing: no JournalWriteError latched
+    await recorder.record("gateway", "model_call.request", {"n": 2})
+    await recorder.flush()
+    assert committed == ["gateway-000001", "gateway-000002"] and down == 0
 
 
 async def test_reconcile_waits_for_the_generation_then_records_accounting_and_settles_the_unknown_cost() -> None:

@@ -2,8 +2,10 @@
 adapters that let the attempt-scoped services use it.
 
 * [RushWorkerClient] has one method per worker endpoint. Every server error is a [RushError] subclass chosen by its
-  `code`; a connection that stays down is [RushUnavailable]. Idempotent calls are retried with backoff; an admission is
-  never reissued blindly (a `duplicate_call` that answers our own retry means the first attempt landed).
+  `code`. A connection error or a 5xx (RUSH restarting, a deploy) is retried with capped backoff until RUSH answers again, so an
+  outage never ends an attempt, its terminal or its evidence: the lease decides that once RUSH is back. The claim and the calls
+  that are not idempotent try once and raise [RushUnavailable] instead; an admission is never reissued blindly (a
+  `duplicate_call` that answers our own retry means the first attempt landed).
 * [Lease] is the shared state of one leased attempt: the first `lease_lost` or `canceled` answer anywhere marks it.
 * [RushAdmission] implements the gateway's `Admission` and [RushJournal] its `Journal` over the client. The journal
   uploads a payload when it is stored, so it exists before any event that references it, and group-commits events in
@@ -15,6 +17,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -28,10 +31,10 @@ from nanoagent.uploaded.evidence import MAX_PAYLOAD_BYTES, EvidenceEvent, json_b
 from nanoagent.uploaded.gateway import AdmissionDenied
 from nanoagent.uploaded.records import WORKER, Fact, make_record
 
+LOG = logging.getLogger(__name__)
 FENCE_HEADER = "X-Rush-Fence"
 REDACTION_HEADER = "X-Rush-Redaction"
 MAX_EVENTS_PER_BATCH = 500
-RETRYABLE_STATUS = frozenset({502, 503, 504})
 # RUSH refuses an event whose data is over 256 KiB and an attempt's 100,001st event with a 413, which would fault the attempt
 # unscored, so both are kept below by construction: the journal stubs the former and drops the latter.
 MAX_EVENT_DATA_BYTES = 200 * 1024
@@ -101,7 +104,7 @@ class CursorMismatch(RushError):
 
 
 class RushUnavailable(Exception):
-    """The server could not be reached, or kept answering 5xx, through every retry."""
+    """The server could not be reached, or answered 5xx, on a call that tries once."""
 
 
 _BY_CODE: dict[str, type[RushError]] = {
@@ -215,41 +218,47 @@ class RushWorkerClient:
         token: str,
         *,
         client: httpx.AsyncClient | None = None,
-        retries: int = 5,
         backoff_s: float = 0.5,
+        max_backoff_s: float = 10.0,
         sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
     ) -> None:
         self._owned = client is None
         self._http = client or httpx.AsyncClient(base_url=base_url.rstrip("/"), timeout=httpx.Timeout(60, connect=10))
         self._headers = {"Authorization": f"Bearer {token}"}
-        self._retries = retries
         self._backoff_s = backoff_s
+        self._max_backoff_s = max_backoff_s
         self._sleep = sleep
 
     async def aclose(self) -> None:
         if self._owned:
             await self._http.aclose()
 
+    async def _wait(self, attempt: int, what: str, error: BaseException) -> None:
+        """Before retry ``attempt`` (from 1) of ``what``: the doubling wait, capped; a call's first retry is logged."""
+        if attempt == 1:
+            LOG.warning("%s failed (%r); retrying until RUSH answers", what, error)
+        await self._sleep(min(self._backoff_s * 2 ** (attempt - 1), self._max_backoff_s))
+
     async def _send(self, method: str, path: str, *, retry: bool = True, **kwargs: Any) -> httpx.Response:
-        """One request, retried over transport failures and 5xx when ``retry``; any other non-2xx raises its [RushError]."""
-        attempts = self._retries + 1 if retry else 1
-        last: BaseException | None = None
+        """One request, retried over transport failures and 5xx until RUSH answers when ``retry``, else [RushUnavailable] on the
+        first; any other non-2xx raises its [RushError]."""
         headers = {**self._headers, **kwargs.pop("headers", {})}
-        for attempt in range(attempts):
-            if attempt:
-                await self._sleep(self._backoff_s * 2 ** (attempt - 1))
+        attempt = 0
+        while True:
             try:
                 response = await self._http.request(method, f"/api/benchmark-worker{path}", headers=headers, **kwargs)
             except httpx.TransportError as error:
-                last = error
-                continue
-            if response.status_code in RETRYABLE_STATUS:
-                last = rush_error(response)
-                continue
-            if response.is_success:
-                return response
-            raise rush_error(response)
-        raise RushUnavailable(f"{method} {path} failed after {attempts} attempts: {last!r}") from last
+                failure: BaseException = error
+            else:
+                if response.is_success:
+                    return response
+                if response.status_code < 500:
+                    raise rush_error(response)
+                failure = rush_error(response)
+            if not retry:
+                raise RushUnavailable(f"{method} {path} failed: {failure!r}") from failure
+            attempt += 1
+            await self._wait(attempt, f"{method} {path}", failure)
 
     async def _json(self, method: str, path: str, body: Mapping[str, Any] | None = None, *, retry: bool = True) -> Any:
         kwargs: dict[str, Any] = {}
@@ -269,7 +278,8 @@ class RushWorkerClient:
             "worker_id": worker_id, "endpoint_profile": {"label": label, "mode": mode}, "capabilities": dict(capabilities), "interactive": interactive,
             "wait_s": wait_s,
         }  # fmt: skip
-        response = await self._send("POST", "/claim", content=json_bytes(body), headers={"Content-Type": "application/json"})
+        # Tried once: the worker's poll waits out an outage itself, logging it for RUSH Lab.
+        response = await self._send("POST", "/claim", retry=False, content=json_bytes(body), headers={"Content-Type": "application/json"})
         return None if response.status_code == 204 else parse_job(response.json())
 
     async def started(self, worker_id: str) -> list[str]:
@@ -299,27 +309,21 @@ class RushWorkerClient:
     # -- admissions --------------------------------------------------------------------------------------------
 
     async def admit(self, attempt_id: str, fence: int, call_id: str, reserve_usd: float) -> None:
-        """Reserve one physical call. The request is retried over a dropped connection; if a retry answers
-        `duplicate_call` our own first try had landed, so the reservation exists."""
+        """Reserve one physical call. The request is retried over a dropped connection or a 5xx until RUSH answers; if a retry
+        answers `duplicate_call` our own first try had landed, so the reservation exists."""
         body = {"fence": fence, "call_id": call_id, "reserve_usd": reserve_usd}
-        attempts = self._retries + 1
-        retried = False
-        last: BaseException | None = None
-        for attempt in range(attempts):
-            if attempt:
-                await self._sleep(self._backoff_s * 2 ** (attempt - 1))
+        attempt = 0
+        while True:
             try:
                 await self._json("POST", f"/attempts/{attempt_id}/admissions", body, retry=False)
                 return
             except DuplicateCall:
-                if retried:
+                if attempt:
                     return
                 raise
-            except (RushUnavailable, RushError) as error:
-                if isinstance(error, RushError) and error.status not in RETRYABLE_STATUS:
-                    raise
-                retried, last = True, error
-        raise RushUnavailable(f"admission of {call_id} failed after {attempts} attempts: {last!r}") from last
+            except RushUnavailable as error:
+                attempt += 1
+                await self._wait(attempt, f"admission of {call_id}", error)
 
     async def settle(self, attempt_id: str, call_id: str, outcome: str, cost_usd: float | None, provenance: Mapping[str, Any]) -> None:
         body: dict[str, Any] = {"fence": 0, "outcome": outcome, "provenance": dict(provenance)}
@@ -538,8 +542,11 @@ class RushJournal:
         self._queue.append(dict(record))
         async with self._lock:
             while record["event_id"] not in self._sent:
-                batch, self._queue = self._queue[:MAX_EVENTS_PER_BATCH], self._queue[MAX_EVENTS_PER_BATCH:]
-                if not await self._commit(batch):
+                # A batch leaves the queue once committed or refused for good, so a write cut short is sent again whole.
+                batch = self._queue[:MAX_EVENTS_PER_BATCH]
+                committed = await self._commit(batch)
+                del self._queue[: len(batch)]
+                if not committed:
                     self.dropped += len(batch)
                     self._sent.update(item["event_id"] for item in batch)
 

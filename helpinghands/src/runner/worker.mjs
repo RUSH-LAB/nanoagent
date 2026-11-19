@@ -18,8 +18,12 @@ import path from 'node:path';
 import readline from 'node:readline';
 
 const STOP_MS = 10_000;
-// A worker that ran this long before exiting gets its one automatic restart again.
+// A worker that ran this long before exiting is restarted at once again, and one that dies in startup gets its one restart again.
 const STABLE_MS = 10 * 60_000;
+// The waits, doubling from the first to the last, between tries of a credential while RUSH is down (a restart, a deploy) and between
+// restarts of a worker that keeps exiting after its startup proofs.
+const RETRY_FIRST_MS = 1000;
+const RETRY_MAX_MS = 30_000;
 const LOG_LINES = 10;
 
 const CHECKS = [
@@ -60,9 +64,13 @@ export function hostSupport({platform, arch, kvm = () => fs.existsSync('/dev/kvm
   return ['fail', `Benchmarks do not run on ${platform}.`, null];
 }
 
+/** Whether `error` from mintCredential is RUSH not answering (no answer, or a 5xx), which passes once it is back. */
+export const rushDown = error => error.status === undefined || error.status >= 500;
+
 /**
  * The member's worker credential for this device, over their RUSH session `token`: those already named `name` are revoked first, so a
- * restart replaces the credential rather than adding one. {credential_id, name, token, created_at}.
+ * restart replaces the credential rather than adding one. {credential_id, name, token, created_at}. An error RUSH answered carries
+ * its `status`.
  */
 export async function mintCredential({site, token, name, fetchImpl = fetch}) {
   const call = async (method, route, body) => {
@@ -73,11 +81,12 @@ export async function mintCredential({site, token, name, fetchImpl = fetch}) {
       signal: AbortSignal.timeout(15_000),
     });
     // An error answer without a JSON body still fails with its status; a successful one must be JSON.
+    const answered = message => Object.assign(new Error(message), {status: response.status});
     const data = await response.json().catch(error => {
-      if (response.ok) throw new Error(`${site} answered ${method} ${route} with something that is not JSON: ${error.message}`);
+      if (response.ok) throw answered(`${site} answered ${method} ${route} with something that is not JSON: ${error.message}`);
       return {};
     });
-    if (!response.ok) throw new Error(data.error ?? `${site} answered ${response.status}`);
+    if (!response.ok) throw answered(data.error ?? `${site} answered ${response.status}`);
     return data;
   };
   for (const credential of (await call('GET', '/worker-credentials')).credentials) {
@@ -142,6 +151,8 @@ export function benchmarkWorker({
   // The startup images' bytes pulled so far, {done, total}, while the worker pulls them; null otherwise.
   let progress = null;
   let autoRestarts = 0;
+  // The wait before restarting a worker that exited after its startup proofs.
+  let restartWait = RETRY_FIRST_MS;
   let stopped = false;
 
   const check = checkId => checks.find(entry => entry.id === checkId);
@@ -218,13 +229,21 @@ export function benchmarkWorker({
       session = readSession();
     }
     let credential;
-    try {
-      credential = await mint({site, token: session, name: credentialName});
-    } catch (error) {
-      if (mine === generation) mark('proofs', 'fail', `Could not get a worker credential from ${site}: ${error.message}`, 'Check that RUSH is reachable, then press Re-check.');
-      return;
+    // RUSH restarting or down is waited out; an answer that refuses the credential fails.
+    for (let wait = RETRY_FIRST_MS; !credential; wait = Math.min(wait * 2, RETRY_MAX_MS)) {
+      try {
+        credential = await mint({site, token: session, name: credentialName});
+      } catch (error) {
+        if (mine !== generation) return;
+        if (!rushDown(error)) {
+          mark('proofs', 'fail', `Could not get a worker credential from ${site}: ${error.message}`, 'Check that RUSH is reachable, then press Re-check.');
+          return;
+        }
+        mark('proofs', 'running', `${site} is not answering (${error.message}); trying again in ${wait / 1000}s.`);
+        await sleep(wait);
+      }
+      if (mine !== generation) return;
     }
-    if (mine !== generation) return;
     fs.writeFileSync(logFile, '');
     logTail = [];
     advertised = null;
@@ -242,7 +261,7 @@ export function benchmarkWorker({
     followed.until(worker, startedAt).catch(error => log(`could not follow the worker: ${error.message}`));
   }
 
-  /** The worker's output into the connection's log and the checks 3 and 4, until it exits: then its one automatic restart, or failed. */
+  /** The worker's output into the connection's log and the checks 3 and 4, until it exits: then started again (always, once it passed its startup proofs; once, if it died in startup), or failed. */
   function follower(mine) {
     const seen = new Set();
     let proofsDone = false;
@@ -283,7 +302,19 @@ export function benchmarkWorker({
         const status = exited.error?.message ?? (exited.signal ? `signal ${exited.signal}` : `status ${exited.code}`);
         const unauthorized = logTail.some(line => /\b401\b|unauthori[sz]ed|revoked/i.test(line));
         const reason = unauthorized ? 'RUSH rejected the worker\'s credential' : `The worker exited (${status})`;
-        if (now() - startedAt > STABLE_MS) autoRestarts = 0;
+        if (now() - startedAt > STABLE_MS) {
+          autoRestarts = 0;
+          restartWait = RETRY_FIRST_MS;
+        }
+        // A worker that passed its startup proofs was serving: it is always started again, after a wait that grows while it keeps exiting.
+        if (proofsDone) {
+          log(`${reason}; starting it again in ${restartWait / 1000}s.`);
+          const wait = restartWait;
+          restartWait = Math.min(restartWait * 2, RETRY_MAX_MS);
+          await sleep(wait);
+          if (mine === generation) await start(false);
+          return;
+        }
         if (autoRestarts < 1) {
           autoRestarts += 1;
           log(`${reason}; starting it once more${unauthorized ? ' with a new credential' : ''}.`);
@@ -299,7 +330,10 @@ export function benchmarkWorker({
   async function start(manual = true) {
     const mine = ++generation;
     stopped = false;
-    if (manual) autoRestarts = 0;
+    if (manual) {
+      autoRestarts = 0;
+      restartWait = RETRY_FIRST_MS;
+    }
     checks = CHECKS.map(blank);
     publish();
     try {

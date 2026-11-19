@@ -198,29 +198,62 @@ test('stop on the connection ending stops the worker, and nothing is restarted a
   assert.equal(t.runs.length, 1);
 });
 
-test('a crash is restarted once with a new credential, then fails clearly with the last log lines', async () => {
-  const t = setup({logLines: [...PROOF_LINES, CLAIMING_LINE, 'worker: HTTP 401 unauthorized']});
+test('a worker that exits after its startup proofs is started again every time, with a new credential and a growing wait', async () => {
+  const t = setup();
+  await t.worker.start();
+  await settle();
+  for (let exits = 1; exits <= 3; exits += 1) {
+    t.exit(1);
+    await settle();
+    assert.equal(t.runs.length, exits + 1);
+    assert.equal(t.minted.length, exits + 1);
+    assert.equal(t.last().state, 'ready');
+  }
+  assert.deepEqual(t.logs.filter(line => line.includes('starting it again')), [1, 2, 4].map(s => `The worker exited (status 1); starting it again in ${s}s.`));
+  await t.worker.stop();
+  await settle();
+  assert.equal(t.runs.length, 4);  // a stopped worker stays stopped
+});
+
+test('a crash in startup is restarted once with a new credential, then fails clearly with the last log lines', async () => {
+  const t = setup({logLines: ['plugin sandbox verified', 'worker: HTTP 401 unauthorized']});
   await t.worker.start();
   await settle();
   t.exit(1);
   await settle();
   assert.equal(t.minted.length, 2);
-  assert.equal(t.last().state, 'ready');
   t.exit(1);
   await settle();
   assert.equal(t.minted.length, 2);
   assert.equal(t.last().state, 'failed');
   assert.match(t.last().message, /RUSH rejected the worker's credential/);
   assert.match(t.last().message, /401 unauthorized/);
-  assert.equal(states(t.last()).claims, 'fail');
+  assert.equal(states(t.last()).proofs, 'fail');
   // Restart is the member's, and tries again.
   await t.worker.restart();
   await settle();
   assert.equal(t.minted.length, 3);
 });
 
-test('a worker that exits is reported with its status', async () => {
-  const t = setup({logLines: PROOF_LINES});
+test('a credential RUSH cannot give while it restarts (5xx, no answer) is tried again until it can; a refusal fails', async () => {
+  const answers = [Object.assign(new Error('http://localhost:3000 answered 504'), {status: 504}), new TypeError('fetch failed')];
+  const t = setup({mint: async () => {
+    if (answers.length) throw answers.shift();
+    return {token: 'rwk'};
+  }});
+  await t.worker.start();
+  await settle();
+  assert.equal(t.runs.length, 1);
+  assert.equal(t.last().state, 'ready');
+  const refused = setup({mint: async () => { throw Object.assign(new Error('Sign in again'), {status: 401}); }});
+  await refused.worker.start();
+  await settle();
+  assert.equal(refused.last().state, 'failed');
+  assert.match(refused.last().message, /Could not get a worker credential from https:\/\/rush-lab\.org: Sign in again/);
+});
+
+test('a worker that exits in startup is reported with its status', async () => {
+  const t = setup({logLines: PROOF_LINES.slice(0, -1)});
   await t.worker.start();
   await settle();
   t.exit(2);
