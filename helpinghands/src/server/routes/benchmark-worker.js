@@ -165,7 +165,8 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
         return json(res, 201, await startSession(ctx, {userId, workspaceId}, {pluginId, taskId: task.id, harness: v.string(input.harness, 'harness'), interactive: false, text: task.description}));
       }
       // The plugin's tools a Terminal session's `nanoagent` asks for (the worker starts them then, for it alone): the first task of the
-      // plugin whose page opened the session, opened on the member's computer as `rush score` opens it, and its published package.
+      // plugin whose page opened the session, opened on the member's computer as `rush score` opens it, and the package installed there
+      // (as the Session tab's agent runs it), whose bytes must be the sha256 it is installed as.
       if (jobPart === 'tools') {
         wanted('POST', jobId);
         const {workspaceId, pluginId} = await worker.terminalSession(userId, jobId, v.fenceOf(v.object(await body(), 'The body')));
@@ -175,7 +176,12 @@ module.exports = async function benchmarkWorker(req, res, url, pathname, ctx) {
         const framed = await computer.benchmarkSessionFrame(sha256, JSON.stringify({task: first.id, text: first.description}));
         if (framed.error) throw new BenchmarkError(framed.status, 'app_unavailable', framed.error);
         const frame = parseJson(framed.value);
-        const {data} = await worker.publishedPackage(frame.plugin_id, frame.package_sha256);
+        const installed = await computer.installedPackage(frame.package_sha256);
+        if (installed.error) throw new BenchmarkError(installed.status, 'package_unavailable', `${frame.plugin_id}'s installed package could not be read: ${installed.error}`);
+        const data = installed.value;
+        if (crypto.createHash('sha256').update(data).digest('hex') !== frame.package_sha256) {
+          throw new BenchmarkError(502, 'package_unavailable', `${frame.plugin_id}'s installed package is not the version installed (${frame.package_sha256})`);
+        }
         return json(res, 200, {
           plugin: {id: frame.plugin_id, name: frame.plugin_name, version: frame.version, sha256: frame.package_sha256},
           task: {id: frame.task_id, plugin_name: frame.plugin_name, ...frame.task},

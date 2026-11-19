@@ -75,6 +75,8 @@ INSTALLED = "installed"
 FOLDER_HEX = 32
 # Where views are opened, under the installs' root: removed on starting, as no install is there.
 VIEWS = "views"
+# The package an install was made from, kept in its folder: what a RUSH Terminal session's plugin tools run (Installs.package).
+PACKAGE = "package"
 
 
 class InstallError(RuntimeError):
@@ -208,10 +210,20 @@ class Installs:
             except BaseException:
                 shutil.rmtree(folder, ignore_errors=True)
                 raise
+            (folder / PACKAGE).write_bytes(data)
             (folder / INSTALLED).touch()
             installed = Installed(manifest, {**entry, "uiVersion": ui_version(manifest.root, spec_module(manifest.spec).PAGE)})
             self._installed[sha256] = installed
             return installed
+
+    def package(self, sha256: str) -> bytes | None:
+        """The package installed as ``sha256``, checked to be it, or None when none is installed as it."""
+        if sha256 not in self._installed:
+            return None
+        data = (self.root / sha256[:FOLDER_HEX] / PACKAGE).read_bytes()
+        if hashlib.sha256(data).hexdigest() != sha256:
+            raise InstallError(f"the package kept for install {sha256} is not that package")
+        return data
 
     def viewed(self, sha256: str) -> Viewed | None:
         return self._viewed.get(sha256)

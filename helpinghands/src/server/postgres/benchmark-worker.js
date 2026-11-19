@@ -283,14 +283,6 @@ function createPostgresBenchmarkWorker({pool, config}) {
       });
     },
 
-    /** The package of the published version `sha256` of plugin `pluginId`, whose tools a Terminal session's `nanoagent` runs: `{data, sha256}`;
-     * 409 `package_unavailable` when that version is not published. */
-    async publishedPackage(pluginId, sha256) {
-      const row = (await system(client => client.query('select package from market_plugin_version where plugin_id = $1 and sha256 = $2 limit 1', [pluginId, sha256]))).rows[0];
-      if (!row) throw new BenchmarkError(409, 'package_unavailable', `${pluginId}'s installed version is not published, so its tools cannot run in the Terminal`);
-      return {data: Buffer.from(row.package), sha256};
-    },
-
     /** Reserve `reserveUsd` for model call `callId` against the attempt, member and workspace. */
     async admit(userId, attemptId, fence, callId, reserveUsd) {
       return fenced(userId, attemptId, fence, async (client, attempt) => {

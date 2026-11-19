@@ -566,6 +566,18 @@ def create_app(
             return JSONResponse({"error": str(error)}, status_code=502)
         return JSONResponse({"plugin": installed.entry})
 
+    async def installed_package(request: Request) -> Any:
+        """The package installed as this sha256, its bytes checked against it: what a RUSH Terminal session's plugin tools run."""
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        try:
+            data = await asyncio.to_thread(installs.package, request.path_params["sha256"])
+        except InstallError as error:
+            return JSONResponse({"error": str(error)}, status_code=502)
+        if data is None:
+            return JSONResponse({"error": "not installed"}, status_code=404)
+        return Response(data, media_type="application/gzip")
+
     async def list_packages(request: Request) -> JSONResponse:
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -823,6 +835,7 @@ def create_app(
             Route("/v1/packages/source", package_source, methods=["POST"]),
             Route("/v1/packages/{package_id}", download_package, methods=["GET"]),
             Route("/v1/installs/{sha256}", install, methods=["GET", "PUT"]),
+            Route("/v1/installs/{sha256}/package", installed_package, methods=["GET"]),
             Route("/v1/installs/{sha256}/ui/{path:path}", plugin_ui, methods=["GET"]),
             Route("/v1/views/{sha256}", view, methods=["PUT"]),
             Route(

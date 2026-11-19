@@ -55,6 +55,8 @@ const ROUTES = [
   ['GET', `/v1/benchmark/reference-harnesses/${SEGMENT}`],
   ['GET', `/v1/installs/${SEGMENT}`],
   ['PUT', `/v1/installs/${SEGMENT}`],
+  // The package installed there, digest-checked: what a Terminal session's `nanoagent` runs the plugin's tools from.
+  ['GET', `/v1/installs/${SEGMENT}/package`],
   ['GET', `/v1/installs/${SEGMENT}/ui/${SEGMENT}/[^?]+`],
   ['PUT', `/v1/views/${SEGMENT}`],
   ['POST', `/v1/workspaces/${SEGMENT}/installs/${SEGMENT}/runs`],

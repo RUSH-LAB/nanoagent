@@ -1,5 +1,6 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {invoke, loadRoute, makeCtx} from '../_harness.mjs';
 
@@ -260,16 +261,31 @@ describe('`rush score`: POST /api/benchmark-worker/attempts/{id}/score and GET .
     assert.deepEqual([read.status, read.payload], [200, {attempt: {attempt_id: SCORED, sealed: true, verdict: 'pass'}, totals: {calls: 2, settled_usd: 0.011}}]);
   });
 
-  it('opens the first task of the session\'s plugin, with its published package, for the session\'s `nanoagent`', async () => {
+  // The member's computer, its plugin installed as the sha256 of `kept`, and the package it serves for that install, `served`.
+  const installedAs = (kept, served) => {
     const {ctx, calls} = scoring();
-    ctx.benchmark.worker.publishedPackage = async (pluginId, sha256) => { calls.push(['package', pluginId, sha256]); return {data: Buffer.from('zip'), sha256}; };
-    const opened = await invoke(workerRoute, {
+    const sha = createHash('sha256').update(kept).digest('hex');
+    const on = ctx.runners.computer();
+    on.benchmarkSessionFrame = async (at, bodyText) => { calls.push(['frame', at, JSON.parse(bodyText)]); return {value: JSON.stringify({...frame, package_sha256: sha})}; };
+    on.installedPackage = async at => { calls.push(['package', at]); return {value: Buffer.from(served)}; };
+    const tools = () => invoke(workerRoute, {
       method: 'POST', path: `/api/benchmark-worker/attempts/${ATTEMPT}/tools`, headers: {authorization: 'Bearer cred'}, body: {fence: 3}, ctx, auth: null,
     });
+    return {tools, calls, sha};
+  };
+
+  it('opens the first task of the session\'s plugin, with the package installed on the member\'s computer, for the session\'s `nanoagent`', async () => {
+    const {tools, calls, sha} = installedAs('zip', 'zip');
+    const opened = await tools();
     assert.deepEqual([opened.status, opened.payload], [200, {
-      plugin: {id: 'p', name: 'P', version: '1.0.0', sha256: SHA}, task: {id: 'sum', plugin_name: 'P', ...pinned.task}, package: Buffer.from('zip').toString('base64'),
+      plugin: {id: 'p', name: 'P', version: '1.0.0', sha256: sha}, task: {id: 'sum', plugin_name: 'P', ...pinned.task}, package: Buffer.from('zip').toString('base64'),
     }]);
-    assert.deepEqual(calls.filter(([what]) => what !== 'open'), [['frame', SHA, {task: 'sum', text: 'Add two numbers'}], ['package', 'p', SHA]]);
+    assert.deepEqual(calls.filter(([what]) => what !== 'open'), [['frame', SHA, {task: 'sum', text: 'Add two numbers'}], ['package', sha]]);
+  });
+
+  it('refuses a package that is not the version installed', async () => {
+    const opened = await installedAs('zip', 'other').tools();
+    assert.deepEqual([opened.status, opened.payload.code], [502, 'package_unavailable']);
   });
 });
 

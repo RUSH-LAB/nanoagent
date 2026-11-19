@@ -107,6 +107,12 @@ def test_installs_a_package_by_its_sha256(client: TestClient) -> None:
     assert client.get(f"/v1/installs/{SHA}").status_code == 404
 
 
+def test_serves_the_package_it_installed(client: TestClient) -> None:
+    package = client.get(f"/v1/installs/{client.sha}/package")
+    assert package.status_code == 200 and hashlib.sha256(package.content).hexdigest() == client.sha
+    assert client.get(f"/v1/installs/{SHA}/package").status_code == 404
+
+
 def test_refuses_a_package_that_is_not_its_sha256(client: TestClient, tmp_path: Path) -> None:
     data = pack(tmp_path / "echo")
     response = client.put(f"/v1/installs/{SHA}", content=data)
