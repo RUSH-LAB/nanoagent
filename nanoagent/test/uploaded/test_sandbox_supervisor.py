@@ -4,12 +4,16 @@ working directories, network policies and the tool launcher. The microVMs themse
 from __future__ import annotations
 
 import asyncio
+import subprocess
+import sys
 import tarfile
+import tomllib
 from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from packaging.requirements import Requirement
 
 from nanoagent.uploaded.archive import Extracted
 from nanoagent.uploaded.contract import ContractError, HarnessManifest
@@ -214,3 +218,30 @@ def test_the_launcher_execs_the_plugin_in_its_tool_vm_as_the_case_user_with_only
         with supervisor.tool_launcher("nobody").launch(SimpleNamespace(command=["x"]), {}):
             pass
     assert caught.value.code == "tool_unavailable"
+
+
+def test_an_intel_mac_runs_nanoagent_without_microsandbox_and_its_supervisor_refuses_clearly(tmp_path):
+    """microsandbox has no wheel for Intel Macs: pyproject leaves it out there, NanoAgent still imports, and a worker's supervisor
+    refuses to start with why, so the worker advertises no sandbox."""
+    project = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    [requirement] = [Requirement(r) for r in tomllib.loads(project.read_text())["project"]["dependencies"] if r.startswith("microsandbox")]
+    assert not requirement.marker.evaluate({"sys_platform": "darwin", "platform_machine": "x86_64"})
+    assert all(requirement.marker.evaluate(env) for env in (
+        {"sys_platform": "darwin", "platform_machine": "arm64"}, {"sys_platform": "linux", "platform_machine": "x86_64"},
+        {"sys_platform": "win32", "platform_machine": "AMD64"},
+    ))  # fmt: skip
+    script = f"""
+import platform, sys
+sys.modules["microsandbox"] = None  # not installed
+sys.platform, platform.machine = "darwin", lambda: "x86_64"
+import nanoagent.uploaded.worker, nanoagent.uploaded.runner, nanoagent.web.app
+from nanoagent.uploaded.sandbox import MicrosandboxSupervisor, SandboxError, UNSUPPORTED
+try:
+    MicrosandboxSupervisor(tools={str(tmp_path)!r})
+except SandboxError as error:
+    assert error.code == "unsupported_platform" and UNSUPPORTED in str(error), error
+else:
+    raise AssertionError("the supervisor started on an Intel Mac")
+"""
+    done = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr

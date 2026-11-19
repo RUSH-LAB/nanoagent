@@ -31,8 +31,10 @@ import hashlib
 import json
 import math
 import os
+import platform
 import shutil
 import socket
+import sys
 import threading
 import time
 import uuid
@@ -43,37 +45,42 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
-import microsandbox
-from microsandbox import (
-    Action,
-    Destination,
-    DestGroup,
-    ExecEventType,
-    ExecHandle,
-    ExecSink,
-    MountConfig,
-    MountKind,
-    Network,
-    NetworkPolicy,
-    PatchConfig,
-    PatchKind,
-    Protocol as NetProtocol,
-    PullEventType,
-    Rlimit,
-    RlimitResource,
-    Rule,
-    Sandbox,
-    Stdin,
-    Volume,
-    VolumeKind,
-)
-
 from nanoagent.plugin.egress import egress_port
 from nanoagent.plugin.install import INSTALL_HOSTS
 from nanoagent.uploaded.archive import ArchiveError, Extracted, copy_tree, unpack_tar
 from nanoagent.uploaded.collector import STRACE_FLAGS, CollectorError, ProcessEvent, ProcessEvidence, TraceSession, launch_argv, launched_processes, parse_trace
 from nanoagent.uploaded.contract import ContractError, HarnessManifest, is_canonical_relative_path, path_problem, read_result_file, validate_argv
 from nanoagent.uploaded.toolchains import CLOSURE_ARCHIVE, DependencyClosure, ToolchainProfile
+
+# microsandbox has no wheel for Intel Macs (pyproject.toml's marker leaves it out there): everything else NanoAgent does runs
+# there, and the supervisor refuses to start, so a worker there never starts and advertises no sandbox.
+SANDBOX_SUPPORTED = sys.platform != "darwin" or platform.machine() == "arm64"
+UNSUPPORTED = "The Harness terminal needs an Apple silicon Mac, Windows or Linux."
+if SANDBOX_SUPPORTED:
+    import microsandbox
+    from microsandbox import (
+        Action,
+        Destination,
+        DestGroup,
+        ExecEventType,
+        ExecHandle,
+        ExecSink,
+        MountConfig,
+        MountKind,
+        Network,
+        NetworkPolicy,
+        PatchConfig,
+        PatchKind,
+        Protocol as NetProtocol,
+        PullEventType,
+        Rlimit,
+        RlimitResource,
+        Rule,
+        Sandbox,
+        Stdin,
+        Volume,
+        VolumeKind,
+    )
 
 UID = 10001
 GID = 10001
@@ -548,7 +555,7 @@ class ToolLauncher:
                 shutil.rmtree(directory, ignore_errors=True)
 
 
-MSB = Path(microsandbox.__file__).parent / "_bundled" / "bin" / "msb"
+MSB = Path(microsandbox.__file__).parent / "_bundled" / "bin" / "msb" if SANDBOX_SUPPORTED else None
 
 
 async def reap_leftovers() -> list[str]:
@@ -572,6 +579,8 @@ class MicrosandboxSupervisor:
         internet: bool = False,
         model_hosts: Sequence[str] = (),
     ) -> None:
+        if not SANDBOX_SUPPORTED:
+            raise SandboxError("unsupported_platform", UNSUPPORTED)
         if internet and not model_hosts:
             raise SandboxError("network_failed", "internet access needs the model providers' API hosts to block (egress.model_hosts)")
         self._tools_root = tools.resolve()  # where the guest tools are cached, per image digest (mounts may not pass a link)
