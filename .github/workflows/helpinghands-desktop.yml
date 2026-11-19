@@ -25,7 +25,16 @@ name: Helping Hands desktop app
 # app or its engine is built or installed from changed: desktop/ (the app, its scripts and
 # config.yaml), the runner, the install scripts, and NanoAgent. devmode pushes build nothing.
 on:
+  # By hand, only the release: upload what an already-checked release pull request head built.
   workflow_dispatch:
+    inputs:
+      head:
+        description: The release pull request's head commit, whose desktop run succeeded
+        required: true
+      apps:
+        description: Upload the apps too, not only the engine
+        type: boolean
+        required: true
   pull_request:
     branches: [production]
     paths: &app
@@ -52,8 +61,9 @@ defaults:
 
 jobs:
   # Whether this changes the shell, the app's own files (desktop/): a pull request against the
-  # production it merges into; a run by hand, and the push merging makes, always build the apps.
+  # production it merges into; the push merging makes always builds the apps.
   changes:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       shell: ${{ steps.shell.outputs.changed }}
@@ -70,7 +80,7 @@ jobs:
           fi
 
   engine:
-    if: github.event_name != 'push'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -201,7 +211,7 @@ jobs:
   # What merging the release pull request uploads: what that pull request's run built and checked,
   # the engine, and the apps when this release changed the shell.
   release:
-    if: github.event_name == 'push'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
@@ -218,8 +228,13 @@ jobs:
       - name: Download what the release pull request built
         env:
           GH_TOKEN: ${{ github.token }}
+          HEAD_INPUT: ${{ inputs.head }}
         run: |
-          head=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" --jq '.[0].head.sha')
+          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
+            head=$HEAD_INPUT
+          else
+            head=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" --jq '.[0].head.sha')
+          fi
           if [ -z "$head" ]; then
             echo "${{ github.sha }} was merged by no pull request, so nothing it built was checked" >&2
             exit 1
@@ -235,6 +250,8 @@ jobs:
         env:
           LAB_UPLOAD_TOKEN: ${{ secrets.LAB_UPLOAD_TOKEN }}
         run: |
-          # The apps only when this release changed the shell (desktop/), against production before it.
-          if git diff --quiet HEAD^1 HEAD -- desktop; then apps=; else apps=--apps; fi
+          # By hand, the apps when asked; on a push, only when this release changed the shell (desktop/), against production before it.
+          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
+            if [ "${{ inputs.apps }}" = true ]; then apps=--apps; else apps=; fi
+          elif git diff --quiet HEAD^1 HEAD -- desktop; then apps=; else apps=--apps; fi
           node scripts/release/promote-lab.mjs "$RUNNER_TEMP/built" $apps
