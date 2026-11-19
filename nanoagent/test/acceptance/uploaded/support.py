@@ -182,7 +182,7 @@ def worker_yaml(*, base_url: str, upstream: str, index: str, scratch: str, egres
     ):
         assert old in text, old
         text = text.replace(old, new)
-    return text + ("\negress > nanoagent.uploaded.worker.EgressConfig:\n  enabled: true\n" if egress else "")
+    return text + ("\negress > nanoagent.uploaded.worker.EgressConfig:\n  enabled: true\n  model_hosts: [api.openai.com]\n" if egress else "")
 
 
 class Worker:

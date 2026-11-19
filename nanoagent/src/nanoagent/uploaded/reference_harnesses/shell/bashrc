@@ -18,7 +18,8 @@ rush_prompt() {
 trap rush_prompt DEBUG
 # The banner at the top of every terminal (each is a bash on this rc), and again when the member clears it: `clear` or Ctrl-L.
 rush_banner() {
-  printf '%s\n' 'Run nanoagent, claude, codex, pi, hermes or dsh here, and any other agent as rush <command>.' 'Models and tracing are set up; rush help says more.'
+  printf '%s\n' 'Run nanoagent, claude, codex, pi, hermes or dsh here, and any other agent as rush <command>.' 'Models and tracing are set up; rush help says more.' \
+    'Model provider APIs do not resolve here: point your agent at the preset $OPENAI_BASE_URL or $ANTHROPIC_BASE_URL.'
 }
 clear() {
   command clear "$@" && rush_banner

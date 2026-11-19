@@ -127,7 +127,7 @@ async def test_attempt_runs_through_relay_gateway_tools_and_verifier(policy: str
     try:
         with MockProvider() as provider:
             handle = provider.register(scenario, harness="nanoagent", model=MODEL)
-            supervisor = MicrosandboxSupervisor(tools=TOOLS, internet=True)
+            supervisor = MicrosandboxSupervisor(tools=TOOLS, internet=True, model_hosts=("api.openai.com",))
             supervisor.startup(toolchain("python-3"))
             endpoint = EndpointProfile("mock", "mock", handle.base_url, "MOCK_KEY", ("127.0.0.1",), "synthetic-key")
             config = RunnerConfig(

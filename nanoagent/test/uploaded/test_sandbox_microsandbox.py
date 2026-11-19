@@ -162,7 +162,7 @@ elif mode == "writer":
 
 @pytest.fixture(scope="module")
 def supervisor():
-    supervisor = MicrosandboxSupervisor(tools=TOOLS, internet=True)
+    supervisor = MicrosandboxSupervisor(tools=TOOLS, internet=True, model_hosts=("api.openai.com",))
     supervisor.startup(PROFILE)
     return supervisor
 

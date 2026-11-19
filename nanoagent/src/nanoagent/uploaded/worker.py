@@ -144,6 +144,9 @@ class EgressConfig(Config):
     # Internet access for harness VMs (a run's `limits.internet_access`): public addresses only. The worker proves at
     # startup that such a VM still cannot reach this host, and refuses to start otherwise.
     enabled: bool = False
+    # The model providers' API hosts, which such a VM cannot resolve (proven at startup too): the attempt's gateway is its only
+    # way to a model, so every call is recorded. Required when enabled.
+    model_hosts: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -288,6 +291,7 @@ async def serve(config: WorkerConfig, env: dict[str, str] | None = None) -> None
     LOG.info("plugin sandbox verified")
     supervisor = MicrosandboxSupervisor(
         tools=settings.scratch / "guest-tools", clock=lambda: time.monotonic_ns() / 1e9, wall_clock_ns=time.time_ns, internet=config.egress.enabled,
+        model_hosts=config.egress.model_hosts,
     )
     worker = RushWorkerClient(config.rush.base_url, token)
     lookup = HttpxGenerationLookup(settings.endpoint)

@@ -106,7 +106,7 @@ async def attempt(root: Path, source: bytes, package: bytes, interactive: bool, 
     body["attempt_id"] = str(uuid.uuid4())
     rush = Rush(source, package, typed)
     handle = provider.register(Scenario(name="shell", turns=[Turn(usage=Usage(prompt=100, completion=10), repeat=0)]), harness="claude", model=MODEL)
-    supervisor = MicrosandboxSupervisor(tools=HOME / "guest-tools", internet=True)
+    supervisor = MicrosandboxSupervisor(tools=HOME / "guest-tools", internet=True, model_hosts=("api.openai.com",))
     supervisor.startup(toolchain("shell-1"))
     endpoint = EndpointProfile("mock", "mock", handle.base_url, "MOCK_KEY", ("127.0.0.1",), "synthetic-key")
     config = RunnerConfig(

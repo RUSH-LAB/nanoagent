@@ -170,11 +170,33 @@ def test_a_case_network_denies_everything_but_its_ports_and_internet_adds_only_p
     assert {r.port for r in public if r.destination.value == "host"} == {4100, 53}, "DNS goes to the sandbox's own resolver"
 
 
+def test_an_internet_case_cannot_resolve_the_model_providers_apis_and_a_closed_one_needs_no_list():
+    hosts = ("api.openai.com", "openrouter.ai")
+    assert _network([4100], internet=True, model_hosts=hosts).deny_domains == hosts
+    assert _network([4100], model_hosts=hosts).deny_domains == (), "a case without internet resolves nothing"
+
+
+def test_internet_access_without_the_model_hosts_to_block_is_refused():
+    with pytest.raises(SandboxError, match="egress.model_hosts"):
+        MicrosandboxSupervisor(tools=Path("t"), internet=True)
+
+
+def test_the_egress_fence_fails_when_a_model_api_host_resolves(monkeypatch):
+    supervisor = MicrosandboxSupervisor(tools=Path("t"), internet=True, model_hosts=("api.openai.com", "openrouter.ai"))
+
+    async def probe(port):
+        return False, ["openrouter.ai"]
+
+    monkeypatch.setattr(supervisor, "_egress_probe", probe)
+    with pytest.raises(SandboxError, match="resolved the model API hosts openrouter.ai"):
+        supervisor.verify_egress()
+
+
 def test_internet_access_is_refused_on_a_worker_without_it(supervisor):
     assert supervisor.create_network("a").ports == []
     with pytest.raises(SandboxError, match="not enabled"):
         supervisor.create_network("a", internet=True)
-    assert MicrosandboxSupervisor(tools=Path("t"), internet=True).create_network("b", internet=True).internet
+    assert MicrosandboxSupervisor(tools=Path("t"), internet=True, model_hosts=("api.openai.com",)).create_network("b", internet=True).internet
 
 
 def test_the_launcher_execs_the_plugin_in_its_tool_vm_as_the_case_user_with_only_the_given_environment(supervisor, tmp_path):

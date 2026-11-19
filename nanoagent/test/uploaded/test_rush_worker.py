@@ -291,6 +291,15 @@ def test_the_openrouter_worker_advertises_internet_access_which_benchmarks_defau
     assert runner_config(config, {"OPENROUTER_API_KEY": "k"}, MACHINE).capabilities["internet_access"] is True
 
 
+def test_the_openrouter_worker_blocks_the_model_providers_apis_in_its_internet_vms(tmp_path: Path) -> None:
+    from nanoagent.uploaded.worker import WorkerConfig
+
+    hosts = load_config(WorkerConfig, [str(DEPLOY / "worker.openrouter.yaml"), f"scratch={tmp_path}"]).egress.model_hosts
+    for host in ("openrouter.ai", "api.openai.com", "api.anthropic.com", "generativelanguage.googleapis.com", "api.mistral.ai", "api.deepseek.com",
+                 "api.groq.com", "api.together.xyz", "api.x.ai", "api.fireworks.ai", "api.cohere.com"):  # fmt: skip
+        assert host in hosts, host
+
+
 def test_worker_config_without_the_credential_fails_at_startup(tmp_path: Path) -> None:
     from nanoagent.uploaded.endpoint import EndpointConfigError
     from nanoagent.uploaded.worker import WorkerConfig, runner_config

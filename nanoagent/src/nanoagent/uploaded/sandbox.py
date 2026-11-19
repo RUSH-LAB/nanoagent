@@ -12,7 +12,8 @@ with, deny by default.
   `strace` (root), which records every process it starts (`nanoagent.uploaded.collector`). `/rush/request.json` is
   written into the VM read-only, `/harness` is mounted read-only, and `/rush/out` and `/rush/workspace` are bounded
   host directories. Its network reaches the attempt's services on the worker (the relay's port of
-  `host.microsandbox.internal`) and nothing else, or, when the run grants internet access, also public addresses.
+  `host.microsandbox.internal`) and nothing else, or, when the run grants internet access, also public addresses but the
+  model providers' APIs (`egress.model_hosts`, which do not resolve there), so the gateway is its only way to a model.
 * Tools: when the suite permits plugin tools, a second VM from the pinned prep image runs the plugin's MCP server
   (`msb exec` from the broker). Its only network is the egress proxy of the hosts its plugin declares; it mounts the
   prepared plugin and approved fixtures read-only, and the case's workspace at the same path the harness sees. It never
@@ -377,12 +378,14 @@ def _tmpfs(size: int) -> MountConfig:
     return MountConfig(kind=MountKind.TMPFS, size_mib=_mib(size), noexec=True, nosuid=True)
 
 
-def _network(ports: Sequence[int], *, internet: bool = False) -> Network:
-    """Deny everything but these ports of the worker, and with ``internet`` public addresses (and DNS to reach them)."""
+def _network(ports: Sequence[int], *, internet: bool = False, model_hosts: Sequence[str] = ()) -> Network:
+    """Deny everything but these ports of the worker, and with ``internet`` public addresses (and DNS to reach them) but
+    ``model_hosts``, the model providers' APIs, whose names do not resolve: the attempt's gateway is its only way to a model."""
     rules = [Rule.allow(destination=Destination.group(DestGroup.HOST), protocol=NetProtocol.TCP, port=port) for port in ports]
     if internet:
         rules += [*Rule.allow_dns(), Rule.allow(destination=Destination.group(DestGroup.PUBLIC))]
-    return Network(policy=NetworkPolicy(default_egress=Action.DENY, default_ingress=Action.DENY, rules=tuple(rules)))
+    policy = NetworkPolicy(default_egress=Action.DENY, default_ingress=Action.DENY, rules=tuple(rules))
+    return Network(policy=policy, deny_domains=tuple(model_hosts) if internet else ())
 
 
 @dataclass
@@ -567,10 +570,14 @@ class MicrosandboxSupervisor:
         clock: Callable[[], float] = time.monotonic,
         wall_clock_ns: Callable[[], int] = time.time_ns,
         internet: bool = False,
+        model_hosts: Sequence[str] = (),
     ) -> None:
+        if internet and not model_hosts:
+            raise SandboxError("network_failed", "internet access needs the model providers' API hosts to block (egress.model_hosts)")
         self._tools_root = tools.resolve()  # where the guest tools are cached, per image digest (mounts may not pass a link)
         self._tools: Path | None = None
         self._internet = internet
+        self._model_hosts = tuple(model_hosts)
         self._tool_cases: dict[str, _Case] = {}
         self._clock = clock
         self._wall_clock_ns = wall_clock_ns
@@ -688,14 +695,14 @@ class MicrosandboxSupervisor:
 
     def verify_egress(self) -> None:
         """Proves an internet-access VM cannot reach the worker beyond its services: a listener on this host that the
-        case was not given must stay unreachable. Raises a SandboxError otherwise, so internet access is never advertised
-        without that fence."""
+        case was not given must stay unreachable, and no model provider's API host may resolve. Raises a SandboxError
+        otherwise, so internet access is never advertised without that fence."""
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             listener.listen(1)
             listener.settimeout(0.1)
             port = listener.getsockname()[1]
-            reached = self._loop.run(self._egress_probe(port))
+            reached, resolved = self._loop.run(self._egress_probe(port))
             try:
                 listener.accept()
                 reached = True
@@ -703,14 +710,24 @@ class MicrosandboxSupervisor:
                 pass
         if reached:
             raise SandboxError("egress_unverified", f"an internet-access VM reached this host's port {port}")
+        if resolved:
+            raise SandboxError("egress_unverified", f"an internet-access VM resolved the model API hosts {', '.join(resolved)}")
 
-    async def _egress_probe(self, port: int) -> bool:
+    async def _egress_probe(self, port: int) -> tuple[bool, list[str]]:
+        """Whether the probe VM reached ``port`` on this host, and which model API hosts it resolved."""
         name = f"rush-probe-{uuid.uuid4().hex[:12]}"
-        sandbox = await self._create(name, PLUGIN_PREP_IMAGE, Limits(), _network((), internet=True), {})
+        sandbox = await self._create(name, PLUGIN_PREP_IMAGE, Limits(), _network((), internet=True, model_hosts=self._model_hosts), {})
         try:
-            code = f"import socket; socket.create_connection(({GUEST_HOST!r}, {port}), timeout=3); print('reached')"
-            out = await sandbox.exec("python", ["-c", code], user="root", timeout=30)
-            return "reached" in out.stdout_text
+            code = (
+                "import socket, sys\n"
+                "for host in sys.argv[2:]:\n"
+                "    try: socket.getaddrinfo(host, 443); print('resolved', host)\n"
+                "    except OSError: pass\n"
+                f"socket.create_connection(({GUEST_HOST!r}, int(sys.argv[1])), timeout=3); print('reached')"
+            )
+            out = await sandbox.exec("python", ["-c", code, str(port), *self._model_hosts], user="root", timeout=30)
+            lines = out.stdout_text.splitlines()
+            return "reached" in lines, [line.removeprefix("resolved ") for line in lines if line.startswith("resolved ")]
         finally:
             await self._destroy(sandbox)
 
@@ -909,7 +926,7 @@ class MicrosandboxSupervisor:
         try:
             name = f"rush-case-{suffix}"
             creating = [self._create(
-                name, spec.profile.runtime_image, spec.limits, _network(spec.network.ports, internet=spec.network.internet),
+                name, spec.profile.runtime_image, spec.limits, _network(spec.network.ports, internet=spec.network.internet, model_hosts=self._model_hosts),
                 {
                     WORKSPACE: _bind(workspace, readonly=False, quota=spec.limits.workspace_bytes), OUT_DIR: _bind(out, readonly=False, quota=spec.limits.out_bytes),
                     HARNESS_DIR: _bind(spec.artifact.directory), TOOLS_DIR: MountConfig(kind=MountKind.BIND, bind=str(tools), readonly=True),
