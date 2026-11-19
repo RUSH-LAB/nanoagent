@@ -292,6 +292,7 @@ class FakeCase:
         self.closed = False
         self.launched = False
         self.drained = False
+        self.ended = False
         self.workdir = workdir
         self.workspace = workdir / "workspace"
         self.workspace.mkdir(parents=True, exist_ok=True)
@@ -344,6 +345,10 @@ class FakeCase:
 
     def evidence(self) -> ProcessEvidence:
         return self.script.evidence
+
+    def end(self) -> None:
+        self.ended = True
+        self.released.set()
 
     def close(self) -> None:
         self.closed = True

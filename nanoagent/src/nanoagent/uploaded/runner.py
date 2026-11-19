@@ -991,7 +991,7 @@ class AttemptRunner:
 
         recorded: list[bool] = []  # set once the collector's process evidence is committed
         try:
-            outcome = await self._wait(lease, handle, services, terminal, interactive=run["interactive"])
+            outcome = await self._wait(lease, handle, services, terminal, interactive=run["interactive"], free_form=job.free_form)
             await self._revoke(services)
             lease.lapsed()  # a lease that ran out while the computer slept is dropped on waking, not finalized late
             if lease.reason in ("lease_lost", "sealed"):
@@ -1001,10 +1001,9 @@ class AttemptRunner:
                 await emit.emit(rec.CaseExited(termination_wire(outcome.termination), int(outcome.exited_at * NS)), occurred_ns=int(outcome.exited_at * NS))
             # Quiescence (no call or tool left in flight) is reached after the exit, so it is recorded after it.
             await emit.emit(rec.CaseQuiesced(self.clock_ns()))
-            if outcome is None:  # canceled mid-run; a free-form session's member who left its page resumes it as one who exited
+            if outcome is None:  # a scored run canceled mid-run
                 await in_thread(handle.close)
-                resumable = await self._keep_session(job, handle) if job.free_form else None
-                return await self._finalize(job, journal, "canceled", None, result=AttemptResult("canceled"), resumable=resumable)
+                return await self._finalize(job, journal, "canceled", None, result=AttemptResult("canceled"))
             try:
                 snapshot = await in_thread(handle.stop_and_drain)
             except SandboxError as error:
@@ -1016,11 +1015,14 @@ class AttemptRunner:
                 await self._record_snapshot(journal, emit, snapshot)
             if counters := handle.cpu_counters():  # empty when a container's cgroup was unreadable: CPU stays Unknown
                 await emit.emit(rec.CpuCounters(counters))
-            if job.free_form:  # no case: the member ended the session, and nothing scores it
+            if job.free_form:  # no case: the member ended the session (by its last exit, Stop or leaving its page), and nothing scores it
                 await self._record_processes(emit, await in_thread(handle.evidence), lambda wall: wall - offset, commands.outcomes)
                 recorded.append(True)
+                resumable = await self._keep_session(job, handle)
+                if lease.reason == "canceled":
+                    return await self._finalize(job, journal, "canceled", None, result=AttemptResult("canceled"), resumable=resumable)
                 timed_out = outcome.termination.kind is TerminationKind.TIMED_OUT  # it ran to the session's wall time
-                return await self._finalize(job, journal, "ended", "timed_out" if timed_out else None, resumable=await self._keep_session(job, handle))
+                return await self._finalize(job, journal, "ended", "timed_out" if timed_out else None, resumable=resumable)
             if snapshot is None:
                 status, case_outcome = "execution_failed", {"status": "execution_failed", "reason": "invalid_result"}
                 frozen = work / "overflow"  # the verifier gets an empty workspace: nothing was frozen
@@ -1081,10 +1083,11 @@ class AttemptRunner:
         validate("Request", request)
         return request
 
-    async def _wait(self, lease: Lease, handle: CaseHandle, services: AttemptServices, terminal: Terminal, *, interactive: bool) -> Any:
-        """The case's outcome, or None if the lease was lost or canceled first (the case is killed and drained). The harness's terminal
-        output goes to RUSH as it comes meanwhile, and, when someone is at it, to their page over the session's link (RUSH told where),
-        which brings back what they type."""
+    async def _wait(self, lease: Lease, handle: CaseHandle, services: AttemptServices, terminal: Terminal, *, interactive: bool, free_form: bool) -> Any:
+        """The case's outcome, or None if the lease was lost or canceled first (the case is killed and drained). A free-form session's
+        cancel is how its member ends it (Stop, leaving its page, opening another): its case ends as at an exit, so its outcome comes,
+        and it is recorded as one that exited is. The harness's terminal output goes to RUSH as it comes meanwhile, and, when someone is
+        at it, to their page over the session's link (RUSH told where), which brings back what they type."""
         done = anyio.Event()
         box: list[Any] = []
 
@@ -1106,13 +1109,15 @@ class AttemptRunner:
                 await self.worker.terminal_link(lease.attempt_id, lease.fence, port, terminal.token)
                 group.start_soon(self._watch, lease)
             await first_of(done, lease.revoked)
+            ended = free_form and lease.reason == "canceled"
             if not done.is_set():
                 await self._revoke(services)
-                await in_thread(handle.close)  # kills the sandbox, which ends wait()
+                # Ending kills its processes under the tracer and keeps the VM; closing kills the sandbox. Either ends wait().
+                await in_thread(handle.end if ended else handle.close)
                 await done.wait()
             await terminal.close()
             group.cancel_scope.cancel()
-        return None if lease.revoked.is_set() or not box else box[0]
+        return box[0] if box and (ended or not lease.revoked.is_set()) else None
 
     async def _revoke(self, services: AttemptServices) -> None:
         """Reject new calls, stop in-flight model streams, tools and commands, and wait for the calls to settle."""

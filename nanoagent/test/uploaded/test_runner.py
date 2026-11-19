@@ -212,11 +212,23 @@ async def test_a_free_form_session_is_kept_to_resume_and_a_resuming_one_starts_o
     assert list(found) == [".rush/resume.json"] and "it is not on this computer" in json.loads(found[".rush/resume.json"])["line"]
 
 
-async def test_a_free_form_session_its_member_left_is_kept_to_resume_and_a_scored_one_never_is(tmp_path: Path) -> None:
-    rig = Rig(tmp_path, script=fx.CaseScript(block=True, made={"a.txt": b"a"}))
+async def test_a_free_form_session_its_member_left_is_recorded_whole_and_kept_to_resume_and_a_scored_one_never_is(tmp_path: Path) -> None:
+    # Stop, leaving the page or opening another session cancels a Terminal session: that is how its member ends it, so its case ends
+    # as at an exit (its processes killed under the tracer, the VM kept) and it is recorded as one that exited is.
+    events = (
+        ProcessEvent(0, ProcessEventKind.EXEC, 1_000_000, "c1", 100, 5000, 100, 5000, 1, "claude", "/", False, ("claude",)),
+        ProcessEvent(1, ProcessEventKind.TASK_EXIT, 1_000_500, "c1", 100, 5000, 100, 5000, 1, "claude", "/", False, exit_code=0),
+    )
+    cpu = [{"identity": {"role": "harness", "container": "c1"}, "user_ns": 5, "system_ns": 0}]
+    script = fx.CaseScript(block=True, made={"a.txt": b"a"}, evidence=ProcessEvidence("c1", events, True, (), 2, 0, 0, 0, 1, 0), cpu=cpu)
+    rig = Rig(tmp_path, script=script)
     rig.rush.canceled = True
     await rig.run(fx.free_job(attempt_id="11111111-1111-4111-8111-000000000005"))
     assert rig.rush.finalized[0]["execution"]["status"] == "canceled" and rig.rush.finalized[0]["resumable"] is True
+    assert rig.supervisor.case.ended and rig.supervisor.case.drained
+    kinds = rig.rush.kinds()
+    assert {"case.exited", "snapshot.taken", "cpu.counters", "collector.health", "process.exec", "process.exit"} <= set(kinds)
+    assert kinds.index("case.exited") < kinds.index("case.quiesced")
     assert (tmp_path / "scratch" / "sessions" / "11111111-1111-4111-8111-000000000005" / "workspace" / "a.txt").read_bytes() == b"a"
     scored = Rig(tmp_path / "scored")
     await scored.run()

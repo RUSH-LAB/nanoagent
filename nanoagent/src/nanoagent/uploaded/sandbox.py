@@ -306,6 +306,10 @@ class CaseHandle(Protocol):
     def close_terminal(self, terminal: int) -> None:
         """Closes terminal ``terminal``: every process of it is killed."""
 
+    def end(self) -> None:
+        """Ends the case as an exit of all its terminals does: every case process is killed, the tracer records each exit, and
+        `wait` returns its outcome; the VM stays, so it can still be drained and its evidence read."""
+
     def ended_terminals(self) -> frozenset[int]:
         """The terminals that ran and ended: 0 once the harness exited."""
 
@@ -1126,6 +1130,9 @@ class _Case:
             return
         if not self._run_of(terminal).done():
             self._run(_kill_terminal(self._sandbox, terminal))
+
+    def end(self) -> None:
+        self._run(_kill_case_processes(self._sandbox))
 
     def ended_terminals(self) -> frozenset[int]:
         with self._terminals_lock:
