@@ -146,7 +146,7 @@ function createPostgresBenchmark({pool}) {
 
   /**
    * Keep the case set of `benchmark` (a validated publication) for its published plugin version, or reuse an identical one: its
-   * cases, and their private references.
+   * cases, and their private references. Resolves to its id, the case set's digest.
    */
   async function keepCaseSet(client, userId, benchmark) {
     const version = (await client.query(
@@ -174,6 +174,7 @@ function createPostgresBenchmark({pool}) {
         );
       }
     }
+    return caseSetId;
   }
 
   /** Copy the private reference of case `caseId` of case set `caseSetId` to run `runId`. */
@@ -246,7 +247,7 @@ function createPostgresBenchmark({pool}) {
      */
     async publishBenchmark(userId, benchmark) {
       return inTransaction(pool, {userId}, async client => {
-        await keepCaseSet(client, userId, benchmark);
+        const caseSetId = await keepCaseSet(client, userId, benchmark);
         const benchmarkId = crypto.randomUUID();
         const inserted = await client.query(
           `insert into benchmark (benchmark_id, name, plugin_id, plugin_version, case_set_id, model, endpoint_label, limits, coding_template, task_instructions, digest, publisher_id)
