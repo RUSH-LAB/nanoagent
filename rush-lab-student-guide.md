@@ -1,54 +1,65 @@
-# RUSH Lab: comparing nanoagent with other CLI agents
+# RUSH Lab: nanoagent vs. other CLI agents
 
-Run a task with **nanoagent**, then try to get the same result with another CLI agent (Claude Code, Codex, …), and compare **how often each succeeds** and **how efficiently**.
+**Goal:** run your plugin's task with **nanoagent**, then try other CLI agents (Claude Code, Codex, …) on the same task. Compare **how often each gets the result you expect** and **how efficiently** (time, tokens, cost).
+
+Everything you run in RUSH Lab is recorded automatically, so you don't need to log anything yourself.
 
 ## 1. Install RUSH Lab
 
-**macOS** (Terminal):
-```sh
-curl -fsSL https://rush-lab.org/install.sh | sh
-```
-**Windows** (PowerShell):
-```powershell
-irm https://rush-lab.org/install.ps1 | iex
-```
-RUSH Lab opens when the install finishes. Sign in. If it's already installed, accept the update it offers.
+- **macOS** (Terminal): `curl -fsSL https://rush-lab.org/install.sh | sh`
+- **Windows** (PowerShell): `irm https://rush-lab.org/install.ps1 | iex`
 
-> The Harness terminal (step 4) needs an Apple silicon Mac, Windows or Linux. On an Intel Mac, steps 2–3 still work.
+RUSH Lab opens when the install finishes. Sign in. If you already have it, accept the update it offers.
+
+> Step 4 (the Harness terminal) needs an Apple silicon Mac or Windows. On an Intel Mac you can still do step 3.
 
 ## 2. Open your plugin
 
-In RUSH Lab, open **the plugin you created**. Its page has these tabs: **Session**, **Harness** and **Dashboard**.
+Open **the plugin you created**. You'll use three tabs:
 
-## 3. Get a baseline with nanoagent
+- **Session:** chat with nanoagent.
+- **Harness:** a terminal where you run other agents.
+- **Dashboard:** the results and numbers for every run.
 
-1. In the **Session** tab, give nanoagent your task (**your user prompt**). nanoagent is the only agent with your plugin's own tools.
-2. Check the result: **did it complete the task the way you expected?** Do this a few times (e.g. 5 runs) and count the successes.
-3. Open **Dashboard → `nanoagent`** for its efficiency, per session plus Total and Average: **End-to-End Latency, Model Time, Tool Time, Input/Output Tokens, Cost**.
+## 3. Baseline: nanoagent
 
-## 4. Try another CLI agent in the Harness tab
+1. In **Session**, give nanoagent your task (your **user prompt**). nanoagent is the only agent that has your plugin's own tools.
+2. Check the answer: **did it do what you expected?**
+3. Repeat **5 times** (start a new session each time) and count the successes.
+4. Open **Dashboard → `nanoagent`** to see its numbers: latency, model time, tool time, input/output tokens, cost.
 
-1. Open **Harness**. A sandboxed terminal opens;
-2. Run the agent you like: `claude`, `codex`, `pi`, `hermes`, `dsh` or `nanoagent`. Models and tracing are already set up, and every agent uses the same model (DeepSeek V4 Flash).
-   - **Any other agent:** install it, then run it with `rush` in front the first time, e.g. `rush opencode`. It will be recorded and get its own chip on the Dashboard, and next time you can run plain `opencode` and it is recorded the same way.
-3. Quit the agent (or type `exit`) when you're done. Each conversation becomes a row under that agent's chip on the **Dashboard**, and clicking a row reopens it.
+## 4. Other agents in the Harness tab
 
-### 4a. Try to match nanoagent's results
+**How to run one:** open **Harness**, then type the agent's name: `claude`, `codex`, `pi`, `hermes` or `dsh`. They're already set up, and all of them use the same model as nanoagent (DeepSeek V4 Flash). Type `exit` when you're done. Each conversation appears under that agent's name on the **Dashboard**.
 
-- Use the same user prompt you gave nanoagent. If you want a system prompt too, paste it before the user prompt.
-- Run it the same number of times as nanoagent (e.g. 5).
+**Want a different agent?** Install it in the terminal, then put `rush` in front of it the first time, e.g. `rush opencode`. From then on, plain `opencode` is recorded too.
+
+### 4a. Match nanoagent
+
+- Use the **same user prompt** you gave nanoagent. To add a system prompt, paste it before the user prompt.
+- Run it **5 times**, and count the successes.
+
+### 4b. Beat nanoagent
+
+- Use **any agent, any way you like**, to match or beat nanoagent's results and efficiency.
+- Not allowed: copying nanoagent, or giving the agent the answer directly.
+- Write down **what you tried, and why**.
+- If nanoagent is hard to beat, explain why, or open a PR that improves nanoagent.
 
 ## 5. Report
 
-For nanoagent and each agent you tried, fill in:
+**a. Fill in this table** for nanoagent and each agent you tried. Take the numbers from the **Dashboard**.
 
-| Agent | Runs | Successes (as expected) | Success rate | Avg latency* | Avg model time | Avg input / output tokens | Avg cost |
+| Agent | Runs | Successes | Success rate | Avg latency* | Avg model time | Avg input / output tokens | Avg cost |
 |---|---|---|---|---|---|---|---|
 | nanoagent | 5 | | | | | | |
-| claude | 5 | | — | | | | |
+| claude | 5 | | | — | | | |
 
-\* Latency and tool time are measured only for nanoagent; for other agents, the Dashboard shows "—".
+\* Only nanoagent's latency is measured. Other agents show "—".
 
-Also write down what you had to do (system prompt, extra setup) to get the other agent to succeed.
+**b. Write down** what you did in 4a and 4b: prompts, setup, what worked and what didn't.
 
-**Raw data:** **Dashboard → Download traces (JSON)** exports every model call, command and transcript of your own sessions.
+**c. Attach your traces:**
+1. **Dashboard → Download traces (JSON)**
+2. Zip the downloaded file. On a Mac, right-click it → **Compress**. On Windows, right-click it → **Compress to ZIP file**.
+3. Upload the `.zip` with your report.
