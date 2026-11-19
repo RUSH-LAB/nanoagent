@@ -1,0 +1,21 @@
+# The default `nanoagent harness` config: a plugin's task worked by one reference harness, as the plugin page's Harness tab
+# works it, through the RUSH that RUSH Lab on this computer is connected to.
+#
+#     nanoagent harness plugin=city-weather harness=claude-code                  # interactive: the harness's own screen here
+#     nanoagent harness plugin=city-weather harness=codex prompt="Which cities…"   # one-shot, for scripts
+#     nanoagent harness plugin=city-weather harness=shell resume=<attempt_id>      # resume an ended shell session
+
+_ > nanoagent.cli.harness.HarnessCommandConfig:
+
+plugin: ???
+harness: ???
+prompt: null
+task: null
+model: null
+home: null
+workspace: null
+# An ended shell session of yours to resume (its result.json's attempt_id), as clicking it on the plugin page's Dashboard does.
+resume: null
+# RUSH Lab's data folder, which holds its one signed-in connection; null: whichever of RUSH Lab's (lab.mochi.lab) and RUSH
+# Lab Dev's (lab.mochi.lab.dev) is signed in, in this OS's app data folder. Both signed in: name one.
+lab: null

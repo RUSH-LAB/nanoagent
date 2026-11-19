@@ -1,0 +1,12 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "tonylexfi-facility-link",
+  "task": "tonylexfi-facility-link",
+  "context": "The fixed synthetic case is 'standard'. Use exactly this data. Registry (id, site_key, name_key, address_key, zip_code): F1 | MIA-1 | acme | 10 main st | 33101; F2 | MIA-2 | acme | 20 main st | 33101; F3 | X-3 | shared | 1 port rd | 33132; F4 | X-4 | shared | 1 port rd | 33132; F5 | NY-5 | north | 2 dock ave | 00501. Incoming (id, site_key, name_key, address_key, zip_code): I1 | MIA-2 | acme | 10 main st | 33101; I2 | (empty) | acme | 10 main st | 33101; I3 | (empty) | shared | 1 port rd | 33132; I4 | UNKNOWN | acme | 10 main st | 33101; I5 | (empty) | north | 2 dock ave | 00501; I6 | (empty) | acme | 10 main st | 33102; I7 | (empty) | (empty) | (empty) | (empty). Process the incoming records in id order I1 through I7. For each record: if site_key is nonempty, match registry records only by that exact site_key and never fall back to name/address, even when the site_key is unknown. If site_key is empty, match only when name_key, address_key and zip_code are all nonempty and all three are exactly equal to a registry record's three strings; otherwise there are zero matches. Exactly one match yields facility_id equal to that registry id and method 'site_key' for a site-key match or 'composite' for a composite match. More than one match yields facility_id null and method 'ambiguous'. Zero matches yields facility_id null and method 'unmatched'. Do not trim, casefold, fuzzy-match, or convert ZIP codes to numbers; for example 00501 is not 501 and 33101 is not 33102. Write result.json containing exactly one object per incoming record, in id order, each with record_id, facility_id (id string or null) and method ('site_key', 'composite', 'ambiguous', or 'unmatched'), with no extra properties. Then submit path 'result.json' and count equal to the number of rows (7). All data is synthetic; there is no live connection or external API.",
+  "answer": [
+    {
+      "case": "standard"
+    }
+  ],
+  "refuse": []
+}

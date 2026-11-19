@@ -1,0 +1,29 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "word-search-coordinate-solver",
+  "task": "solve-word-search",
+  "context": "Use the grid given in the input. Each row is a string of characters; matching is exact and case-sensitive. For every target word, find a contiguous straight-line occurrence in one of the directions N, NE, E, SE, S, SW, W, NW, where the direction goes from the word's first letter to its last letter. Coordinates are one-based (row, column), with row 1 at the top. When a word appears more than once, pick the occurrence whose starting cell is earliest in row-major order; for that starting cell, test directions in exactly the order N, NE, E, SE, S, SW, W, NW, so a one-letter word is reported with direction N. Report exactly one solution per target word in the input order; if a word is absent, set found to false and all coordinates and the direction to null.",
+  "answer": [
+    {
+      "grid": [
+        "ABCA",
+        "BCDB",
+        "CDAC",
+        "DABD"
+      ],
+      "target_words": [
+        "AB",
+        "BCD",
+        "AD",
+        "AC",
+        "DA",
+        "BA",
+        "CDA",
+        "ABCD",
+        "A",
+        "BAB"
+      ]
+    }
+  ],
+  "refuse": []
+}

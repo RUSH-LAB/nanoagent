@@ -77,18 +77,17 @@ def normalize_usage(raw: Any) -> dict[str, int]:
     if cached is not None:
         usage["cached_tokens"] = cached
 
-    cache_write = _first_number(
-        raw, "cache_write_tokens", "cache_creation_input_tokens", "cacheWrite"
-    )
+    # OpenRouter reports cache writes beside the cached reads, in prompt_tokens_details.
+    cache_write = _first_number(prompt_details, "cache_write_tokens")
+    if cache_write is None:
+        cache_write = _first_number(raw, "cache_write_tokens", "cache_creation_input_tokens", "cacheWrite")
     if cache_write is not None:
         usage["cache_write_tokens"] = cache_write
     cache_write_1h = _first_number(raw, "cache_write_1h_tokens", "cacheWrite1h")
     if cache_write_1h is not None:
         usage["cache_write_1h_tokens"] = cache_write_1h
 
-    completion_details = _field(raw, "completion_tokens_details") or _field(
-        raw, "output_tokens_details"
-    )
+    completion_details = _field(raw, "completion_tokens_details") or _field(raw, "output_tokens_details")
     reasoning = _first_number(completion_details, "reasoning_tokens")
     if reasoning is None:
         reasoning = _first_number(raw, "reasoning_tokens", "reasoning")
@@ -99,7 +98,9 @@ def normalize_usage(raw: Any) -> dict[str, int]:
 
 @dataclass(frozen=True, slots=True)
 class ModelCallProfile:
-    """One model request, including retries represented as separate records."""
+    """One completed model turn. A failed attempt (and so a retry's earlier attempts) is not a call:
+    its time is in the step's ``model_s``. ``started`` is when it began on the profiler's clock,
+    which places a call a tool made (kind ``"tool"``) inside that tool's time."""
 
     kind: str
     duration_s: float
@@ -108,6 +109,7 @@ class ModelCallProfile:
     usage: dict[str, int]
     cost: float
     error: str | None = None
+    started: float | None = None
 
     @property
     def output_tokens_per_second(self) -> float | None:
@@ -151,7 +153,10 @@ class ToolCallProfile:
 
 @dataclass(frozen=True, slots=True)
 class StepProfile:
-    """One agent step and all model/tool calls made inside it."""
+    """One agent step and all model/tool calls made inside it. Spans nest: a tool that ran its own
+    model requests (kind ``"tool"``, e.g. a task's agent) has them in ``model_s``, and ``tools_s``
+    holds only the tool time outside them. ``failed_model_calls`` are the attempts that failed,
+    the step's and its tools', whose time is model time too."""
 
     step: int
     duration_s: float
@@ -162,6 +167,7 @@ class StepProfile:
     cost: float
     model_calls: tuple[ModelCallProfile, ...] = ()
     tool_calls: tuple[ToolCallProfile, ...] = ()
+    failed_model_calls: tuple[ModelCallProfile, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -201,9 +207,13 @@ class RunProfile:
         return max(0.0, self.duration_s - self.model_s - self.tools_s)
 
     @property
-    def generation_s(self) -> float:
-        """Time spent streaming tokens: each model call's first token to its last, summed."""
-        return sum(call.generation_s or 0.0 for step in self.steps for call in step.model_calls if call.kind != "tool")
+    def generation_s(self) -> float | None:
+        """Time spent streaming tokens: each model call's first token to its last, summed; None when
+        no call was seen streaming (e.g. Codex's rollout), so an unmeasured run doesn't read as 0."""
+        calls = [call for step in self.steps for call in step.model_calls if call.kind != "tool"]
+        if calls and all(call.generation_s is None for call in calls):
+            return None
+        return sum(call.generation_s or 0.0 for call in calls)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -252,6 +262,7 @@ class _ModelCallTimer:
             usage=dict(usage or {}),
             cost=cost,
             error=error,
+            started=self.started,
         )
 
 
@@ -280,6 +291,7 @@ class StepProfiler:
         self.step = step
         self._started = owner._clock()
         self._model_calls: list[ModelCallProfile] = []
+        self._failed_model_calls: list[ModelCallProfile] = []
         self._tool_calls: list[ToolCallProfile | None] = []
         self._tools_s = 0.0
         self._finished = False
@@ -296,13 +308,17 @@ class StepProfiler:
         error: str | None = None,
     ) -> ModelCallProfile:
         record = timer.finish(usage=usage, cost=cost, error=error)
-        self._model_calls.append(record)
+        # A failed attempt is not a completed turn, but the time it took was spent on the model.
+        (self._model_calls if error is None else self._failed_model_calls).append(record)
         return record
 
     def add_model_call(self, record: ModelCallProfile) -> None:
-        """A model call a tool made itself (kind ``"tool"``): counted in the step's usage and cost,
-        and in neither its model time nor the run's generation time, which its tool time holds."""
-        self._model_calls.append(record)
+        """A model request a tool made itself (kind ``"tool"``), nested in that tool's span: its
+        time is model time, taken out of the tool time; a completed one counts in the step's calls,
+        usage and cost, a failed one only in its time."""
+        if record.kind != "tool" or record.started is None:
+            raise ValueError(f"a tool's model request needs kind 'tool' and its start, not {record.kind!r} at {record.started!r}")
+        (self._model_calls if record.error is None else self._failed_model_calls).append(record)
 
     def start_tool_call(self, call_id: str, name: str) -> tuple[int, _ToolCallTimer]:
         slot = len(self._tool_calls)
@@ -337,18 +353,28 @@ class StepProfiler:
         for call in self._model_calls:
             accumulate_usage(usage, call.usage)
             cost += call.cost
-        model_s = sum(call.duration_s for call in self._model_calls if call.kind != "tool")
+        requests = self._model_calls + self._failed_model_calls
+        model_s = sum(call.duration_s for call in requests)
+        # The tool phases' time less the time a model request nested in a tool was running: tools
+        # run together, so their nested requests may overlap and count once here.
+        nested = 0.0
+        reach = float("-inf")
+        for start, end in sorted((call.started, call.started + call.duration_s) for call in requests if call.kind == "tool"):
+            nested += max(0.0, end - max(start, reach))
+            reach = max(reach, end)
+        tools_s = self._tools_s - nested
         duration_s = max(0.0, ended - self._started)
         profile = StepProfile(
             step=self.step,
             duration_s=duration_s,
             model_s=model_s,
-            tools_s=self._tools_s,
-            overhead_s=max(0.0, duration_s - model_s - self._tools_s),
+            tools_s=tools_s,
+            overhead_s=max(0.0, duration_s - model_s - tools_s),
             usage=usage,
             cost=cost,
             model_calls=tuple(self._model_calls),
             tool_calls=tuple(call for call in self._tool_calls if call is not None),
+            failed_model_calls=tuple(self._failed_model_calls),
         )
         self._owner._finish_step(self, profile)
         return profile
@@ -395,6 +421,173 @@ class Profiler:
         )
 
 
+def messages_usage(input_tokens: int, output_tokens: int, cache_read: int = 0, cache_write: int = 0, reasoning: int | None = None) -> dict[str, int]:
+    """Usage in NanoAgent's terms from Anthropic Messages' counts, whose input leaves cache reads and
+    writes out: here the prompt counts every token sent, cached or not."""
+    usage = {
+        "prompt_tokens": input_tokens + cache_read + cache_write,
+        "completion_tokens": output_tokens,
+        "total_tokens": input_tokens + cache_read + cache_write + output_tokens,
+        "cached_tokens": cache_read,
+        "cache_write_tokens": cache_write,
+    }
+    if reasoning is not None:
+        usage["reasoning_tokens"] = reasoning
+    return usage
+
+
+@dataclass(slots=True)
+class _StreamCall:
+    started: float
+    first: float | None = None
+    ended: float | None = None
+    usage: dict[str, int] | None = None
+    error: str | None = None
+
+
+@dataclass(slots=True)
+class _StreamStep:
+    started: float
+    calls: list[_StreamCall]
+    tools: list[ToolCallProfile]
+    tools_s: float = 0.0
+
+
+class StreamProfiler:
+    """A :class:`RunProfile` of a harness NanoAgent does not run itself, built from its events as they
+    reach this process and timed on this process's clock, so every harness is profiled alike.
+
+    A step is one model call and the tools it asked for: it opens when the call starts and closes
+    when the next call starts, or when the harness says the step ended, or at the run's end. Tool
+    time is the time at least one tool runs, so tools running together count once. A call's usage
+    may come with its end or later (``usage``); a call that reports none has empty usage.
+    """
+
+    def __init__(self, *, clock: Clock = time.perf_counter) -> None:
+        self._clock = clock
+        self._started = clock()
+        self._first: float | None = None
+        self._steps: list[StepProfile] = []
+        self._step: _StreamStep | None = None
+        self._running: dict[str, tuple[str, float]] = {}
+        self._phase: float | None = None
+
+    def model_start(self, at: float | None = None) -> StepProfile | None:
+        """A model call starts, opening a step; returns the step this closed, if one was open. A call
+        right after a failed one, with no tools between, retries it: it joins that call's step.
+
+        ``at`` is when the call was asked for, on this profiler's clock, when the harness only shows
+        later that it was (e.g. by the start of its stream); the previous step closes then too."""
+        now = self._clock() if at is None else at
+        step = self._step
+        if step is not None and step.calls[-1].error is not None and not step.tools:
+            step.calls.append(_StreamCall(now))
+            return None
+        closed = self.close(at=now)
+        self._step = _StreamStep(now, [_StreamCall(now)], [])
+        return closed
+
+    def first_token(self) -> None:
+        call = self._call()
+        if call.first is None:
+            call.first = self._clock()
+            if self._first is None:
+                self._first = call.first
+
+    def model_end(self, usage: Mapping[str, int] | None = None, error: str | None = None) -> None:
+        call = self._call()
+        if call.ended is None:
+            call.ended = self._clock()
+        if usage is not None:
+            call.usage = dict(usage)
+        call.error = error
+
+    def usage(self, usage: Mapping[str, int]) -> None:
+        """The usage of the open step's model call, when the harness reports it after the call."""
+        self._call().usage = dict(usage)
+
+    def tool_start(self, call_id: str, name: str) -> None:
+        if self._step is None:
+            raise RuntimeError(f"tool {name} started outside a step")
+        now = self._clock()
+        if not self._running:
+            self._phase = now
+        self._running[call_id] = (name, now)
+
+    def tool_end(self, call_id: str, *, is_error: bool, error: str | None = None) -> None:
+        assert self._step is not None and self._phase is not None
+        name, started = self._running.pop(call_id)
+        now = self._clock()
+        self._step.tools.append(ToolCallProfile(call_id, name, now - started, is_error, error))
+        if not self._running:
+            self._step.tools_s += now - self._phase
+
+    @property
+    def tools_running(self) -> bool:
+        return bool(self._running)
+
+    def close(self, at: float | None = None) -> StepProfile | None:
+        """Close the open step, if any, now or ``at``, and return it."""
+        step, self._step = self._step, None
+        if step is None:
+            return None
+        if self._running:
+            raise RuntimeError(f"step {len(self._steps) + 1} closed with tools still running: {sorted(self._running)}")
+        ended = self._clock() if at is None else at
+        # A failed attempt is not a completed turn: its time is the step's model time, and it is no record.
+        model_s = sum((call.ended or ended) - call.started for call in step.calls)
+        calls = tuple(
+            ModelCallProfile(
+                kind="agent",
+                duration_s=(call.ended or ended) - call.started,
+                ttft_s=None if call.first is None else call.first - call.started,
+                generation_s=None if call.first is None else (call.ended or ended) - call.first,
+                usage=dict(call.usage or {}),
+                cost=0.0,
+                error=None,
+            )
+            for call in step.calls
+            if call.error is None
+        )
+        usage: dict[str, int] = {}
+        for call in calls:
+            accumulate_usage(usage, call.usage)
+        duration = ended - step.started
+        profile = StepProfile(
+            step=len(self._steps) + 1,
+            duration_s=duration,
+            model_s=model_s,
+            tools_s=step.tools_s,
+            overhead_s=max(0.0, duration - model_s - step.tools_s),
+            usage=usage,
+            cost=0.0,
+            model_calls=calls,
+            tool_calls=tuple(step.tools),
+        )
+        self._steps.append(profile)
+        return profile
+
+    def finish(self, usage: Mapping[str, int] | None = None) -> RunProfile:
+        """The run's profile, its last step closed. ``usage`` is the run's whole usage when the harness
+        reports more than its steps hold (calls it makes outside them); else the steps' sum."""
+        self.close()
+        total: dict[str, int] = {}
+        for step in self._steps:
+            accumulate_usage(total, step.usage)
+        return RunProfile(
+            duration_s=self._clock() - self._started,
+            usage=dict(usage) if usage is not None else total,
+            cost=0.0,
+            steps=tuple(self._steps),
+            ttft_s=None if self._first is None else self._first - self._started,
+        )
+
+    def _call(self) -> _StreamCall:
+        if self._step is None:
+            raise RuntimeError("no model call is open")
+        return self._step.calls[-1]
+
+
 def merge_profiles(profiles: list[RunProfile]) -> RunProfile:
     """Combine sequential task profiles into one active-work session profile."""
     usage: dict[str, int] = {}
@@ -417,8 +610,10 @@ __all__ = [
     "RunProfile",
     "StepProfile",
     "StepProfiler",
+    "StreamProfiler",
     "ToolCallProfile",
     "accumulate_usage",
     "merge_profiles",
+    "messages_usage",
     "normalize_usage",
 ]

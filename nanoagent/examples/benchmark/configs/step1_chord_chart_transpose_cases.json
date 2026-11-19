@@ -1,0 +1,13 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "chord-chart-transpose",
+  "task": "transpose-chart",
+  "context": "The chord chart is generated deterministically from the seed. The seed chooses the chart's source key among the 15 keys of the same mode as to_key (major: C, G, D, A, E, B, F#, C#, F, Bb, Eb, Ab, Db, Gb, Cb; minor: Am, Em, Bm, F#m, C#m, G#m, D#m, A#m, Dm, Gm, Cm, Fm, Bbm, Ebm, Abm), then makes a chart of 8 to 16 bars, each with 1 or 2 chord symbols. The chart data you receive gives the source key, the to_key, the interval from the source tonic to the target tonic as letter_steps (0-6, letters up the alphabet C D E F G A B, wrapping B to C) and semitones (0-11, up modulo 12), and the bars in order. Transpose every chord by moving its root note (and its bass note after a slash, if any) by that interval: the new letter is the old letter shifted letter_steps letters up, and the accidental is whatever makes the pitch equal to the old pitch plus semitones modulo 12: no accidental, # or b only. Natural pitches: C 0, D 2, E 4, F 5, G 7, A 9, B 11; # adds 1, b subtracts 1. If the moved spelling would need a double sharp, write the same pitch one letter up instead (F## -> G, E## -> F#, A## -> B); if it would need a double flat, write it one letter down (Bbb -> A, Cbb -> Bb, Fbb -> Eb). Never output ## or bb. Copy everything between the root and the slash, or after the root at the end, exactly: m, 7, maj7, m7b5, sus4, add9, 7#11, 7b9, 13, aug, dim7 and the like; the # or b inside such a suffix is part of the chord, not a note, and never changes. Keep the same number of bars and the same number of chords in each bar, in order. Submit to_key as given and the bars as {'chords': [...]}. The answer is judged exactly, so an enharmonic spelling (for example A# for Bb, or G# for Ab) is wrong even if it sounds the same.",
+  "answer": [
+    {
+      "seed": 7,
+      "to_key": "Eb"
+    }
+  ],
+  "refuse": []
+}

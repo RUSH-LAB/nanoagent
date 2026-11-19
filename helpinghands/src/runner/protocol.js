@@ -28,6 +28,8 @@
  *                      {type: 'release', id}        RUSH has kept what the held request did
  *                      {type: 'abort', id}
  *                      {type: 'keys', id, changes}  {ENV_NAME: key, or null to remove it}
+ *                      {type: 'worker', action, value?}  recheck or restart the benchmark worker, or `concurrency` with a whole number `value` (runner/worker.mjs)
+ * The hello also carries `worker`: the benchmark worker's health, {state, message, platform, concurrency, progress, checks, log}.
  */
 
 const PATH = '/api/runner';
@@ -43,8 +45,18 @@ const ROUTES = [
   ['GET', '/v1/models'],
   ['GET', '/v1/keys/openrouter/usage'],
   ['POST', '/v1/runs'],
+  // The case set a member publishes, its cases pinned by the plugin installed here (Publish benchmark).
+  ['POST', `/v1/installs/${SEGMENT}/benchmark/case-set`],
+  // The one-case case set of a session in a plugin page's Harness tab, its input filled from the member's request here.
+  ['POST', `/v1/installs/${SEGMENT}/benchmark/session`],
+  // That case set but its case, read from the installed plugin at once: RUSH queues the session's run on it while the case is pinned.
+  ['POST', `/v1/installs/${SEGMENT}/benchmark/session-frame`],
+  // The ZIP of a reference harness, built by the NanoAgent here.
+  ['GET', `/v1/benchmark/reference-harnesses/${SEGMENT}`],
   ['GET', `/v1/installs/${SEGMENT}`],
   ['PUT', `/v1/installs/${SEGMENT}`],
+  // The package installed there, digest-checked: what a Terminal session's `nanoagent` runs the plugin's tools from.
+  ['GET', `/v1/installs/${SEGMENT}/package`],
   ['GET', `/v1/installs/${SEGMENT}/ui/${SEGMENT}/[^?]+`],
   ['PUT', `/v1/views/${SEGMENT}`],
   ['POST', `/v1/workspaces/${SEGMENT}/installs/${SEGMENT}/runs`],

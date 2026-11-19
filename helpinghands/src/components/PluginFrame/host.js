@@ -1,4 +1,5 @@
 import {readEvents, SSE_CONTENT_TYPE} from '../../utils/eventStream.js';
+import {awaitWorker, followHarness, linkLine} from './harness.js';
 import {
   chatEvent, failure, invalidRequest, promptHistory, reply, requestFrom, runEvent, themeEvent,
 } from './protocol.js';
@@ -10,8 +11,9 @@ import {
  *
  * `frameWindow()` is the frame's window, the only one whose messages are
  * accepted; `request(path, init)` fetches a RUSH API path with the user's
- * session; `onVersion(app)` hears that the member chose another version of the
- * plugin, or to follow its latest (`plugin.version`), with the app as they now run it.
+ * session; `save(path)` has the browser download one, as it downloads a file;
+ * `onVersion(app)` hears that the member chose another version of the plugin,
+ * or to follow its latest (`plugin.version`), with the app as they now run it.
  * `shown()` is the session the page's address names, which the page opens on
  * (`describe`), and `onShown(id)` hears the session the page shows, or null
  * for its Dashboard (`session.shown`), so that reloading opens it again.
@@ -26,6 +28,26 @@ import {
  * the run starts over (`chat.restart`), as following replays it from its first
  * event, or, when it ended meanwhile, given the turn the session kept
  * (`chat.turn`). Only `cancel` stops one.
+ *
+ * The Harness tab's session (`harness.run`) is a benchmark run of one case, the page's request to one of the plugin's tasks
+ * worked by a reference harness on the member's own worker, or of the free-form Terminal (`shell`, no task, request or case), on a
+ * terminal the member works in: RUSH queues and records it, and the page talks to its terminals on this computer, through RUSH
+ * Lab, not through RUSH (./harness.js). The page hears the terminal's output as it comes and the outcome, through `harness.done`,
+ * and sends what is typed (`harness.input`) and the terminal's size (`harness.resize`), each to one of its terminals (0 the first);
+ * `harness.open` opens another in a free-form session, `harness.close` closes one, and `harness.cancel` cancels the run. The frame
+ * going away, or the page no longer following it, leaves the session running, and only its member ends it. A free-form session started
+ * with `resume` (an ended one's attempt id, clicked on the Dashboard) resumes it: the worker puts back what it kept of it on this
+ * computer, and with `chat` too (`{agent, id, run}`, one of its chats) reopens that conversation. One started with `start` (an agent's
+ * CLI command, the Dashboard's New session under that agent) runs it in its first terminal. While the member's free-form session runs
+ * (from this page or any other, this window or another), any start is that session instead, `harness.session` saying so (`joined`), its
+ * link replaying each terminal's output from its first byte, and `harness.reopen` then opens what was asked in its next terminal: a chat
+ * from the ended session that holds it (`{resume, chat}`), or an agent's CLI (`{start}`, with why when it is a chat that cannot be
+ * reopened: `{start, line}`). Once RUSH has queued it, `harness.session` names its attempt.
+ *
+ * The Dashboard lists the chats the member's Harness tab sessions on the plugin held beside their own chats (`sessions.list`'s
+ * `terminals`, each a conversation of an agent CLI), and archives or restores one as it does a chat (`terminal.archive`, by its key).
+ * Its Download traces (JSON) downloads the member's own traces of the plugin as JSON Lines (`traces.download`), from GET
+ * /api/traces/export, which gives a page nobody else's (every member's is the CLI's, `nanoagent export member=all`).
  */
 // As long as the member's computer holds a run for RUSH to take up again (runner/protocol.js HOLD_MS).
 const RECONNECT_MS = 10 * 60_000;
@@ -39,8 +61,11 @@ const sleep = (ms, signal) => new Promise(resolve => {
   }, {once: true});
 });
 
-export function createBridgeHost({frameWindow, plugin, workspaceId, theme, request, onVersion, shown, onShown}) {
+export function createBridgeHost({frameWindow, plugin, workspaceId, theme, request, save, onVersion, shown, onShown, pause = sleep}) {
   const runs = new Map(); // runId -> {controller, session}, the controller of its stream now
+  // runId -> {controller, run, attempt, link, sending}: a Harness tab session's controller, its benchmark run's and attempt's ids, the
+  // link to its terminals once made, and its input in flight, which goes to the terminals in order.
+  const harnessRuns = new Map();
   // Each session's conversation, by id: a run left going in one session keeps its turn there.
   const turns = new Map();
   let session = null;
@@ -198,6 +223,57 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     post(runEvent('chat.done', runId, {}));
   }
 
+  async function harnessRun({harness, task, text, resume, start, chat}) {
+    runCount += 1;
+    const runId = `harness-${runCount}`;
+    const controller = new AbortController();
+    // `run` and `attempt` once RUSH has queued the session, which waits for the member's worker to be ready; `link` once its terminals
+    // are linked.
+    let linked;
+    const entry = {controller, run: null, attempt: null, link: new Promise(resolve => (linked = resolve)), sending: Promise.resolve()};
+    harnessRuns.set(runId, entry);
+    const emit = (event, data) => post(runEvent(event, runId, data));
+    const follow = async () => {
+      try {
+        await awaitWorker({request, emit, signal: controller.signal, sleep: ms => pause(ms, controller.signal)});
+        if (controller.signal.aborted) return;
+        const response = await request('/api/benchmark/sessions', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({plugin_id: plugin.id, task_id: task, harness, text, resume, start, chat, interactive: true}),
+        });
+        if (!response.ok) throw await failed(response, 'Could not start the harness');
+        const {run, attempt_id: attempt, joined} = await response.json();
+        Object.assign(entry, {run: run.run_id, attempt});
+        // A page given its running session again follows it here alone.
+        for (const other of harnessRuns.values()) if (other !== entry && other.attempt === attempt) other.controller.abort();
+        emit('harness.session', {attemptId: attempt, joined: Boolean(joined)});  // the session the page's terminals are, which the Dashboard's chats name
+        if (controller.signal.aborted) return;
+        await followHarness({attemptId: entry.attempt, request, emit, signal: controller.signal, linked});
+      } catch (error) {
+        if (!controller.signal.aborted) emit('harness.error', {message: error.message});
+      } finally {
+        harnessRuns.delete(runId);
+        emit('harness.done', {});
+      }
+    };
+    return {result: {runId}, after: follow};
+  }
+
+  /** Send a Harness tab session's terminal `input` over its link, after what was sent before it and once the link is made. */
+  function toTerminal(runId, input) {
+    const run = harnessRuns.get(runId);
+    if (!run) throw new Error(`No harness run ${runId} is in progress`);
+    run.sending = run.sending.catch(() => {}).then(() => run.link).then(link => link.send(linkLine(input)));
+    return run.sending.then(() => ({result: {}}));
+  }
+  /** End a Harness tab session: its run, or, before RUSH has queued it, the wait for the worker. */
+  const cancelHarness = async run => {
+    if (!run.run) return run.controller.abort();
+    const response = await request(`/api/benchmark/runs/${run.run}/cancel`, {method: 'POST'});
+    if (!response.ok) throw await failed(response, 'Could not cancel the harness');
+  };
+
   const methods = {
     'describe': async () => ({result: {plugin, workspace: {id: workspaceId}, theme: currentTheme, session: shown()}}),
     prompt,
@@ -210,10 +286,41 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
       run.controller.abort();
       return {result: {}};
     },
+    'harness.run': harnessRun,
+    'harness.cancel': async ({runId}) => {
+      const run = harnessRuns.get(runId);
+      if (!run) throw new Error(`No harness run ${runId} is in progress`);
+      await cancelHarness(run);
+      return {result: {}};
+    },
+    'harness.input': async ({runId, terminal, data}) => toTerminal(runId, {terminal, data}),
+    'harness.resize': async ({runId, terminal, rows, cols}) => toTerminal(runId, {terminal, rows, cols}),
+    // Another terminal of the session, `rows` by `cols`: its first size opens it, and its output comes over the link as the others' does.
+    'harness.open': async ({runId, terminal, rows, cols}) => toTerminal(runId, {terminal, rows, cols}),
+    'harness.close': async ({runId, terminal}) => toTerminal(runId, {terminal, close: true}),
+    // A chat clicked on the Dashboard, or an agent's CLI started, in the next terminal of the session, whose output comes over the link as the others' does.
+    'harness.reopen': async ({runId, rows, cols, reopen}) => toTerminal(runId, {reopen, rows, cols}),
+    // The browser downloads the export (GET /api/traces/export) as it downloads a file, signed in with the member's session.
+    'traces.download': async () => {
+      save(`/api/traces/export?${new URLSearchParams({plugin: plugin.id})}`);
+      return {result: {}};
+    },
     'sessions.list': async () => {
-      const response = await request(sessionsPath);
-      if (!response.ok) throw await failed(response, 'Could not list the sessions');
-      return {result: {sessions: (await response.json()).sessions}};
+      const [chats, terminals] = await Promise.all([
+        request(sessionsPath), request(`/api/benchmark/terminal-sessions?${new URLSearchParams({plugin_id: plugin.id})}`),
+      ]);
+      if (!chats.ok) throw await failed(chats, 'Could not list the sessions');
+      if (!terminals.ok) throw await failed(terminals, 'Could not list the Harness sessions');
+      return {result: {sessions: (await chats.json()).sessions, terminals: (await terminals.json()).chats}};
+    },
+    'terminal.archive': async ({attemptId, chat, archived}) => {
+      const response = await request(`/api/benchmark/attempts/${attemptId}/archive`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({archived, chat}),
+      });
+      if (!response.ok) throw await failed(response, archived ? 'Could not archive the session' : 'Could not restore the session');
+      return {result: await response.json()};
     },
     'session.get': async ({id}) => ({
       result: {session: await readSession(`${sessionsPath}/${id}`, undefined, 'Could not read the session')},
@@ -266,9 +373,9 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
       currentTheme = theme;
       post(themeEvent(theme));
     },
-    /** Stop following every run; the frame is going away, and the runs go on. */
+    /** Stop following every run, a Harness tab session's too; the frame is going away, and the runs go on. */
     close() {
-      for (const run of runs.values()) run.controller.abort();
+      for (const run of [...runs.values(), ...harnessRuns.values()]) run.controller.abort();
     },
   };
 }

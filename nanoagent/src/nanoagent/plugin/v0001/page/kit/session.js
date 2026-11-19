@@ -58,6 +58,16 @@ export function formatCost(usd) {
   return `$${usd.toFixed(usd < 0.01 ? 4 : usd < 1 ? 3 : 2)}`;
 }
 
+/**
+ * "$0.0123", "$0.0123 + 1 pending", "2 pending", "—": a usage's Cost (`{sum, count, pending}`), its settled calls' sum and
+ * how many calls the gateway has not settled yet, never estimated.
+ */
+export function formatSettled({ sum, count, pending = 0 }) {
+  const settled = count ? formatCost(sum) : null;
+  if (!pending) return settled ?? "—";
+  return settled ? `${settled} + ${pending} pending` : `${pending} pending`;
+}
+
 /** "0.8 s", "14 s", "3 min 12 s": a duration, to a tenth of a second when short. */
 export function formatSeconds(seconds) {
   if (seconds === null || seconds === undefined) return "—";
@@ -93,34 +103,51 @@ const when = (at) => {
   return `${date.toLocaleDateString(undefined, { year, month: "short", day: "numeric" })}, ${date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
 };
 const titled = (session) => session.title || "Untitled session";
+// The agent of the chats, by its CLI command as every agent is named: the dashboard's first chip.
+const NANOAGENT = "nanoagent";
+// How many sessions (or chats) a harness's usage is over, above it.
+const counted = (count, unit = "session") => h("p", { class: "muted small-text", text: plural(count, unit) });
 
 /** "4.3k" with "4,321" for its title: a count of tokens. */
 const tokens = (count) => [thousands(Math.round(count)), Math.round(count).toLocaleString()];
 // The figures the dashboard's usage shows, a column each, in the order of a run's graph summary:
-// each one's label, the field it is, and how a value of it is written, with a title for the exact figure.
+// each one's label, the field it is, how a value of it is written, with a title for the exact figure,
+// and whether only nanoagent measures it (its own steps), every other agent's showing "—".
 const FIGURES = [
-  ["End-to-End Latency", "durationS", (value) => [formatSeconds(value)]],
+  ["End-to-End Latency", "durationS", (value) => [formatSeconds(value)], true],
   ["Model Time", "modelS", (value) => [formatSeconds(value)]],
-  ["Tool Time", "toolsS", (value) => [formatSeconds(value)]],
+  ["Tool Time", "toolsS", (value) => [formatSeconds(value)], true],
   ["Input Tokens", "inputTokens", tokens],
   ["Output Tokens", "outputTokens", tokens],
   ["Cost", "cost", (value) => [formatCost(value)]],
 ];
 
+const UNMEASURED = ["—", "not measured for this agent; only nanoagent reports its own steps"];
+
 /**
- * The usage of every message in `sessions`, as the dashboard shows it: a column per figure
- * (FIGURES), its Total over its Average per message. A Total that messages recorded before RUSH
- * counted its figure lack says so in its title.
+ * Agent `agent`'s usage, a figure per FIGURES column, each its Total and Average (`[text, title]`),
+ * from `usages` (each a session's, every figure `{sum, count}`) averaged per `unit`: the chats count
+ * their messages, a Harness session counts itself. A Total that not every one of the `units`
+ * counted says so in its title. A figure only nanoagent measures is "—" for every other agent.
  */
-function sessionsUsage(sessions) {
-  const runs = sessions.reduce((sum, one) => sum + one.runs, 0);
-  const figures = FIGURES.map(([, key, format]) => {
-    const sum = sessions.reduce((total, one) => total + one.usage[key].sum, 0);
-    const count = sessions.reduce((total, one) => total + one.usage[key].count, 0);
-    const total = count ? format(sum) : ["—"];
-    if (count && count < runs) total[1] = `For ${count.toLocaleString()} of ${plural(runs, "message")}: those sent before RUSH counted it lack it`;
-    return { total, average: count ? format(sum / count) : ["—"] };
+export function usageFigures(usages, units, unit, agent) {
+  return FIGURES.map(([, key, format, own]) => {
+    if (own && agent !== NANOAGENT) return { total: UNMEASURED, average: UNMEASURED };
+    const sum = usages.reduce((total, usage) => total + usage[key].sum, 0);
+    const count = usages.reduce((total, usage) => total + usage[key].count, 0);
+    const pending = usages.reduce((total, usage) => total + (usage[key].pending ?? 0), 0);
+    const total = pending ? [formatSettled({ sum, count, pending }), `${plural(pending, "model call")} not settled by the gateway yet`] : count ? format(sum) : ["—"];
+    if (count && count < units && !pending) {
+      const why = unit === "message" ? "those sent before RUSH counted it lack it" : "the others did not record it";
+      total[1] = `For ${count.toLocaleString()} of ${plural(units, unit)}: ${why}`;
+    }
+    return { total, average: pending ? ["—", total[1]] : count ? format(sum / count) : ["—"] };
   });
+}
+
+/** Agent `agent`'s usage, as the dashboard shows it: a column per figure, its Total over its Average (usageFigures). */
+function harnessUsage(usages, units, unit, agent) {
+  const figures = usageFigures(usages, units, unit, agent);
   const row = (head, title, cells) => h("tr", {}, h("th", { scope: "row", text: head, title }), cells.map(([text, cellTitle]) => h("td", { text, title: cellTitle })));
   return h(
     "div",
@@ -128,49 +155,93 @@ function sessionsUsage(sessions) {
     h(
       "table",
       {},
-      h("caption", { class: "visually-hidden", text: "Usage: in all, and on average per message" }),
+      h("caption", { class: "visually-hidden", text: `Usage: in all, and on average per ${unit}` }),
       h("thead", {}, h("tr", {}, h("td"), FIGURES.map(([label]) => h("th", { scope: "col", text: label })))),
-      h("tbody", {}, row("Total", undefined, figures.map((figure) => figure.total)), row("Average", "Per message", figures.map((figure) => figure.average))),
+      h("tbody", {}, row("Total", undefined, figures.map((figure) => figure.total)), row("Average", `Per ${unit}`, figures.map((figure) => figure.average))),
     ),
   );
 }
 
-/** What the dashboard's list says with no session in view. */
-function emptyText(archived, closed) {
-  if (archived) return closed ? "Every session is archived." : "Every session is archived. Start a new one with New session.";
-  return closed ? "No sessions." : "No sessions yet. Start one with New session.";
+/** What the dashboard's list says with nothing in view: `unit` is "session". */
+function emptyText(archived, closed, unit) {
+  if (archived) return closed ? `Every ${unit} is archived.` : `Every ${unit} is archived. Start a new one with New session.`;
+  return closed ? `No ${unit}s.` : `No ${unit}s yet. Start one with New session.`;
 }
 
 /**
- * The dashboard: the person's sessions with this plugin, newest first, and what they cost in
- * all; from here they start a new session or resume one, and archive a
- * session. Archived sessions leave the list for its Archived view, where they can be opened or
- * restored; chatting in one again restores it.
+ * How a chat of a Terminal session (`sessions.list`'s `terminals`) clicked on the Dashboard opens, always in a terminal of the Harness
+ * tab: `{resume, chat}` reopens it from the ended session that holds it; one that cannot be reopened (it ran in a harness run, or this
+ * computer no longer keeps its files) starts its agent anew, saying why (`{start, line}`); one whose session still runs is open in
+ * that session (`{}`).
+ */
+export function reopening(chat) {
+  const fresh = (why) => ({ start: chat.agent, line: `${why}, so it can't be reopened; started a new ${chat.agent} session` });
+  if (chat.running) return {};
+  if (!chat.freeForm) return fresh("That session ran in a harness run, not a terminal");
+  if (!chat.resumable) return fresh("That session's files are no longer on this computer");
+  return { resume: chat.attemptId, chat: { agent: chat.agent, id: chat.conversation, run: chat.run } };
+}
+
+// How long after an archive moved the dashboard's rows a click on Archive is taken as meant for the row that left (dashboard).
+const ARCHIVE_SETTLE_MS = 600;
+
+/**
+ * The dashboard, by agent: chips name, by its CLI command, every agent that made a model call on
+ * this plugin, nanoagent (the person's chats) first and chosen at first, and the one chosen shows
+ * its usage and its chats, newest first. A chat is one conversation with the agent: under
+ * nanoagent the person's sessions, and every agent's chats in the Harness tab's terminals (a
+ * Claude Code conversation, a Codex thread, a run of dsh), each with its title (its first prompt),
+ * when, its tokens, cost and End-to-End Latency. Under nanoagent New session starts a chat, and
+ * they resume one; under any other agent it runs that agent's CLI in the Harness tab, in a new terminal of the running session if any,
+ * and clicking a chat always opens it in a terminal of the Harness tab (reopening). They archive a chat; archived ones
+ * leave the agent's list for that agent's Archived view, where they can be opened or restored;
+ * talking in one again restores it. Download traces (JSON) downloads their own traces of the plugin as JSON Lines, never another
+ * member's, an administrator's too (every member's is `nanoagent export member=all`).
  * @param {object} options
  * @param {(session: object|null) => void} options.onOpen With what `session.resume` answered,
  *   or null for a new session.
+ * @param {(chat: object) => void} options.onChat With a chat of a Terminal session (`sessions.list`'s `terminals`), to open it.
+ * @param {(agent: string) => void} options.onStart With the chosen agent's CLI command, to run it in the Harness tab.
  * @param {boolean} [options.closed] Whether no new session may start: the sessions are only read.
  * @returns {{element: HTMLElement, refresh: () => Promise<void>, resume: (id: string) => Promise<boolean>}}
  *   `refresh` lists the sessions again; `resume` opens session `id`, saying why not when it cannot, and whether it did.
  */
-export function dashboard({ onOpen, closed = false }) {
+export function dashboard({ onOpen, onChat, onStart, closed = false }) {
   const stats = h("div", { class: "dashboard-usage" });
   const status = h("p", { class: "error-text", role: "alert" });
   const list = h("ul", { class: "session-list" });
   const heading = h("h2", { text: "Sessions" });
-  const newButton = h("button", { type: "button", class: "button small", hidden: closed, onclick: () => onOpen(null) }, icon("plus", { size: 16 }), "New session");
+  const newButton = h("button", { type: "button", class: "button small", hidden: closed, onclick: () => (chosen === NANOAGENT ? onOpen(null) : onStart(chosen)) }, icon("plus", { size: 16 }), "New session");
   const viewButton = h("button", { type: "button", class: "button small ghost", hidden: true });
+  const chips = h("div", { class: "harness-chips", role: "group", "aria-label": "Harness" });
+  // Download traces (JSON): the member's own traces of the plugin as JSON Lines.
+  const download = h("button", { type: "button", class: "button small ghost", text: "Download traces (JSON)", onclick: async () => {
+    status.textContent = "";
+    try {
+      await request("traces.download");
+    } catch (problem) {
+      status.textContent = problem.message;
+    }
+  } });
   let archivedView = false;
+  let chosen = NANOAGENT;
   viewButton.addEventListener("click", () => {
     archivedView = !archivedView;
     refresh();
   });
 
-  async function archive(session, button) {
+  // When an archive (or restore) last moved the rows: the row below then takes the place of the one that left, its own Archive
+  // under the pointer, so a click that comes within ARCHIVE_SETTLE_MS of it (the second of a double click) was meant for the row that left.
+  let movedAt = -Infinity;
+  async function archive(session, button, terminal) {
+    if (performance.now() - movedAt < ARCHIVE_SETTLE_MS) return;
     button.disabled = true;
     try {
-      await request("session.archive", { id: session.id, archived: !session.archivedAt });
+      await request(...(terminal
+        ? ["terminal.archive", { attemptId: session.attemptId, chat: session.key, archived: !session.archivedAt }]
+        : ["session.archive", { id: session.id, archived: !session.archivedAt }]));
       await refresh();
+      movedAt = performance.now();
     } catch (problem) {
       status.textContent = problem.message;
       button.disabled = false;
@@ -190,52 +261,99 @@ export function dashboard({ onOpen, closed = false }) {
     }
   }
 
-  function row(session) {
-    // Its title over when it was last used, and what it cost and took at the row's end, in line with the others'.
+  // A row: its title over when it was last used, what it read and wrote (a chat of a
+  // Terminal session), cost and took at its end, in line with the others', and Archive (or Restore). `onClick` opens it; a row with
+  // none only reads.
+  function line(session, { title, running, tokens, cost, took, onClick, terminal }) {
     const open = h(
-      "button",
-      { type: "button", class: "session-open", title: "Resume this session" },
-      h("span", { class: "session-title", text: titled(session) }),
-      h("span", { class: "session-meta" }, session.running ? statusPill("Answering", "info") : null, when(session.updatedAt)),
+      onClick ? "button" : "div",
+      { ...(onClick ? { type: "button", title: terminal ? "Reopen this session" : "Resume this session" } : {}), class: "session-open" },
+      h("span", { class: "session-title", text: title }),
+      h(
+        "span", { class: "session-meta" }, running ? statusPill(running, "info") : null,
+        when(session.updatedAt),
+      ),
     );
-    const took = session.usage.durationS.count ? formatSeconds(session.usage.durationS.sum) : "—";
-    const spent = h("span", { class: "session-cost", title: "Cost / End-to-End Latency", text: `${formatCost(session.cost)} / ${took}` });
-    open.addEventListener("click", () => resume(session.id, open));
+    if (onClick) open.addEventListener("click", () => onClick(open));
+    const spent = tokens === undefined
+      ? h("span", { class: "session-cost", title: "Cost / End-to-End Latency", text: `${cost} / ${took}` })
+      : h("span", { class: "session-cost", title: "Tokens · Cost / End-to-End Latency", text: `${tokens} tokens · ${cost} / ${took}` });
     const label = session.archivedAt ? "Restore" : "Archive";
-    const archiving = h("button", { type: "button", class: "button small ghost", text: label, title: `${label} ${titled(session)}` });
-    archiving.addEventListener("click", () => archive(session, archiving));
+    const archiving = h("button", { type: "button", class: "button small ghost", text: label, title: `${label} ${title}` });
+    archiving.addEventListener("click", () => archive(session, archiving, terminal));
     return h("li", { class: "session-row" }, h("div", { class: "session-line" }, open, spent, archiving));
+  }
+
+  function row(session) {
+    return line(session, {
+      title: titled(session), running: session.running && "Answering", cost: formatCost(session.cost),
+      took: session.usage.durationS.count ? formatSeconds(session.usage.durationS.sum) : "—", onClick: (open) => resume(session.id, open),
+    });
+  }
+
+  // A chat of a Terminal session: clicking it opens it in the Harness tab.
+  function chatRow(chat) {
+    const { usage } = chat;
+    const read = usage.inputTokens.count || usage.outputTokens.count;
+    return line(chat, {
+      title: chat.title, running: chat.running && "Running", tokens: read ? thousands(usage.inputTokens.sum + usage.outputTokens.sum) : "—",
+      cost: formatSettled(usage.cost), took: usage.durationS.count ? formatSeconds(usage.durationS.sum) : "—", terminal: true,
+      onClick: closed ? null : () => onChat(chat),
+    });
   }
 
   async function refresh() {
     status.textContent = "";
     let all;
+    let chats;
     try {
-      ({ sessions: all } = await request("sessions.list"));
+      ({ sessions: all, terminals: chats } = await request("sessions.list"));
     } catch (problem) {
       status.textContent = problem.message;
       return;
     }
-    const archived = all.filter((one) => one.archivedAt);
-    if (!archived.length) archivedView = false;
-    const sessions = archivedView ? archived : all.filter((one) => !one.archivedAt);
+    // The same chips in both views; each agent's Archived view holds its own archived chats.
+    const used = [...new Set([NANOAGENT, ...chats.map((one) => one.agent).sort()])];
+    if (!used.includes(chosen)) chosen = NANOAGENT;
+    chips.hidden = used.length < 2;
+    chips.replaceChildren(...used.map((harness) => h("button", {
+      type: "button", class: "harness-chip", text: harness, "aria-pressed": String(harness === chosen),
+      onclick: () => {
+        chosen = harness;
+        refresh();
+      },
+    })));
+    const mine = chats.filter((one) => one.agent === chosen);
+    const sessions = chosen === NANOAGENT ? all : [];
+    const archived = [...sessions, ...mine].filter((one) => one.archivedAt).length;
+    if (!archived) archivedView = false;
+    newButton.hidden = closed;
+    viewButton.hidden = !archived;
+    viewButton.textContent = archivedView ? "Back to sessions" : `Archived (${archived})`;
     heading.textContent = archivedView ? "Archived sessions" : "Sessions";
-    viewButton.hidden = !archived.length;
-    viewButton.textContent = archivedView ? "Back to sessions" : `Archived (${archived.length})`;
-    stats.replaceChildren(...(sessions.some((one) => one.runs) && !archivedView ? [sessionsUsage(sessions)] : []));
-    const newest = [...sessions].sort((x, y) => new Date(y.updatedAt) - new Date(x.updatedAt));
-    list.replaceChildren(
-      ...(newest.length
-        ? newest.map(row)
-        : [h("li", { class: "session-empty", text: emptyText(archived.length, closed) })]),
+    const inView = (one) => Boolean(one.archivedAt) === archivedView;
+    const newest = (rows) => rows.sort(([x], [y]) => new Date(y.updatedAt) - new Date(x.updatedAt)).map(([one, made]) => made(one));
+    const shown = mine.filter(inView);
+    const listed = (rows, unit) => list.replaceChildren(
+      ...(rows.length ? newest(rows) : [h("li", { class: "session-empty", text: emptyText(archivedView && archived, closed, unit) })]),
     );
+    if (chosen !== NANOAGENT) {
+      stats.replaceChildren(...(shown.length && !archivedView ? [counted(shown.length, "session"), harnessUsage(shown.map((one) => one.usage), shown.length, "session", chosen)] : []));
+      listed(shown.map((one) => [one, chatRow]), "session");
+      return;
+    }
+    const own = sessions.filter(inView);
+    const runs = own.reduce((sum, one) => sum + one.runs, 0);
+    stats.replaceChildren(...(runs && !archivedView ? [counted(own.length), harnessUsage(own.map((one) => one.usage), runs, "message", NANOAGENT)] : []));
+    listed([...own.map((one) => [one, row]), ...shown.map((one) => [one, chatRow])], "session");
   }
 
   const element = h(
     "section",
     { class: "dashboard" },
-    h("header", { class: "dashboard-head" }, heading, h("div", { class: "dashboard-actions" }, viewButton, newButton)),
+    h("header", { class: "dashboard-head" }, heading, h("div", { class: "dashboard-actions" }, download, viewButton, newButton)),
     status,
+    chips,
     stats,
     list,
   );

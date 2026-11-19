@@ -9,6 +9,7 @@ from rich.console import Console
 from nanoagent.cli.repl.app import _interactive_profile
 from nanoagent.cli.repl.harness import HarnessConversation
 from nanoagent.harness import HarnessCapabilities, HarnessProfile, HarnessResult
+from nanoagent.harness.base import RunnerProtocolError, RunnerResult
 from nanoagent.harness.nanoagent import NanoAgentRunner
 from nanoagent.runtime.config import load_config_args, InteractiveConfig
 
@@ -35,6 +36,7 @@ class EchoHarness:
         return HarnessResult(
             answer=f"reply {len(self.requests)}",
             stop_reason="answer",
+            version="9.9.9",
             steps=1,
             usage={"prompt_tokens": len(self.requests), "completion_tokens": 1},
         )
@@ -71,6 +73,7 @@ async def test_external_harness_chat_preserves_history(tmp_path: Path) -> None:
     assert result.usage == {"prompt_tokens": 3, "completion_tokens": 2}
     trajectory = conversation.trajectory()
     assert trajectory.schema_version == "ATIF-v1.8"
+    assert trajectory.agent["version"] == "9.9.9"  # the harness's own, as its result reported it
     tool_step = next(step for step in trajectory.steps if step["tool_calls"])
     assert tool_step["tool_calls"][0]["function_name"] == "echo_tool"
     assert tool_step["observation"]["results"][0]["content"] == "observed 1"
@@ -89,3 +92,10 @@ def test_interactive_default_is_a_registry_native_profile() -> None:
         import asyncio
 
         asyncio.run(registry.aclose())
+
+
+def test_a_done_event_without_a_version_is_a_protocol_error() -> None:
+    event = {"answer": "hi", "stop_reason": "answer"}
+    with pytest.raises(RunnerProtocolError, match="missing its harness version"):
+        RunnerResult.from_event(event)
+    assert RunnerResult.from_event(event | {"version": "1.2.3"}).version == "1.2.3"

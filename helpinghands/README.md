@@ -26,6 +26,13 @@ RUSH Lab is not connected, their AI and plugins are refused, never run elsewhere
 
 ## Running locally
 
+`npm run local` does everything below in one go, and is safe to run again: this
+checkout's packages, `.env` (the GitHub sign-in values it lacks taken from
+Railway's production service), PostgreSQL 18, the local database filled with a
+fresh copy of production's (production is only read), `npm start`, and RUSH Lab
+Dev built, installed and opened (scripts/dev/local.mjs). Stop a running
+`npm start` first. The steps one by one:
+
 Install the required runtimes, dependencies, adjacent NanoAgent checkout, and
 sanitized local environment file:
 
@@ -64,6 +71,13 @@ repository. To have the local NanoAgent publish plugin packages too, set
 `nanoagent.yaml`); RUSH shows them as apps at `/apps`, where you can read what
 each one does and run its tasks. A `NANOAGENT_PLUGINS_DIR` that is missing or
 holds no plugin stops the launch.
+
+Benchmark runs need a worker. `npm start` runs one from your NanoAgent
+checkout's `.venv` when `OPENROUTER_API_KEY` is in `.env`, and otherwise says
+why it did not; its sandboxes are microVMs, so nothing else is needed (the
+first start pulls toolchain images and builds the guest tools). It claims the root account's runs
+and stops with `npm start`. See the [local worker](../nanoagent/docs/plans/uploaded-harness-benchmarks.md#local-worker)
+design.
 
 All local secrets and connection settings live in the single git-ignored
 `.env` file.

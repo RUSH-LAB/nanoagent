@@ -1,0 +1,12 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "event-order-planner",
+  "task": "plan-event-order",
+  "context": "The graph data is bundled with the task as graphs g01 to g20; a graph name outside that range is unknown and must be reported as no_graph_found. Each graph's events are capital-letter names, and each event has a list of direct prerequisites. A valid order must contain every event exactly once and place every event after all of its direct prerequisites; any valid order is accepted. If any event requires itself, requires an event not in the graph, or the prerequisites form a cycle, the graph has no valid order. For graph g18, the events and their direct prerequisites are: G: none; J: G; N: G, T; R: J, W; T: none; W: N.",
+  "answer": [
+    {
+      "graph": "g18"
+    }
+  ],
+  "refuse": []
+}

@@ -1,0 +1,12 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "vt-airfare-policy-booking",
+  "task": "book-vt-trip",
+  "context": "You book one outbound trip for a Virginia Tech traveler and submit the booking under the toy air-travel handbook. The trip request facts for this case (the only data needed) are: traveler based in Blacksburg; destination London Heathrow (GB, outside the continental US); booking_date 2026-11-02; departure_date 2027-02-05; meeting_start_local null; meeting_start_utc null; requested_cabin economy; funding non_federal; personal_days 0; business_only_fare_cents null; checked_bags 1; requested_extras [\"travel_insurance\"]. The traveler's words also ask to \"add travel insurance\", but the typed fields are the facts.\n\nThe rules that decide this case: tickets may be bought up to 90 days before travel. If departure_date is more than 90 days after booking_date, the only correct decision is needs_exception, and then itinerary_id must be null, cabin null, reimbursable_amount_cents 0, required_documents [] and disallowed_items []. Exactly 90 days is allowed. A needs_exception is not a booking, so nothing else is listed: requested extras (even travel_insurance), documents, fares and cabins do not appear. No other condition creates needs_exception. The other handbook rules (cabin entitlements, allowed airports, Fly America, cost comparison, bag justification) cannot change a needs_exception output.",
+  "answer": [
+    {
+      "scenario": "london-research-visit"
+    }
+  ],
+  "refuse": []
+}

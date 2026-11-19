@@ -12,7 +12,21 @@ export const PROTOCOL = 'nanoagent.ui/v1';
 const PROMPT_LIMIT = 50_000;
 export const HISTORY_LIMIT = 24;
 export const MESSAGE_LIMIT = 10_000;
-const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+// What one harness.input may carry: a paste into the terminal (RUSH takes 128 KiB of bytes; a character is up to 3 of them).
+const TYPED_LIMIT = 40_000;
+// What a Harness tab session may run: a reference harness (server/benchmark/harness.js REFERENCE_HARNESSES) or one the member saved
+// from a Terminal session, each named as the harness contract names a harness; RUSH says which names it knows.
+const HARNESS_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+// A Harness tab session's terminals: 0 the first, then each one the page opens (RUSH keeps 32).
+const isTerminal = terminal => Number.isInteger(terminal) && terminal >= 0 && terminal < 32;
+const isSize = (rows, cols) => [rows, cols].every(n => Number.isInteger(n) && n >= 1 && n <= 1000);
+// One chat of a Terminal session: its agent's CLI command and its CLI's conversation id with no run, or a null id and the run of a
+// program it is (`{argv, cwd}`), which reruns.
+const isRun = run => typeof run === 'object' && run !== null && Array.isArray(run.argv) && run.argv.length > 0
+  && run.argv.every(arg => typeof arg === 'string') && (run.cwd === null || typeof run.cwd === 'string');
+const isChat = chat => typeof chat === 'object' && chat !== null && HARNESS_NAME.test(chat.agent ?? '')
+  && ((chat.run === null && typeof chat.id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,199}$/.test(chat.id)) || (chat.id === null && isRun(chat.run)));
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const isObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
@@ -37,13 +51,52 @@ const PARAMS = {
   'follow': () => null,
   'cancel': ({runId}) => (typeof runId === 'string' && runId ? null : 'cancel needs a runId'),
   'sessions.list': () => null,
-  'session.get': ({id}) => (SESSION_ID.test(id ?? '') ? null : 'session.get needs a session id'),
+  'session.get': ({id}) => (UUID.test(id ?? '') ? null : 'session.get needs a session id'),
   'session.start': () => null,
-  'session.resume': ({id}) => (SESSION_ID.test(id ?? '') ? null : 'session.resume needs a session id'),
-  'session.shown': ({id}) => (id === null || SESSION_ID.test(id ?? '') ? null : 'session.shown needs a session id or null'),
-  'session.archive': ({id, archived}) => (SESSION_ID.test(id ?? '') && typeof archived === 'boolean'
+  'session.resume': ({id}) => (UUID.test(id ?? '') ? null : 'session.resume needs a session id'),
+  'session.shown': ({id}) => (id === null || UUID.test(id ?? '') ? null : 'session.shown needs a session id or null'),
+  'session.archive': ({id, archived}) => (UUID.test(id ?? '') && typeof archived === 'boolean'
     ? null
     : 'session.archive needs a session id and archived, true or false'),
+  'terminal.archive': ({attemptId, chat, archived}) => (UUID.test(attemptId ?? '') && typeof chat === 'string' && chat && chat.length <= 500 && typeof archived === 'boolean'
+    ? null
+    : 'terminal.archive needs an attempt id, a chat (its key) and archived, true or false'),
+  // The Terminal (`shell`) is free-form, so it takes no task and no text, and may resume an ended session (its id), reopening one of its
+  // chats (`chat`, `{agent, id, run}`), or start an agent's CLI in its first terminal (`start`, its command), RUSH giving the member's
+  // live session instead when there is one; any other harness works the text to a task.
+  'harness.run': ({harness, task, text, resume, start, chat}) => (HARNESS_NAME.test(harness ?? '')
+    && (harness === 'shell'
+      ? task === undefined && text === undefined && (resume === undefined
+        ? (start === undefined || HARNESS_NAME.test(start ?? '')) && chat === undefined
+        : UUID.test(resume ?? '') && start === undefined && (chat === undefined || isChat(chat)))
+      : typeof task === 'string' && task && typeof text === 'string' && text.trim() && text.length <= PROMPT_LIMIT && resume === undefined && start === undefined && chat === undefined)
+    ? null
+    : `harness.run needs a harness name and, but for shell, which takes neither (and may take the id of a session to resume, and one of its chats, or else an agent's CLI command to start), a task id and text of 1 to ${PROMPT_LIMIT} characters`),
+  'harness.cancel': ({runId}) => (typeof runId === 'string' && runId ? null : 'harness.cancel needs a runId'),
+  'harness.input': ({runId, terminal, data}) => (typeof runId === 'string' && runId && isTerminal(terminal) && typeof data === 'string' && data && data.length <= TYPED_LIMIT
+    ? null
+    : `harness.input needs a runId, a terminal (0 to 31) and data, what was typed, of 1 to ${TYPED_LIMIT} characters`),
+  'harness.resize': ({runId, terminal, rows, cols}) => (typeof runId === 'string' && runId && isTerminal(terminal) && isSize(rows, cols)
+    ? null
+    : 'harness.resize needs a runId, a terminal (0 to 31) and its rows and cols, each 1 to 1000'),
+  'harness.open': ({runId, terminal, rows, cols}) => (typeof runId === 'string' && runId && isTerminal(terminal) && terminal > 0 && isSize(rows, cols)
+    ? null
+    : 'harness.open needs a runId, a new terminal (1 to 31) and its rows and cols, each 1 to 1000'),
+  'harness.close': ({runId, terminal}) => (typeof runId === 'string' && runId && isTerminal(terminal)
+    ? null
+    : 'harness.close needs a runId and a terminal (0 to 31)'),
+  // A chat clicked on the Dashboard, or an agent's CLI started, opened in the next terminal of the live session, `rows` by `cols`:
+  // `{resume, chat}` reopens a chat from the ended session that holds it, `{start}` starts the agent's CLI, `{start, line}` (a chat that
+  // cannot be reopened) its agent anew, saying why.
+  'harness.reopen': ({runId, rows, cols, reopen}) => (typeof runId === 'string' && runId && isSize(rows, cols) && isObject(reopen)
+    && (Object.keys(reopen).sort().join() === 'chat,resume'
+      ? UUID.test(reopen.resume ?? '') && isChat(reopen.chat)
+      : ['start', 'line,start'].includes(Object.keys(reopen).sort().join()) && HARNESS_NAME.test(reopen.start ?? '')
+        && (reopen.line === undefined || (typeof reopen.line === 'string' && reopen.line && reopen.line.length <= 500)))
+    ? null
+    : 'harness.reopen needs a runId, rows and cols (each 1 to 1000) and reopen: {resume, chat}, {start} or {start, line}'),
+  // The Dashboard's Download traces (JSON): the member's own traces of the plugin.
+  'traces.download': () => null,
   'plugin.version': ({version}) => (version === null || (typeof version === 'string' && version)
     ? null
     : 'plugin.version needs version, a published version or null'),

@@ -1,0 +1,26 @@
+_ > mockllm.engine.Scenario:
+name: gateway-policy
+# Everything the gateway refuses never reaches this script. What does: three proposals in one reply (one for the plugin tool
+# called with its own arguments, one for the sandbox report, one whose arguments the harness will change), then a stream that
+# dies after two chunks, a 429, and the request that finally succeeds.
+turns:
+  - ttfb: 0.1
+    text: "Three calls."
+    act:
+      - {call: {name: write_note, arguments: {name: note.txt, text: hello gateway}}}
+      - {call: {name: inspect_sandbox, arguments: {}}}
+      - {call: {name: write_note, arguments: {name: adapt.txt, text: proposed}}}
+    usage: {prompt: 300, cached: 0, completion: 40, reasoning: 0, cache_write: 0}
+  - ttfb: 0.05
+    stream: {chunks: 4, gap: 0.05}
+    cut: 2
+    text: "Cut off."
+    act: {call: {name: write_note, arguments: {name: cut.txt, text: cut}}}
+    usage: {prompt: 310, cached: 0, completion: 20, reasoning: 0, cache_write: 0}
+  - ttfb: 0.05
+    status: 429
+  - ttfb: 0.1
+    stream: {chunks: 3, gap: 0.02}
+    text: "Recovered."
+    usage: {prompt: 320, cached: 300, completion: 8, reasoning: 0, cache_write: 0}
+expect: {correct: true}

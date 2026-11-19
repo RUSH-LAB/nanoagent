@@ -1,0 +1,18 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "mbpp-concept-tagger",
+  "task": "tag-concepts",
+  "context": "The snippets are MBPP test-split reference solutions (google-research/mbpp, CC BY 4.0), keyed by task id; every id from 11 to 510 has one, and each code field is a Python function or functions. Label each requested task id's code with exactly the concepts whose syntactic rules it meets, each once; a snippet with none gets an empty list. The rules: loop for a for or while statement (comprehensions do not count); comprehension for a list/set/dict comprehension or generator expression; conditional for an if/elif statement or an `a if c else b` expression (an if clause inside a comprehension does not count, but an explicit if statement anywhere does); recursion when a function calls itself by its plain name inside its own def (`self.name(...)` does not count); dict_or_set for a dict/set literal or comprehension, or a call to dict, set, frozenset, Counter, defaultdict or OrderedDict by plain name or as an attribute (e.g. `collections.defaultdict(...)`); lambda for a lambda expression; regex if the code imports the `re` module (also `import re as x` or `from re import ...`, but `import regex` is not regex); class_def for a class statement; exception for a try or raise statement; import for any import or from-import statement. Imports count wherever they appear, including inside a function. The output's labels must have one entry per task id in the same order as task_ids; the order of concepts within an entry does not matter for correctness, but each concept must appear at most once.",
+  "answer": [
+    {
+      "task_ids": [
+        28,
+        31,
+        39,
+        61,
+        67
+      ]
+    }
+  ],
+  "refuse": []
+}

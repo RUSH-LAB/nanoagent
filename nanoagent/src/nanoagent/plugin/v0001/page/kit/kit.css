@@ -305,7 +305,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 /* The frame's tabs (kit/shell.js), over every plugin's page, and the Dashboard (kit/session.js). */
 :root { --kit-tabs-height: 44px; }
 .kit-tabs { display: flex; gap: 22px; height: var(--kit-tabs-height); box-sizing: border-box; padding: 0 var(--page-inset); border-bottom: 1px solid var(--border); }
-.kit-session > .chat-page { height: calc(100vh - var(--kit-tabs-height)); }
+.kit-session > .chat-page, .kit-harness > .chat-page { height: calc(100vh - var(--kit-tabs-height)); }
 .kit-tab { appearance: none; display: inline-flex; align-items: center; gap: 5px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 560; padding: 0 1px; cursor: pointer; max-width: 320px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kit-tab:hover { color: var(--text); }
 .kit-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
@@ -338,12 +338,20 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .session-line:hover { background: var(--surface-2); }
 .session-open { appearance: none; flex: 1; min-width: 0; display: grid; gap: 1px; padding: 9px 14px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .session-open:disabled { opacity: .6; cursor: progress; }
+div.session-open { cursor: default; }
 .session-open:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .session-title { font-size: 13.5px; font-weight: 520; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .session-meta { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; }
 .session-meta > .pill { padding-block: 0; font-size: 11px; }
 .session-cost { min-width: 5.5em; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; }
 .session-empty { padding: 14px; color: var(--muted); font-size: 13px; }
+/* The dashboard's harness filter: one chip pressed at a time. */
+.harness-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.harness-chips[hidden] { display: none; }
+.harness-chip { appearance: none; padding: 3px 11px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted); font: inherit; font-size: 12.5px; cursor: pointer; }
+.harness-chip:hover { color: var(--text); }
+.harness-chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.harness-chip:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 
 /* Chat */
 
@@ -444,6 +452,23 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .chat-page > * { min-height: 0; }
 .chat-page .chat { padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
 .chat-page .chat-log:has(> .chat-intro) { align-content: center; }
+/* The Harness tab (kit/harness.js): its terminals' slim tab strip, in the page's top padding, and the shown terminal filling the rest. */
+.kit-harness > .harness-page { height: calc(100vh - var(--kit-tabs-height)); box-sizing: border-box; display: grid; grid-template-rows: auto minmax(0, 1fr); padding: 0 16px 14px; }
+.harness-tabs { display: flex; align-items: center; gap: 2px; height: 30px; overflow-x: auto; scrollbar-width: none; }
+.harness-tab { flex: none; display: inline-flex; align-items: center; gap: 2px; height: 22px; padding: 0 2px 0 9px; border-radius: 6px; color: var(--muted); font-size: 12px; font-weight: 560; cursor: pointer; user-select: none; }
+.harness-tab:hover { color: var(--text); background: var(--surface-2); }
+.harness-tab[aria-selected="true"] { color: var(--text); background: var(--surface-2); box-shadow: inset 0 -2px 0 var(--accent); }
+.harness-tab-close, .harness-tab-add { appearance: none; display: inline-grid; place-items: center; border: 0; background: transparent; color: var(--muted); padding: 0; cursor: pointer; border-radius: 4px; }
+.harness-tab-close { width: 18px; height: 18px; }
+.harness-tab-add { flex: none; width: 22px; height: 22px; margin-left: 2px; }
+.harness-tab-close:hover, .harness-tab-add:hover:not(:disabled) { color: var(--text); background: var(--border); }
+.harness-tab-add:disabled { opacity: .4; cursor: default; }
+.harness-tab-close:focus-visible, .harness-tab-add:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.harness-screens { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
+/* The padding is the terminal's own, which the fit add-on measures it by. */
+.harness-terminal { min-height: 0; background: #14161b; border-radius: var(--radius-sm); overflow: hidden; }
+.harness-terminal[hidden] { display: none; }
+.harness-terminal .xterm { height: 100%; box-sizing: border-box; padding: 8px; }
 /* Beside the chat, in two tabs (kit/result.js): a turn's graph, and a task's result. */
 .results-pane { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
 .results-tabs { display: flex; gap: 22px; height: 36px; border-bottom: 1px solid var(--border); }

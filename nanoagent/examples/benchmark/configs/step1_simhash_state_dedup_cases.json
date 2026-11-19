@@ -1,0 +1,12 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "simhash-state-dedup",
+  "task": "group-page-states",
+  "context": "Snapshots are generated deterministically from the seed alone, so the same seed always yields the same snapshots: 4 to 6 page states, each captured 1 to 4 times (at most 24 snapshots total), with ids s00, s01, ... in a deterministic shuffled order. Each capture is a list of 30 to 37 accessibility-tree lines plus 1 or 2 noise lines (an ad banner, a clock, a session token, or an unread badge); captures of the same page state differ only in those noise lines. A snapshot's fingerprint is a 64-bit SimHash over its whitespace-separated tokens, each token weighted 1, using the first 8 bytes of the token's SHA-256 as its 64-bit hash; a fingerprint bit is 1 when the token votes on that bit sum positive. Two snapshots belong to the same page state exactly when the Hamming distance between their fingerprints is at most 6 (inclusive). Page states are the connected components of that link relation: any two snapshots linked directly or through a chain of other snapshots are one page state, and a snapshot with no links is a page state by itself. The answer must put every snapshot in exactly one group; the order of the groups and the order of ids inside a group do not matter. The threshold is 6, not 5, and distances are ordinary Hamming distances over the 64 bits.",
+  "answer": [
+    {
+      "seed": 123456
+    }
+  ],
+  "refuse": []
+}

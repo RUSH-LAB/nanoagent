@@ -19,8 +19,8 @@ its classes. It declares:
     TASKS = {Task.SUGGEST_MEAL: (SolveInput, SolveOutput)}    # each task's input and output class
 
 It is run inside the host, so it may hold only declarations (see :func:`contract_problems`):
-imports from :data:`CONTRACT_IMPORTS`, classes of annotated fields and constant members, and
-assignments of names, constants and containers of them. No ``from __future__ import
+imports of the names in :data:`CONTRACT_IMPORTS`, classes of annotated fields and constant
+members, and assignments of names, constants and containers of them. No ``from __future__ import
 annotations``: the classes' annotations are evaluated once, when the contract loads, because
 the module is registered as ``contract`` only while it loads.
 """
@@ -41,24 +41,21 @@ from typing import Any
 
 from slimconfig import Output, output_schema
 
-from nanoagent.plugin.v0001.verifier import FORBIDDEN_NAMES
+from nanoagent.plugin.v0001.verifier import FORBIDDEN_ATTRIBUTES, FORBIDDEN_NAMES
 
 CONTRACT = "contract.py"
 MODULE = "contract"  # the name nanoagent.yaml, the server and the verifier import it by
-CONTRACT_IMPORTS = frozenset({"dataclasses", "enum", "typing", "slimconfig"})
-# The expressions a declaration is made of: names, constants, subscripts, `X | Y`, containers.
-_EXPRESSIONS = (
-    ast.Name,
-    ast.Attribute,
-    ast.Constant,
-    ast.Subscript,
-    ast.Tuple,
-    ast.List,
-    ast.Dict,
-    ast.BinOp,
-    ast.BitOr,
-    ast.expr_context,
-)
+# The names a contract may import, per module: an allowlist of names, never what a module re-exports.
+CONTRACT_IMPORTS = {
+    "dataclasses": frozenset({"dataclass"}),
+    "enum": frozenset({"Enum", "IntEnum", "StrEnum"}),
+    "slimconfig": frozenset({"Output"}),
+    "typing": frozenset({"Annotated", "Any", "Literal", "Optional", "Union"}),
+}
+_SUBSCRIPTABLE = frozenset({"typing.Annotated", "typing.Literal", "typing.Optional", "typing.Union"})
+_BUILTIN_GENERICS = frozenset({"dict", "frozenset", "list", "set", "tuple"})
+_BUILTIN_TYPES = _BUILTIN_GENERICS | {"bool", "bytes", "float", "int", "str"}
+_MODULE, _IMPORTED, _CLASS, _VALUE, _TEXT = "module", "import", "class", "value", "text"  # _TEXT: NAME = "a string"
 # Every contract is the one module `contract` while it loads, so two plugins never load at once.
 _LOADING = threading.Lock()
 
@@ -70,62 +67,177 @@ class Contract:
 
 
 def contract_problems(path: Path) -> list[str]:
-    """Every way ``contract.py`` holds more than declarations."""
+    """Every way ``contract.py`` holds more than declarations.
+
+    The grammar is an allowlist, because the contract runs in the host: a docstring; imports of
+    the names in :data:`CONTRACT_IMPORTS`; classes (bare ``@dataclass`` or none, bases that are
+    imported or earlier classes) whose bodies are a docstring, annotated fields without defaults
+    and ``NAME = <constant>`` members; and ``NAME = <names, constants, containers, Class.MEMBER>``.
+    ``Annotated`` text is a constant, or the name of a top-level ``NAME = \"<text>\"``.
+    Only an annotation is subscripted, and only by ``Annotated``, ``Literal``, ``Optional``,
+    ``Union`` or a builtin container. No name or attribute starts with ``_``, none is rebound,
+    and none is in the verifier's denylists.
+    """
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     except SyntaxError as error:
         return [f"{CONTRACT}:{error.lineno}: not valid Python"]
     problems: list[str] = []
+    bound: dict[str, tuple[str, str]] = {}  # name -> (kind, what it is)
     for node in tree.body:
-        problems += [f"{CONTRACT}:{getattr(node, 'lineno', 0)}: {problem}" for problem in _statement(node, top=True)]
+        problems += [f"{CONTRACT}:{getattr(node, 'lineno', 0)}: {problem}" for problem in _statement(node, bound, top=True)]
     return problems
 
 
-def _statement(node: ast.stmt, *, top: bool) -> list[str]:
+def _statement(node: ast.stmt, bound: dict[str, tuple[str, str]], *, top: bool) -> list[str]:
     if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
         return []  # a docstring
     if isinstance(node, ast.Pass):
         return []
     if top and isinstance(node, ast.Import | ast.ImportFrom):
-        modules = [alias.name for alias in node.names] if isinstance(node, ast.Import) else [node.module or ""]
-        problems = [
-            f"imports {module!r}: a contract imports only {', '.join(sorted(CONTRACT_IMPORTS))}"
-            for module in modules
-            if isinstance(node, ast.ImportFrom) and node.level or module.split(".")[0] not in CONTRACT_IMPORTS
-        ]
-        return problems + [f"imports {alias.name!r}" for alias in node.names if alias.name.startswith("_")]
+        return _import(node, bound)
     if top and isinstance(node, ast.ClassDef):
-        problems = [] if not node.keywords else ["a class takes no keywords"]
-        problems += [problem for decorator in node.decorator_list for problem in _decorator(decorator)]
-        problems += [problem for base in node.bases for problem in _expression(base)]
-        return problems + [problem for item in node.body for problem in _statement(item, top=False)]
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+        return _class(node, bound)
+    if isinstance(node, ast.AnnAssign) and not top and isinstance(node.target, ast.Name) and node.simple:
         if node.value is not None:
             return [f"{node.target.id} has a default: every field is required"]
-        return _expression(node.annotation)
-    if isinstance(node, ast.Assign) and all(isinstance(target, ast.Name) for target in node.targets):
-        return _expression(node.value)
+        return _target(node.target.id) + _annotation(node.annotation, bound)
+    if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+        name = node.targets[0].id
+        if not top:
+            return _target(name) + _member(node.value)
+        kind = _TEXT if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str) else _VALUE
+        return _target(name) + (_value(node.value, bound) or _bind(bound, name, (kind, name)))
     return [f"holds a {type(node).__name__}: a contract holds only declarations"]
 
 
-def _decorator(node: ast.expr) -> list[str]:
-    if isinstance(node, ast.Name) and node.id == "dataclass":
-        return []
-    if isinstance(node, ast.Attribute) and node.attr == "dataclass":
-        return []
-    return ["a class is decorated only with @dataclass, without arguments"]
+def _target(name: str) -> list[str]:
+    return [f"assigns {name}: no name starts with _"] if name.startswith("_") else []
 
 
-def _expression(node: ast.expr) -> list[str]:
-    problems: list[str] = []
-    for part in ast.walk(node):
-        if not isinstance(part, _EXPRESSIONS) or isinstance(part, ast.BinOp) and not isinstance(part.op, ast.BitOr):
-            problems.append(f"uses a {type(part).__name__}: a contract holds only declarations")
-        elif isinstance(part, ast.Name) and (part.id in FORBIDDEN_NAMES or part.id.startswith("_")):
-            problems.append(f"uses {part.id}")
-        elif isinstance(part, ast.Attribute) and part.attr.startswith("_"):
-            problems.append(f"uses .{part.attr}")
+def _bind(bound: dict[str, tuple[str, str]], name: str, what: tuple[str, str]) -> list[str]:
+    if name in bound:
+        return [f"redefines {name}"]
+    bound[name] = what
+    return []
+
+
+def _import(node: ast.Import | ast.ImportFrom, bound: dict[str, tuple[str, str]]) -> list[str]:
+    modules = [alias.name for alias in node.names] if isinstance(node, ast.Import) else [node.module or ""]
+    problems = [
+        f"imports {module!r}: a contract imports only {', '.join(sorted(CONTRACT_IMPORTS))}"
+        for module in modules
+        if isinstance(node, ast.ImportFrom) and node.level or module not in CONTRACT_IMPORTS
+    ]
+    if problems:
+        return problems
+    for alias in node.names:
+        if alias.asname is not None:
+            problems.append(f"imports {alias.name!r} as {alias.asname!r}: an import is not renamed")
+        elif isinstance(node, ast.Import):
+            problems += _bind(bound, alias.name, (_MODULE, alias.name))
+        elif alias.name in CONTRACT_IMPORTS[node.module or ""] and alias.name not in FORBIDDEN_NAMES | FORBIDDEN_ATTRIBUTES:
+            problems += _bind(bound, alias.name, (_IMPORTED, f"{node.module}.{alias.name}"))
+        else:
+            problems.append(
+                f"imports {alias.name!r}: a contract imports only {', '.join(sorted(CONTRACT_IMPORTS[node.module or '']))} from {node.module}"
+            )
     return problems
+
+
+def _class(node: ast.ClassDef, bound: dict[str, tuple[str, str]]) -> list[str]:
+    problems = _target(node.name)
+    problems += [] if not node.keywords else ["a class takes no keywords"]
+    problems += ["a class takes no type parameters"] if node.type_params else []
+    for decorator in node.decorator_list:
+        problems += (
+            [] if _reference(decorator, bound) == "dataclasses.dataclass" else ["a class is decorated only with @dataclass, without arguments"]
+        )
+    for base in node.bases:
+        problems += (
+            _name_or_member(base, bound) if isinstance(base, ast.Name | ast.Attribute) else [f"uses a {type(base).__name__}: a base is a name"]
+        )
+    problems += [problem for item in node.body for problem in _statement(item, bound, top=False)]
+    return problems + (_bind(bound, node.name, (_CLASS, node.name)) if not problems else [])
+
+
+def _reference(node: ast.expr, bound: dict[str, tuple[str, str]]) -> str | None:
+    """What ``node`` names among what a contract may reach (``typing.Annotated``, ``builtins.list``, a class), else None."""
+    if isinstance(node, ast.Name) and not node.id.startswith("_") and node.id not in FORBIDDEN_NAMES:
+        kind, what = bound.get(node.id, (None, node.id if node.id in _BUILTIN_TYPES else ""))
+        if kind == _IMPORTED:
+            return what
+        if kind in (_CLASS, _VALUE, _TEXT):
+            return f"{kind}:{what}"
+        return f"builtins.{what}" if what and kind is None else None
+    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+        if node.attr.startswith("_") or node.attr in FORBIDDEN_ATTRIBUTES:
+            return None
+        kind, what = bound.get(node.value.id, (None, ""))
+        if kind == _MODULE and node.attr in CONTRACT_IMPORTS[what]:
+            return f"{what}.{node.attr}"
+    return None
+
+
+def _name_or_member(node: ast.expr, bound: dict[str, tuple[str, str]]) -> list[str]:
+    if _reference(node, bound) is not None:
+        return []
+    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and bound.get(node.value.id, ("",))[0] == _CLASS:
+        if not (node.attr.startswith("_") or node.attr in FORBIDDEN_ATTRIBUTES):
+            return []  # Class.MEMBER
+    return [f"uses {ast.unparse(node)}: a contract reaches only the names it defines or imports from {', '.join(sorted(CONTRACT_IMPORTS))}"]
+
+
+def _plain(node: ast.expr) -> bool:
+    return isinstance(node, ast.Constant) and (node.value is None or type(node.value) in (str, int, float, bool))
+
+
+def _text(node: ast.expr, bound: dict[str, tuple[str, str]]) -> bool:
+    """A name the contract bound to a string constant (`DATE = "..."`), which several fields' Annotated text may share."""
+    return isinstance(node, ast.Name) and bound.get(node.id, ("",))[0] == _TEXT
+
+
+def _member(node: ast.expr) -> list[str]:
+    """A class body's ``NAME = value``: a constant or a tuple of them."""
+    if _plain(node) or isinstance(node, ast.Tuple) and all(_plain(item) for item in node.elts):
+        return []
+    return [f"uses a {type(node).__name__}: a member is a constant"]
+
+
+def _value(node: ast.expr, bound: dict[str, tuple[str, str]]) -> list[str]:
+    """A top-level assignment's value: constants, defined names, ``Class.MEMBER`` and containers of them."""
+    if _plain(node):
+        return []
+    if isinstance(node, ast.Name | ast.Attribute):
+        return _name_or_member(node, bound)
+    if isinstance(node, ast.Tuple | ast.List):
+        return [problem for item in node.elts for problem in _value(item, bound)]
+    if isinstance(node, ast.Dict) and all(key is not None for key in node.keys):
+        return [problem for item in [*node.keys, *node.values] if item is not None for problem in _value(item, bound)]
+    return [f"uses a {type(node).__name__}: a contract holds only declarations"]
+
+
+def _annotation(node: ast.expr, bound: dict[str, tuple[str, str]]) -> list[str]:
+    """A field's annotation: names, ``X | Y`` and subscripts by ``Annotated``, ``Literal``, ``Optional``, ``Union`` or a builtin container."""
+    if isinstance(node, ast.Constant) and node.value is None:
+        return []
+    if isinstance(node, ast.Name | ast.Attribute):
+        return _name_or_member(node, bound)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return _annotation(node.left, bound) + _annotation(node.right, bound)
+    if isinstance(node, ast.Subscript):
+        reference = _reference(node.value, bound)
+        args = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+        if reference == "typing.Annotated" and len(args) >= 2:
+            return _annotation(args[0], bound) + [
+                p for arg in args[1:] for p in ([] if _plain(arg) or _text(arg, bound) else [f"uses a {type(arg).__name__}: Annotated text is a constant"])
+            ]
+        if reference == "typing.Literal":
+            return [p for arg in args for p in ([] if _plain(arg) else [f"uses a {type(arg).__name__}: Literal holds constants"])]
+        if reference in _SUBSCRIPTABLE - {"typing.Annotated", "typing.Literal"} or reference in {f"builtins.{name}" for name in _BUILTIN_GENERICS}:
+            return [problem for arg in args for problem in _annotation(arg, bound)]
+        return [f"subscripts {ast.unparse(node.value)}: only Annotated, Literal, Optional, Union and builtin containers are subscripted"]
+    return [f"uses a {type(node).__name__}: a contract holds only declarations"]
 
 
 @contextmanager

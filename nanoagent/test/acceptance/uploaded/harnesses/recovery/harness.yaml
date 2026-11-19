@@ -1,0 +1,12 @@
+protocol: rush.harness.v1
+name: recovery
+version: "1"
+dialects: [chat_completions]
+toolchain: python-3
+lockfiles: []
+# No dependencies: the harness is standard-library Python (threads and urllib), so the build only stages main.py.
+build:
+  argv: [sh, -c, "cp main.py /build-out/"]
+  outputs: [main.py]
+run:
+  argv: [python, /harness/main.py]

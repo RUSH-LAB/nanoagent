@@ -209,4 +209,14 @@ describe('a member\'s apps', () => {
     assert.deepEqual((await apps.list(as('bob'))).value.map(app => [app.version, app.latest, app.state]), [['1.1.0', '1.2.0', 'needs-update']]);
     assert.deepEqual((await apps.list(as('vic'))).value.map(app => [app.version, app.latest, app.state]), [['1.0.0', '1.2.0', 'update']]);
   });
+
+  it('checks only the uploads a member installed when it lists their apps', async () => {
+    const unused = {...UPLOAD, id: 'unused', name: 'Unused', sha256: crypto.createHash('sha256').update('unused package').digest('hex')};
+    await market.publish('alice', unused, Buffer.from('unused package'), REPOSITORY);
+    await apps.list(as('bob'));
+    assert.deepEqual([inspected.has(unused.sha256), inspections.has(unused.sha256)], [false, false]);
+    // The marketplace still offers it to be installed, checked then.
+    assert.equal((await apps.catalog('bob')).value.get('unused').entry.status, 'ready');
+    assert.equal(inspected.get(unused.sha256), 1);
+  });
 });

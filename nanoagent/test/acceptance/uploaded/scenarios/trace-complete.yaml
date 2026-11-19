@@ -1,0 +1,16 @@
+_ > mockllm.engine.Scenario:
+name: trace-complete
+# The subagent's model call proposes two parallel tools; its follow-up turn carries both results.
+turns:
+  - ttfb: 0.1
+    stream: {chunks: 5, gap: 0.02}
+    text: "Writing and inspecting."
+    act:
+      - {call: {name: write_note, arguments: {name: trace.txt, text: traced}}}
+      - {call: {name: inspect_sandbox, arguments: {}}}
+    usage: {prompt: 600, cached: 0, completion: 45, reasoning: 8, cache_write: 200}
+  - ttfb: 0.1
+    stream: {chunks: 3, gap: 0.02}
+    text: "Both results received."
+    usage: {prompt: 800, cached: 600, completion: 12, reasoning: 0, cache_write: 0}
+expect: {correct: true}

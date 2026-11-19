@@ -1,0 +1,54 @@
+#!/bin/sh
+# Codex on RUSH's gateway (its Responses dialect), configured as the codex reference harness runs it: a provider keyed by the
+# attempt token, the session's model (its /review model's too), the VM its sandbox, no web search, plugins or multi-agent tools,
+# and its thread tools left out (the gateway refuses their `namespace` tool) by a switched-off MCP server holding their name.
+# It runs wherever it is typed, asking nothing: the workspace and the folder it starts in are trusted (Codex trusts only the
+# folder named, not those under it), it offers no update of itself, and `codex exec` (alias `e`) gets --skip-git-repo-check,
+# since Codex 0.167 runs exec outside a Git repository only with that flag, whatever the folder's trust.
+# Its home is in the workspace's .rush/, which is kept when the session ends, so resuming it continues its conversations
+# (nanoagent.uploaded.resume); its config names this session's gateway, so it is written each time.
+# Not under /tmp either, where Codex refuses to put its helper binaries.
+home="$RUSH_WORKSPACE/.rush/codex"
+here="$(pwd -P)"
+mkdir -p "$home"
+cat > "$home/config.toml" <<EOF
+model = "$RUSH_MODEL"
+review_model = "$RUSH_MODEL"
+model_provider = "rush"
+sandbox_mode = "danger-full-access"
+web_search = "disabled"
+check_for_update_on_startup = false
+
+[features]
+plugins = false
+multi_agent = false
+
+[model_providers.rush]
+name = "rush"
+base_url = "$OPENAI_BASE_URL"
+env_key = "RUSH_ATTEMPT_TOKEN"
+wire_api = "responses"
+
+[mcp_servers.codex_tui]
+command = "true"
+enabled = false
+
+[projects."$RUSH_WORKSPACE"]
+trust_level = "trusted"
+EOF
+if [ "$here" != "$RUSH_WORKSPACE" ]; then
+  printf '\n[projects."%s"]\ntrust_level = "trusted"\n' "$here" >> "$home/config.toml"
+fi
+found=
+for arg do
+  shift
+  set -- "$@" "$arg"
+  if [ -z "$found" ]; then
+    case "$arg" in
+      exec | e) found=1; set -- "$@" --skip-git-repo-check ;;
+      --) found=1 ;;
+    esac
+  fi
+done
+install="$(python /harness/rush.py cli codex)" || exit 1  # installed the first time it is typed (rush.py cli)
+CODEX_HOME="$home" exec node "$install"/node_modules/@openai/codex/bin/codex.js "$@"

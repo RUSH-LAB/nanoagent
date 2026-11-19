@@ -1,0 +1,16 @@
+_ > mockllm.engine.Scenario:
+name: refuse-correctly
+case: acceptance-probe-03
+turns:
+  - ttfb: 0.4
+    stream: {chunks: 4, gap: 0.1}
+    text: "No digest exists for this token."
+    act: {refuse: "refuse- tokens have no digest"}
+    usage: {prompt: 900, cached: 0, completion: 40, reasoning: 0, cache_write: 0}
+  # A coding harness refuses by a shell call that writes answer.json and then asks the model once more; this
+  # closing turn answers that. NanoAgent's refusal is the final text, so it never requests it.
+  - ttfb: 0.3
+    stream: {chunks: 2, gap: 0.05}
+    text: "Refused."
+    usage: {prompt: 1500, cached: 0, completion: 10, reasoning: 0, cache_write: 0}
+expect: {correct: true, verdict_contains: "refused"}

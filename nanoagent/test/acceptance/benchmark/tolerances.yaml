@@ -1,0 +1,43 @@
+# Per-harness slack for the conservation checks (seconds). Part of the spec: widening a number is a
+# reviewable decision. Delays in the scenarios are 0.4-1.0 s so these stay small next to the signal.
+#   under:     how far a figure may fall below the ledger's truth (clock granularity)
+#   model_lag: model_seconds may exceed the sum of the mock's server spans by at most this
+#   retry_backoff: ... plus this per injected error: the client's backoff before it retries counts as model time
+#   tool_lag:  tools_seconds may exceed the sum of the scripted waits (their union per turn) by at most this
+#   tool_turn_overhead: ... plus this per turn that calls a plugin tool: NanoAgent runs the plugin's input and
+#              output verifiers around each call inside the tool phase
+#   boot:      the first token may come this long after the end of the first main call's server span
+#
+# nanoagent, calibrated from 3 full matrix runs (plus earlier ones) on macOS, loopback, serial:
+#   model_seconds - sum(server spans): 0.12 to 0.28 s without errors; 0.34 to 1.08 s with one injected 429
+#       or 500 (the openai client's backoff)                      -> model_lag 0.5, retry_backoff 1.25
+#   tools_seconds - sum(waits): 1.04 to 1.06 s for one wait; 1.59 to 1.61 s for two parallel waits; 10.5 s
+#       for ten wait(0) turns (1.05 s each)                       -> tool_turn_overhead 1.7, tool_lag 0.2
+#   first token - first main call's first byte: 0.19 to 0.28 s; always before the call's last byte
+#                                                                  -> boot 0.5
+nanoagent:
+  under: 0.05
+  model_lag: 0.5
+  retry_backoff: 1.25
+  tool_lag: 0.2
+  tool_turn_overhead: 1.7
+  boot: 0.5
+
+# The coding harnesses (claude, codex, pi, dsh), calibrated from 2-3 full matrix runs each on macOS, loopback, serial.
+# Their answer is written by a shell call (a tool call of about tool_lag), so every answer run has that much tool time.
+# Over a turn's shell calls tools_seconds may be the union of the waits (they run together) or their sum (one after
+# another); expect.py allows both for these harnesses.
+#
+# claude (observed):  model - spans -0.07 to +0.05 (its clock starts a little after the server's arrival), +0.58 to +0.67
+#       with one injected 429/500 (it retries at once), +0.18 over six 400s; tools 0.05 per answer write, 1.10 for a 1.0 wait;
+#       first token 0.4 to 0.9 s after the harness starts (about 0.4 s boot), 1.3 s after a retry; overhead 0.4 to 0.7 s
+claude: {under: 0.1, model_lag: 0.2, retry_backoff: 1.0, tool_lag: 0.2, tool_turn_overhead: 0.15, boot: 1.0}
+# codex (observed):  model - spans -0.02 to +0.05; +0.23 to +0.26 with one injected 500 (a 429 is not retried: na);
+#       tools 0.06-0.07 per answer write, 1.07-1.10 for a 1.0 wait; no first token; overhead 0.9 to 1.2 s
+codex: {under: 0.05, model_lag: 0.15, retry_backoff: 0.5, tool_lag: 0.2, tool_turn_overhead: 0.15, boot: 0.0}
+# pi (observed):  model - spans +0.02 to +0.04; tools 0.02 per answer write, 1.04 for a 1.0 wait; first token 0.5 to 1.0 s
+#       after the harness starts; overhead 0.4 s. A 429 or 500 is not retried (na).
+pi: {under: 0.05, model_lag: 0.1, retry_backoff: 1.0, tool_lag: 0.1, tool_turn_overhead: 0.1, boot: 1.0}
+# dsh (observed):  model - spans +0.10 to +0.15; +0.62 to +0.68 with one injected 429/500; tools 0.03 per answer write, 1.07
+#       for a 1.0 wait, 1.61 for two waits (it runs them one after another); no first token; overhead 2.7 to 2.9 s (npx boot)
+dsh: {under: 0.05, model_lag: 0.3, retry_backoff: 1.0, tool_lag: 0.2, tool_turn_overhead: 0.15, boot: 0.0}

@@ -1,0 +1,207 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "pc-evidence-audit",
+  "task": "audit-evidence",
+  "context": "Audit the supplied synthetic source pages. Split each page's text into lines with Python's str.splitlines; a line is field evidence only if it is exactly a lowercase ASCII key matching [a-z][a-z0-9_]{0,63}, an equals sign, and then any exact value, so code=a=b binds code to a=b and note= binds an empty value. No trimming, Unicode normalization, substring matching, or prose inference: every space and Unicode code point inside a line is significant. For each claimed fact, apply the first applicable rule in this exact order: missing_document if its document_id is absent; missing_page if its page is absent; missing_quote if its quote is empty; quote_mismatch if the quote is not exactly one of that page's lines; malformed_quote if that line is not key=value; key_mismatch if the quoted line binds a different key; value_mismatch if the quoted line has a different exact value; source_conflict if the requested key has more than one distinct value anywhere on that page; otherwise supported. observed_values must list the distinct exact values of the fact's key on its source page (empty when the document or page is absent, or when that key has no grammar-valid lines); repeated identical source lines do not create a conflict. Exactly one finding is required per fact, and supported_count and rejected_count must match the findings. All evidence is in the input: documents contract-2026 (pages 1 and 2), endorsement (page 1), application-77 (page 7), and policy (page 3).",
+  "answer": [
+    {
+      "documents": [
+        {
+          "document_id": "contract-2026",
+          "pages": [
+            {
+              "page": 1,
+              "text": "insured=Ada Lovelace\npolicy_no=P-8842\ndeductible=1500\ndeductible=1500\nnote=\ncode=a=b=c\nThis is a prose line\n  indent=bad"
+            },
+            {
+              "page": 2,
+              "text": "limit=100000\nlimit=200000\nstatus=active\n"
+            }
+          ]
+        },
+        {
+          "document_id": "endorsement",
+          "pages": [
+            {
+              "page": 1,
+              "text": "endorsement_no=EP-9\npremium=750\n"
+            }
+          ]
+        },
+        {
+          "document_id": "application-77",
+          "pages": [
+            {
+              "page": 7,
+              "text": "signature=\u738b\u5c0f\u660e\nsalutation=Ms.\n"
+            }
+          ]
+        },
+        {
+          "document_id": "policy",
+          "pages": [
+            {
+              "page": 3,
+              "text": "name= Alice \ncity=Paris\n"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "fact_id": "f-insured",
+          "document_id": "contract-2026",
+          "page": 1,
+          "key": "insured",
+          "value": "Ada Lovelace",
+          "quote": "insured=Ada Lovelace"
+        },
+        {
+          "fact_id": "f-note",
+          "document_id": "contract-2026",
+          "page": 1,
+          "key": "note",
+          "value": "",
+          "quote": "note="
+        },
+        {
+          "fact_id": "f-code",
+          "document_id": "contract-2026",
+          "page": 1,
+          "key": "code",
+          "value": "a=b=c",
+          "quote": "code=a=b=c"
+        },
+        {
+          "fact_id": "f-deductible-dup",
+          "document_id": "contract-2026",
+          "page": 1,
+          "key": "deductible",
+          "value": "1500",
+          "quote": "deductible=1500"
+        },
+        {
+          "fact_id": "f-unicode",
+          "document_id": "application-77",
+          "page": 7,
+          "key": "signature",
+          "value": "\u738b\u5c0f\u660e",
+          "quote": "signature=\u738b\u5c0f\u660e"
+        },
+        {
+          "fact_id": "f-space",
+          "document_id": "policy",
+          "page": 3,
+          "key": "name",
+          "value": " Alice ",
+          "quote": "name= Alice "
+        },
+        {
+          "fact_id": "f-status",
+          "document_id": "contract-2026",
+          "page": 2,
+          "key": "status",
+          "value": "active",
+          "quote": "status=active"
+        },
+        {
+          "fact_id": "f-endorsement",
+          "document_id": "endorsement",
+          "page": 1,
+          "key": "premium",
+          "value": "750",
+          "quote": "premium=750"
+        },
+        {
+          "fact_id": "f-missing-doc",
+          "document_id": "absent-doc-9",
+          "page": 1,
+          "key": "x",
+          "value": "y",
+          "quote": "x=y"
+        },
+        {
+          "fact_id": "f-missing-page",
+          "document_id": "contract-2026",
+          "page": 99,
+          "key": "insured",
+          "value": "Ada Lovelace",
+          "quote": "insured=Ada Lovelace"
+        },
+        {
+          "fact_id": "f-missing-quote",
+          "document_id": "contract-2026",
+          "page": 1,
+          "key": "policy_no",
+          "value": "P-8842",
+          "quote": ""
+        },
+        {
+          "fact_id": "f-quote-mismatch",
+          "document_id": "contract-2026",
+          "page": 1,
+          "key": "policy_no",
+          "value": "P-8842",
+          "quote": "policy_no=P-0000"
+        },
+        {
+          "fact_id": "f-malformed",
+          "document_id": "contract-2026",
+          "page": 1,
+          "key": "deductible",
+          "value": "1500",
+          "quote": "This is a prose line"
+        },
+        {
+          "fact_id": "f-key-mismatch",
+          "document_id": "contract-2026",
+          "page": 1,
+          "key": "policy_no",
+          "value": "P-8842",
+          "quote": "insured=Ada Lovelace"
+        },
+        {
+          "fact_id": "f-value-mismatch",
+          "document_id": "contract-2026",
+          "page": 1,
+          "key": "deductible",
+          "value": "9999",
+          "quote": "deductible=1500"
+        },
+        {
+          "fact_id": "f-conflict",
+          "document_id": "contract-2026",
+          "page": 2,
+          "key": "limit",
+          "value": "100000",
+          "quote": "limit=100000"
+        },
+        {
+          "fact_id": "f-conflict-other",
+          "document_id": "contract-2026",
+          "page": 2,
+          "key": "limit",
+          "value": "200000",
+          "quote": "limit=200000"
+        },
+        {
+          "fact_id": "f-absent-key-missing-quote",
+          "document_id": "contract-2026",
+          "page": 1,
+          "key": "garage",
+          "value": "attached",
+          "quote": ""
+        },
+        {
+          "fact_id": "f-absent-key-quote-mismatch",
+          "document_id": "contract-2026",
+          "page": 1,
+          "key": "garage",
+          "value": "attached",
+          "quote": "garage=attached"
+        }
+      ]
+    }
+  ],
+  "refuse": []
+}

@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import shutil
+import signal
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,9 @@ class SubprocessRunner:
         options: dict[str, Any] | None = None,
         capabilities: RunnerCapabilities | None = None,
         shutdown_grace: float = 2.0,
+        inherit_process_group: bool = True,
+        launch_prefix: Sequence[str] = (),
+        env: dict[str, str] | None = None,
     ) -> None:
         if not command or any(not isinstance(part, str) or not part for part in command):
             raise ValueError("runner command must contain non-empty strings")
@@ -49,16 +53,23 @@ class SubprocessRunner:
         self.options = dict(options or {})
         self.capabilities = capabilities or RunnerCapabilities()
         self.shutdown_grace = shutdown_grace
+        # False: the runner gets a process group of its own, stopped whole with it, so no child it
+        # started outlives it.
+        self.inherit_process_group = inherit_process_group
+        self.launch_prefix = tuple(launch_prefix)
+        self.env = None if env is None else dict(env)
 
     async def run(self, request: RunnerRequest, emit: ProgressSink) -> RunnerResult:
         try:
             process = await asyncio.create_subprocess_exec(
+                *self.launch_prefix,
                 *self.command,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.cwd,
-                env=os.environ.copy(),
+                env=os.environ.copy() if self.env is None else self.env,
+                start_new_session=os.name != "nt" and not self.inherit_process_group,
                 limit=_STREAM_LIMIT,
             )
         except FileNotFoundError as error:
@@ -95,7 +106,10 @@ class SubprocessRunner:
                     message = event.get("error")
                     if not isinstance(code, str) or not isinstance(message, str):
                         raise RunnerProtocolError("error event requires string code and error")
-                    reported_error = RunnerError(message, code=code)
+                    version = event.get("version")
+                    if version is not None and (not isinstance(version, str) or not version):
+                        raise RunnerProtocolError("error event version must be a non-empty string")
+                    reported_error = RunnerError(message, code=code, version=version)
                 else:
                     emit(validate_progress_event(event))
 
@@ -113,10 +127,10 @@ class SubprocessRunner:
                 raise RunnerProtocolError(f"{self.name} runner exited without a done event")
             return result
         except asyncio.CancelledError:
-            await _stop_process(process, self.shutdown_grace)
+            await _stop_process(process, self.shutdown_grace, group=not self.inherit_process_group)
             raise
         except Exception:
-            await _stop_process(process, self.shutdown_grace)
+            await _stop_process(process, self.shutdown_grace, group=not self.inherit_process_group)
             raise
         finally:
             if not stderr_task.done():
@@ -171,15 +185,34 @@ async def _stderr_tail(stream: asyncio.StreamReader) -> str:
     return tail.decode(errors="replace").strip()
 
 
-async def _stop_process(process: asyncio.subprocess.Process, grace: float) -> None:
-    if process.returncode is not None:
+async def _stop_process(process: asyncio.subprocess.Process, grace: float, *, group: bool = False) -> None:
+    """Stop the runner; with ``group``, everything in its process group too, even once the runner itself
+    has exited, so no child it started outlives it."""
+    group = group and os.name != "nt"
+    if group:
+        if not _signal_group(process.pid, signal.SIGTERM):
+            return
+    elif process.returncode is not None:
         return
-    process.terminate()
+    else:
+        process.terminate()
     try:
         await asyncio.wait_for(process.wait(), timeout=grace)
     except TimeoutError:
-        process.kill()
-        await process.wait()
+        if not group:
+            process.kill()
+    if group:
+        _signal_group(process.pid, signal.SIGKILL)
+    await process.wait()
+
+
+def _signal_group(pid: int, signum: int) -> bool:
+    """Send ``signum`` to process group ``pid``; False when the group is already gone."""
+    try:
+        os.killpg(pid, signum)
+    except ProcessLookupError:
+        return False
+    return True
 
 
 SubprocessHarness = SubprocessRunner

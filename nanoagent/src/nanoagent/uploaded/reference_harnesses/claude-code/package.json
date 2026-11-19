@@ -1,0 +1,9 @@
+{
+  "name": "rush-harness-claude-code",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.325"
+  }
+}

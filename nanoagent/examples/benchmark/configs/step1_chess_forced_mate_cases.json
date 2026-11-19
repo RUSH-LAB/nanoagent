@@ -1,0 +1,13 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "chess-forced-mate",
+  "task": "forced-mate",
+  "context": "The data is the complete six-field FEN in the input; all squares, side to move, rights, and counters are fully specified, so no historical facts are missing and no external data is needed. White is to move and is the attacker; Black must be checkmated by White. max_moves is 2, meaning at most two attacker moves, i.e. a three-ply horizon (White, Black, White). Use standard chess move legality: all legal moves, captures, checks, pins, castling, en passant, and queen/rook/bishop/knight promotions. This FEN has no castling or en-passant rights ('- - 0 1'). Repetition and move-count draws are excluded; detected insufficient material is terminal. The search must consider every legal move, including quiet waiting moves, and must prove the result over all legal replies: for a forced mate, each White-to-move node needs one winning move and each Black-to-move node needs every legal defense; for no mate within the bound, every White move must fail. A mating line alone is not sufficient; the certificate must be exhaustive. Every positive leaf must be an actual checkmate, not stalemate. The returned line is one illustrative legal mate line, and its line audit is the independently checked result for that exact line and original FEN. Status is forced_mate or no_forced_mate_within_bound; a negative result only means no mate within 2 attacker moves, and a resource failure is undecided, never a fabricated negative. The output request must echo the exact submitted FEN and max_moves. The final answer must be ready to display, include the checked SAN of the winning first move, and must not claim a unique or shortest mate.",
+  "answer": [
+    {
+      "fen": "7k/8/4QK2/8/8/8/8/8 w - - 0 1",
+      "max_moves": 2
+    }
+  ],
+  "refuse": []
+}

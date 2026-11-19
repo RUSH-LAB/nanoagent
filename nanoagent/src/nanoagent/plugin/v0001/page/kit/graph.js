@@ -175,6 +175,24 @@ function totalsText(total, seconds) {
 }
 
 /**
+ * The seconds a run's graph (`nodes`, each naming its `parent`) spent on model requests and on tools,
+ * spans nesting as a task's run nests in its call: Model Time is every model request's at any depth,
+ * Tool Time each tool call's own, its duration less the model requests and tool calls inside it.
+ * @returns {{modelS: number, toolsS: number}}
+ */
+export function loopTimes(nodes) {
+  const isTool = (node) => !node.modelCalls && node.duration_s != null;
+  const children = new Map();
+  for (const node of nodes) children.set(node.parent ?? null, [...(children.get(node.parent ?? null) ?? []), node]);
+  // The seconds of the spans directly inside `id`: its model requests, and its tool calls whole.
+  const inner = (id) => (children.get(id) ?? []).reduce((total, node) => total + totals([node]).seconds + (isTool(node) ? node.duration_s : inner(node.id)), 0);
+  return {
+    modelS: totals(nodes).seconds,
+    toolsS: nodes.filter(isTool).reduce((total, node) => total + node.duration_s - inner(node.id), 0),
+  };
+}
+
+/**
  * `totals` as the run's stats over its graph (display.js statItems): End-to-End Latency, Model
  * Time and Tool Time (`modelS` and `toolsS`, the seconds its loop spent on each), Input Tokens,
  * Output Tokens and Cost, as the dashboard's usage (kit/session.js) shows them.
@@ -486,12 +504,9 @@ export function graphView({ names = (task) => task } = {}) {
     return box;
   }
 
-  /** The run's totals: every model request and tool call in it, and the time its own loop took. */
+  /** The run's totals: every model request and tool call in it, and the time it took (loopTimes). */
   const drawSummary = () => {
-    const top = children.get(null) ?? [];
-    // Its loop's own time: on its model requests, and on running their tool calls.
-    const modelS = totals(top).seconds;
-    const toolsS = top.reduce((total, node) => total + (node.modelCalls ? 0 : (node.duration_s ?? 0)), 0);
+    const { modelS, toolsS } = loopTimes(graph.nodes);
     summary.replaceChildren(...totalsStats(totals(graph.nodes), modelS, toolsS));
     summary.hidden = !graph.nodes.length;
   };

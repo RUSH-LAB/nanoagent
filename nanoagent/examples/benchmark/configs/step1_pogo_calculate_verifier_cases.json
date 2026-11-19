@@ -1,0 +1,20 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "pogo-calculate-verifier",
+  "task": "calculate-ivs",
+  "context": "The data are from the pinned PokeMiners Game Master snapshot; the only values needed here are Mewtwo's base stats (Attack 300, Defense 182, Stamina 214) and the level 25 CP multiplier 0.667934. A weather-boosted raid catch is always level 25 and each IV is from 10 to 15 inclusive. CP = floor(max(10, (300 + Attack IV) * sqrt(182 + Defense IV) * sqrt(214 + HP IV) * 0.667934^2 / 10)); max HP = floor(max(10, (214 + HP IV) * 0.667934)). Appraisal stars: 0 stars below sum 23, 1 star at 23\u201329, 2 at 30\u201336, 3 at 37\u201344, 4 at 45. Include every IV triple in range whose computed CP and max HP match the reported values, with its possible level(s); for weather-raid the only possible level is 25. If none matches, the spreads array is empty.",
+  "answer": [
+    {
+      "pokemon": "Mewtwo",
+      "encounter": "weather-raid",
+      "cp": 2984,
+      "trainer_level": null,
+      "hp": 152,
+      "stars": 4,
+      "attack_iv": null,
+      "defense_iv": null,
+      "hp_iv": null
+    }
+  ],
+  "refuse": []
+}

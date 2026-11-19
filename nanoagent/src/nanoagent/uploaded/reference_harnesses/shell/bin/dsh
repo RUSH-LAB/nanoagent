@@ -1,0 +1,35 @@
+#!/bin/sh
+# DeepSeek Harness on RUSH's gateway (pi-ai's openrouter route, its chat completions dialect), as the dsh reference harness runs it:
+# headless (it has no screen of its own: `dsh "<task>"` prints its run), with a patch over that profile routing openrouter to the
+# gateway keyed by the attempt token, the session's model (declaring the effort dsh asks for and the attempt's output cap) for
+# fresh agents, and no title call; nothing waits on an approval.
+# Its home is in the workspace's .rush/, which is kept when the session ends, so resuming the session brings its runs back
+# (nanoagent.uploaded.resume); its patch names this session's gateway, so it is written each time.
+home="$RUSH_WORKSPACE/.rush/dsh"
+mkdir -p "$home"
+cat > "$home/run.patch.yml" <<EOF
+- id: session-title-llm
+  disabled: true
+- id: llm-pi-ai
+  config:
+    providers:
+      "openrouter":
+        apiKeyEnv: "RUSH_ATTEMPT_TOKEN"
+        baseURL: "$OPENAI_BASE_URL"
+        models:
+          - id: "$RUSH_MODEL"
+            maxTokens: $RUSH_MAX_OUTPUT_TOKENS
+            reasoningEfforts:
+              "medium": "medium"
+- id: agent-default-model
+  config:
+    provider: "openrouter"
+    model: "$RUSH_MODEL"
+    reasoningEffort: "medium"
+EOF
+install="$(python /harness/rush.py cli dsh)" || exit 1  # installed the first time it is typed (rush.py cli)
+# Its version is an option of dsh itself, before the profile's.
+case "$1" in -V | --version) exec node "$install"/node_modules/@deepseek-ai/dsh/lib/bin.js "$1" ;; esac
+# The loader of dsh's native addons copies each into /tmp to load it, which is mounted noexec.
+DSH_HOME="$home" DSH_PERMISSION_MODE=danger-full-access NARB_DISABLE_NATIVE_CACHE=1 \
+  exec node "$install"/node_modules/@deepseek-ai/dsh/lib/bin.js --profile headless --patch "$home/run.patch.yml" --approval-policy never "$@"

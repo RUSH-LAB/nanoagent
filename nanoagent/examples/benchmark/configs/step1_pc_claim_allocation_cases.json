@@ -1,0 +1,93 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "pc-claim-allocation",
+  "task": "allocate-claims",
+  "context": "The plugin's data source is the literal 'claims' array passed in the input; no external service or file lookup is required. All amounts are integer cents. For each claim independently: total_billed is the sum of all line billed_cents and total_allowed is the sum of all line allowed_cents; lines may be empty, and billed-minus-allowed never affects the allocation. Health remaining_deductible = max(deductible_cents - deductible_used_cents, 0), while auto remaining_deductible is exactly deductible_cents (auto requires deductible_used_cents = 0 and coinsurance_bps = 0). deductible_share = min(total_allowed, remaining_deductible). coinsurance = half-up to the nearest integer cent of (total_allowed - deductible_share) * coinsurance_bps / 10000, rounded only once at the claim level; this is equivalent to (base*bps + 5000)//10000. insurer_before_limit = total_allowed - deductible_share - coinsurance. insurer = min(insurer_before_limit, limit_cents); limit_reduction = insurer_before_limit - insurer. patient = total_allowed - insurer (deductible, coinsurance and any cap shift are all patient-paid, and insurer + patient must equal allowed). Submit exactly one allocation per input claim with all ten integer fields; output order is irrelevant, but claim_id must match the source and every monetary component is independently verified.",
+  "answer": [
+    {
+      "claims": [
+        {
+          "claim_id": "claim_alpha",
+          "category": "health",
+          "line_items": [
+            {
+              "line_id": "office-visit",
+              "billed_cents": 45000,
+              "allowed_cents": 38000
+            },
+            {
+              "line_id": "lab-work",
+              "billed_cents": 12000,
+              "allowed_cents": 9000
+            },
+            {
+              "line_id": "imaging",
+              "billed_cents": 3000,
+              "allowed_cents": 2500
+            }
+          ],
+          "deductible_cents": 10000,
+          "deductible_used_cents": 7000,
+          "coinsurance_bps": 2000,
+          "limit_cents": 90000
+        },
+        {
+          "claim_id": "claim_beta",
+          "category": "health",
+          "line_items": [
+            {
+              "line_id": "prescription",
+              "billed_cents": 120,
+              "allowed_cents": 101
+            }
+          ],
+          "deductible_cents": 100,
+          "deductible_used_cents": 200,
+          "coinsurance_bps": 5000,
+          "limit_cents": 50
+        },
+        {
+          "claim_id": "claim_gamma",
+          "category": "auto",
+          "line_items": [
+            {
+              "line_id": "repair",
+              "billed_cents": 25000,
+              "allowed_cents": 20000
+            },
+            {
+              "line_id": "parts",
+              "billed_cents": 5000,
+              "allowed_cents": 4000
+            }
+          ],
+          "deductible_cents": 5000,
+          "deductible_used_cents": 0,
+          "coinsurance_bps": 0,
+          "limit_cents": 18000
+        },
+        {
+          "claim_id": "claim_delta",
+          "category": "health",
+          "line_items": [
+            {
+              "line_id": "inpatient",
+              "billed_cents": 100000,
+              "allowed_cents": 90000
+            },
+            {
+              "line_id": "therapy",
+              "billed_cents": 1000,
+              "allowed_cents": 1000
+            }
+          ],
+          "deductible_cents": 5000,
+          "deductible_used_cents": 0,
+          "coinsurance_bps": 3333,
+          "limit_cents": 20000
+        }
+      ]
+    }
+  ],
+  "refuse": []
+}

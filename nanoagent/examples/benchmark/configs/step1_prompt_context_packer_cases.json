@@ -1,0 +1,13 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "prompt-context-packer",
+  "task": "pack-context",
+  "context": "Call list_candidates with query_id 'q02' and skill_level 'beginner'. It returns the student's code, the prompt's token budget and base size, and the retrieved candidate examples with their similarity (Jaccard similarity of AST 4-shingles, 3 decimals) and token cost (tokens the example's block adds). The example budget for q02 is 188 tokens: the whole prompt's budget is the base prompt's tokens at the chosen skill level plus 188, so the room left for examples is 188. The similarity floor is 0.15; any candidate below it may not be used. The candidates for q02 are: mbpp-878 (similarity 0.304, 62 tokens), mbpp-695 (0.207, 78), mbpp-809 (0.207, 76), mbpp-825 (0.167, 62), mbpp-551 (0.160, 62), mbpp-611 (0.154, 67), mbpp-827 (0.154, 65), mbpp-513 (0.148, 70; below the floor). Choose a set of distinct candidates whose total tokens are at most 188 and whose similarities (summed in thousandths, reported to 3 decimals) are as large as possible; the greedy strategy of taking the most similar examples that fit is not optimal. Then order the chosen examples most similar first, breaking ties by example_id, call render_prompt with them in that order, check within_budget is true, and submit exactly the returned path, total_tokens and similarity_sum together with the query_id, skill_level and example_ids.",
+  "answer": [
+    {
+      "query_id": "q02",
+      "skill_level": "beginner"
+    }
+  ],
+  "refuse": []
+}

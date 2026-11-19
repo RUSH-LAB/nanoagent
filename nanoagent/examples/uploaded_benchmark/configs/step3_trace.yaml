@@ -1,0 +1,20 @@
+_ > step3_trace.TraceConfig:
+
+server > nanoagent.uploaded.client.ServerConfig:
+  base_url: ${oc.env:RUSH_BASE_URL,http://127.0.0.1:3000}
+  workspace_id: ${oc.env:RUSH_WORKSPACE_ID}
+  token_env: RUSH_SESSION_TOKEN
+# The attempt to read (an attempt_id of step 2's run.json; set it with `-- attempt_id=<id>`).
+attempt_id: ${oc.env:RUSH_ATTEMPT_ID}
+# Events after this cursor. follow streams them live (resuming from the last cursor) until the attempt seals;
+# otherwise the saved events are paged.
+after: 0
+follow: false
+# Span search filters; null does not filter.
+span_kind: null
+span_status: null
+span_query: null
+span_limit: null
+# SHA-256 digests of the payloads to fetch; each is verified against its digest.
+payloads: []
+accounting: true

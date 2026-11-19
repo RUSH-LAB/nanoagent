@@ -5,8 +5,15 @@ import type {Api, AssistantMessage, Model, Usage} from "@earendil-works/pi-ai";
 import {setBedrockProviderModule} from "@earendil-works/pi-ai/api/bedrock-converse-stream.lazy";
 import {bedrockProviderModule} from "@earendil-works/pi-ai/bedrock-provider";
 import {builtinModels} from "@earendil-works/pi-ai/providers/all";
+import {createCodingTools} from "@earendil-works/pi-coding-agent";
 import {realpathSync} from "node:fs";
 import {fileURLToPath} from "node:url";
+import {Profiler} from "./profile.js";
+
+export {Profiler};
+
+// The version of PI the bundle holds, defined at build time (build.mjs).
+declare const PI_VERSION: string;
 
 interface RunnerRequest {
   input: string;
@@ -26,12 +33,16 @@ export interface PiOptions {
   provider: string;
   model: string;
   apiKeyEnv?: string;
+  // The provider's endpoint, in place of the one pi-ai's catalog gives the model.
+  baseUrl?: string;
   thinkingLevel: ThinkingLevel;
   systemPrompt: string;
   awsRegion?: string;
   awsProfile?: string;
   temperature?: number;
   maxTokens?: number;
+  // "coding": PI's own coding tools (read, bash, edit, write) in the request's workspace; else none.
+  tools?: "coding";
 }
 
 // The runner ships as one bundle (build.mjs), so Bedrock's implementation is bundled rather than
@@ -46,16 +57,21 @@ export function parseOptions(value: Record<string, unknown> = {}): PiOptions {
   const provider = value.provider;
   const model = value.model;
   const apiKeyEnv = value.api_key_env;
+  const baseUrl = value.base_url;
   const thinkingLevel = value.thinking_level ?? "off";
   const systemPrompt = value.system_prompt ?? "You are a helpful assistant.";
   const awsRegion = value.aws_region;
   const awsProfile = value.aws_profile;
   const temperature = value.temperature;
   const maxTokens = value.max_tokens;
+  const tools = value.tools;
   if (typeof provider !== "string" || !provider) throw new Error("PI option 'provider' is required");
   if (typeof model !== "string" || !model) throw new Error("PI option 'model' is required");
   if (apiKeyEnv !== undefined && (typeof apiKeyEnv !== "string" || !apiKeyEnv)) {
     throw new Error("PI option 'api_key_env' must be a non-empty string");
+  }
+  if (baseUrl !== undefined && (typeof baseUrl !== "string" || !baseUrl)) {
+    throw new Error("PI option 'base_url' must be a non-empty string");
   }
   if (typeof thinkingLevel !== "string" || !THINKING_LEVELS.has(thinkingLevel as ThinkingLevel)) {
     throw new Error("PI option 'thinking_level' is invalid");
@@ -73,16 +89,19 @@ export function parseOptions(value: Record<string, unknown> = {}): PiOptions {
   if (maxTokens !== undefined && (!Number.isInteger(maxTokens) || (maxTokens as number) < 1)) {
     throw new Error("PI option 'max_tokens' must be a positive integer");
   }
+  if (tools !== undefined && tools !== "coding") throw new Error("PI option 'tools' must be 'coding' when set");
   return {
     provider,
     model,
     apiKeyEnv: apiKeyEnv as string | undefined,
+    baseUrl: baseUrl as string | undefined,
     thinkingLevel: thinkingLevel as ThinkingLevel,
     systemPrompt,
     awsRegion: awsRegion as string | undefined,
     awsProfile: awsProfile as string | undefined,
     temperature: temperature as number | undefined,
     maxTokens: maxTokens as number | undefined,
+    tools,
   };
 }
 
@@ -130,6 +149,18 @@ export function promptText(request: RunnerRequest): string {
     : request.input;
 }
 
+/** PI's coding tools in the request's workspace, when the options ask for them. */
+function codingTools(options: PiOptions, request: RunnerRequest) {
+  if (options.tools !== "coding") return [];
+  if (!request.workspace) throw new Error("PI's coding tools need request.workspace");
+  return createCodingTools(request.workspace);
+}
+
+/** The text of a tool's result. */
+function resultText(result: {content?: {type: string; text?: string}[]} | undefined): string {
+  return (result?.content ?? []).filter((part) => part.type === "text").map((part) => part.text ?? "").join("");
+}
+
 function write(event: Record<string, unknown>): void {
   process.stdout.write(`${JSON.stringify(event)}\n`);
 }
@@ -155,8 +186,9 @@ async function main(): Promise<void> {
     if (options.awsRegion) process.env.AWS_REGION = options.awsRegion;
     if (options.awsProfile) process.env.AWS_PROFILE = options.awsProfile;
     const models = builtinModels();
-    const model = models.getModel(options.provider, options.model);
-    if (!model) throw new Error(`PI model not found: ${options.provider}/${options.model}`);
+    const found = models.getModel(options.provider, options.model);
+    if (!found) throw new Error(`PI model not found: ${options.provider}/${options.model}`);
+    const model = options.baseUrl ? {...found, baseUrl: options.baseUrl} : found;
     // pi-ai's own error for a provider with no key says only that it is "not configured".
     const keyed = options.apiKeyEnv
       ? Boolean(process.env[options.apiKeyEnv])
@@ -170,7 +202,7 @@ async function main(): Promise<void> {
       ? `${options.systemPrompt.trim()}\n\nApplication instructions:\n${instructions}`
       : options.systemPrompt;
     agent = new Agent({
-      initialState: {systemPrompt, model, thinkingLevel: options.thinkingLevel, tools: []},
+      initialState: {systemPrompt, model, thinkingLevel: options.thinkingLevel, tools: codingTools(options, envelope.request)},
       // The run's sampling settings go with every model call.
       streamFn: (callModel, context, streamOptions) => models.streamSimple(callModel, context, {
         ...streamOptions,
@@ -181,19 +213,46 @@ async function main(): Promise<void> {
     });
     process.once("SIGTERM", () => agent?.abort());
 
-    let steps = 0;
-    let lastUsage: Usage | undefined;
+    const profiler = new Profiler();
+    const passed = (step: Record<string, unknown> | undefined) => {
+      if (step) write({type: "step", step: step.step, cost: 0, usage: step.usage, metrics: step});
+    };
+    const toolArguments = new Map<string, unknown>();
+    let cost = 0;
     agent.subscribe((event: AgentEvent) => {
-      if (event.type === "message_update") {
+      if (event.type === "turn_start") {
+        passed(profiler.modelStart());
+      } else if (event.type === "message_update") {
         const update = event.assistantMessageEvent;
+        if (update.type === "text_delta" || update.type === "thinking_delta" || update.type === "toolcall_delta") {
+          profiler.firstToken();
+        }
         if (update.type === "text_delta") {
           write({type: "delta", kind: "content", text: update.delta});
         } else if (update.type === "thinking_delta") {
           write({type: "delta", kind: "reasoning", text: update.delta});
         }
-      } else if (event.type === "turn_end" && event.message.role === "assistant") {
-        steps += 1;
-        lastUsage = event.message.usage;
+      } else if (event.type === "message_end" && event.message.role === "assistant") {
+        const message = event.message;
+        const failed = message.stopReason === "error" || message.stopReason === "aborted";
+        profiler.modelEnd(usageFields(message.usage).usage, failed ? message.errorMessage ?? message.stopReason : null);
+        cost += message.usage.cost.total;
+      } else if (event.type === "tool_execution_start") {
+        toolArguments.set(event.toolCallId, event.args);
+        profiler.toolStart(event.toolCallId, event.toolName);
+        write({type: "tool_start", id: event.toolCallId, name: event.toolName});
+      } else if (event.type === "tool_execution_end") {
+        profiler.toolEnd(event.toolCallId, event.isError);
+        write({
+          type: "tool",
+          id: event.toolCallId,
+          name: event.toolName,
+          arguments: toolArguments.get(event.toolCallId) ?? {},
+          output: resultText(event.result),
+          is_error: event.isError,
+        });
+      } else if (event.type === "turn_end") {
+        passed(profiler.close());
       }
     });
 
@@ -203,20 +262,23 @@ async function main(): Promise<void> {
     );
     if (!final) throw new Error("PI completed without an assistant message");
     if (final.stopReason === "error" || final.stopReason === "aborted") {
-      write({type: "error", code: `pi_${final.stopReason}`, error: final.errorMessage ?? final.stopReason});
+      write({type: "error", code: `pi_${final.stopReason}`, version: PI_VERSION, error: final.errorMessage ?? final.stopReason});
       return;
     }
-    const normalized = usageFields(lastUsage ?? final.usage);
+    const profile = profiler.finish();
     write({
       type: "done",
+      version: PI_VERSION,
       answer: messageText(final),
       stop_reason: final.stopReason === "stop" ? "answer" : final.stopReason,
-      steps,
-      ...normalized,
+      steps: (profile.steps as unknown[]).length,
+      usage: profile.usage,
+      cost,
       error: null,
+      metrics: {...profile, reported: {cost}},
     });
   } catch (error) {
-    write({type: "error", code: "pi_error", error: error instanceof Error ? error.message : String(error)});
+    write({type: "error", code: "pi_error", version: PI_VERSION, error: error instanceof Error ? error.message : String(error)});
   }
 }
 

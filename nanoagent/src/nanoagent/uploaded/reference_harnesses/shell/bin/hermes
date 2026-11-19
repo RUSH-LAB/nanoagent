@@ -1,0 +1,25 @@
+#!/bin/sh
+# Hermes Agent on RUSH's gateway (its chat completions dialect), as the hermes reference harness runs it: its openrouter route
+# pointed at the gateway and keyed by the attempt token, the session's model and provider in its home's config.yaml (which Hermes
+# reads in place of flags) for its chat and every side model too: each auxiliary task (vision would otherwise go to another model
+# when the session's reads no images), its subagents, and its mixture-of-agents preset; its shell and file tools in the current
+# directory, and nothing to approve: the VM is the sandbox.
+# Its home is in the workspace's .rush/, which is kept when the session ends, so resuming it continues its conversations
+# (nanoagent.uploaded.resume); its config names this session's model, so it is written each time.
+home="$RUSH_WORKSPACE/.rush/hermes"
+mkdir -p "$home"
+route="{provider: openrouter, model: \"$RUSH_MODEL\"}"
+{
+  printf 'model:\n  provider: openrouter\n  default: "%s"\n' "$RUSH_MODEL"
+  printf 'delegation: %s\n' "$route"
+  printf 'moa:\n  presets:\n    default: {reference_models: [%s], aggregator: %s}\n' "$route" "$route"
+  printf 'auxiliary:\n'
+  for task in vision web_extract compression skills_hub approval mcp title_generation memory_query_rewrite tts_audio_tags triage_specifier \
+    kanban_decomposer profile_describer goal_judge curator monitor background_review moa_reference moa_aggregator; do
+    printf '  %s: %s\n' "$task" "$route"
+  done
+} > "$home/config.yaml"
+install="$(python /harness/rush.py cli hermes)" || exit 1  # installed the first time it is typed (rush.py cli)
+HERMES_HOME="$home" TERMINAL_CWD="$PWD" HERMES_YOLO_MODE=1 HERMES_ACCEPT_HOOKS=1 HERMES_MAX_TOKENS="$RUSH_MAX_OUTPUT_TOKENS" \
+  OPENROUTER_BASE_URL="$OPENAI_BASE_URL" OPENROUTER_API_KEY="$RUSH_ATTEMPT_TOKEN" PYTHONPATH="$install/site" \
+  exec python -c 'import sys; sys.argv[0] = "hermes"; from hermes_cli.main import main; main()' "$@"

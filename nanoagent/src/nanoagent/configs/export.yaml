@@ -1,0 +1,16 @@
+# The default `nanoagent export` config: every trace you ran in RUSH Lab (or, for a platform administrator, every member's), as
+# JSON Lines, from the RUSH that RUSH Lab on this computer is connected to (GET /api/traces/export).
+#
+#     rushlab nanoagent export out=traces.jsonl                                   # all of yours
+#     rushlab nanoagent export plugin=city-weather member=all since=2026-11-01 out=class.jsonl
+
+_ > nanoagent.cli.export.ExportCommandConfig:
+
+out: ???
+plugin: null
+member: null
+since: null
+until: null
+# RUSH Lab's data folder, which holds its one signed-in connection; null: whichever of RUSH Lab's (lab.mochi.lab) and RUSH
+# Lab Dev's (lab.mochi.lab.dev) is signed in, in this OS's app data folder. Both signed in: name one.
+lab: null

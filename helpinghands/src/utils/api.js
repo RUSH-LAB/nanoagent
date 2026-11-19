@@ -31,7 +31,9 @@ const GLOBAL_API_PATHS = [
   '/api/signup-policy',
   // The member's computer and AI settings, a new workspace, and RUSH Lab's install
   // (server/workspace-context.js): asked on any page, a workspace one they are not in too.
-  '/api/runner/status', '/api/runner/keys', '/api/ai/settings', '/api/ai/models', '/api/org', '/api/lab/',
+  '/api/runner/status', '/api/runner/keys', '/api/runner/worker', '/api/ai/settings', '/api/ai/models', '/api/org', '/api/lab/',
+  // A member's traces from all their workspaces (server/routes/trace-export.js).
+  '/api/traces/',
 ];
 
 const workspaceIds = new Map();

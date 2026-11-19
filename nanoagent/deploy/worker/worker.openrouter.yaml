@@ -1,0 +1,91 @@
+# The member's worker: inference goes to OpenRouter with the member's own key. RUSH Lab runs it for each connection.
+#   export RUSH_WORKER_TOKEN=...  OPENROUTER_API_KEY=...
+#   .venv/bin/python -m nanoagent.uploaded.worker config=deploy/worker/worker.openrouter.yaml home=<run folder> -- scratch=<folder>
+_ > nanoagent.uploaded.worker.WorkerConfig:
+
+worker_id: worker-1
+# Attempts' scratch and the cached guest tools; RUSH Lab gives each connection its own.
+scratch: ???
+
+rush > nanoagent.uploaded.worker.RushConfig:
+  base_url: https://rush-lab.org
+  token_env: RUSH_WORKER_TOKEN
+
+openrouter > nanoagent.uploaded.worker.OpenRouterConfig:
+  label: openrouter
+  mode: openrouter
+  upstream_base_url: https://openrouter.ai/api/v1
+
+# USD per token upper bounds (OpenRouter's deepseek-v4-flash prices on 2026-11-05, with headroom).
+prices > dict[nanoagent.uploaded.worker.Model, nanoagent.uploaded.worker.Price]:
+  deepseek/deepseek-v4-flash-0731:
+    input: 0.0000001
+    output: 0.0000005
+
+timing > nanoagent.uploaded.worker.TimingConfig:
+  reference_tokens_per_second: 100
+  clock_tolerance_ns: 1000000
+
+sandbox > nanoagent.uploaded.worker.SandboxConfig:
+  cpus: 1.0
+  memory_bytes: 1073741824
+  pids: 256
+  # The most a run may ask for: a Terminal session's workspace and /tmp (sessions.workspace_bytes and tmp_bytes); a benchmark
+  # case asks for 256 MiB and 64 MiB.
+  workspace_bytes: 10737418240
+  tmp_bytes: 4294967296
+  # A Harness tab session's Terminal builds five CLIs (about 1.5 GiB) once; a worker keeps the build for every later session.
+  build_wall_s: 1800
+  build_output_bytes: 4294967296
+  # The ended Terminal sessions kept on this computer to resume them from the Dashboard, in all; the oldest go first.
+  resume_bytes: 4294967296
+  # The most of an ended Terminal session's files uploaded to RUSH when it ends, as a tar.zst; a larger one is not uploaded at all.
+  workspace_upload_bytes: 209715200
+
+# Internet access for harnesses, on by default for benchmarks: public addresses only, which the worker proves at startup.
+egress > nanoagent.uploaded.worker.EgressConfig:
+  enabled: true
+  # Model providers' API hosts, unresolvable in a harness VM: the attempt's gateway (the preset OPENAI_BASE_URL and
+  # ANTHROPIC_BASE_URL) is the only way to a model, so every call is recorded.
+  model_hosts:
+    - openrouter.ai
+    - api.openai.com
+    - api.anthropic.com
+    - generativelanguage.googleapis.com
+    - api.mistral.ai
+    - codestral.mistral.ai
+    - api.deepseek.com
+    - api.groq.com
+    - api.together.xyz
+    - api.together.ai
+    - api.x.ai
+    - api.fireworks.ai
+    - api.cohere.com
+    - api.cohere.ai
+    - api.perplexity.ai
+    - api.cerebras.ai
+    - api.moonshot.ai
+    - api.moonshot.cn
+    - api.z.ai
+    - open.bigmodel.cn
+    - dashscope.aliyuncs.com
+    - dashscope-intl.aliyuncs.com
+    - api.minimax.io
+    - api.hyperbolic.xyz
+    - api.novita.ai
+    - api.deepinfra.com
+    - api.sambanova.ai
+    - api.replicate.com
+    - api-inference.huggingface.co
+    - router.huggingface.co
+    - api.ai21.com
+    - api.voyageai.com
+
+dependencies > nanoagent.uploaded.worker.DependenciesConfig:
+  index_urls:
+    python-3: https://pypi.org/simple
+    javascript-22: https://registry.npmjs.org
+
+poll > nanoagent.uploaded.worker.PollConfig:
+  idle_s: 1
+  renew_interval_s: 15

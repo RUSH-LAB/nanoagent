@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import {spawn} from 'node:child_process';
+import {spawn, spawnSync} from 'node:child_process';
 import net from 'node:net';
 import {fileURLToPath} from 'node:url';
 import {parseEnv} from '../db/postgres.mjs';
@@ -92,6 +92,42 @@ export function nanoagentWebArgs(env = process.env) {
     `installs=${JSON.stringify(path.join(root, 'var', 'nanoagent-installs'))}`,
     `uv_cache=${JSON.stringify(path.join(root, 'var', 'nanoagent-uv-cache'))}`,
   ];
+}
+
+/**
+ * Why the benchmark worker cannot run beside the local site, or null: its models are OpenRouter's, with OPENROUTER_API_KEY
+ * from .env or the shell. Its sandboxes are microVMs NanoAgent starts itself (microsandbox), so nothing else is needed.
+ */
+export function benchmarkWorkerUnavailable(env) {
+  return env.OPENROUTER_API_KEY?.trim() ? null : 'OPENROUTER_API_KEY is not in .env or the shell';
+}
+
+/**
+ * The OpenRouter worker, run with the NanoAgent checkout's Python and claiming from the API on `apiPort` of this computer. Its
+ * credential and key are in its environment, never in a command line.
+ */
+export function benchmarkWorkerCommand(nanoagentRoot, apiPort, platform = process.platform) {
+  const worker = path.join(nanoagentRoot, 'var', 'dev-worker');
+  const python = platform === 'win32' ? path.join(nanoagentRoot, '.venv', 'Scripts', 'python.exe') : path.join(nanoagentRoot, '.venv', 'bin', 'python');
+  return [python, [
+    '-I', '-m', 'nanoagent.uploaded.worker', 'config=deploy/worker/worker.openrouter.yaml', `home=${JSON.stringify(path.join(worker, 'run'))}`,
+    '--', `rush.base_url=http://127.0.0.1:${apiPort}`, 'worker_id=dev-worker', `scratch=${JSON.stringify(path.join(worker, 'scratch'))}`,
+  ]];
+}
+
+/** Wait until the local API answers, which is when its migrations and the root account are done. */
+async function waitForApi(apiPort, apiChild, {timeoutMs = 120_000} = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (apiChild.exitCode !== null) throw new Error(`the API exited during startup with status ${apiChild.exitCode}`);
+    try {
+      if ((await fetch(`http://127.0.0.1:${apiPort}/api/health`)).ok) return;
+    } catch {
+      // not listening yet
+    }
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  throw new Error(`the API did not answer on port ${apiPort} within ${timeoutMs / 1000}s`);
 }
 
 function nanoagentUrl(env) {
@@ -288,6 +324,9 @@ export async function startLocal(argv = process.argv.slice(2)) {
     const ready = await waitForNanoAgent(env);
     console.log(`NanoAgent ready: ${ready.profile.id} (${ready.profile.model})`);
   }
+  // The uploaded-harness benchmark worker, started once the API is up (startBenchmarkWorker below).
+  const workerUnavailable = benchmarkWorkerUnavailable(env);
+  if (workerUnavailable) console.log(`Benchmark worker not started: ${workerUnavailable}`);
   // Restarts when the server's code changes, so the API is never older than the checkout the site and the apps are built from.
   const api = spawn(process.execPath, ['--watch-path=src/server', '--watch-preserve-output', 'src/server/index.js'], options(root));
   processes.push(
@@ -325,6 +364,29 @@ export async function startLocal(argv = process.argv.slice(2)) {
   }
 
   processes.forEach(watch);
+
+  async function startBenchmarkWorker() {
+    // The credential is the root account's, minted in the database the API has just migrated.
+    await waitForApi(apiPort, api);
+    const minted = spawnSync(process.execPath, ['scripts/dev/mint-worker-credential.mjs'], {cwd: root, env, encoding: 'utf8'});
+    if (minted.status !== 0) throw new Error(`minting the worker credential failed:\n${minted.stdout}${minted.stderr}`);
+    if (stopping) return;
+    console.log(`Benchmark worker starting from ${nanoagentRoot} (endpoint openrouter)`);
+    const [program, args] = benchmarkWorkerCommand(nanoagentRoot, apiPort);
+    const worker = {
+      name: 'benchmark worker',
+      child: spawn(program, args, {cwd: nanoagentRoot, env: {...env, RUSH_WORKER_TOKEN: minted.stdout.trim()}, stdio: 'inherit'}),
+    };
+    processes.push(worker);
+    watch(worker);
+  }
+
+  if (!workerUnavailable) {
+    startBenchmarkWorker().catch(error => {
+      console.error(`Benchmark worker startup failed: ${error.message}`);
+      stop(1);
+    });
+  }
   process.once('SIGINT', () => stop(0, 'SIGINT'));
   process.once('SIGTERM', () => stop(0, 'SIGTERM'));
 }

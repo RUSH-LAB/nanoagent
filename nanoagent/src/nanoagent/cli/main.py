@@ -172,6 +172,8 @@ def _run(argv: list[str]) -> int:
 # Held as module paths (not imports) so each loads lazily — ``browse`` never pulls openai.
 _DELEGATES = {
     "benchmark": "nanoagent.cli.benchmark",
+    "harness": "nanoagent.cli.harness",
+    "export": "nanoagent.cli.export",
     "chat": "nanoagent.cli.repl.app",
     "browse": "nanoagent.cli.repl.browser",
     "web": "nanoagent.web.app",
@@ -180,7 +182,7 @@ _DELEGATES = {
     # as its own console script, `mgen` (see nanoagent.cli.mgen for why it is the exception).
     "mgen": "nanoagent.cli.mgen",
 }
-_USAGE = "usage: nanoagent {run|benchmark|chat|browse|mgen|web|plugin} [args...]"
+_USAGE = "usage: nanoagent {run|benchmark|harness|export|chat|browse|mgen|web|plugin} [args...]"
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -1,0 +1,29 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "ce52-dungeon-replay-checker",
+  "task": "replay-grid",
+  "context": "The levels are small static bundled maps; no network data is needed. The 'doors' level, rows top to bottom, is:\n########\n#S.DD.E#\n#K.#K.C#\n#..C...#\n########\nUse zero-based coordinates (x increases right, y increases down); S is at (1,1). Tiles: # wall, . floor, K key, D locked door, C coin, E exit. Replay actions in order as specified: U/D/L/R move one cell, W waits. Entering K adds 1 key and turns that tile to .; entering C adds 1 coin and turns that tile to .; entering a closed D consumes 1 key and turns it permanently to .; entering E sets escaped true and leaves E. Once escaped, every later action (including W) is invalid. Invalid actions (wall, out of bounds, closed door without a key, or any action after escape) change nothing and are reported by zero-based index; keep processing the rest. In the final grid replace S and any consumed items/opened doors with . and do not draw the player; leave untouched tiles as in the original.",
+  "answer": [
+    {
+      "case_id": "doors",
+      "actions": [
+        "U",
+        "R",
+        "R",
+        "D",
+        "D",
+        "R",
+        "R",
+        "U",
+        "U",
+        "R",
+        "R",
+        "W",
+        "L",
+        "D",
+        "R"
+      ]
+    }
+  ],
+  "refuse": []
+}

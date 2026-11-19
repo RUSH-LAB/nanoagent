@@ -151,8 +151,7 @@ def test_coding_cli_commands_configure_bedrock() -> None:
     assert claude[-2:] == ["--model", "claude-opus"]
 
     codex = codex_command(
-        "codex",
-        Path("/tmp/output"),
+        ["codex"],
         Path("/tmp/workspace"),
         {
             "model": "openai.example",

@@ -20,8 +20,10 @@
  *   {"event": "requests", "count"}        how many of RUSH's requests are going here, held runs included
  *   {"event": "keys", "id", "changes"}    apply these keys: answer {"id", "error"} on stdin,
  *                                         error null once NanoAgent has them
+ *   {"event": "worker", "action", "value"}  the member pressed Re-check or Restart on the benchmark worker's panel, or set its concurrency (value)
  * and writes on stdin
  *   {"keys": [{env, label, set}]}                          whenever which keys are set changes
+ *   {"worker": {state, message, platform, concurrency, progress, checks, log}}    whenever the benchmark worker's state changes (worker.mjs)
  */
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -149,7 +151,7 @@ function drop(held, id) {
  * `running`, the requests going that are not held, is shared by a relay's connections like `held`.
  */
 export function connect({
-  site, nanoagent, nanoagentToken, token, device, keys = [], saveKeys, onKeys, onRelease, held = new Map(), running = new Map(), files, onEvent = say,
+  site, nanoagent, nanoagentToken, token, device, keys = [], worker = null, saveKeys, onKeys, onWorker, onWorkerAction, onRelease, held = new Map(), running = new Map(), files, onEvent = say,
 }) {
   return new Promise(resolve => {
     const url = new URL(PATH, site);
@@ -157,10 +159,15 @@ export function connect({
     const socket = new WebSocket(url, {headers: {Authorization: `Bearer ${token}`}});
     const send = message => socket.readyState === WebSocket.OPEN && socket.send(JSON.stringify(message));
     let current = keys;
-    const hello = () => send({type: 'hello', device, keys: current, runs: [...held.keys()], files: true});
+    let currentWorker = worker;
+    const hello = () => send({type: 'hello', device, keys: current, worker: currentWorker, runs: [...held.keys()], files: true});
     const report = () => onEvent({event: 'requests', count: running.size + held.size});
     const unlisten = onKeys?.(list => {
       current = list;
+      hello();
+    });
+    const unlistenWorker = onWorker?.(state => {
+      currentWorker = state;
       hello();
     });
     socket.onopen = () => {
@@ -191,6 +198,8 @@ export function connect({
         drop(held, frame.id);
         report();
         onRelease?.();
+      } else if (frame.type === 'worker') {
+        onWorkerAction?.(frame.action, frame.value);
       } else if (frame.type === 'keys') {
         saveKeys(frame.changes).then(
           () => send({type: 'saved', id: frame.id}),
@@ -203,6 +212,7 @@ export function connect({
       if (ended) return;
       ended = true;
       unlisten?.();
+      unlistenWorker?.();
       for (const controller of running.values()) controller.abort();
       // A held request goes on without RUSH, for a while.
       for (const [id, run] of held) {
@@ -250,10 +260,12 @@ async function signedIn(site, token) {
 function supervisor() {
   const waiting = new Map();
   const listeners = new Set();
+  const workerListeners = new Set();
   let next = 0;
   readline.createInterface({input: process.stdin}).on('line', line => {
-    const {id, error, keys} = JSON.parse(line);
+    const {id, error, keys, worker} = JSON.parse(line);
     if (keys) return listeners.forEach(listener => listener(keys));
+    if (worker) return workerListeners.forEach(listener => listener(worker));
     const call = waiting.get(id);
     waiting.delete(id);
     if (error) call?.reject(new Error(error));
@@ -269,6 +281,11 @@ function supervisor() {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    onWorker(listener) {
+      workerListeners.add(listener);
+      return () => workerListeners.delete(listener);
+    },
+    onWorkerAction: (action, value) => say({event: 'worker', action, value}),
   };
 }
 
@@ -289,6 +306,9 @@ async function main(env) {
   // Which keys are set, for each connection's hello, kept as the supervisor says they change.
   let keys = JSON.parse(env.RUNNER_KEYS);
   options.onKeys(list => { keys = list; });
+  // The benchmark worker's state, the same way, for each connection's hello.
+  let worker = null;
+  options.onWorker(state => { worker = state; });
   // The member's files, synced while RUSH can be reached; each plugin run works on a copy of them.
   let synced = null;
   options.files = runFiles({
@@ -313,7 +333,7 @@ async function main(env) {
       log: message => console.error(`${new Date().toISOString()} files: ${message}`),
     }) : null;
     const opened = Date.now();
-    const {code, reason} = await connect({...options, keys, token, onRelease: () => synced?.sync()});
+    const {code, reason} = await connect({...options, keys, worker, token, onRelease: () => synced?.sync()});
     synced?.stop();
     synced = null;
     say({event: 'disconnected', reason: String(reason || code)});

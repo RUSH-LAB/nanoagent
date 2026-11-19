@@ -1,0 +1,12 @@
+{
+  "_": "step2_single_run.Cases",
+  "plugin": "path-probe",
+  "task": "find-route",
+  "context": "Given the map for the 'quarry' case. The map's nodes are A, B, C, D, E, F. The start is A and the goal is E. Links are undirected and each has a positive integer cost: A-B costs 3, A-C costs 3, B-D costs 4, C-D costs 4, D-E costs 2, A-E costs 10, C-F costs 1. A route must be a simple path from A to E (no node visited twice), and its cost is the sum of its link costs. You must find the route with the smallest possible cost; any such cheapest route is acceptable (there may be more than one). Submit the route as an array of node names starting with 'A' and ending with 'E', and the cost as an integer.",
+  "answer": [
+    {
+      "case": "quarry"
+    }
+  ],
+  "refuse": []
+}

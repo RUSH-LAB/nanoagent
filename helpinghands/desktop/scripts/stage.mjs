@@ -110,7 +110,12 @@ async function stageGit() {
   );
   const git = path.join(resources, 'git');
   fs.cpSync(unpacked, git, {recursive: true});
-  const busybox = await fetchChecked(`https://frippery.org/files/busybox/busybox-w64u-${config.busybox_build}.exe`, config.busybox_sha256);
+  // frippery.org, busybox-w32's only binary host, refuses GitHub's runners (403), so each build is kept as a
+  // prerelease of this repository, vendor-busybox-w32-<build>.
+  const busybox = await fetchChecked(
+    `https://github.com/RUSH-LAB/nanoagent/releases/download/vendor-busybox-w32-${config.busybox_build}/busybox-w64u-${config.busybox_build}.exe`,
+    config.busybox_sha256,
+  );
   fs.copyFileSync(busybox, path.join(git, 'usr', 'bin', 'sh.exe'));
 }
 
@@ -122,7 +127,10 @@ async function stageGit() {
 async function stageMacGit(target, arch) {
   const built = path.join(cache, `git-${config.git_version}-${target}`);
   if (!fs.existsSync(built)) {
-    const unpacked = await fetchVerified(`https://mirrors.edge.kernel.org/pub/software/scm/git/git-${config.git_version}.tar.xz`, config.git_sha256);
+    // kernel.org's mirror drops connections (fetch failed), so the source is kept as a prerelease of this repository.
+    const unpacked = await fetchVerified(
+      `https://github.com/RUSH-LAB/nanoagent/releases/download/vendor-git-${config.git_version}/git-${config.git_version}.tar.xz`, config.git_sha256,
+    );
     run('make', [
       `-j${os.availableParallelism()}`,
       `CFLAGS=-O2 -arch ${arch}`,
