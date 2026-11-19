@@ -54,9 +54,16 @@ def test_sessions_are_bounded_in_all_and_each_one_not_kept_says_why(tmp_path: Pa
 def test_one_agent_runs_its_resume_and_several_print_theirs(tmp_path: Path) -> None:
     rollout = [
         {"timestamp": "2026-11-18T00:00:00Z", "type": "session_meta", "payload": {"id": "c-9", "cwd": "/rush/workspace/app"}},
-        {"timestamp": "2026-11-18T00:00:01Z", "type": "event_msg", "payload": {"type": "item_completed", "item": {"type": "UserMessage", "content": [{"type": "text", "text": "hi"}]}}},
+        {
+            "timestamp": "2026-11-18T00:00:01Z",
+            "type": "event_msg",
+            "payload": {"type": "item_completed", "item": {"type": "UserMessage", "content": [{"type": "text", "text": "hi"}]}},
+        },
     ]
-    files = {".rush/clis/codex": b"k", ".rush/codex/sessions/2026/11/18/rollout-1.jsonl": b"".join(json.dumps(line).encode() + b"\n" for line in rollout)}
+    files = {
+        ".rush/clis/codex": b"k",
+        ".rush/codex/sessions/2026/11/18/rollout-1.jsonl": b"".join(json.dumps(line).encode() + b"\n" for line in rollout),
+    }
     assert keep(tmp_path / "scratch", "one", workspace(tmp_path / "one", files), START, 1 << 20)[0]
     said = restore(tmp_path / "scratch", ResumeOf("one", AT), tmp_path / "back-one")
     assert said["line"].endswith(" · codex") and said["run"] == "cd /rush/workspace/app && codex resume c-9"
@@ -64,7 +71,14 @@ def test_one_agent_runs_its_resume_and_several_print_theirs(tmp_path: Path) -> N
         {"type": "session", "id": "p-1", "timestamp": "2026-11-18T00:00:00Z", "cwd": "/rush/workspace"},
         {"type": "message", "timestamp": "2026-11-18T00:00:01Z", "message": {"role": "user", "content": "hi"}},
     ]
-    several = workspace(tmp_path / "several", {".rush/clis/pi": b"k", ".rush/clis/dsh": b"k", ".rush/pi/sessions/--rush-workspace--/1.jsonl": b"".join(json.dumps(line).encode() + b"\n" for line in pi)})
+    several = workspace(
+        tmp_path / "several",
+        {
+            ".rush/clis/pi": b"k",
+            ".rush/clis/dsh": b"k",
+            ".rush/pi/sessions/--rush-workspace--/1.jsonl": b"".join(json.dumps(line).encode() + b"\n" for line in pi),
+        },
+    )
     assert keep(tmp_path / "scratch", "several", several, START, 1 << 20)[0]
     said = restore(tmp_path / "scratch", ResumeOf("several", AT), tmp_path / "back-several")
     assert said["line"].endswith(" · dsh · pi") and "run" not in said
@@ -99,7 +113,9 @@ def test_a_chat_reopens_its_own_conversation_or_says_why_it_cannot(tmp_path: Pat
     assert rerun["run"] == "cd /rush/workspace/app && aider --model 'x y'" and rerun["line"].startswith("Reran your aider session from ")
     assert not (tmp_path / "b3/.rush/claude").exists()  # a run of a program gets no agent's home
     live = reopen_in(tmp_path / "scratch", ResumeOf("s1", "", aider), tmp_path / "b4", 2)  # in a live session: its own folder
-    assert live["run"] == "cd /rush/workspace/.rush/chats/s1/app && aider --model 'x y'" and not (tmp_path / "b4/.rush/chats/s1/.rush/claude").exists()
+    assert (
+        live["run"] == "cd /rush/workspace/.rush/chats/s1/app && aider --model 'x y'" and not (tmp_path / "b4/.rush/chats/s1/.rush/claude").exists()
+    )
     gone = restore(tmp_path / "scratch", ResumeOf("never", AT, ChatOf("claude", second)), tmp_path / "b5")
     assert gone["line"].startswith("That session's files are no longer on this computer (it is not on this computer") and gone["run"] == "claude"
 
@@ -133,10 +149,17 @@ def test_a_session_sees_only_its_own_files_and_a_chat_only_its_own_agents_home(t
     in it."""
     made = tmp_path / "made"
     shutil.copytree(CLAUDE_STATE, made)
-    workspace(made, {
-        "notes.txt": b"mine", ".rush/nanoagent/261118-181932.traj.json": b"{}", ".rush/codex/auth.json": b"{}", ".rush/agents": b"aider\n",
-        ".rush/chats/older/secret.txt": b"older", ".rush/chats/older/.rush/pi/sessions/x.jsonl": b"",
-    })
+    workspace(
+        made,
+        {
+            "notes.txt": b"mine",
+            ".rush/nanoagent/261118-181932.traj.json": b"{}",
+            ".rush/codex/auth.json": b"{}",
+            ".rush/agents": b"aider\n",
+            ".rush/chats/older/secret.txt": b"older",
+            ".rush/chats/older/.rush/pi/sessions/x.jsonl": b"",
+        },
+    )
     assert keep(tmp_path / "scratch", "s1", made, START, 1 << 20)[0]
     second = "bbbb2222-0000-4000-8000-000000000002"
     claude = {path for path in files(made) if path.startswith(".rush/claude/")}

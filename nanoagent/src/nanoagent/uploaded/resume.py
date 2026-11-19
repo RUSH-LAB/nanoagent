@@ -101,7 +101,8 @@ def keep(scratch: Path, attempt_id: str, workspace: Path, ended_at: datetime, ma
         copying.rename(folder / KEPT_WORKSPACE)
     kept = sorted(
         (entry for entry in (scratch / SESSIONS).iterdir() if (entry / KEPT_WORKSPACE).is_dir()),
-        key=lambda entry: _note(entry)["ended_at"], reverse=True,
+        key=lambda entry: _note(entry)["ended_at"],
+        reverse=True,
     )
     total = 0
     evicted = []
@@ -116,7 +117,7 @@ def keep(scratch: Path, attempt_id: str, workspace: Path, ended_at: datetime, ma
 
 
 def when(at: str) -> str:
-    """"Nov 18, 4:31 PM": the time ``at`` (ISO 8601) on this computer's clock, with its year when it is not this one."""
+    """ "Nov 18, 4:31 PM": the time ``at`` (ISO 8601) on this computer's clock, with its year when it is not this one."""
     local = datetime.fromisoformat(at.replace("Z", "+00:00")).astimezone()
     year = f", {local.year}" if local.year != datetime.now().year else ""
     return f"{local:%b} {local.day}{year}, {local.hour % 12 or 12}:{local:%M} {'AM' if local.hour < 12 else 'PM'}"

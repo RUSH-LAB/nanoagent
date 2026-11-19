@@ -82,7 +82,7 @@ def test_member_source_is_refused_until_the_tracer_self_test_passes(supervisor, 
 
 @pytest.mark.parametrize("output", ["/abs", "../up", "a/../b", "a//b", ""])
 def test_build_rejects_declared_outputs_that_are_not_canonical_relative_paths(supervisor, tmp_path, output):
-    supervisor._ready = True
+    supervisor._probed.add(PROFILE.runtime_image)
     with pytest.raises(SandboxError) as caught:
         supervisor.build(BuildSpec("a", PROFILE, manifest((output,)), tmp_path, None, tmp_path))  # type: ignore[arg-type]
     assert caught.value.code == "output_invalid"
@@ -113,7 +113,6 @@ def test_build_refuses_source_containing_a_link(supervisor, tmp_path):
     source = tmp_path / "source"
     source.mkdir()
     (source / "evil").symlink_to("/etc")
-    supervisor._ready = True
     with pytest.raises(SandboxError, match="link"):
         supervisor._stage_source(BuildSpec("a", PROFILE, manifest(), source, None, tmp_path / "work"))  # type: ignore[arg-type]
 
