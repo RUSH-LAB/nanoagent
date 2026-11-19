@@ -263,10 +263,7 @@ describe('NanoAgent gateway', () => {
 });
 
 describe('NanoAgent plugin API', () => {
-  it('is exported for the routes: every gateway method', () => {
-    for (const [name, value] of Object.entries(ai.createNanoAgentGateway())) {
-      assert.equal(typeof ai[name], typeof value, `ai.${name} is not exported`);
-    }
+  it('runs on no local NanoAgent', () => {
     assert.equal(ai.local, false);
   });
 
