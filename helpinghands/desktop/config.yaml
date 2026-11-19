@@ -41,7 +41,8 @@ python_version: "3.12"
 
 # The app bundles git, which uv runs to fetch a git dependency, NanoAgent's own and plugins'.
 # macOS only: a Mac without Xcode's Command Line Tools has no git, so the app bundles git built from
-# this source (kernel.org), checked against this sha256.
+# this source (kernel.org), checked against this sha256. A new git_version is uploaded first, from
+# kernel.org, as the prerelease vendor-git-<version> of RUSH-LAB/nanoagent (--latest=false), which the build downloads.
 git_version: 2.56.0
 git_sha256: 26c56c296b38c0695b26fa95f475f1d01704d2d38e73465ca30b0b2f5dc789d3
 

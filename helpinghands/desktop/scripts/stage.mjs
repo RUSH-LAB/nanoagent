@@ -127,7 +127,10 @@ async function stageGit() {
 async function stageMacGit(target, arch) {
   const built = path.join(cache, `git-${config.git_version}-${target}`);
   if (!fs.existsSync(built)) {
-    const unpacked = await fetchVerified(`https://mirrors.edge.kernel.org/pub/software/scm/git/git-${config.git_version}.tar.xz`, config.git_sha256);
+    // kernel.org's mirror drops connections (fetch failed), so the source is kept as a prerelease of this repository.
+    const unpacked = await fetchVerified(
+      `https://github.com/RUSH-LAB/nanoagent/releases/download/vendor-git-${config.git_version}/git-${config.git_version}.tar.xz`, config.git_sha256,
+    );
     run('make', [
       `-j${os.availableParallelism()}`,
       `CFLAGS=-O2 -arch ${arch}`,
