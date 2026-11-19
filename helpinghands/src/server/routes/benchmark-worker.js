@@ -9,7 +9,7 @@
 const crypto = require('crypto');
 const {BenchmarkError} = require('../benchmark/errors');
 const {parseJson, stringifyJson} = require('../benchmark/json');
-const {UUID, jsonBody, sendFailure} = require('../benchmark/http');
+const {UUID, jsonBody, rawBody, sendFailure} = require('../benchmark/http');
 const v = require('../benchmark/validate');
 const {positiveSetting} = require('../benchmark/limits');
 const {renderCase} = require('../benchmark/plan');
