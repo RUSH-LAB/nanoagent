@@ -49,8 +49,9 @@ class ToolText(str):
     agent loop reads ``images`` (each ``{"media_type": "image/png", "data": <base64>}``) when it
     builds the tool message, and only a backend that can show images to the model accepts them.
     ``model_calls`` (:class:`~nanoagent.profiler.ModelCallProfile` records of kind ``"tool"``,
-    e.g. an agent the tool ran) go into the step's profile, so they count in the run's usage and
-    cost.
+    e.g. an agent the tool ran, failed attempts included) go into the step's profile, nested in
+    the tool's span: their time is model time, not tool time, and they count in the run's usage
+    and cost.
     """
 
     images: list[dict[str, str]]

@@ -127,7 +127,7 @@ class TaskTool(Tool):
         model_calls = (
             ()
             if profile is None
-            else tuple(dataclasses.replace(call, kind="tool") for step in profile.steps for call in step.model_calls)
+            else tuple(dataclasses.replace(call, kind="tool") for step in profile.steps for call in (*step.model_calls, *step.failed_model_calls))
         )
         return ToolText(json.dumps({"output": outcome.output, "verdict": outcome.verdict.to_dict()}), model_calls=model_calls)
 

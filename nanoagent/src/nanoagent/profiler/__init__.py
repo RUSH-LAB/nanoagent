@@ -99,7 +99,8 @@ def normalize_usage(raw: Any) -> dict[str, int]:
 @dataclass(frozen=True, slots=True)
 class ModelCallProfile:
     """One completed model turn. A failed attempt (and so a retry's earlier attempts) is not a call:
-    its time is in the step's ``model_s``."""
+    its time is in the step's ``model_s``. ``started`` is when it began on the profiler's clock,
+    which places a call a tool made (kind ``"tool"``) inside that tool's time."""
 
     kind: str
     duration_s: float
@@ -108,6 +109,7 @@ class ModelCallProfile:
     usage: dict[str, int]
     cost: float
     error: str | None = None
+    started: float | None = None
 
     @property
     def output_tokens_per_second(self) -> float | None:
@@ -151,7 +153,10 @@ class ToolCallProfile:
 
 @dataclass(frozen=True, slots=True)
 class StepProfile:
-    """One agent step and all model/tool calls made inside it."""
+    """One agent step and all model/tool calls made inside it. Spans nest: a tool that ran its own
+    model requests (kind ``"tool"``, e.g. a task's agent) has them in ``model_s``, and ``tools_s``
+    holds only the tool time outside them. ``failed_model_calls`` are the attempts that failed,
+    the step's and its tools', whose time is model time too."""
 
     step: int
     duration_s: float
@@ -162,6 +167,7 @@ class StepProfile:
     cost: float
     model_calls: tuple[ModelCallProfile, ...] = ()
     tool_calls: tuple[ToolCallProfile, ...] = ()
+    failed_model_calls: tuple[ModelCallProfile, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -256,6 +262,7 @@ class _ModelCallTimer:
             usage=dict(usage or {}),
             cost=cost,
             error=error,
+            started=self.started,
         )
 
 
@@ -284,7 +291,7 @@ class StepProfiler:
         self.step = step
         self._started = owner._clock()
         self._model_calls: list[ModelCallProfile] = []
-        self._failed_model_s = 0.0
+        self._failed_model_calls: list[ModelCallProfile] = []
         self._tool_calls: list[ToolCallProfile | None] = []
         self._tools_s = 0.0
         self._finished = False
@@ -301,17 +308,17 @@ class StepProfiler:
         error: str | None = None,
     ) -> ModelCallProfile:
         record = timer.finish(usage=usage, cost=cost, error=error)
-        if error is None:
-            self._model_calls.append(record)
-        else:
-            # A failed attempt is not a completed turn, but the time it took was spent on the model.
-            self._failed_model_s += record.duration_s
+        # A failed attempt is not a completed turn, but the time it took was spent on the model.
+        (self._model_calls if error is None else self._failed_model_calls).append(record)
         return record
 
     def add_model_call(self, record: ModelCallProfile) -> None:
-        """A model call a tool made itself (kind ``"tool"``): counted in the step's usage and cost,
-        and in neither its model time nor the run's generation time, which its tool time holds."""
-        self._model_calls.append(record)
+        """A model request a tool made itself (kind ``"tool"``), nested in that tool's span: its
+        time is model time, taken out of the tool time; a completed one counts in the step's calls,
+        usage and cost, a failed one only in its time."""
+        if record.kind != "tool" or record.started is None:
+            raise ValueError(f"a tool's model request needs kind 'tool' and its start, not {record.kind!r} at {record.started!r}")
+        (self._model_calls if record.error is None else self._failed_model_calls).append(record)
 
     def start_tool_call(self, call_id: str, name: str) -> tuple[int, _ToolCallTimer]:
         slot = len(self._tool_calls)
@@ -346,18 +353,28 @@ class StepProfiler:
         for call in self._model_calls:
             accumulate_usage(usage, call.usage)
             cost += call.cost
-        model_s = self._failed_model_s + sum(call.duration_s for call in self._model_calls if call.kind != "tool")
+        requests = self._model_calls + self._failed_model_calls
+        model_s = sum(call.duration_s for call in requests)
+        # The tool phases' time less the time a model request nested in a tool was running: tools
+        # run together, so their nested requests may overlap and count once here.
+        nested = 0.0
+        reach = float("-inf")
+        for start, end in sorted((call.started, call.started + call.duration_s) for call in requests if call.kind == "tool"):
+            nested += max(0.0, end - max(start, reach))
+            reach = max(reach, end)
+        tools_s = self._tools_s - nested
         duration_s = max(0.0, ended - self._started)
         profile = StepProfile(
             step=self.step,
             duration_s=duration_s,
             model_s=model_s,
-            tools_s=self._tools_s,
-            overhead_s=max(0.0, duration_s - model_s - self._tools_s),
+            tools_s=tools_s,
+            overhead_s=max(0.0, duration_s - model_s - tools_s),
             usage=usage,
             cost=cost,
             model_calls=tuple(self._model_calls),
             tool_calls=tuple(call for call in self._tool_calls if call is not None),
+            failed_model_calls=tuple(self._failed_model_calls),
         )
         self._owner._finish_step(self, profile)
         return profile

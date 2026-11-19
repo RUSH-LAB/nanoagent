@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from nanoagent.profiler import Profiler, StreamProfiler, messages_usage, normalize_usage
 
 
@@ -124,3 +126,50 @@ def test_run_profile_counts_no_call_for_a_failed_attempt_but_keeps_its_time() ->
     profile = step.finish()
     assert profile.model_calls == ()
     assert profile.model_s == 2.0
+
+
+def test_a_task_tools_nested_model_requests_are_model_time_and_only_its_own_time_is_tool_time() -> None:
+    clock = Clock()
+    profiler = Profiler(clock=clock)
+    step = profiler.start_step(1)
+    call = step.start_model_call()
+    clock.now = 1.0
+    step.finish_model_call(call, usage={"prompt_tokens": 10}, cost=0.1)
+    tool, timer = step.start_tool_call("t1", "task")
+    # The task's agent, inside the tool call from 1 to 11: model 2-4, its own tool 4-5, model 5-8.
+    nested = Profiler(clock=clock)
+    inner = nested.start_step(1)
+    clock.now = 2.0
+    first = inner.start_model_call()
+    clock.now = 4.0
+    inner.finish_model_call(first, usage={"prompt_tokens": 20}, cost=0.2)
+    inner.add_tool_phase(1.0)
+    clock.now = 5.0
+    second = inner.start_model_call()
+    clock.now = 8.0
+    inner.finish_model_call(second, usage={"prompt_tokens": 30}, cost=0.3)
+    inner.finish()
+    clock.now = 11.0
+    step.finish_tool_call(tool, timer, is_error=False)
+    for record in nested.snapshot().steps[0].model_calls:
+        step.add_model_call(replace(record, kind="tool"))
+    step.add_tool_phase(10.0)
+    profile = step.finish()
+    assert profile.model_s == 6.0  # 1 of its own, and the task's 2 and 3
+    assert profile.tools_s == 5.0  # the task's 10 less its 5 on the model: its own tool's 1 and its own 4
+    assert profile.duration_s == 11.0 and profile.overhead_s == 0.0  # nothing counted twice
+    assert len(profile.model_calls) == 3 and profile.usage == {"prompt_tokens": 60} and abs(profile.cost - 0.6) < 1e-9
+
+
+def test_nested_model_requests_of_tools_running_together_leave_their_overlap_once() -> None:
+    clock = Clock()
+    profiler = Profiler(clock=clock)
+    step = profiler.start_step(1)
+    for start in (0.0, 1.0):  # two tasks at once, their requests 0-2 and 1-3
+        clock.now = start
+        timer = step.start_model_call()
+        clock.now = start + 2.0
+        step.add_model_call(replace(timer.finish(), kind="tool"))
+    step.add_tool_phase(4.0)
+    profile = step.finish()
+    assert (profile.model_s, profile.tools_s) == (4.0, 1.0)
