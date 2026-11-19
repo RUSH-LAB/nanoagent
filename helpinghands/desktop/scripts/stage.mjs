@@ -110,7 +110,12 @@ async function stageGit() {
   );
   const git = path.join(resources, 'git');
   fs.cpSync(unpacked, git, {recursive: true});
-  const busybox = await fetchChecked(`https://frippery.org/files/busybox/busybox-w64u-${config.busybox_build}.exe`, config.busybox_sha256);
+  // frippery.org, busybox-w32's only binary host, refuses GitHub's runners (403), so each build is kept as a
+  // prerelease of this repository, vendor-busybox-w32-<build>.
+  const busybox = await fetchChecked(
+    `https://github.com/RUSH-LAB/nanoagent/releases/download/vendor-busybox-w32-${config.busybox_build}/busybox-w64u-${config.busybox_build}.exe`,
+    config.busybox_sha256,
+  );
   fs.copyFileSync(busybox, path.join(git, 'usr', 'bin', 'sh.exe'));
 }
 
