@@ -6,66 +6,44 @@ import {fileURLToPath} from 'node:url';
 import {invoke, loadRoute, makeCtx} from '../_harness.mjs';
 
 const require = createRequire(import.meta.url);
-const {strToU8, zipSync} = require('fflate');
-const {REFERENCE_HARNESSES, REFERENCE_LABELS, harnessOf, referenceHarnessOf, uploadedHarnessOf} = require('../../../src/server/benchmark/harness.js');
+const {AGENTS, checkHarness, rushProgram} = require('../../../src/server/benchmark/harness.js');
 
 const SHARED_SCHEMA = fileURLToPath(new URL('../../../../nanoagent/src/nanoagent/uploaded/uploaded-harness-v1.schema.json', import.meta.url));
-const REFERENCE_FOLDERS = fileURLToPath(new URL('../../../../nanoagent/src/nanoagent/uploaded/reference_harnesses', import.meta.url));
 const OWN_SCHEMA = fileURLToPath(new URL('../../../src/server/benchmark/uploaded-harness-v1.schema.json', import.meta.url));
+const AGENT_BIN = fileURLToPath(new URL('../../../../nanoagent/src/nanoagent/uploaded/reference_harnesses/shell/bin', import.meta.url));
 
-const MANIFEST = `protocol: rush.harness.v1
-name: my-harness
-version: "1.3"
-dialects: [chat_completions, responses]
-toolchain: go-1
-lockfiles: []
-build: {argv: [go, build], outputs: [harness]}
-run: {argv: [/harness/harness]}
-`;
-const zip = files => Buffer.from(zipSync(Object.fromEntries(Object.entries(files).map(([name, text]) => [name, strToU8(text)]))));
-const withoutField = field => MANIFEST.split('\n').filter(line => !line.startsWith(`${field}:`)).join('\n');
-
-describe('the harness a source ZIP declares', () => {
+describe('the harness request schema', () => {
   it('keeps the server\'s copy of the shared schema equal to the contract\'s', () => {
     assert.deepEqual(JSON.parse(readFileSync(OWN_SCHEMA, 'utf8')), JSON.parse(readFileSync(SHARED_SCHEMA, 'utf8')));
   });
 
-  it('reads name, version and dialects from the harness.yaml at the root', () => {
-    assert.deepEqual(harnessOf(zip({'harness.yaml': MANIFEST, 'src/main.go': 'package main'})), {name: 'my-harness', version: '1.3', dialects: ['chat_completions', 'responses']});
-  });
-
-  it('refuses what is not a ZIP, a ZIP without the manifest at its root, and a manifest that does not validate', () => {
-    assert.throws(() => harnessOf(Buffer.from('not a zip at all, but long enough to look like one')), {code: 'invalid_zip', status: 400});
-    assert.throws(() => harnessOf(zip({'sub/harness.yaml': MANIFEST})), {code: 'missing_manifest'});
-    assert.throws(() => harnessOf(zip({'harness.yaml': ': : :'})), {code: 'invalid_manifest'});
-    for (const field of ['name', 'version', 'dialects']) {
-      assert.throws(() => harnessOf(zip({'harness.yaml': withoutField(field)})), {code: 'invalid_manifest', message: new RegExp(`'${field}'`)});
-    }
-    assert.throws(() => harnessOf(zip({'harness.yaml': MANIFEST.replace('name: my-harness', 'name: My Harness')})), {code: 'invalid_manifest'});
-    assert.throws(() => harnessOf(zip({'harness.yaml': MANIFEST.replace('version: "1.3"', 'version: 1.3')})), {code: 'invalid_manifest'});
-    assert.throws(() => harnessOf(zip({'harness.yaml': MANIFEST.replace('[chat_completions, responses]', '[responses, responses]')})), {code: 'invalid_manifest'});
-    assert.throws(() => harnessOf(zip({'harness.yaml': MANIFEST.replace('[chat_completions, responses]', '[]')})), {code: 'invalid_manifest'});
-    assert.throws(() => harnessOf(zip({'harness.yaml': `${MANIFEST}extra: 1\n`})), {code: 'invalid_manifest'});
+  it('gives a harness the case\'s id and prompt only: no arguments, schemas, context or policy', () => {
+    const {$defs} = JSON.parse(readFileSync(OWN_SCHEMA, 'utf8'));
+    assert.deepEqual(Object.keys($defs.Case.properties), ['case_id']);
+    assert.ok(!$defs.Policy && !$defs.Request.properties.policy);
+    assert.ok(!('instructions' in $defs.Task.properties));
   });
 });
 
-describe('the reference harnesses', () => {
-  it('are each named by its agent\'s CLI command', () => {
-    assert.deepEqual(Object.keys(REFERENCE_LABELS).sort(), [...REFERENCE_HARNESSES].sort());
+describe('the harness a run names', () => {
+  it('is an agent of the shell harness, or rush <command> for a member\'s own', () => {
+    // A member's own agent may carry its headless arguments, the case's prompt following as the last one.
+    for (const name of [...AGENTS, 'rush aider', 'rush my-agent_2.0', 'rush aider --yes --message', 'rush goose run -t', 'rush a b']) assert.equal(checkHarness(name), name);
+    for (const name of ['claude-code', 'shell', 'rush', 'rush  aider', 'rush Aider', 'rush aider ', 'rush aider  -m', 'rush aider "-m"', 'rush aider $(x)',
+      'rush forget', 'rush help', 'rush forget x', 'Claude', '', undefined, null, 3]) {
+      assert.throws(() => checkHarness(name), {code: 'unknown_harness', status: 400}, String(name));
+    }
   });
 
-  it('are the folders NanoAgent ships under reference_harnesses/', () => {
-    const folders = readdirSync(REFERENCE_FOLDERS, {withFileTypes: true}).filter(entry => entry.isDirectory() && entry.name !== '__pycache__').map(entry => entry.name).sort();
-    assert.deepEqual([...REFERENCE_HARNESSES], folders);
+  it('names the program of a member\'s own agent, without its arguments', () => {
+    assert.equal(rushProgram('rush aider --yes --message'), 'aider');
+    assert.equal(rushProgram('rush aider'), 'aider');
+    assert.equal(rushProgram('claude'), null);
   });
 
-  it('have reserved names: a member\'s own upload with one is refused, the reference path takes it only under its own name', () => {
-    const named = name => zip({'harness.yaml': MANIFEST.replace('name: my-harness', `name: ${name}`)});
-    assert.throws(() => uploadedHarnessOf(named('claude-code')), {code: 'reserved_harness_name', status: 400});
-    assert.equal(uploadedHarnessOf(named('mine')).name, 'mine');
-    assert.equal(referenceHarnessOf(named('claude-code'), 'claude-code').name, 'claude-code');
-    assert.throws(() => referenceHarnessOf(named('codex'), 'claude-code'), {code: 'reference_name_mismatch'});
-    assert.throws(() => referenceHarnessOf(named('mine'), 'mine'), {code: 'unknown_reference'});
+  it('are the agent CLIs the shell harness\'s bin/ wrappers run (mgen is nanoagent\'s second name)', () => {
+    const wrappers = readdirSync(AGENT_BIN).filter(name => name !== 'mgen').sort();
+    assert.deepEqual([...AGENTS], wrappers);
   });
 });
 
@@ -90,25 +68,34 @@ describe('the benchmark read routes', () => {
     const repository = {
       benchmarks: async (_context, filter) => { seen.push(filter); return []; },
       listRuns: async (_context, filter) => { seen.push(filter); return []; },
-      benchmarkResults: async (_context, _id, filter) => { seen.push(filter); return []; },
     };
-    for (const path of ['/api/benchmark/benchmarks', '/api/benchmark/runs', `/api/benchmark/benchmarks/${ID}/results`]) {
+    for (const path of ['/api/benchmark/benchmarks', '/api/benchmark/runs']) {
       assert.equal((await get(repository, path, {before: '1', limit: '7'})).status, 200, path);
       assert.equal((await get(repository, path, {before: 'nonsense'})).payload.code, 'invalid_request', path);
       assert.equal((await get(repository, path, {limit: '201'})).payload.code, 'invalid_request', path);
     }
     assert.ok(seen.every(filter => filter.before === new Date(Date.parse('1')).toISOString() && filter.limit === 7));
-    assert.equal(seen.length, 3);
+    assert.equal(seen.length, 2);
   });
 
-  it('show one benchmark, and its results, answering 404 unknown_benchmark for any other id', async () => {
+  it('validates and passes a run cursor with its timestamp and run id', async () => {
+    const seen = [];
+    const repository = {listRuns: async (_context, filter) => { seen.push(filter); return []; }};
+    assert.equal((await get(repository, '/api/benchmark/runs', {before: '2026-01-01T00:00:00Z', before_id: ID})).status, 200);
+    assert.deepEqual(seen[0], {limit: 50, before: '2026-01-01T00:00:00.000Z', beforeId: ID});
+    for (const query of [{before_id: ID}, {before: '2026-01-01', before_id: 'bad'}]) {
+      assert.equal((await get(repository, '/api/benchmark/runs', query)).payload.code, 'invalid_request');
+    }
+  });
+
+  it('show one benchmark, answering 404 unknown_benchmark for any other id, and have no route for the results of other members\' runs', async () => {
     const repository = {
       benchmark: async (_context, id) => (id === ID ? {benchmark_id: ID, cases: []} : null),
-      benchmarkResults: async (_context, id, options) => (id === ID ? [{run_id: 'r', options}] : null),
     };
     assert.deepEqual((await get(repository, `/api/benchmark/benchmarks/${ID}`)).payload, {benchmark: {benchmark_id: ID, cases: []}});
-    assert.deepEqual((await get(repository, `/api/benchmark/benchmarks/${ID}/results`, {limit: '5'})).payload.runs[0].options.limit, 5);
-    for (const path of [`/api/benchmark/benchmarks/${ID.replace('1', '2')}`, `/api/benchmark/benchmarks/${ID.replace('1', '2')}/results`, '/api/benchmark/benchmarks/pinned-not', '/api/benchmark/benchmarks/x/results']) {
+    // The route does not match, so the dispatcher answers it as it does any unknown path.
+    assert.equal((await get(repository, `/api/benchmark/benchmarks/${ID}/results`)).status, undefined);
+    for (const path of [`/api/benchmark/benchmarks/${ID.replace('1', '2')}`, '/api/benchmark/benchmarks/pinned-not']) {
       const {status, payload} = await get(repository, path);
       assert.deepEqual([status, payload.code], [404, 'unknown_benchmark'], path);
     }
@@ -127,27 +114,55 @@ describe('POST /api/benchmark/benchmarks', () => {
   });
 });
 
-describe('the reference harness built on the member\'s computer', () => {
-  const ref = name => zip({'harness.yaml': MANIFEST.replace('name: my-harness', `name: ${name}`)});
-  const post = (path, computer, repository) => invoke(route, {method: 'POST', path, requestContext: CONTEXT, ctx: makeCtx({benchmark: {repository, service: {}}, runners: {computer: () => computer}})});
+describe('the routes of the removed features', () => {
+  it('are gone: previews, source uploads, reference harnesses and imports match no route of the benchmark API', async () => {
+    for (const path of ['/api/benchmark/previews', '/api/benchmark/sources', '/api/benchmark/sources/references/codex', '/api/benchmark/sources/references/codex/computer', '/api/benchmark/imports']) {
+      const reply = await invoke(route, {method: 'POST', path, requestContext: CONTEXT, ctx: makeCtx({benchmark: {repository: {}, service: {}}})});
+      assert.equal(reply.status, undefined, path);  // the route answered nothing, so a later route takes the request (and finds none)
+    }
+  });
+});
 
-  it('is stored as the member\'s source under the reference\'s own name', async () => {
-    const saved = [];
-    const repository = {saveSource: async (_context, data, harness) => { saved.push(harness.name); return {harness}; }};
-    const asked = [];
-    const computer = {benchmarkReferenceHarness: async name => { asked.push(name); return {value: ref(name)}; }};
-    assert.equal((await post('/api/benchmark/sources/references/codex/computer', computer, repository)).status, 201);
-    assert.deepEqual([asked, saved], [['codex'], ['codex']]);
+describe('POST /api/benchmark/benchmarks, the publication', () => {
+  it('is read with the larger limit its fixtures need, and refuses the old shape naming the field', async () => {
+    const limits = require('../../../src/server/benchmark/limits.js');
+    const seen = [];
+    const ctx = makeCtx({benchmark: {repository: {}, service: {publish: async () => assert.fail('must not publish')}}});
+    const sent = {name: 'sums', context: 'old', plugin_id: 'p'};
+    ctx.readRawBody = async (req, max) => { seen.push(max); return Buffer.from(JSON.stringify(sent)); };
+    const {status, payload} = await invoke(route, {method: 'POST', path: '/api/benchmark/benchmarks', requestContext: null, ctx});
+    assert.deepEqual([status, payload.code, /context is no longer a field/.test(payload.error)], [400, 'invalid_request', true]);
+    assert.deepEqual(seen, [limits.MAX_PUBLISH_BYTES]);
+    assert.ok(limits.MAX_PUBLISH_BYTES > 10 * 1024 * 1024);
+  });
+});
+
+describe('the worker route for a case\'s fixtures', () => {
+  const workerRoute = require('../../../src/server/routes/benchmark-worker.js');
+  const ATTEMPT = '00000000-0000-4000-8000-000000000009';
+  const asked = (worker, part, headers = {'x-rush-fence': '3'}) => invoke(workerRoute, {
+    method: 'GET', path: `/api/benchmark-worker/attempts/${ATTEMPT}/${part}`, headers: {authorization: 'Bearer cred', ...headers}, auth: null,
+    ctx: makeCtx({benchmark: {worker: {authenticate: async () => 'u', ...worker}}}),
   });
 
-  it('is refused for a name that is no reference, before the computer is asked, and when the computer is offline', async () => {
-    const computer = {benchmarkReferenceHarness: async () => assert.fail('asked')};
-    assert.equal((await post('/api/benchmark/sources/references/mine/computer', computer, {})).payload.code, 'unknown_reference');
-    assert.equal((await post('/api/benchmark/sources/references/codex/computer', null, {})).payload.code, 'runner_offline');
+  it('answers the archive as application/gzip with its sha256, for the lease\'s fence', async () => {
+    const data = Buffer.from('gzipped tar');
+    const calls = [];
+    const reply = await asked({artifact: async (...args) => { calls.push(args); return {data, sha256: 'a'.repeat(64)}; }}, 'fixtures');
+    assert.equal(reply.res.written.status, 200);
+    assert.deepEqual([reply.res.written.headers['Content-Type'], reply.res.written.headers['X-Rush-Sha256'], reply.res.written.body.equals(data)], ['application/gzip', 'a'.repeat(64), true]);
+    assert.deepEqual(calls, [['u', ATTEMPT, 3, 'fixtures']]);
   });
 
-  it('is relayed from NanoAgent\'s GET route', () => {
-    const {allowed} = require('../../../src/runner/protocol.js');
-    assert.ok(allowed('GET', '/v1/benchmark/reference-harnesses/claude-code'));
+  it('answers 404 no_fixtures for a case with none, and 400 without the fence', async () => {
+    const {BenchmarkError} = require('../../../src/server/benchmark/errors.js');
+    const none = await asked({artifact: async () => { throw new BenchmarkError(404, 'no_fixtures', 'none'); }}, 'fixtures');
+    assert.deepEqual([none.status, none.payload.code], [404, 'no_fixtures']);
+    const unfenced = await asked({artifact: async () => assert.fail('asked')}, 'fixtures', {});
+    assert.deepEqual([unfenced.status, unfenced.payload.code], [400, 'invalid_request']);
+  });
+
+  it('has no source and no case route: the harness is no ZIP, and a claim carries its case', async () => {
+    for (const part of ['source', 'case']) assert.equal((await asked({}, part)).status, 404, part);
   });
 });

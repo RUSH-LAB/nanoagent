@@ -132,10 +132,13 @@ class Terminal:
                     if not chunk:
                         break
                     sent = self._sent.get(terminal, 0)
-                    await self._worker.terminal(self._attempt_id, self._fence, terminal, sent, chunk)
-                    with self._lock:
-                        del self._pending[terminal][: len(chunk)]
-                    self._sent[terminal] = sent + len(chunk)
+                    # Shielded: the pump is cancelled when the case ends, and a request cancelled after RUSH kept the chunk would leave
+                    # it pending, to be resent at the same offset with the output that came since: RUSH refuses those bytes as a conflict.
+                    with anyio.CancelScope(shield=True):
+                        await self._worker.terminal(self._attempt_id, self._fence, terminal, sent, chunk)
+                        with self._lock:
+                            del self._pending[terminal][: len(chunk)]
+                        self._sent[terminal] = sent + len(chunk)
             for terminal in sorted(ended - self._closed):
                 await self._worker.terminal_closed(self._attempt_id, self._fence, terminal)
                 self._closed.add(terminal)

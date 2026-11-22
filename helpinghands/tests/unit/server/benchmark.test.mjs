@@ -1,92 +1,22 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {readFileSync} from 'node:fs';
-import {fileURLToPath} from 'node:url';
+import {gzipSync} from 'node:zlib';
 
 const require = createRequire(import.meta.url);
-const yaml = require('js-yaml');
-const {
-  canonicalJson, normalizeInstructions, pythonFormat, pythonJson, renderCoding, renderTaskTools, DEFAULT_CODING_TEMPLATE, RENDERER_VERSION, sha256Hex,
-} = require('../../../src/server/benchmark/prompt.js');
-const {DEFAULT_LIMITS, LIMIT_FIELDS, capabilitiesOf, effectiveLimits, exceeded, limitOverrides} = require('../../../src/server/benchmark/limits.js');
-const {checkWorkers, resolve, changedParts} = require('../../../src/server/benchmark/plan.js');
+const {canonicalJson, sha256Hex} = require('../../../src/server/benchmark/prompt.js');
+const {RUN_ENDPOINT, RUN_MODEL, DEFAULT_LIMITS, LIMIT_FIELDS, capabilitiesOf, effectiveLimits, exceeded, limitOverrides} = require('../../../src/server/benchmark/limits.js');
+const {checkWorkers, resolve} = require('../../../src/server/benchmark/plan.js');
 const {overBudget, runScore, sumMetrics} = require('../../../src/server/benchmark/rules.js');
 const {parseJson, stringifyJson} = require('../../../src/server/benchmark/json.js');
-const {benchmarkPublication, claimBody, finalizeBody, previewBody, runBody} = require('../../../src/server/benchmark/validate.js');
+const {benchmarkPublication, claimBody, finalizeBody, runBody} = require('../../../src/server/benchmark/validate.js');
 
-const fixture = name => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
-const PARITY = JSON.parse(readFileSync(fixture('benchmark-prompt-parity.json'), 'utf8'));
-const STEP2_CONFIG = fileURLToPath(new URL('../../../../nanoagent/examples/benchmark/configs/step2_single_run.yaml', import.meta.url));
-
-describe('benchmark prompt renderer', () => {
-  it('is named rush.prompt.v1', () => assert.equal(RENDERER_VERSION, 'rush.prompt.v1'));
-
-  it('keeps its default coding template equal to the plugin benchmark config\'s prompt', () => {
-    assert.equal(DEFAULT_CODING_TEMPLATE, yaml.load(readFileSync(STEP2_CONFIG, 'utf8')).prompt);
-  });
-
-  // The fixtures are what Python's real task_prompt, decide_prompt and str.format produced (fixtures/benchmark_prompt_parity.py).
-  for (const [index, recorded] of PARITY.entries()) {
-    // The task and arguments are read the way the server reads a publication, so a number keeps the spelling Python wrote.
-    const sample = {...recorded, ...parseJson(recorded.input_json)};
-    describe(`parity with Python, sample ${index + 1} (${sample.kind})`, () => {
-      const task = sample.task;
-
-      it('renders the coding prompt as other_work formats it', () => {
-        const prompt = renderCoding(DEFAULT_CODING_TEMPLATE, {task, context: sample.context, args: sample.arguments});
-        assert.equal(prompt.system, null);
-        assert.equal(prompt.user, sample.coding);
-        assert.equal(prompt.sha256, sha256Hex(canonicalJson({system: null, user: sample.coding})));
-      });
-
-      it('renders a custom template with Python str.format semantics', () => {
-        assert.equal(renderCoding(sample.custom_template, {task, context: sample.context, args: sample.arguments}).user, sample.custom_coding);
-      });
-
-      it('renders the task tools prompt as task_prompt or decide_prompt builds it', () => {
-        const prompt = renderTaskTools({pluginName: sample.plugin_name, task, instructions: task.instructions, args: sample.arguments});
-        assert.equal(prompt.system, sample.task_tools.system);
-        assert.equal(prompt.user, sample.task_tools.user);
-      });
-    });
-  }
-
-  it('puts the run\'s instructions in place of the task\'s in the task tools prompt', () => {
-    const [recorded] = PARITY;
-    const sample = {...recorded, ...parseJson(recorded.input_json)};
-    const prompt = renderTaskTools({pluginName: sample.plugin_name, task: sample.task, instructions: 'Custom steps', args: sample.arguments});
-    assert.equal(prompt.system, sample.task_tools.system.replace(sample.task.instructions, 'Custom steps'));
-  });
-
-  it('formats like Python: braces escape, an unknown placeholder or a stray brace is an error', () => {
-    assert.equal(pythonFormat('{{a}} {x}', {x: '1'}), '{a} 1');
-    assert.throws(() => pythonFormat('{nope}', {x: '1'}), {code: 'invalid_template'});
-    assert.throws(() => pythonFormat('{}', {x: '1'}), {code: 'invalid_template'});
-    assert.throws(() => pythonFormat('{x!r}', {x: '1'}), {code: 'invalid_template'});
-    assert.throws(() => pythonFormat('{x:>3}', {x: '1'}), {code: 'invalid_template'});
-    assert.throws(() => pythonFormat('{x.y}', {x: '1'}), {code: 'invalid_template'});
-    assert.throws(() => pythonFormat('a } b', {x: '1'}), {code: 'invalid_template'});
-    assert.throws(() => pythonFormat('a { b', {x: '1'}), {code: 'invalid_template'});
-  });
-
-  it('prints JSON as Python\'s json.dumps(indent=2) does: key order kept, non-ASCII escaped in lowercase', () => {
-    assert.equal(pythonJson({b: 1, a: ['é', {}], c: []}), '{\n  "b": 1,\n  "a": [\n    "\\u00e9",\n    {}\n  ],\n  "c": []\n}');
-    assert.equal(pythonJson({s: '😀'}), '{\n  "s": "\\ud83d\\ude00"\n}');
-  });
-
-  it('prints a number as the spelling it was read with, and a JavaScript number as Python\'s repr would', () => {
-    assert.equal(pythonJson(parseJson('[1.0, 1e-05, 1E5, -0.0, 12345678901234567890, 7, -0]')), '[\n  1.0,\n  1e-05,\n  1E5,\n  -0.0,\n  12345678901234567890,\n  7,\n  0\n]');
-    assert.equal(pythonJson([0.1, 1e-7, 0.0001, 1.5e16, 1e22, 2 ** 60, 123456789.5, 3]), '[\n  0.1,\n  1e-07,\n  0.0001,\n  1.5e+16,\n  1e+22,\n  1.152921504606847e+18,\n  123456789.5,\n  3\n]');
+describe('benchmark JSON', () => {
+  it('prints a number as the spelling it was read with', () => {
     assert.equal(stringifyJson(parseJson('{"a":1.0,"b":[1e-05,12345678901234567890,2]}')), '{"a":1.0,"b":[1e-05,12345678901234567890,2]}');
     assert.equal(JSON.stringify(new Date(0)), stringifyJson(new Date(0)), 'plain values are written as JSON.stringify writes them');
     assert.equal(canonicalJson(parseJson('{"b":1.0,"a":[2.50]}')), '{"a":[2.50],"b":1.0}');
     assert.notEqual(canonicalJson(parseJson('{"a":1.0}')), canonicalJson(parseJson('{"a":1}')));
-  });
-
-  it('strips what Python strips, not what trim strips', () => {
-    const prompt = renderCoding('{context}', {task: {description: '', input_schema: {}, output_schema: {}}, context: '\x1c\x85 \n\u00a0 a b \u3000\n\ufeff', args: {}});
-    assert.equal(prompt.user, 'a b \u3000\n\ufeff');
   });
 
   it('keeps empty containers compact and orders canonical keys by code point, not UTF-16 unit', () => {
@@ -100,12 +30,6 @@ describe('benchmark prompt renderer', () => {
     assert.throws(() => canonicalJson({a: undefined}), {code: 'invalid_json_value'});
   });
 
-  it('normalizes CRLF and CR to LF and nothing else, and refuses blank text', () => {
-    assert.equal(normalizeInstructions('a\r\nb\rc\n  d \t'), 'a\nb\nc\n  d \t');
-    assert.throws(() => normalizeInstructions(' \r\n\t'), {code: 'empty_instructions'});
-    assert.throws(() => normalizeInstructions(''), {code: 'empty_instructions'});
-  });
-
   it('hashes the exact UTF-8 text', () => {
     assert.equal(sha256Hex('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
   });
@@ -114,7 +38,7 @@ describe('benchmark prompt renderer', () => {
 describe('benchmark limits', () => {
   it('defaults to today\'s per-attempt budgets and worker sandbox limits, internet on', () => {
     assert.deepEqual(DEFAULT_LIMITS, {
-      wall_time_ms: 600000, max_model_calls: 50, max_output_tokens_per_call: 4096, max_cost_usd: 1.5,
+      wall_time_ms: 600000, max_model_calls: 50, max_output_tokens_per_call: 32768, max_cost_usd: 1.5,
       cpus: 1, memory_mb: 1024, pids: 256, workspace_bytes: 268435456, workspace_files: 20000, tmp_bytes: 67108864, build_wall_ms: 600000,
       build_memory_mb: 3072, build_output_bytes: 1073741824, build_files: 100000, build_tmp_bytes: 536870912, internet_access: true,
     });
@@ -165,17 +89,20 @@ describe('benchmark limits', () => {
 });
 
 const TASK = {
-  kind: 'agent', egress_hosts: ['api.example.com'], description: 'Sum', instructions: 'Add them', input_schema: {type: 'object'}, output_schema: {type: 'object', properties: {sum: {type: 'number'}}},
+  kind: 'agent', egress_hosts: ['api.example.com'], description: 'Sum', input_schema: {type: 'object'}, output_schema: {type: 'object', properties: {sum: {type: 'number'}}},
   tools: [{name: 'read', description: 'Reads', input_schema: {type: 'object'}, output_schema: {type: 'object'}, writes: false}],
 };
+const ARCHIVE = gzipSync(Buffer.from('a tar, as far as the server can tell'));
+const FIXTURES = {sha256: sha256Hex(ARCHIVE), files: {'inputs/a.csv': 'b'.repeat(64)}, archive: ARCHIVE.toString('base64')};
 const publication = (extra = {}) => ({
-  name: 'sums-1', plugin_id: 'p', plugin_name: 'Plugin P', version: '1', package_sha256: 'a'.repeat(64), task_id: 't', task: structuredClone(TASK), context: 'Numbers only',
+  name: 'sums-1', plugin_id: 'p', plugin_name: 'Plugin P', version: '1', package_sha256: 'a'.repeat(64), task_id: 't', task: structuredClone(TASK),
   cases: [
-    {case_id: 'a1', kind: 'answer', arguments: {x: 1}}, {case_id: 'r1', kind: 'refuse', arguments: {x: 'bad'}, expected_error: 'x must be a number'},
-    {case_id: 'a2', kind: 'answer', arguments: {x: 2}}, {case_id: 'r2', kind: 'refuse', arguments: {x: null}, expected_error: 'x is required'},
+    {case_id: 'a1', kind: 'answer', prompt: 'Add x: 1', arguments: {x: 1}, fixtures: structuredClone(FIXTURES), expected_error: null},
+    {case_id: 'r1', kind: 'refuse', prompt: 'Add x: bad', arguments: {x: 'bad'}, fixtures: null, expected_error: 'x must be a number'},
+    {case_id: 'a2', kind: 'answer', prompt: 'Add x: 2', arguments: {x: 2}, fixtures: null, expected_error: null},
+    {case_id: 'r2', kind: 'refuse', prompt: 'Add x: nothing', arguments: {x: null}, fixtures: null, expected_error: 'x is required'},
   ],
   private: {a1: {sum: 1}, r1: 'x must be a number', a2: null, r2: 'x is required'},
-  model: 'vendor/model', endpoint_profile: 'mock',
   ...extra,
 });
 const published = (extra, mutate) => {
@@ -183,46 +110,58 @@ const published = (extra, mutate) => {
   mutate?.(body);
   return benchmarkPublication(body);
 };
-/** A benchmark as the repository reads it: the publication's public parts. */
+/** A benchmark as the repository reads it: the publication's public parts, a case's fixtures as `{sha256, files}`. */
 const benchmarkFor = (body = publication(), extra = {}) => {
   const made = benchmarkPublication(body);
   return {
     benchmark_id: '00000000-0000-4000-8000-000000000001', name: made.name, plugin: {id: made.plugin_id, name: made.plugin_name, version: made.version, sha256: made.package_sha256},
-    task: made.task, context: made.context, model: made.model, endpoint_profile: made.endpoint_profile, limits: made.limits, coding_template: made.coding_template,
-    task_instructions: made.task_instructions, digest: made.digest, cases: made.cases.map(({reference_sha256: _ref, ...c}) => c), ...extra,
+    task: made.task, model: made.model, endpoint_profile: made.endpoint_profile, limits: made.limits, digest: made.digest,
+    cases: made.cases.map(({reference_sha256: _ref, fixtures, ...c}) => ({...c, fixtures: fixtures && {sha256: fixtures.sha256, files: fixtures.files}})), ...extra,
   };
 };
 
 describe('benchmark publication', () => {
-  it('derives per-case content digests from kind, arguments, expected error and the reference digest', () => {
+  it('derives per-case content digests from kind, prompt, arguments, fixtures digest and files, expected error and the reference digest', () => {
     const {cases} = published();
     const reference = sha256Hex(canonicalJson({sum: 1}));
     assert.equal(cases[0].reference_sha256, reference);
-    assert.equal(cases[0].content_digest, sha256Hex(canonicalJson({kind: 'answer', arguments: {x: 1}, expected_error: null, reference_sha256: reference})));
+    assert.equal(cases[0].prompt_sha256, sha256Hex('Add x: 1'));
+    assert.equal(cases[0].content_digest, sha256Hex(canonicalJson({
+      kind: 'answer', prompt: 'Add x: 1', arguments: {x: 1}, fixtures_sha256: FIXTURES.sha256, fixtures_files: FIXTURES.files, expected_error: null, reference_sha256: reference,
+    })));
     assert.equal(cases[2].reference_sha256, sha256Hex('null'), 'a task judged without a reference pins JSON null');
     assert.equal(cases[1].content_digest, sha256Hex(canonicalJson({
-      kind: 'refuse', arguments: {x: 'bad'}, expected_error: 'x must be a number', reference_sha256: sha256Hex(canonicalJson('x must be a number')),
+      kind: 'refuse', prompt: 'Add x: bad', arguments: {x: 'bad'}, fixtures_sha256: null, fixtures_files: null, expected_error: 'x must be a number', reference_sha256: sha256Hex(canonicalJson('x must be a number')),
     })));
   });
 
-  it('gives the case set a digest that changes with a reference, the task, the context or the package, and not with the run configuration', () => {
+  it('keeps the prompt byte for byte and the archive as bytes whose digest it checked', () => {
+    const made = published({}, body => { body.cases[2].prompt = 'a\r\n  b\tc'; });
+    assert.equal(made.cases[2].prompt, 'a\r\n  b\tc');
+    assert.ok(Buffer.isBuffer(made.cases[0].fixtures.archive));
+    assert.equal(sha256Hex(made.cases[0].fixtures.archive), FIXTURES.sha256);
+    assert.deepEqual(made.cases[0].fixtures.files, FIXTURES.files);
+    assert.equal(made.cases[1].fixtures, null);
+  });
+
+  it('gives the case set a digest that changes with a prompt, a fixture, a reference, the task or the package, and not with the run configuration', () => {
     const first = published().case_set_digest;
     assert.equal(published().case_set_digest, first);
     assert.notEqual(published({}, body => { body.private.a1.sum = 2; }).case_set_digest, first);
-    assert.notEqual(published({}, body => { body.task.instructions = 'Other'; }).case_set_digest, first);
-    assert.notEqual(published({context: 'More'}).case_set_digest, first);
+    assert.notEqual(published({}, body => { body.cases[2].prompt = 'Add 2'; }).case_set_digest, first);
+    assert.notEqual(published({}, body => { body.cases[2].fixtures = structuredClone(FIXTURES); }).case_set_digest, first);
+    // The same archive with another file list (which the worker would refuse on unpacking) never shares the case set of the right one.
+    assert.notEqual(published({}, body => { body.cases[0].fixtures.files = {'other.csv': 'd'.repeat(64)}; }).case_set_digest, first);
+    assert.notEqual(published({}, body => { body.task.description = 'Other'; }).case_set_digest, first);
     assert.notEqual(published({package_sha256: 'b'.repeat(64)}).case_set_digest, first);
-    assert.equal(published({model: 'other/model'}).case_set_digest, first);
+    assert.equal(published({limits: {max_model_calls: 3}}).case_set_digest, first);
   });
 
   it('gives the benchmark a digest of the case set and the pinned configuration', () => {
     const first = published();
-    assert.equal(first.digest, sha256Hex(canonicalJson({
-      case_set_digest: first.case_set_digest, model: 'vendor/model', endpoint_profile: 'mock', limits: DEFAULT_LIMITS,
-      coding_template: DEFAULT_CODING_TEMPLATE, task_instructions: 'Add them',
-    })));
+    assert.equal(first.digest, sha256Hex(canonicalJson({case_set_digest: first.case_set_digest, model: RUN_MODEL, endpoint_profile: RUN_ENDPOINT, limits: DEFAULT_LIMITS})));
     assert.equal(published().digest, first.digest);
-    for (const extra of [{model: 'other/model'}, {endpoint_profile: 'real'}, {limits: {max_model_calls: 3}}, {coding_template: 'Do {description}'}, {task_instructions: 'Other steps'}]) {
+    for (const extra of [{limits: {max_model_calls: 3}}]) {
       assert.notEqual(published(extra).digest, first.digest, JSON.stringify(extra));
     }
     assert.equal(published({limits: {internet_access: false}}).limits.internet_access, false);
@@ -234,21 +173,39 @@ describe('benchmark publication', () => {
     assert.deepEqual([made.limits.cpus, made.limits.max_cost_usd], [0.5, DEFAULT_LIMITS.max_cost_usd]);
   });
 
-  it('pins both prompts as text: the defaults when none is given, normalized text otherwise', () => {
-    const made = published();
-    assert.deepEqual([made.coding_template, made.task_instructions], [DEFAULT_CODING_TEMPLATE, 'Add them']);
-    const own = published({coding_template: 'a\r\nb {description}', task_instructions: 'Use\r\nread'});
-    assert.deepEqual([own.coding_template, own.task_instructions], ['a\nb {description}', 'Use\nread']);
-    assert.throws(() => published({coding_template: '{bogus}'}), {code: 'invalid_template'});
-    assert.throws(() => published({coding_template: ' '}), {code: 'empty_template'});
-    assert.throws(() => published({task_instructions: ''}), {code: 'empty_instructions'});
+  it('refuses the old shape, naming the field: context, a coding template, task instructions, a case without a prompt', () => {
+    const refusal = (mutate, message) => assert.throws(() => published({}, mutate), {code: 'invalid_request', message});
+    refusal(body => { body.context = 'Numbers only'; }, /context is no longer a field/);
+    refusal(body => { body.coding_template = 'Do {description}'; }, /coding_template is no longer a field/);
+    refusal(body => { body.task_instructions = 'Add them'; }, /task_instructions is no longer a field/);
+    refusal(body => { body.task.instructions = 'Add them'; }, /task\.instructions is no longer a field/);
+    refusal(body => { delete body.cases[0].prompt; }, /Case a1's prompt/);
+    refusal(body => { body.cases[0].context = 'x'; }, /Case a1 has context, which is no field of a case/);
+    refusal(body => { delete body.cases[0].fixtures; }, /Case a1's fixtures/);
+    refusal(body => { body.cases[0].prompt = '  \n'; }, /Case a1's prompt/);
   });
 
-  it('refuses an object key of digits only in what a prompt prints, which JavaScript would reorder', () => {
-    for (const mutate of [body => { body.cases[0].arguments = {'2': 1, a: 2}; }, body => { body.task.input_schema = {properties: {'10': {}}}; }]) {
-      assert.throws(() => published({}, mutate), {code: 'unsupported_key'});
+  it('checks a case\'s fixtures: the archive\'s digest, its size and its files\' paths and digests', () => {
+    const refusal = (mutate, expected) => assert.throws(() => published({}, body => mutate(body.cases[0].fixtures)), expected);
+    refusal(fixtures => { fixtures.sha256 = 'c'.repeat(64); }, {code: 'invalid_request', message: /does not hash to its sha256/});
+    refusal(fixtures => { fixtures.sha256 = 'XYZ'; }, {code: 'invalid_request', message: /SHA-256/});
+    refusal(fixtures => { fixtures.archive = '%%%%'; }, {code: 'invalid_request', message: /as base64/});
+    refusal(fixtures => { fixtures.archive = ''; }, {code: 'invalid_request', message: /as base64|empty/});
+    refusal(fixtures => { fixtures.extra = 1; }, {code: 'invalid_request', message: /extra, which is no field/});
+    for (const path of ['../a', 'a/../b', '/abs/a', 'a//b', './a', 'a/.', 'a\\b', '']) {
+      refusal(fixtures => { fixtures.files = {[path]: 'b'.repeat(64)}; }, {code: 'invalid_request', message: /relative POSIX path/});
     }
-    assert.doesNotThrow(() => published({}, body => { body.cases[0].arguments = {x: 1, '007': 2, '-1': 3}; }));
+    refusal(fixtures => { fixtures.files = {'a.csv': 'nothex'}; }, {code: 'invalid_request', message: /digest of a\.csv/});
+    refusal(fixtures => { fixtures.files = ['a.csv']; }, {code: 'invalid_request', message: /files must be an object/});
+    assert.doesNotThrow(() => published({}, body => { body.cases[0].fixtures.files = {'a/b/c.txt': 'b'.repeat(64), 'dir/.hidden': 'b'.repeat(64)}; }));
+  });
+
+  it('refuses fixtures over 8 MiB decoded with fixtures_too_large, without decoding them', () => {
+    const big = Buffer.alloc(8 * 1024 * 1024 + 1, 1);
+    const fixtures = {sha256: sha256Hex(big), files: {}, archive: big.toString('base64')};
+    assert.throws(() => published({}, body => { body.cases[0].fixtures = fixtures; }), {code: 'fixtures_too_large', status: 400});
+    const edge = Buffer.alloc(8 * 1024 * 1024, 1);
+    assert.doesNotThrow(() => published({}, body => { body.cases[0].fixtures = {sha256: sha256Hex(edge), files: {}, archive: edge.toString('base64')}; }));
   });
 
   it('keeps no scoring mode, scale, weights, explanations, tool policy, toolchains or hooks anywhere', () => {
@@ -273,54 +230,30 @@ describe('benchmark publication', () => {
     refused(body => { delete body.task.egress_hosts; });
     refused(body => { body.name = 'Bad Name'; });
     refused(body => { delete body.plugin_name; });
-    refused(body => { delete body.model; });
-    refused(body => { delete body.endpoint_profile; });
+    refused(body => { body.model = 'other/model'; });
+    refused(body => { body.endpoint_profile = 'other'; });
     refused(body => { body.limits = {nope: 1}; });
     refused(body => { body.limits = {memory_mb: 0}; });
   });
 });
 
-const capabilities = {...DEFAULT_LIMITS, models: ['vendor/model']};
+const capabilities = {...DEFAULT_LIMITS, models: [RUN_MODEL]};
 
 describe('benchmark run resolution', () => {
-  it('renders every case of the benchmark under the coding policy with its pinned template, pinning prompt text, model and limits', () => {
-    const {plan, cases, digest} = resolve({benchmark: benchmarkFor(), policy: 'coding', capabilities});
-    assert.deepEqual(cases.map(c => c.case_id), ['a1', 'r1', 'a2', 'r2']);
-    assert.deepEqual([plan.prompt.source, plan.prompt.text, plan.policy, plan.model, plan.endpoint_profile], ['benchmark', DEFAULT_CODING_TEMPLATE, 'coding', 'vendor/model', 'mock']);
-    assert.equal(cases[0].prompt.user, renderCoding(DEFAULT_CODING_TEMPLATE, {task: TASK, context: 'Numbers only', args: {x: 1}}).user);
-    assert.equal(cases[0].prompt.system, null);
-    assert.match(digest, /^[0-9a-f]{64}$/);
-    assert.deepEqual(plan.limits, DEFAULT_LIMITS);
-    assert.equal(plan.egress_hosts, null, 'no tool container under coding');
-  });
-
-  it('renders the benchmark\'s own template', () => {
-    const benchmark = benchmarkFor(publication({coding_template: 'Do {description}: {arguments}'}));
-    const {cases} = resolve({benchmark, policy: 'coding', capabilities});
-    assert.equal(cases[0].prompt.user, 'Do Sum: {\n  "x": 1\n}');
-  });
-
-  it('renders the task tools policy from the benchmark\'s instructions', () => {
-    const byDefault = resolve({benchmark: benchmarkFor(), policy: 'task_tools', capabilities});
-    assert.equal(byDefault.plan.prompt.text, 'Add them');
-    assert.deepEqual(byDefault.plan.egress_hosts, ['api.example.com']);
-    assert.equal(byDefault.cases[0].prompt.user, 'Task input:\n{\n  "x": 1\n}');
-    const custom = resolve({benchmark: benchmarkFor(publication({task_instructions: 'Use read'})), policy: 'task_tools', capabilities});
-    assert.match(custom.cases[0].prompt.system, /Task: Sum\.\nUse read\n\nWhen the task is done, call submit with its result\.$/);
-  });
-
-  it('puts the whole decide prompt in the system message', () => {
-    const {cases} = resolve({benchmark: benchmarkFor(publication({task: {...TASK, kind: 'decide'}})), policy: 'task_tools', capabilities});
-    assert.equal(cases[0].prompt.user, null);
-    assert.match(cases[0].prompt.system, /^You decide one task worked with the Plugin P plugin's tools\./);
+  it('takes every case of the benchmark in its order, with the benchmark\'s limits', () => {
+    const {cases, limits} = resolve({benchmark: benchmarkFor(), capabilities});
+    assert.deepEqual(cases.map(c => [c.case_id, c.position]), [['a1', 0], ['r1', 1], ['a2', 2], ['r2', 3]]);
+    assert.equal(cases[0].prompt, 'Add x: 1');
+    assert.deepEqual(cases[0].fixtures, {sha256: FIXTURES.sha256, files: FIXTURES.files});
+    assert.deepEqual(limits, DEFAULT_LIMITS);
   });
 
   it('refuses limits beyond the workers\' and an endpoint no worker advertised for', () => {
     const big = benchmarkFor(publication({limits: {memory_mb: 4096}}));
-    assert.throws(() => resolve({benchmark: big, policy: 'coding', capabilities}), {code: 'limit_exceeds_worker'});
-    assert.throws(() => resolve({benchmark: benchmarkFor(), policy: 'coding', capabilities: null}), {code: 'worker_unavailable', status: 409});
-    assert.throws(() => checkWorkers(DEFAULT_LIMITS, 'vendor/model', {...capabilities, internet_access: false}, 'mock'), {code: 'limit_exceeds_worker'});
-    assert.doesNotThrow(() => checkWorkers({...DEFAULT_LIMITS, memory_mb: 512}, 'vendor/model', capabilities, 'mock'));
+    assert.throws(() => resolve({benchmark: big, capabilities}), {code: 'limit_exceeds_worker'});
+    assert.throws(() => resolve({benchmark: benchmarkFor(), capabilities: null}), {code: 'worker_unavailable', status: 409});
+    assert.throws(() => checkWorkers(DEFAULT_LIMITS, RUN_MODEL, {...capabilities, internet_access: false}, 'mock'), {code: 'limit_exceeds_worker'});
+    assert.doesNotThrow(() => checkWorkers({...DEFAULT_LIMITS, memory_mb: 512}, RUN_MODEL, capabilities, 'mock'));
   });
 
   it('has no concurrency of a run\'s own: a request that sends one is refused as an unknown limit, naming where it is set', () => {
@@ -330,17 +263,9 @@ describe('benchmark run resolution', () => {
   });
 
   it('refuses a model no worker of the endpoint prices, naming what they price', () => {
-    const unpriced = benchmarkFor(publication({model: 'other/model'}));
-    assert.throws(() => resolve({benchmark: unpriced, policy: 'coding', capabilities}), {code: 'unknown_model', status: 400, extra: {model: 'other/model', models: ['vendor/model']}});
-    assert.throws(() => checkWorkers(DEFAULT_LIMITS, 'other/model', capabilities, 'mock'), {code: 'unknown_model', message: /vendor\/model/});
-  });
-
-  it('digests a plan from what it pins, so a changed prompt or policy is stale', () => {
-    const base = resolve({benchmark: benchmarkFor(), policy: 'coding', capabilities});
-    assert.equal(resolve({benchmark: benchmarkFor(), policy: 'coding', capabilities}).digest, base.digest);
-    const other = resolve({benchmark: benchmarkFor(), policy: 'task_tools', capabilities});
-    assert.notEqual(other.digest, base.digest);
-    assert.deepEqual(changedParts(base.plan, other.plan).sort(), ['cases', 'egress_hosts', 'policy', 'prompt']);
+    const unpriced = benchmarkFor(publication(), {model: 'other/model'});
+    assert.throws(() => resolve({benchmark: unpriced, capabilities}), {code: 'unknown_model', status: 400, extra: {model: 'other/model', models: [RUN_MODEL]}});
+    assert.throws(() => checkWorkers(DEFAULT_LIMITS, 'other/model', capabilities, 'mock'), {code: 'unknown_model', message: /deepseek/});
   });
 });
 
@@ -359,6 +284,14 @@ describe('benchmark run score and budgets', () => {
     assert.equal(runScore(['a'], [attempt('a', 1, 'final', null)]).unavailable_reason, 'no_scored_cases');
     const failed = runScore(['a'], [attempt('a', 1, 'final', null, {verifier_error: 'boom'})]);
     assert.deepEqual([failed.value, failed.unavailable_reason, failed.verifier_errors], [null, 'verifier_error', 1]);
+  });
+
+  it('does not grade a run with a case in a worker error, and counts a retry in flight as the case\'s attempt instead', () => {
+    const errored = attempt('b', 3, 'final', null, {execution_status: 'worker_error'});
+    const graded = runScore(['a', 'b'], [attempt('a', 1, 'final', 'pass'), errored]);
+    assert.deepEqual([graded.value, graded.unavailable_reason, graded.complete], [null, 'worker_error', true]);
+    const retrying = runScore(['a', 'b'], [attempt('a', 1, 'final', 'pass'), attempt('b', 1, 'final', null, {execution_status: 'worker_error'}), attempt('b', 2, 'queued')]);
+    assert.deepEqual([retrying.value, retrying.unavailable_reason, retrying.complete], [1, null, false]);
   });
 
   it('sums metrics and counts the attempts that did not report a field', () => {
@@ -405,24 +338,42 @@ describe('benchmark request validation', () => {
     assert.throws(() => finalizeBody({...base, execution: {status: 'execution_failed'}, verifier_error: 'boom'}), {code: 'verdict_not_allowed'});
   });
 
-  it('takes exactly a benchmark and a policy to preview, and refuses anything else', () => {
-    const id = '00000000-0000-4000-8000-000000000001';
-    assert.deepEqual(previewBody({benchmark_id: id, policy: 'task_tools'}), {benchmark_id: id, policy: 'task_tools'});
-    for (const extra of [{model: 'm'}, {limits: {}}, {dialects: ['responses']}, {prompt: {}}, {endpoint_profile: 'mock'}, {selection: {}}]) {
-      assert.throws(() => previewBody({benchmark_id: id, policy: 'coding', ...extra}), {code: 'invalid_request'});
-    }
-    assert.throws(() => previewBody({benchmark_id: 'x', policy: 'coding'}), {code: 'invalid_request'});
-    assert.throws(() => previewBody({benchmark_id: id, policy: 'other'}), {code: 'invalid_request'});
-    assert.throws(() => previewBody({policy: 'coding'}), {code: 'invalid_request'});
+  it('keeps the verifier\'s checks, names and statuses only, with the verdict they explain', () => {
+    const checks = [{name: 'outcome_exists', status: 'passed'}, {name: 'schema_valid', status: 'failed'}, {name: 'values_match', status: 'skipped'}];
+    assert.deepEqual(finalizeBody({...base, verdict: 'fail', checks}).final.checks, checks);
+    assert.equal(finalizeBody({...base, verdict: 'pass'}).final.checks, null);
+    assert.throws(() => finalizeBody({...base, checks}), {code: 'invalid_request', message: /checks come only with a verdict/});
+    assert.throws(() => finalizeBody({...base, verdict: 'fail', checks: [{name: 'a', status: 'maybe'}]}), {code: 'invalid_request', message: /status/});
+    assert.throws(() => finalizeBody({...base, verdict: 'fail', checks: [{name: 'a', status: 'passed', message: 'm'}]}), {code: 'invalid_request', message: /message/});
+    assert.throws(() => finalizeBody({...base, verdict: 'fail', checks: [{status: 'passed'}]}), {code: 'invalid_request'});
+    assert.throws(() => finalizeBody({...base, verdict: 'fail', checks: 'passed'}), {code: 'invalid_request'});
   });
 
-  it('digests a run request independent of key order, and wants all five fields and no other', () => {
-    const body = {
-      benchmark_id: '00000000-0000-4000-8000-000000000001', policy: 'coding', idempotency_key: 'k', preview_id: '00000000-0000-4000-8000-000000000000', source_sha256: 'a'.repeat(64),
-    };
+  it('knows no build_failed attempt: a harness is never built', () => {
+    assert.throws(() => finalizeBody({...base, execution: {status: 'build_failed'}}), {code: 'invalid_request'});
+  });
+
+  it('takes a benchmark, a harness and a key to run, and no case selection', () => {
+    const id = '00000000-0000-4000-8000-000000000001';
+    const body = {benchmark_id: id, harness: 'claude', idempotency_key: 'k'};
+    assert.deepEqual(runBody(body), {...body, request_digest: runBody(body).request_digest});
+    assert.equal(runBody({...body, harness: 'rush aider'}).harness, 'rush aider');
+    for (const harness of ['claude-code', 'rush', 'rush ', 'rush a  b', 'shell', 'Claude', undefined, 1]) {
+      assert.throws(() => runBody({...body, harness}), {code: 'unknown_harness', status: 400}, String(harness));
+    }
+    for (const bad of [{benchmark_id: 'x'}, {idempotency_key: ''}, {cases: ['a1']}, {interactive: true}]) {
+      assert.throws(() => runBody({...body, ...bad}), {code: 'invalid_request'}, JSON.stringify(bad));
+    }
+  });
+
+  it('digests a run request independent of key order, by what it names', () => {
+    const body = {benchmark_id: '00000000-0000-4000-8000-000000000001', harness: 'claude', idempotency_key: 'k'};
     assert.equal(runBody(body).request_digest, runBody({...Object.fromEntries(Object.entries(body).reverse())}).request_digest);
-    assert.notEqual(runBody({...body, policy: 'task_tools'}).request_digest, runBody(body).request_digest);
-    for (const field of Object.keys(body)) assert.throws(() => runBody({...body, [field]: undefined}), {code: 'invalid_request'}, field);
-    for (const extra of [{model: 'm'}, {dialects: ['responses']}, {limits: {}}]) assert.throws(() => runBody({...body, ...extra}), {code: 'invalid_request'});
+    assert.notEqual(runBody({...body, harness: 'codex'}).request_digest, runBody(body).request_digest);
+    for (const field of Object.keys(body)) assert.throws(() => runBody({...body, [field]: undefined}), {code: field === 'harness' ? 'unknown_harness' : 'invalid_request'}, field);
+    // The policy, previews and sources are gone from a run.
+    for (const extra of [{policy: 'coding'}, {preview_id: '00000000-0000-4000-8000-000000000000'}, {source_sha256: 'a'.repeat(64)}, {model: 'm'}, {limits: {}}]) {
+      assert.throws(() => runBody({...body, ...extra}), {code: 'invalid_request'});
+    }
   });
 });

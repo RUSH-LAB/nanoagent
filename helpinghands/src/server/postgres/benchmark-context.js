@@ -34,7 +34,7 @@ async function inTransaction(pool, {userId = null, workspaceId = null, system = 
 }
 
 /**
- * Refuse `bytes` more of member `userId`'s storage (source ZIPs, attempt payloads and the evidence an attempt stores) if it would pass MEMBER_STORAGE_BYTES. Call it in the
+ * Refuse `bytes` more of member `userId`'s storage (fixtures archives, attempt payloads and the evidence an attempt stores) if it would pass MEMBER_STORAGE_BYTES. Call it in the
  * transaction that inserts: the advisory lock makes concurrent uploads of one member count each other. The total spans all the member's
  * workspaces, so it alone is read as the system; the transaction's own rights are restored for the insert that follows.
  */
@@ -43,7 +43,7 @@ async function chargeStorage(client, userId, bytes) {
   const {prior} = (await client.query("select coalesce(current_setting('app.benchmark_system', true), 'off') as prior")).rows[0];
   await client.query("select set_config('app.benchmark_system', 'on', true)");
   const {used} = (await client.query(
-    `select (select coalesce(sum(size), 0) from benchmark_source where user_id = $1)
+    `select (select coalesce(sum(octet_length(archive)), 0) from benchmark_fixtures where publisher_id = $1)
           + (select coalesce(sum(p.size), 0) from benchmark_payload p join benchmark_attempt a on a.attempt_id = p.attempt_id
               join benchmark_run r on r.run_id = a.run_id where r.user_id = $1)
           + (select coalesce(sum(a.stored_bytes), 0) from benchmark_attempt a join benchmark_run r on r.run_id = a.run_id where r.user_id = $1) as used`, [userId],

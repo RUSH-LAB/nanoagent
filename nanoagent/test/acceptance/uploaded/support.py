@@ -1,26 +1,22 @@
-"""Pieces of the uploaded-harness CLI acceptance tests: the pinned NanoAgent source, the mocked dependency registry, the
-CLI steps as subprocesses and the real worker running on this machine.
+"""Pieces of the CLI acceptance tests: the CLI steps as subprocesses and the real worker running on this machine.
 
-Hosts and ports: the RUSH server, the scripted OpenRouter upstream and the dependency index all listen on this machine's
+Hosts and ports: the RUSH server, the scripted OpenRouter upstream and the dependency registry all listen on this machine's
 loopback, where the worker reaches them. Each worker is this Python running `nanoagent.uploaded.worker`; its sandboxes are
 microVMs (microsandbox), so the machine needs what microsandbox needs: Apple silicon, or Linux with /dev/kvm.
 """
 
 from __future__ import annotations
 
-import hashlib
 import http.server
 import json
 import os
 import platform
-import re
 import shutil
 import signal
 import subprocess
 import sys
 import threading
 import time
-import urllib.request
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -28,11 +24,8 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-from packaging.utils import canonicalize_name
 
 NANOAGENT = Path(__file__).resolve().parents[3]
-FIXTURE = Path(__file__).resolve().parent / "harnesses" / "nanoagent_core"
-SCENARIOS = Path(__file__).resolve().parent / "scenarios"
 SCRATCH = NANOAGENT / "build" / "uploaded_acceptance"
 OUTPUTS = NANOAGENT / "outputs" / "uploaded_acceptance"
 # Everything a run of this suite keeps (logs, step outputs, traces, comparisons, worker logs): one folder per module, never emptied.
@@ -42,60 +35,6 @@ WORKER_HOME = SCRATCH / "workers"
 GUEST_TOOLS = NANOAGENT / "build" / "guest-tools"
 HOST = "127.0.0.1"
 MODEL = "test/model"
-# What the plugin's reference tool and the scripted answer both compute for the probe's first case.
-TOKEN = "alpha"
-REFERENCE = hashlib.sha256(TOKEN.encode()).hexdigest()[:12]
-# The vendored part of NanoAgent: the stdlib-only core agent loop and its profiler.
-VENDORED = ("src/nanoagent/__init__.py", "src/nanoagent/core", "src/nanoagent/profiler")
-
-
-def git(*args: str) -> bytes:
-    return subprocess.run(["git", *args], cwd=NANOAGENT, check=True, capture_output=True).stdout
-
-
-def pinned_revision() -> str:
-    return git("rev-parse", "HEAD").decode().strip()
-
-
-def build_source(destination: Path) -> str:
-    """The uploaded project: the fixture plus NanoAgent's core as committed at HEAD (never the working tree). Returns the revision."""
-    revision = pinned_revision()
-    shutil.copytree(FIXTURE, destination)
-    for name in git("ls-tree", "-r", "--name-only", revision, "--", *VENDORED).decode().split():
-        target = destination / "nanoagent" / Path(name).relative_to("src/nanoagent")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(git("show", f"{revision}:./{name}"))
-    (destination / "NANOAGENT_REVISION").write_text(revision + "\n")
-    return revision
-
-
-# -- the mocked dependency registry ---------------------------------------------------------------------------------
-
-
-def wheelhouse(requirements: Path, root: Path) -> Path:
-    """A PEP 503 simple index under ``root`` holding exactly the wheels ``requirements`` pins (fetched once from PyPI, each checked
-    against its pinned sha256). Returns the index root."""
-    cache = SCRATCH / "wheel-cache"
-    cache.mkdir(parents=True, exist_ok=True)
-    (root / "files").mkdir(parents=True, exist_ok=True)
-    for line in requirements.read_text().splitlines():
-        match = re.match(r"^([A-Za-z0-9._-]+)==(\S+) --hash=sha256:([0-9a-f]{64})$", line.strip())
-        if match is None:
-            continue
-        name, version, digest = match.groups()
-        with urllib.request.urlopen(f"https://pypi.org/pypi/{name}/{version}/json", timeout=60) as response:
-            files = json.load(response)["urls"]
-        wheel = next(f for f in files if f["digests"]["sha256"] == digest and f["filename"].endswith(".whl"))
-        cached = cache / wheel["filename"]
-        if not cached.exists() or hashlib.sha256(cached.read_bytes()).hexdigest() != digest:
-            with urllib.request.urlopen(wheel["url"], timeout=120) as response:
-                cached.write_bytes(response.read())
-        assert hashlib.sha256(cached.read_bytes()).hexdigest() == digest, wheel["filename"]
-        shutil.copyfile(cached, root / "files" / cached.name)
-        page = root / "simple" / canonicalize_name(name)
-        page.mkdir(parents=True, exist_ok=True)
-        (page / "index.html").write_text(f'<html><body><a href="../../files/{cached.name}#sha256={digest}">{cached.name}</a></body></html>\n')
-    return root
 
 
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
@@ -167,10 +106,17 @@ def container_unavailable() -> str | None:
     return f"the acceptance suite does not run on {sys.platform}"
 
 
-def worker_yaml(*, base_url: str, upstream: str, index: str, scratch: str, egress: bool = False, models: tuple[str, ...] = ()) -> str:
+def worker_yaml(
+    *, base_url: str, upstream: str, index: str, scratch: str, npm: str | None = None, concurrency: int | None = None, egress: bool = False,
+    models: tuple[str, ...] = (), label: str = "mock", openrouter: bool = False, terminal: bool = False,
+) -> str:
     """deploy/worker/worker.mock.yaml with this run's endpoints; ``egress`` turns on internet access for harnesses (the worker then
     advertises it and proves its fence at startup); ``models`` are priced beside ``test/model``, at its rates (the worker advertises
-    every model it prices, and the server refuses a benchmark for any other)."""
+    every model it prices, and the server refuses a benchmark for any other); ``index`` and ``npm`` are the registries `python-3` and
+    `javascript-22` installs read (``npm`` keeps the YAML's own when omitted); ``concurrency`` replaces the YAML's. ``label`` is the
+    endpoint profile it claims on; ``openrouter`` takes the endpoint and prices of deploy/worker/worker.openrouter.yaml instead (real
+    OpenRouter with OPENROUTER_API_KEY, its one priced model), ``upstream`` and ``models`` then unused. ``terminal`` gives what a
+    Terminal session's limits ask (helpinghands' TERMINAL_LIMITS): the builds' time and output of worker.openrouter.yaml, and egress."""
     text = (NANOAGENT / "deploy" / "worker" / "worker.mock.yaml").read_text()
     for old, new in (
         ("scratch: ???", f"scratch: {scratch}"),
@@ -178,11 +124,19 @@ def worker_yaml(*, base_url: str, upstream: str, index: str, scratch: str, egres
         ("upstream_base_url: http://127.0.0.1:8080/api/v1", f"upstream_base_url: {upstream}"),
         ("mock_hosts: [127.0.0.1]", f"mock_hosts: [{HOST}]"),
         ("  index_urls:\n", f"  index_urls:\n    python-3: {index}\n"),
+        *((("javascript-22: https://registry.npmjs.org", f"javascript-22: {npm}"),) if npm else ()),
+        *((("  concurrency: 4", f"  concurrency: {concurrency}"),) if concurrency else ()),
+        *((("  build_wall_s: 600\n", "  build_wall_s: 1800\n  build_output_bytes: 4294967296\n"),) if terminal else ()),
         ("  test/model:\n    input: 0.000001\n    output: 0.000004\n", "".join(f"  {model}:\n    input: 0.000001\n    output: 0.000004\n" for model in (MODEL, *models))),
     ):
         assert old in text, old
         text = text.replace(old, new)
-    return text + ("\negress > nanoagent.uploaded.worker.EgressConfig:\n  enabled: true\n  model_hosts: [api.openai.com]\n" if egress else "")
+    text = text.replace("  label: mock\n", f"  label: {label}\n")
+    if openrouter:
+        real = (NANOAGENT / "deploy" / "worker" / "worker.openrouter.yaml").read_text()
+        endpoint = real[real.index("openrouter > ") : real.index("timing > ")]
+        text = text[: text.index("openrouter > ")] + endpoint.replace("  label: openrouter\n", f"  label: {label}\n") + text[text.index("timing > ") :]
+    return text + ("\negress > nanoagent.uploaded.worker.EgressConfig:\n  enabled: true\n  model_hosts: [api.openai.com]\n" if egress or terminal else "")
 
 
 class Worker:
@@ -252,76 +206,3 @@ def json_of(path: Path) -> Any:
 
 def python() -> str:
     return sys.executable
-
-
-# -- the benchmark and the run through steps 1 and 2 -----------------------------------------------------------------
-
-
-def stamp(folder: Path, *, dialects: list[str] | None = None) -> Path:
-    """Make the harness version of the copied ``folder`` name its content (a version names one ZIP: another ZIP under it is refused),
-    and set the dialects its manifest declares when given. Returns ``folder``."""
-    manifest = folder / "harness.yaml"
-    text = manifest.read_text()
-    if dialects is not None:
-        text = re.sub(r"^dialects:.*$", f"dialects: [{', '.join(dialects)}]", text, count=1, flags=re.MULTILINE)
-    manifest.write_text(re.sub(r"^version:.*$", "version: stamp", text, count=1, flags=re.MULTILINE))
-    content = hashlib.sha256()
-    for path in sorted(entry for entry in folder.rglob("*") if entry.is_file()):
-        content.update(path.relative_to(folder).as_posix().encode() + b"\0" + path.read_bytes())
-    manifest.write_text(manifest.read_text().replace("version: stamp", f'version: "{content.hexdigest()[:12]}"'))
-    return folder
-
-
-def publish_args(
-    *,
-    name: str,
-    cases: Path,
-    plugin_version: str = "0.1.0",
-    model: str = MODEL,
-    endpoint: str = "mock",
-    limits: dict[str, Any] | None = None,
-    template: str | None = None,
-    instructions: str | None = None,
-) -> list[str]:
-    """The step 1 overrides of a benchmark. Internet access is off unless ``limits`` says otherwise (the plain acceptance worker has
-    no egress; a benchmark asking for it is refused as exceeding the worker)."""
-    args = [f"cases={cases}", f"name={name}", f"plugin_version={plugin_version}", f"model={model}", f"endpoint_profile={endpoint}"]
-    for limit, value in {"internet_access": False, **(limits or {})}.items():
-        args.append(f"limits.{limit}={json.dumps(value)}")
-    if template is not None:
-        args.append(f"coding_template={json.dumps(template)}")
-    if instructions is not None:
-        args.append(f"task_instructions={json.dumps(instructions)}")
-    return args
-
-
-def submit_args(
-    benchmark: str,
-    *,
-    plugin: str,
-    key: str,
-    source: Path | None = None,
-    reference: str | None = None,
-    plugin_version: str = "0.1.0",
-    policy: str = "task_tools",
-    follow: bool = True,
-    follow_timeout: int = 1200,
-    preview_id: str | None = None,
-) -> list[str]:
-    """The step 2 overrides of a submit of ``source`` to benchmark ``benchmark`` of ``plugin``: the benchmark fixes the rest."""
-    args = [
-        f"plugin={plugin}",
-        f"plugin_version={plugin_version}",
-        f"benchmark={benchmark}",
-        f"policy={policy}",
-        f"idempotency_key={key}",
-        f"follow={'true' if follow else 'false'}",
-        f"follow_timeout={follow_timeout}",
-    ]
-    if source is not None:
-        args.append(f"source={source}")
-    if reference is not None:
-        args.append(f"reference={reference}")
-    if preview_id is not None:
-        args.append(f"preview_id={preview_id}")
-    return args

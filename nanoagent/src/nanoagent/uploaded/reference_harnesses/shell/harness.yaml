@@ -5,11 +5,13 @@ dialects: [chat_completions, responses, anthropic_messages]
 toolchain: shell-1
 lockfiles: []
 # The member's own terminal: bash in the case workspace, the gateway preset (shell.py), with the reference CLIs on its PATH (bin/:
-# nanoagent and mgen, claude, codex, pi, hermes, dsh) at the versions the reference harnesses lock, each installed by the worker the first time it is
+# nanoagent and mgen, claude, codex, pi, hermes, dsh) at the versions locks/ pins, each installed by the worker the first time it is
 # typed and kept for every session after (nanoagent.uploaded.clis), so this build only copies these files.
-# `rush <command>` (rush.py) runs any other agent as one recorded run, and remembers it.
+# `rush <command>` (rush.py) runs any other agent as one recorded run, and remembers it. harnesses.yaml (a JSON document, which YAML
+# reads, as shell.py takes it with no YAML library) holds each CLI's headless command, which shell.py runs with a case's prompt
+# after it. locks/ holds the CLIs' install recipes and locks, which the worker builds each from (nanoagent.uploaded.clis); they are not run here.
 build:
   argv: [sh, build.sh]
-  outputs: [shell.py, bashrc, rush.py, build.sh, nanoagent_tools.py, bin]
+  outputs: [shell.py, bashrc, rush.py, build.sh, nanoagent_tools.py, harnesses.yaml, bin]
 run:
   argv: [python, /harness/shell.py]

@@ -2,12 +2,13 @@
 const crypto = require('crypto');
 const {BenchmarkError} = require('../benchmark/errors');
 const {canonicalJson, sha256Hex} = require('../benchmark/prompt');
+const {rushProgram} = require('../benchmark/harness');
 const {overBudget} = require('../benchmark/rules');
 const {
   capabilitiesOf, exceeded, MAX_ATTEMPT_EVENTS, MAX_ATTEMPT_TERMINAL_BYTES, MAX_ATTEMPT_SPANS, MAX_ATTEMPT_LINKS, MAX_SPAN_ATTRIBUTES_BYTES, MAX_LINK_ATTRIBUTES_BYTES, SETTLE_RESERVE_FACTOR,
 } = require('../benchmark/limits');
 const {chargeAttemptStorage, chargeStorage, inTransaction} = require('./benchmark-context');
-const {sweepExpired} = require('./benchmark-sweep');
+const {expireLeases, retryWorkerErrors, sweepExpired} = require('./benchmark-sweep');
 
 const TODAY = "(now() at time zone 'utc')::date";
 
@@ -23,15 +24,10 @@ function createPostgresBenchmarkWorker({pool, config}) {
   const lease = `now() + make_interval(secs => ${Number(config.leaseSeconds)})`;
   const deadline = `now() + make_interval(secs => ${Number(config.uncertainDeadlineSeconds)})`;
 
-  /** End `attempt`, whose lease ran out, as interrupted, keeping what it committed. */
-  const interrupt = (client, attemptId) => client.query(
-    `update benchmark_attempt set state = 'final', execution_status = 'interrupted', finalized_at = now(), sealed = true,
-       final_cursor = next_cursor - 1 where attempt_id = $1`, [attemptId]);
-
   /**
    * Run `work(client, attempt)` on the attempt `attemptId` locked, if it is leased to `fence`:
    * otherwise throws lease_lost, or sealed for an attempt this worker finalized. A lease that has
-   * run out interrupts the attempt, and commits that, before it refuses. `final: true` lets
+   * run out ends the attempt (`expireLeases`), and commits that, before it refuses. `final: true` lets
    * `work` see a final attempt of this fence (a retried finalize).
    */
   async function fenced(userId, attemptId, fence, work, {final = false} = {}) {
@@ -41,14 +37,15 @@ function createPostgresBenchmarkWorker({pool, config}) {
           where a.attempt_id = $1 and r.user_id = $2 for update of a`, [attemptId, userId],
       )).rows[0];
       if (!attempt) return {refusal: new BenchmarkError(404, 'unknown_attempt', 'No such attempt')};
-      if (attempt.fence !== fence || attempt.execution_status === 'interrupted') return {refusal: lost()};
+      // An attempt the server ended itself (a lease that ran out) has no finalize digest, and is lost to the worker.
+      if (attempt.fence !== fence || (attempt.state === 'final' && attempt.finalize_digest === null)) return {refusal: lost()};
       if (attempt.state === 'final') {
         return final ? {value: await work(client, attempt)} : {refusal: new BenchmarkError(409, 'sealed', 'The attempt is sealed')};
       }
       if (attempt.state !== 'leased') return {refusal: lost()};
       const expired = (await client.query('select $1::timestamptz < now() as expired', [attempt.lease_expires_at])).rows[0].expired;
       if (expired) {
-        await interrupt(client, attemptId);
+        await expireLeases(client, [attemptId]);
         return {refusal: lost()};
       }
       return {value: await work(client, attempt)};
@@ -75,6 +72,13 @@ function createPostgresBenchmarkWorker({pool, config}) {
       const run = (await client.query('select * from benchmark_run where run_id = $1 for update skip locked', [candidate.run_id])).rows[0];
       // A run someone else holds (a cancel) is skipped: claim locks an attempt (sweep) before a run, cancel a run before an attempt.
       if (!run || run.canceled_at) continue;
+      if (rushProgram(run.harness_name)) {
+        // A run's first worker pins its local installation. Every later case stays on that worker.
+        const owner = (await client.query(
+          `select worker_id from benchmark_attempt where run_id = $1 and worker_id is not null order by claimed_at, attempt_id limit 1`, [run.run_id],
+        )).rows[0]?.worker_id;
+        if (owner ? owner !== workerId : !capabilities.installed_agents?.includes(rushProgram(run.harness_name))) continue;
+      }
       const picked = (await client.query(
         `select a.attempt_id from benchmark_attempt a left join benchmark_run_case c on c.run_id = a.run_id and c.case_id = a.case_id
           where a.run_id = $1 and a.state = 'queued' order by a.created_at, c.position, a.attempt_id limit 1 for update of a skip locked`, [run.run_id],
@@ -88,23 +92,20 @@ function createPostgresBenchmarkWorker({pool, config}) {
       // A free-form Terminal session's attempt has no case and no task: nothing is pinned for it, and nothing scores it. Its plugin
       // is the page it was opened from, by id alone.
       const free = attempt.case_id === null;
-      const pinned = free ? {case: null} : await caseOf(client, run, attempt.case_id);
+      const pinned = free ? {case: null, private_reference: null} : await caseOf(client, run.run_id, attempt.case_id);
       const resumed = run.resumed_from && (await client.query('select attempt_id, finalized_at from benchmark_attempt where attempt_id = $1', [run.resumed_from])).rows[0];
       return {
         kind: 'attempt', attempt_id: attempt.attempt_id, attempt_no: attempt.attempt_no, fence: attempt.fence, lease_expires_at: attempt.lease_expires_at,
         lease_seconds: Number(config.leaseSeconds),
         run: {
-          run_id: run.run_id, model: run.model, endpoint_profile: run.endpoint_label, dialects: run.dialects, source_sha256: run.source_sha256,
-          policy: run.policy, limits: run.limits, prompt_source: 'benchmark', renderer_version: run.renderer_version, interactive: run.interactive,
-          // The gateway holds a run to its pinned prompt (the first call carries it) but for a session of the Terminal, whose agent is
+          run_id: run.run_id, harness: run.harness_name, model: run.model, endpoint_profile: run.endpoint_label, limits: run.limits, interactive: run.interactive,
+          // The gateway holds a run to its case's prompt (the first call carries it) but for a session of the Terminal, whose agent is
           // anything a member runs and phrases its own calls.
           prompt_bound: !(run.session && run.harness_name === 'shell'),
         },
         plugin: {id: run.plugin_id, name: run.plugin_name, version: run.version, sha256: run.package_sha256},
         task: free ? null : {
-          id: run.task_id, kind: task.kind, description: task.description,
-          // The task's instructions as this run works it: the task tools policy's prompt text, which may be the member's own.
-          instructions: run.policy === 'task_tools' ? run.prompt_text : task.instructions,
+          id: run.task_id, kind: task.kind, description: task.description, input_schema: task.input_schema, output_schema: task.output_schema,
           plugin_name: run.plugin_name, tools: task.tools, egress_hosts: task.egress_hosts,
         },
         free_form: free,
@@ -113,30 +114,24 @@ function createPostgresBenchmarkWorker({pool, config}) {
         resume: resumed ? {attempt_id: resumed.attempt_id, at: resumed.finalized_at.toISOString(), chat: run.resume_chat ?? null} : null,
         // The agent CLI command a new free-form session runs in its first terminal (the Dashboard's New session under that agent).
         start: run.start_cli ?? null,
-        // A session's case still being pinned comes later, from GET /attempts/{id}/case.
-        case_pending: !free && !pinned.case,
-        ...(pinned.case ? pinned : {case_set: null, case: null, prompt: null, private_reference: null}),
+        ...pinned,
       };
     }
     return null;
   }
 
   /**
-   * The case `caseId` of `run` as a job carries it, `{case_set, case, prompt, private_reference}` once pinned; `{case: null,
-   * pin_error}` while a session's case is being pinned (`pin_error` null) or after its pin failed.
+   * The case `caseId` of run `runId` as a claim carries it: `{case: {case_id, kind, prompt, prompt_sha256, arguments, fixtures, expected_error},
+   * private_reference}`, `fixtures` null or `{sha256, files}`. The archive is fetched apart (`artifact`).
    */
-  async function caseOf(client, run, caseId) {
-    const c = (await client.query('select * from benchmark_run_case where run_id = $1 and case_id = $2', [run.run_id, caseId])).rows[0];
-    if (c.prompt_sha256 === null) return {case: null, pin_error: c.pin_error};
-    const reference = (await client.query('select reference from benchmark_run_private where run_id = $1 and case_id = $2', [run.run_id, caseId])).rows[0];
-    const {task} = run;
+  async function caseOf(client, runId, caseId) {
+    const c = (await client.query('select * from benchmark_run_case where run_id = $1 and case_id = $2', [runId, caseId])).rows[0];
+    const reference = (await client.query('select reference from benchmark_run_private where run_id = $1 and case_id = $2', [runId, caseId])).rows[0];
     return {
-      case_set: {case_set_id: run.case_set_id, digest: run.case_set_digest},
       case: {
-        case_id: c.case_id, position: c.position, kind: c.kind, arguments: c.arguments, context: run.context,
-        input_schema: task.input_schema, output_schema: task.output_schema, content_digest: c.content_digest,
+        case_id: c.case_id, kind: c.kind, prompt: c.prompt, prompt_sha256: c.prompt_sha256, arguments: c.arguments,
+        fixtures: c.fixtures_sha256 === null ? null : {sha256: c.fixtures_sha256, files: c.fixtures_files}, expected_error: c.expected_error,
       },
-      prompt: {system: c.prompt_system, user: c.prompt_user, sha256: c.prompt_sha256},
       private_reference: reference.reference,
     };
   }
@@ -172,7 +167,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
         await sweepExpired(client);
         await client.query(
           `insert into benchmark_worker_capability (user_id, endpoint_label, worker_id, capabilities) values ($1, $2, $3, $4)
-           on conflict (user_id, endpoint_label) do update set worker_id = excluded.worker_id, capabilities = excluded.capabilities, updated_at = now()`,
+           on conflict (user_id, endpoint_label, worker_id) do update set capabilities = excluded.capabilities, updated_at = now()`,
           [userId, label, workerId, JSON.stringify(capabilitiesOf(capabilities))],
         );
         return claimAttempt(client, userId, workerId, label, capabilities, interactive);
@@ -235,50 +230,41 @@ function createPostgresBenchmarkWorker({pool, config}) {
       return system(sweepExpired);
     },
 
-    /**
-     * The case of attempt `attemptId` leased to `fence`, for a job claimed while it was pending: `{run_id, created_at, case_set, case, prompt,
-     * private_reference}` once pinned, with `case: null` while it is pinned and `pin_error` once its pin failed.
-     */
-    async pinnedCase(userId, attemptId, fence) {
-      return fenced(userId, attemptId, fence, async (client, attempt) => {
-        if (attempt.case_id === null) throw new BenchmarkError(409, 'no_case', 'A free-form Terminal session has no case');
-        const run = (await client.query('select * from benchmark_run where run_id = $1', [attempt.run_id])).rows[0];
-        return {run_id: run.run_id, created_at: run.created_at, ...(await caseOf(client, run, attempt.case_id))};
-      });
-    },
-
     async renew(userId, attemptId, fence) {
       return fenced(userId, attemptId, fence, async (client, attempt) => {
         if (attempt.cancel_requested || attempt.canceled_at) throw new BenchmarkError(409, 'canceled', 'The run was canceled');
         const renewed = (await client.query(`update benchmark_attempt set lease_expires_at = ${lease} where attempt_id = $1 returning lease_expires_at`, [attemptId])).rows[0];
         // A worker busy on one long attempt claims nothing, so renewing is what keeps it advertised as live.
         await client.query(
-          'update benchmark_worker_capability set updated_at = now() where user_id = $1 and endpoint_label = $2', [userId, attempt.endpoint_label],
+          'update benchmark_worker_capability set updated_at = now() where user_id = $1 and endpoint_label = $2 and worker_id = $3', [userId, attempt.endpoint_label, attempt.worker_id],
         );
         return {...renewed, lease_seconds: Number(config.leaseSeconds)};
       });
     },
 
-    /** The source ZIP or the package of a leased attempt: `{data, sha256}`. */
+    /** The package of a leased attempt, or the fixtures archive (the gzipped tar) of its case: `{data, sha256}`; 404 `no_fixtures` when its case has none. */
     async artifact(userId, attemptId, fence, which) {
       return fenced(userId, attemptId, fence, async (client, attempt) => {
-        const row = which === 'source'
-          ? (await client.query(
-            `select s.data, s.sha256 from benchmark_run r join benchmark_source s on s.workspace_id = r.workspace_id and s.user_id = r.user_id and s.sha256 = r.source_sha256
-              where r.run_id = $1`, [attempt.run_id])).rows[0]
-          : (await client.query(
-            `select p.data, p.sha256 from benchmark_run r join benchmark_package p on p.sha256 = r.package_sha256
-              where r.run_id = $1`, [attempt.run_id])).rows[0];
+        if (which === 'fixtures') {
+          const row = attempt.case_id === null ? undefined : (await client.query(
+            `select f.archive as data, f.sha256 from benchmark_run_case c join benchmark_fixtures f on f.sha256 = c.fixtures_sha256
+              where c.run_id = $1 and c.case_id = $2`, [attempt.run_id, attempt.case_id])).rows[0];
+          if (!row) throw new BenchmarkError(404, 'no_fixtures', 'The attempt\'s case has no fixtures');
+          return {data: Buffer.from(row.data), sha256: row.sha256};
+        }
+        const row = (await client.query(
+          `select p.data, p.sha256 from benchmark_run r join benchmark_package p on p.sha256 = r.package_sha256
+            where r.run_id = $1`, [attempt.run_id])).rows[0];
         return {data: Buffer.from(row.data), sha256: row.sha256};
       });
     },
 
-    /** The attempt's run, a session a member works in, whose `rush` runs and `nanoagent` open its plugin: its workspace and plugin;
-     * 403 `not_a_session` for any other run. */
+    /** The attempt's run, a Terminal session (a member works in it, or it is a benchmark case's, which runs the same path), whose `rush` runs and
+     * `nanoagent` open its plugin: its workspace and plugin; 403 `not_a_session` for any other run. */
     async terminalSession(userId, attemptId, fence) {
       return fenced(userId, attemptId, fence, async (client, attempt) => {
         const run = (await client.query('select interactive, plugin_id from benchmark_run where run_id = $1', [attempt.run_id])).rows[0];
-        if (!run.interactive) throw new BenchmarkError(403, 'not_a_session', 'Only a session someone works in opens its plugin');
+        if (!run.interactive && attempt.case_id === null) throw new BenchmarkError(403, 'not_a_session', 'Only a session someone works in or a benchmark case opens its plugin');
         return {workspaceId: attempt.workspace_id, pluginId: run.plugin_id};
       });
     },
@@ -430,11 +416,11 @@ function createPostgresBenchmarkWorker({pool, config}) {
       });
     },
 
-    /** Keep where the session's member reaches its terminals on their computer: `port` on 127.0.0.1, with `token`; only a session's. */
+    /** Keep where the session's member reaches its terminals on their computer: `port` on 127.0.0.1, with `token`; only a session's or a benchmark case's. */
     async terminalLink(userId, attemptId, fence, port, token) {
       return fenced(userId, attemptId, fence, async (client, attempt) => {
         const run = (await client.query('select interactive from benchmark_run where run_id = $1', [attempt.run_id])).rows[0];
-        if (!run.interactive) throw new BenchmarkError(403, 'not_a_session', 'Only a session someone works in has a terminal link');
+        if (!run.interactive && attempt.case_id === null) throw new BenchmarkError(403, 'not_a_session', 'Only a session someone works in or a benchmark case has a terminal link');
         await client.query(
           `insert into benchmark_terminal_link (attempt_id, port, token) values ($1, $2, $3)
            on conflict (attempt_id) do update set port = excluded.port, token = excluded.token`, [attemptId, port, token],
@@ -509,11 +495,8 @@ function createPostgresBenchmarkWorker({pool, config}) {
         }
         // A free-form Terminal session has no case to answer: it ends, and only it does.
         const free = attempt.case_id === null;
-        if (free ? ['answered', 'refused'].includes(body.execution.status) : body.execution.status === 'ended') {
+        if (free ? ['answered', 'refused', 'worker_error'].includes(body.execution.status) : body.execution.status === 'ended') {
           throw new BenchmarkError(422, 'invalid_status', free ? `A free-form session has no case to have ${body.execution.status}` : 'Only a free-form session ends with no case');
-        }
-        if (!free && (body.resumable !== null || body.chats !== null || body.evicted.length || body.workspace !== null)) {
-          throw new BenchmarkError(422, 'invalid_request', 'Only a free-form session is kept to resume, holds chats and uploads its files');
         }
         if (body.workspace?.chunks) {
           const stored = (await client.query(
@@ -533,12 +516,14 @@ function createPostgresBenchmarkWorker({pool, config}) {
         await client.query(
           `update benchmark_attempt set state = 'final', execution_status = $2, execution_reason = $3, verdict = $4, verifier_error = $5,
              coverage = $6, metrics = $7, finalized_at = now(), sealed = true, final_cursor = $8, finalize_digest = $9, explanation = $10,
-             resumable = $11, chats = $12, workspace = $13
+             resumable = $11, chats = $12, workspace = $13, checks = $14
            where attempt_id = $1`,
           [attemptId, body.execution.status, body.execution.reason, body.verdict, body.verifier_error,
             JSON.stringify(body.coverage), JSON.stringify(body.metrics), highWater, digest, body.explanation, body.resumable === true,
-            body.chats === null ? null : JSON.stringify(body.chats), body.workspace === null ? null : JSON.stringify(body.workspace)],
+            body.chats === null ? null : JSON.stringify(body.chats), body.workspace === null ? null : JSON.stringify(body.workspace),
+            body.checks === null ? null : JSON.stringify(body.checks)],
         );
+        if (body.execution.status === 'worker_error') await retryWorkerErrors(client, [attemptId]);
         // The member's older sessions the worker removed to keep this one: their chats' files are no longer on the computer.
         if (body.evicted.length) {
           await client.query(

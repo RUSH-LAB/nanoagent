@@ -2,26 +2,23 @@
 
 from __future__ import annotations
 
-import io
+import json
 import sys
-import zipfile
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
-from fake_rush import ATTEMPT, BAD_PAYLOAD_SHA, PAYLOAD_SHA, TOKEN, WORKSPACE, FakeRush, make_run, summary
-from test_client import publication
+from fake_rush import ATTEMPT, BAD_PAYLOAD_SHA, PAYLOAD_SHA, TOKEN, WORKSPACE, FakeRush, publication
 from slimconfig import load_layout
 
 NANOAGENT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(NANOAGENT / "examples" / "uploaded_benchmark"), str(NANOAGENT / "examples" / "benchmark")]
+sys.path[:0] = [str(NANOAGENT / "examples" / "uploaded_benchmark")]
 
 import step2_submit_run as step2  # noqa: E402
 import step3_trace as step3  # noqa: E402
 import step5_results as step5  # noqa: E402
 
 from nanoagent.uploaded.client import BenchmarkClient, PayloadDigestMismatch  # noqa: E402
-from nanoagent.uploaded.reference import build_reference  # noqa: E402
-from nanoagent.uploaded.source_zip import FIXED_TIME  # noqa: E402
 
 
 @pytest.fixture
@@ -43,144 +40,12 @@ def run_step(monkeypatch: pytest.MonkeyPatch, step, cls, name: str, home: Path, 
     assert exit.value.code in (None, 0)
 
 
-@pytest.fixture
-def source(tmp_path: Path) -> Path:
-    folder = tmp_path / "source"
-    (folder / "src").mkdir(parents=True)
-    (folder / "harness.yaml").write_text("name: my-harness\nversion: '1.3'\ndialects: [chat_completions]\nrun: [python, main.py]\n")
-    (folder / "src" / "main.py").write_text("print('hi')\n")
-    return folder
-
-
-@pytest.fixture
-def benchmark(server: FakeRush) -> dict:
-    with BenchmarkClient(server.url, WORKSPACE, TOKEN) as member:
-        return member.publish_benchmark(publication(name="probe", plugin_id="p", version="1.0.0", limits={"internet_access": False, "max_cost_usd": 2.5}))[1]
-
-
-def submit_run(monkeypatch, server, tmp_path, source, home="home", *extra):
-    run_step(
-        monkeypatch, step2, step2.SubmitRun, "step2_submit_run", tmp_path / home, server,
-        f"source={source}", "plugin=p", "plugin_version=1.0.0", "benchmark=probe", "idempotency_key=k1", "follow=false", *extra,
-    )  # fmt: skip
-    return load_layout(tmp_path / home, step2.RunLayout)
-
-
-def test_zip_source_is_deterministic(source: Path, tmp_path: Path) -> None:
-    first = step2.zip_source(str(source))
-    (source / "src" / "main.py").touch()
-    assert step2.zip_source(str(source)) == first
-    with zipfile.ZipFile(io.BytesIO(first)) as archive:
-        assert archive.namelist() == ["harness.yaml", "src/main.py"]
-        assert {info.date_time for info in archive.infolist()} == {FIXED_TIME}
-
-
-def test_zip_source_refuses_a_symlink(source: Path) -> None:
-    (source / "link").symlink_to(source / "harness.yaml")
-    with pytest.raises(ValueError, match="symlink"):
-        step2.zip_source(str(source))
-
-
-def test_submit_twice_with_one_key_is_one_run(server: FakeRush, benchmark, monkeypatch, tmp_path: Path, source: Path) -> None:
-    first = submit_run(monkeypatch, server, tmp_path, source, "a").run
-    again = submit_run(monkeypatch, server, tmp_path, source, "b", f"preview_id={first.preview_id}").run
-    assert (first.replayed, again.replayed) == (False, True)
-    assert first.run_id == again.run_id and len(server.runs) == 1
-    assert first.attempts[0].verdict == "pass" and first.case_ids == ["c1"] and first.score["value"] == 1
-    assert first.benchmark["name"] == "probe" and first.harness["name"] == "my-harness" and first.harness["version"] == "1.3"
-
-
-def test_the_run_sends_only_the_benchmark_and_policy_and_writes_the_case_set(server: FakeRush, benchmark, monkeypatch, tmp_path: Path, source: Path) -> None:
-    layout = submit_run(monkeypatch, server, tmp_path, source, "a", "policy=task_tools")
-    preview, run = server.bodies
-    assert preview == {"benchmark_id": benchmark["benchmark_id"], "policy": "task_tools"}
-    assert run == {**preview, "preview_id": "preview-1", "source_sha256": run["source_sha256"], "idempotency_key": "k1"}
-    assert layout.case_set.name == "probe" and [case["case_id"] for case in layout.case_set.cases] == ["c1"] and layout.case_set.plugin["version"] == "1.0.0"
-
-
-def reference_run(monkeypatch, server, tmp_path, *extra, home="home"):
-    run_step(
-        monkeypatch, step2, step2.SubmitRun, "step2_submit_run", tmp_path / home, server,
-        "plugin=p", "plugin_version=1.0.0", "benchmark=probe", "idempotency_key=k1", "follow=false", *extra,
-    )  # fmt: skip
-    return load_layout(tmp_path / home, step2.RunLayout).run
-
-
-def test_a_reference_harness_is_uploaded_under_its_own_name_and_a_version_derived_from_its_content(server: FakeRush, benchmark, monkeypatch, tmp_path: Path) -> None:
-    first = reference_run(monkeypatch, server, tmp_path, "reference=claude-code", home="a")
-    again = reference_run(monkeypatch, server, tmp_path, "reference=claude-code", "idempotency_key=k2", home="b")
-    assert first.harness["name"] == "claude-code" and first.harness["version"] == again.harness["version"] != "1"
-    assert zipfile.ZipFile(io.BytesIO(build_reference("claude-code"))).read("harness.yaml").decode().count(f'version: "{first.harness["version"]}"') == 1
-    assert any(path.endswith("/sources/references/claude-code") for _, path in server.requests)
-
-
-def test_a_plain_upload_named_like_a_reference_is_refused(server: FakeRush, benchmark, monkeypatch, tmp_path: Path, source: Path) -> None:
-    (source / "harness.yaml").write_text((source / "harness.yaml").read_text().replace("my-harness", "claude-code"))
-    with pytest.raises(Exception, match="reserved_harness_name"):
-        submit_run(monkeypatch, server, tmp_path, source, "a")
-
-
-@pytest.mark.parametrize("extra", [[], ["source=/x", "reference=codex"]])
-def test_exactly_one_of_source_and_reference_is_set(server: FakeRush, benchmark, monkeypatch, tmp_path: Path, extra: list[str]) -> None:
-    with pytest.raises(ValueError, match="exactly one of `source` and `reference`"):
-        reference_run(monkeypatch, server, tmp_path, *extra)
-
-
-def test_an_unknown_benchmark_stops_the_step_before_any_upload(server: FakeRush, benchmark, monkeypatch, tmp_path: Path, source: Path) -> None:
-    with pytest.raises(LookupError, match="no benchmark named nope"):
-        submit_run(monkeypatch, server, tmp_path, source, "a", "benchmark=nope")
-    assert not any(path.endswith("/sources") for _, path in server.requests)
-
-
-def test_a_stale_preview_stops_the_step_with_the_current_configuration(server: FakeRush, benchmark, monkeypatch, tmp_path: Path, source: Path) -> None:
-    server.stale = True
-    with pytest.raises(RuntimeError, match="stale") as raised:
-        submit_run(monkeypatch, server, tmp_path, source)
-    assert "prompt, cases changed" in str(raised.value) and "benchmark: probe (bench-2)" in str(raised.value)
-    assert not server.runs
-    assert [path for method, path in server.requests if method == "POST" and path.endswith("/runs")] == [
-        f"/api/workspaces/{WORKSPACE}/benchmark/runs"
-    ]  # one try, never a resubmit
-
-
-def test_the_preview_prints_the_effective_configuration_and_case_ids(server: FakeRush, benchmark, monkeypatch, tmp_path: Path, source: Path, capsys) -> None:
-    submit_run(monkeypatch, server, tmp_path, source, "a")
-    out = capsys.readouterr().out
-    preview = out[: out.index("queued run")]
-    assert "harness my-harness@1.3 (dialects chat_completions) on probe (p @ 1.0.0)" in preview
-    assert "benchmark: probe (bench-1)" in preview and "policy: coding" in preview and "prompt: benchmark" in preview
-    assert "internet access: off" in preview and "wall_time_ms: 600000" in preview and "max_cost_usd: 2.5" in preview and "Cases (1): c1" in preview
-
-
-def test_the_summary_prints_primary_metrics_first(server: FakeRush, benchmark, monkeypatch, tmp_path: Path, source: Path, capsys) -> None:
-    run_step(
-        monkeypatch, step2, step2.SubmitRun, "step2_submit_run", tmp_path / "home", server,
-        f"source={source}", "plugin=p", "plugin_version=1.0.0", "benchmark=probe", "idempotency_key=k1", "poll_seconds=0.01",
-    )  # fmt: skip
-    out = capsys.readouterr().out
-    summary = out[out.index("Run run-1") :]
-    lines = summary.splitlines()
-    assert lines[0] == "Run run-1 (complete): my-harness@1.3 on probe (p @ 1.0.0)"
-    assert "internet access: on" in summary and "Cases (1): c1" in summary
-    start = lines.index("Primary metrics")
-    assert lines[start + 1 : start + 7] == [
-        "  total tokens: 30",
-        "  input tokens: 20 known, 1 attempt did not report it",
-        "  output tokens: 10",
-        "  cache-read tokens: 0",
-        "  cache-write tokens: 0",
-        "  elapsed time: 1.500 s",
-    ]
-    assert summary.index("Primary metrics") < summary.index("Verdicts") < summary.index("Score")
-    assert lines[lines.index("Score (passed cases over scored cases)") + 1] == "  1 (1 of 1 scored, 0 unscored of 1)"
-
-
 def test_trace_reads_events_spans_payloads_and_never_writes(server: FakeRush, monkeypatch, tmp_path: Path) -> None:
     run_step(monkeypatch, step3, step3.ReadTrace, "step3_trace", tmp_path / "t", server, f"payloads=[{PAYLOAD_SHA}]", "span_kind=tool")
     trace = load_layout(tmp_path / "t", step3.TraceLayout)
     assert [event["cursor"] for event in trace.trace.events] == [1, 2, 3]
     assert trace.trace.sealed and trace.trace.final_cursor == 3
-    assert trace.trace.title == "h@1 on probe (p @ 1.0.0)"
+    assert trace.trace.title == "claude on probe (p @ 1.0.0)"
     assert trace.trace.spans[0]["kind"] == "tool"
     assert (Path(trace.payloads) / PAYLOAD_SHA).read_bytes() == b"payload bytes"
     assert all(method == "GET" for method, _ in server.requests)
@@ -193,44 +58,160 @@ def test_trace_follow_streams_with_reconnect(server: FakeRush, monkeypatch, tmp_
     assert server.connections == 2 and trace.final_cursor == 3
 
 
+def test_trace_follow_reads_the_attempt_once_the_stream_says_sealed(server: FakeRush, monkeypatch, tmp_path: Path, capsys) -> None:
+    seen: list[bool] = []
+    stream, attempt = BenchmarkClient.stream, BenchmarkClient.attempt
+
+    def streamed(self, *args):
+        for event in stream(self, *args):
+            seen.append(bool(event.get("sealed")))
+            yield event
+
+    def live(self, attempt_id):
+        # Until the stream says sealed the attempt is still running: no execution, verdict or checks yet.
+        found = attempt(self, attempt_id)
+        return found if any(seen) else {**found, "state": "running", "execution": None, "verdict": None, "checks": []}
+
+    monkeypatch.setattr(BenchmarkClient, "stream", streamed)
+    monkeypatch.setattr(BenchmarkClient, "attempt", live)
+    run_step(monkeypatch, step3, step3.ReadTrace, "step3_trace", tmp_path / "t", server, "follow=true")
+    trace = load_layout(tmp_path / "t", step3.TraceLayout).trace
+    assert trace.attempt["state"] == "final" and trace.outcome["status"] == "answered" and trace.verdict["verdict"] == "pass"
+    assert "checks: outcome_exists=passed values_match=passed" in capsys.readouterr().out
+
+
 def test_trace_rejects_a_payload_that_does_not_match_its_digest(server: FakeRush, monkeypatch, tmp_path: Path) -> None:
     with pytest.raises(PayloadDigestMismatch):
         run_step(monkeypatch, step3, step3.ReadTrace, "step3_trace", tmp_path / "t", server, f"payloads=[{BAD_PAYLOAD_SHA}]")
 
 
-def read_results(monkeypatch, server, tmp_path: Path, *overrides: str):
-    run_step(monkeypatch, step5, step5.ReadResults, "step5_results", tmp_path / "r", server, *overrides)
-    return load_layout(tmp_path / "r", step5.ResultsLayout).results
-
-
-def other(run_id: str, user_id: str, policy: str, version: str = "1") -> dict:
-    run = make_run(run_id, {"benchmark_id": "bench-1", "name": "probe"}, {"name": "theirs", "version": version, "dialects": []}, policy)
-    return summary(run, {"id": user_id, "name": "Bo", "github": None})
-
-
-def test_results_of_a_benchmark_are_split_by_policy_and_grouped_by_member_and_harness(server: FakeRush, benchmark, monkeypatch, tmp_path: Path, source: Path, capsys) -> None:
-    submit_run(monkeypatch, server, tmp_path, source, "a")
-    server.other_runs += [other("run-x", "user-2", "coding"), other("run-y", "user-2", "task_tools"), other("run-z", "user-2", "coding"), other("run-w", "user-2", "coding", "2")]
-    results = read_results(monkeypatch, server, tmp_path, "scope=all", "plugin=p", "plugin_version=1.0.0", "benchmark=probe")
-    coding, tools = results.sections
-    assert (coding.policy, tools.policy) == ("coding", "task_tools") and results.benchmark["benchmark_id"] == "bench-1"
-    assert [(g.user["id"], g.harness, [r["run_id"] for r in g.runs]) for g in coding.groups] == [
-        ("user-1", "my-harness@1.3", ["run-1"]), ("user-2", "theirs@1", ["run-x", "run-z"]), ("user-2", "theirs@2", ["run-w"])
-    ]
-    assert [(g.harness, len(g.runs)) for g in tools.groups] == [("theirs@1", 1)]
+def test_trace_shows_the_outcome_the_verdict_with_its_checks_and_the_workspace_diff(server: FakeRush, monkeypatch, tmp_path: Path, capsys) -> None:
+    run_step(monkeypatch, step3, step3.ReadTrace, "step3_trace", tmp_path / "t", server)
+    trace = load_layout(tmp_path / "t", step3.TraceLayout).trace
+    assert trace.outcome == {"status": "answered", "reason": None, "answer": {"digest": "abc"}}
+    assert trace.verdict["verdict"] == "pass" and [check["name"] for check in trace.verdict["checks"]] == ["outcome_exists", "values_match"]
+    assert trace.workspace_diff == {"entries": [{"path": "answer.json", "change": "added", "size": 20}], "truncated": False}
     out = capsys.readouterr().out
-    assert "Coding (4 runs)" in out and "Task tools (1 runs)" in out and "Una (@una): my-harness@1.3" in out and "Bo: theirs@1" in out
-    assert "probe (p @ 1.0.0), mock/model, 30 tokens, 1.500 s" in out
+    assert "outcome: answered, answer {'digest': 'abc'}" in out and "checks: outcome_exists=passed values_match=passed" in out
+    assert "added answer.json (20 bytes)" in out
 
 
-def test_results_of_mine_are_the_callers_runs_and_a_partial_metric_says_so(server: FakeRush, benchmark, monkeypatch, tmp_path: Path, source: Path, capsys) -> None:
-    submit_run(monkeypatch, server, tmp_path, source, "a")
-    server.runs["run-1"]["metrics"]["total_tokens"] = {"total": 30, "missing_attempts": 1}
-    results = read_results(monkeypatch, server, tmp_path, "scope=mine")
-    assert results.benchmark is None and [r["run_id"] for g in results.sections[0].groups for r in g.runs] == ["run-1"]
-    assert "30 (partial, 1 attempt did not report it) tokens" in capsys.readouterr().out
+def submit_overrides(*extra: str) -> tuple[str, ...]:
+    return ("plugin=p", "plugin_version=1.0.0", "benchmark=probe", "follow=false", *extra)
 
 
-def test_results_of_all_need_the_benchmark(server: FakeRush, monkeypatch, tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="scope all needs"):
-        read_results(monkeypatch, server, tmp_path, "scope=all", "benchmark=null")
+def publish_two_cases(server: FakeRush) -> None:
+    cases = [{"case_id": f"c{n}", "kind": "answer", "prompt": "p", "arguments": {}, "fixtures": None, "expected_error": None} for n in (1, 2)]
+    with server.client_of() as member:
+        member.publish_benchmark(publication(cases=cases, private={"c1": None, "c2": None}))
+
+
+def test_submit_runs_the_benchmark_once_per_harness_and_all_its_cases(server: FakeRush, monkeypatch, tmp_path: Path) -> None:
+    publish_two_cases(server)
+    run_step(monkeypatch, step2, step2.SubmitRun, "step2_submit_run", tmp_path / "s", server, *submit_overrides("harnesses=[claude,nanoagent]"))
+    reports = load_layout(tmp_path / "s", step2.RunLayout).runs.runs
+    assert [report.harness for report in reports] == ["claude", "nanoagent"]
+    assert [report.case_ids for report in reports] == [["c1", "c2"], ["c1", "c2"]]
+    assert [body["idempotency_key"] for body in server.bodies] == ["acceptance-probe-run-1-claude", "acceptance-probe-run-1-nanoagent"]
+    assert all("cases" not in body for body in server.bodies)
+    assert reports[0].attempts[0].checks == [{"name": "outcome_exists", "status": "passed"}, {"name": "values_match", "status": "passed"}]
+    case_set = load_layout(tmp_path / "s", step2.RunLayout).case_set
+    assert [case["case_id"] for case in case_set.cases] == ["c1", "c2"]
+
+
+def test_a_repeated_submit_replays_its_run(server: FakeRush, monkeypatch, tmp_path: Path) -> None:
+    publish_two_cases(server)
+    for home in ("first", "again"):
+        run_step(monkeypatch, step2, step2.SubmitRun, "step2_submit_run", tmp_path / home, server, *submit_overrides("harnesses=[rush my-agent]"))
+    first, again = (load_layout(tmp_path / home, step2.RunLayout).runs.runs[0] for home in ("first", "again"))
+    assert first.case_ids == again.case_ids == ["c1", "c2"] and (first.replayed, again.replayed) == (False, True)
+    assert len(server.runs) == 1
+
+
+def test_submit_refuses_a_harness_listed_twice(server: FakeRush, monkeypatch, tmp_path: Path) -> None:
+    publish_two_cases(server)
+    with pytest.raises(ValueError, match="each harness once"):
+        run_step(monkeypatch, step2, step2.SubmitRun, "step2_submit_run", tmp_path / "s", server, *submit_overrides("harnesses=[claude,claude]"))
+
+
+def read_results(monkeypatch, server, tmp_path: Path, *overrides: str):
+    run_step(
+        monkeypatch,
+        step5,
+        step5.ReadResults,
+        "step5_results",
+        tmp_path / "r",
+        server,
+        "plugin=p",
+        "plugin_version=1.0.0",
+        "benchmark=probe",
+        *overrides,
+    )
+    return load_layout(tmp_path / "r", step5.ResultsLayout).table
+
+
+def test_results_are_a_table_of_the_newest_run_per_harness_and_a_column_per_case(server: FakeRush, monkeypatch, tmp_path: Path, capsys) -> None:
+    publish_two_cases(server)
+    server.verdicts[("codex", "c2")] = "fail"
+    with server.client_of() as member:
+        benchmark = member.find_benchmark("p", "1.0.0", "probe")
+        for key, harness in (("k1", "claude"), ("k2", "codex"), ("k3", "claude")):
+            member.create_run(benchmark_id=benchmark["benchmark_id"], harness=harness, idempotency_key=key)
+    server.costs["run-3-c1"] = 0.5
+    table = read_results(monkeypatch, server, tmp_path)
+    assert table.cases == ["c1", "c2"] and [row.harness for row in table.rows] == ["claude", "codex"]
+    claude, codex = table.rows
+    assert claude.run_id == "run-3", "the newest run of a harness is its row"
+    assert claude.verdicts == {"c1": "pass", "c2": "pass"} and codex.verdicts == {"c1": "pass", "c2": "fail"}
+    assert (claude.pass_rate, codex.pass_rate, codex.passed, codex.scored) == (1.0, 0.5, 1, 2)
+    assert (claude.total_tokens, claude.cost_usd, claude.elapsed_ms, claude.tokens_missing_attempts) == (60, 0.75, 3000, 0)
+    assert codex.attempts == {"c1": "run-2-c1", "c2": "run-2-c2"}
+    out = capsys.readouterr().out
+    assert out.splitlines()[0].split() == ["harness", "c1", "c2", "pass", "rate", "tokens", "cost", "elapsed"]
+    assert "codex" in out and "0.50 (1/2 of 2)" in out and "$0.7500" in out
+
+
+def test_results_as_json_print_the_same_table_the_layout_keeps(server: FakeRush, monkeypatch, tmp_path: Path, capsys) -> None:
+    publish_two_cases(server)
+    with server.client_of() as member:
+        member.create_run(benchmark_id=member.find_benchmark("p", "1.0.0", "probe")["benchmark_id"], harness="pi", idempotency_key="k")
+    table = read_results(monkeypatch, server, tmp_path, "as_json=true")
+    assert json.loads(capsys.readouterr().out) == asdict(table)
+
+
+def test_results_leave_out_other_benchmarks(server: FakeRush, monkeypatch, tmp_path: Path) -> None:
+    publish_two_cases(server)
+    with server.client_of() as member:
+        benchmark = member.find_benchmark("p", "1.0.0", "probe")
+        member.create_run(benchmark_id=benchmark["benchmark_id"], harness="dsh", idempotency_key="k")
+        other = member.publish_benchmark(publication(name="other"))[1]
+        member.create_run(benchmark_id=other["benchmark_id"], harness="claude", idempotency_key="k-other")
+    table = read_results(monkeypatch, server, tmp_path)
+    assert [row.harness for row in table.rows] == ["dsh"] and table.rows[0].verdicts == {"c1": "pass", "c2": "pass"}
+
+
+def test_results_mark_the_cost_a_lower_bound_when_an_attempt_has_a_call_of_unknown_cost(server: FakeRush, monkeypatch, tmp_path: Path, capsys) -> None:
+    publish_two_cases(server)
+    with server.client_of() as member:
+        benchmark = member.find_benchmark("p", "1.0.0", "probe")
+        for key, harness in (("k1", "claude"), ("k2", "codex"), ("k3", "pi")):
+            member.create_run(benchmark_id=benchmark["benchmark_id"], harness=harness, idempotency_key=key)
+    server.uncertain["run-1-c1"] = 1  # claude: one call of unknown cost beside the settled ones
+    server.costs["run-2-c2"] = None  # codex: an attempt with no settled cost at all
+    table = read_results(monkeypatch, server, tmp_path)
+    pi, codex, claude = table.rows
+    assert (claude.cost_usd, claude.cost_lower_bound) == (0.5, True)
+    assert (codex.cost_usd, codex.cost_lower_bound) == (0.25, True)
+    assert (pi.cost_usd, pi.cost_lower_bound) == (0.5, False)
+    out = capsys.readouterr().out
+    assert [line.split()[-3] for line in out.splitlines()[1:]] == ["$0.5000", "$0.2500+", "$0.5000+"]
+
+
+def test_results_as_json_say_the_cost_is_a_lower_bound(server: FakeRush, monkeypatch, tmp_path: Path, capsys) -> None:
+    publish_two_cases(server)
+    with server.client_of() as member:
+        member.create_run(benchmark_id=member.find_benchmark("p", "1.0.0", "probe")["benchmark_id"], harness="pi", idempotency_key="k")
+    server.uncertain["run-1-c2"] = 2
+    read_results(monkeypatch, server, tmp_path, "as_json=true")
+    [row] = json.loads(capsys.readouterr().out)["rows"]
+    assert (row["cost_usd"], row["cost_lower_bound"]) == (0.5, True)

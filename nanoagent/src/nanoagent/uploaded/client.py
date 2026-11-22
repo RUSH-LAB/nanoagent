@@ -2,8 +2,7 @@
 
 One synchronous [BenchmarkClient] covers every member endpoint plus benchmark publishing. The workspace, base URL and the
 name of the environment variable holding a Better Auth session token come from a [ServerConfig]. Every error the server
-answers is a [BenchmarkError] carrying the server's `code`; `stale_preview` is a [StalePreview] with the parts that changed
-and the current preview; `worker_unavailable` and the other setup rejections are plain [BenchmarkError]s. Event pages and
+answers is a [BenchmarkError] carrying the server's `code`; `worker_unavailable` and the other setup rejections are the same. Event pages and
 the SSE stream hand out each event once, ordered by cursor; the stream resumes from the last cursor it saw and ends with
 the terminal `sealed` marker.
 """
@@ -23,7 +22,6 @@ from omegaconf import MISSING
 from slimconfig import Config
 
 EVENT_PAGE = 1000
-SOURCE_CONTENT_TYPE = "application/zip"
 
 
 @dataclass
@@ -54,19 +52,6 @@ class BenchmarkError(Exception):
         self.body = body
 
 
-class StalePreview(BenchmarkError):
-    """`stale_preview`: the names of the parts that changed since the preview (`prompt`, `cases`, ...), and the preview the
-    request resolves to now (without a `preview_id`)."""
-
-    @property
-    def stale(self) -> list[str]:
-        return self.body.get("stale", [])
-
-    @property
-    def current(self) -> dict[str, Any]:
-        return self.body.get("current", {})
-
-
 class PayloadDigestMismatch(Exception):
     def __init__(self, attempt_id: str, expected: str, actual: str) -> None:
         super().__init__(f"payload {expected} of attempt {attempt_id} hashes to {actual}")
@@ -94,9 +79,9 @@ class EventLog:
 
 
 def run_title(run: dict[str, Any]) -> str:
-    """``harness@version on benchmark (plugin @ version)`` of a run's detail."""
+    """``harness on benchmark (plugin @ version)`` of a run's detail."""
     harness, plugin = run["harness"], run["case_set"]["plugin"]
-    return f"{harness['name']}@{harness['version']} on {run['benchmark']['name']} ({plugin['id']} @ {plugin['version']})"
+    return f"{harness['name']} on {run['benchmark']['name']} ({plugin['id']} @ {plugin['version']})"
 
 
 @dataclass(frozen=True)
@@ -166,8 +151,7 @@ class BenchmarkClient:
         if not isinstance(body, dict):
             body = {}
         code = body.get("code")
-        cls = StalePreview if code == "stale_preview" else BenchmarkError
-        return cls(response.status_code, code, str(body.get("error", response.reason_phrase)), body)
+        return BenchmarkError(response.status_code, code, str(body.get("error", response.reason_phrase)), body)
 
     def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         response = self._http.request(method, path, **kwargs)
@@ -187,16 +171,16 @@ class BenchmarkClient:
     def publish_benchmark(self, publication: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
         """``(created, benchmark)``: 201 stores a new benchmark, 200 is the same content again. ``publication`` is the body
         `nanoagent.uploaded.case_sets.derive_case_set` makes, private references included, plus the run configuration
-        (`model`, `endpoint_profile`, `limits`, `coding_template`, `task_instructions`). 409 `benchmark_name_taken` is the
+        (`limits`; the server pins the model and endpoint). 409 `benchmark_name_taken` is the
         name of this plugin version with other content."""
         response = self._request("POST", "/api/benchmark/benchmarks", json=publication)
         body = response.json()
         return body["created"], body["benchmark"]
 
-    # ── defaults, benchmarks, previews, sources, runs ──
+    # ── defaults, benchmarks, runs ──
 
     def defaults(self) -> dict[str, Any]:
-        """The default limits and coding template, and the endpoint labels a worker has advertised for."""
+        """The default limits, and the endpoint labels a worker has advertised for."""
         return self._json("GET", f"{self._prefix}/defaults")
 
     def benchmarks(self, plugin_id: str | None = None, version: str | None = None) -> list[dict[str, Any]]:
@@ -205,7 +189,7 @@ class BenchmarkClient:
         return self._json("GET", f"{self._prefix}/benchmarks", params={k: v for k, v in filters.items() if v is not None})["benchmarks"]
 
     def benchmark(self, benchmark_id: str) -> dict[str, Any]:
-        """One benchmark with its case set: the task, context and cases (never the private references)."""
+        """One benchmark with its case set: the task and cases (never the private references)."""
         return self._json("GET", f"{self._prefix}/benchmarks/{quote(benchmark_id, safe='')}")["benchmark"]
 
     def find_benchmark(self, plugin_id: str, version: str, name: str) -> dict[str, Any]:
@@ -215,26 +199,9 @@ class BenchmarkClient:
                 return benchmark
         raise LookupError(f"{plugin_id} {version} has no benchmark named {name}")
 
-    def benchmark_results(self, benchmark_id: str, limit: int = 50, before: str | None = None) -> list[dict[str, Any]]:
-        """Run summaries of every member's runs of the benchmark, newest first."""
-        params: dict[str, Any] = {"limit": limit, **({} if before is None else {"before": before})}
-        return self._json("GET", f"{self._prefix}/benchmarks/{quote(benchmark_id, safe='')}/results", params=params)["runs"]
-
-    def preview(self, benchmark_id: str, policy: str) -> dict[str, Any]:
-        """The run of ``policy`` (`coding` or `task_tools`) on the benchmark as the server pins it: the rendered prompts, effective limits and cases."""
-        return self._json("POST", f"{self._prefix}/previews", json={"benchmark_id": benchmark_id, "policy": policy})
-
-    def upload_source(self, data: bytes) -> dict[str, Any]:
-        """``{source_sha256, size, harness: {name, version, dialects}}``: the harness identity is the manifest's."""
-        return self._json("POST", f"{self._prefix}/sources", content=data, headers={"Content-Type": SOURCE_CONTENT_TYPE})
-
-    def upload_reference(self, name: str, data: bytes) -> dict[str, Any]:
-        """``upload_source`` for the ZIP of reference harness ``name``: the only way a reference's name is taken."""
-        return self._json("POST", f"{self._prefix}/sources/references/{name}", content=data, headers={"Content-Type": SOURCE_CONTENT_TYPE})
-
-    def create_run(self, *, benchmark_id: str, policy: str, preview_id: str, source_sha256: str, idempotency_key: str) -> RunSubmission:
-        """Queue the run the preview of ``benchmark_id`` and ``policy`` resolved."""
-        body = {"benchmark_id": benchmark_id, "policy": policy, "preview_id": preview_id, "source_sha256": source_sha256, "idempotency_key": idempotency_key}
+    def create_run(self, *, benchmark_id: str, harness: str, idempotency_key: str) -> RunSubmission:
+        """Queue a run of ``harness`` (a listed agent's name or `rush <command>`) on the benchmark: all its cases."""
+        body = {"benchmark_id": benchmark_id, "harness": harness, "idempotency_key": idempotency_key}
         response = self._request("POST", f"{self._prefix}/runs", json=body).json()
         return RunSubmission(replayed=response["replayed"], run=response["run"])
 
@@ -251,10 +218,6 @@ class BenchmarkClient:
 
     def cancel(self, run_id: str) -> dict[str, Any]:
         return self._json("POST", f"{self._prefix}/runs/{run_id}/cancel")
-
-    def compare_runs(self, a: str, b: str) -> dict[str, Any]:
-        """Two runs of the same verifier (package and task) side by side; 409 `not_same_verifier` otherwise."""
-        return self._json("GET", f"{self._prefix}/compare", params={"a": a, "b": b})
 
     def compare_attempts(self, a: str, b: str) -> dict[str, Any]:
         """Two sealed attempts of one pinned case, compared action by action: ``{header, rows, first_difference}``; 409

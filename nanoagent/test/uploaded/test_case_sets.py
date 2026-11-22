@@ -4,7 +4,15 @@ reference tool, the tools an agent is given, and the shapes that cannot be check
 from __future__ import annotations
 
 import asyncio
+import base64
+import datetime
+import gzip
+import hashlib
+import io
+import re
+import tarfile
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -12,7 +20,7 @@ import pytest
 from slimconfig import Output
 
 from nanoagent.uploaded import case_sets
-from nanoagent.uploaded.case_sets import CaseSet, PreparationError, Refusal, derive_case_set
+from nanoagent.uploaded.case_sets import Case, CaseSet, PreparationError, Refusal, derive_case_set
 
 
 @dataclass
@@ -38,27 +46,35 @@ def plugin(runner: str, *, reference: str | None, tools: tuple[str, ...], write:
 
 @pytest.fixture(autouse=True)
 def reference_tool_answers(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def call(manifest: Any, name: str, arguments: dict[str, Any], **_: Any) -> dict[str, Any]:
+    async def call(manifest: Any, name: str, arguments: dict[str, Any], *, workspace: Path, **_: Any) -> dict[str, Any]:
         if arguments["text"] == "bad":
             raise ValueError("text is bad")
-        return {"from": name, "text": arguments["text"]}
+        # What the tool sees of the case's fixtures in its workspace.
+        staged = {path.relative_to(workspace).as_posix(): path.read_text() for path in sorted(workspace.rglob("*")) if path.is_file()}
+        return {"from": name, "text": arguments["text"], "staged": staged}
 
     monkeypatch.setattr(case_sets, "call_tool_async", call)
 
 
 def cases(answer: list[str], refuse: list[str] = (), error: str = "text is bad") -> CaseSet:
-    return CaseSet("p", "t", "ctx", [{"text": text} for text in answer], [Refusal({"text": text}, error) for text in refuse])
+    return CaseSet(
+        "p", "t", [Case(f"Report {text}.", {"text": text}) for text in answer],
+        [Refusal(f"Report {text}.", {"text": text}, error) for text in refuse],
+    )  # fmt: skip
 
 
-def derive(manifest: SimpleNamespace, case_set: CaseSet) -> dict[str, Any]:
-    return derive_case_set("set-1", case_set, manifest, "a" * 64, 5.0)
+def derive(manifest: SimpleNamespace, case_set: CaseSet, base: Path | None = None) -> dict[str, Any]:
+    return derive_case_set("set-1", case_set, manifest, "a" * 64, 5.0, base)
+
+
+AGENT = plugin("agent", reference="truth", tools=("read",))
 
 
 def test_an_agent_task_with_a_reference_tool_gives_the_agent_its_tools_but_never_the_reference() -> None:
     body = derive(plugin("agent", reference="truth", tools=("read", "write"), write=("workspace",)), cases(["x"], ["bad"]))
     assert body["task"]["kind"] == "agent" and body["plugin_name"] == "Plugin P" and body["version"] == "2.0.0"
     assert [(t["name"], t["writes"]) for t in body["task"]["tools"]] == [("read", True), ("write", True)]
-    assert body["private"] == {"p-01": {"from": "truth", "text": "x"}, "p-02": "text is bad"}
+    assert body["private"] == {"p-01": {"from": "truth", "text": "x", "staged": {}}, "p-02": "text is bad"}
 
 
 def test_a_plugin_that_may_not_write_marks_no_tool_as_writing() -> None:
@@ -79,7 +95,7 @@ def test_a_decide_task_is_pinned_like_an_agent_task() -> None:
 def test_a_tool_task_pins_its_own_tool() -> None:
     body = derive(plugin("tool", reference=None, tools=("only",)), cases(["x"]))
     assert body["task"]["kind"] == "tool" and [t["name"] for t in body["task"]["tools"]] == ["only"]
-    assert body["private"]["p-01"] == {"from": "only", "text": "x"}
+    assert body["private"]["p-01"] == {"from": "only", "text": "x", "staged": {}}
 
 
 @pytest.mark.parametrize("runner", ["agent", "decide"])
@@ -100,10 +116,11 @@ def test_a_refusal_that_names_no_error_is_refused() -> None:
         derive(plugin("agent", reference="truth", tools=("read",)), cases(["x"], ["bad"], error=""))
 
 
-def test_the_instructions_and_schemas_are_the_manifests() -> None:
-    task = derive(plugin("agent", reference="truth", tools=("read",)), cases(["x"]))["task"]
-    assert (task["description"], task["instructions"]) == ("Do t", "Default instructions.")
-    assert task["input_schema"] == {"type": "object"} and task["output_schema"]["o"] == 1
+def test_the_schemas_are_the_manifests_and_the_body_has_no_instructions_or_context() -> None:
+    body = derive(AGENT, cases(["x"]))
+    assert "context" not in body and "instructions" not in body["task"] and body["task"]["description"] == "Do t"
+    assert body["task"]["input_schema"] == {"type": "object"} and body["task"]["output_schema"]["o"] == 1
+    assert body["cases"] == [{"case_id": "p-01", "kind": "answer", "prompt": "Report x.", "arguments": {"text": "x"}, "fixtures": None, "expected_error": None}]
 
 
 def test_reference_failures_name_the_case() -> None:
@@ -122,3 +139,218 @@ def test_the_hosts_the_plugin_declares_are_published_sorted_and_without_duplicat
 
 def test_a_plugin_that_declares_no_hosts_publishes_none() -> None:
     assert derive(plugin("agent", reference="truth", tools=("read",)), cases(["x"]))["task"]["egress_hosts"] == []
+
+
+def with_fixtures(tmp_path: Path, files: dict[str, str]) -> Path:
+    for name, text in files.items():
+        (tmp_path / "fx" / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "fx" / name).write_text(text)
+    return tmp_path
+
+
+def test_a_prompt_that_states_every_argument_passes_the_lint_whitespace_and_numbers_included() -> None:
+    @dataclass
+    class Many(Output):
+        text: str
+        n: float
+        flag: bool
+        nothing: str | None
+        empty: str
+
+    manifest = plugin("agent", reference="truth", tools=("read",))
+    manifest.task = lambda _: SimpleNamespace(**{**vars(plugin("agent", reference="truth", tools=("read",)).task(None)), "input_type": Many})
+    arguments = {"text": "two  words", "n": 3.0, "flag": True, "nothing": None, "empty": ""}
+    case_set = CaseSet("p", "t", [Case("Use two\nwords and 3 please", arguments)])
+    assert derive(manifest, case_set)["cases"][0]["arguments"] == arguments
+
+
+@pytest.mark.parametrize("prompt", [" Report 1.", "Report 1.\n", "\tReport 1."])
+def test_a_prompt_that_starts_or_ends_with_whitespace_is_refused_naming_the_case(prompt: str) -> None:
+    with pytest.raises(PreparationError, match="case p-02: the prompt starts or ends with whitespace"):
+        derive(AGENT, CaseSet("p", "t", [Case("Report x.", {"text": "x"}), Case(prompt, {"text": "x"})]))
+
+
+def test_a_prompt_that_omits_an_argument_names_it() -> None:
+    with pytest.raises(PreparationError, match=r"case p-01: the prompt does not state argument text \(y\)"):
+        derive(AGENT, CaseSet("p", "t", [Case("Report nothing.", {"text": "y"})]))
+
+
+def test_the_lint_names_a_nested_argument_by_its_dotted_path() -> None:
+    nested = {"text": "x", "rows": [{"id": 42}]}
+    with pytest.raises(PreparationError, match=r"argument rows\.0\.id \(42\)"):
+        case_sets.lint("p-01", Case("Report x.", nested))
+    case_sets.lint("p-01", Case("Report x and 42.", nested))
+
+
+def test_arguments_that_do_not_build_into_the_input_are_refused() -> None:
+    with pytest.raises(PreparationError, match="case p-01: its arguments do not fit the input of task t"):
+        derive(AGENT, CaseSet("p", "t", [Case("Report 1.", {"wrong": 1})]))
+
+
+def test_a_case_to_refuse_is_answered_refused_with_its_fixtures_staged(tmp_path: Path) -> None:
+    base = with_fixtures(tmp_path, {"inputs/a.csv": "a"})
+    case_set = cases(["x"], ["bad"])
+    case_set.refuse[0].fixtures = "fx"
+    body = derive(AGENT, case_set, base)
+    assert body["cases"][1]["kind"] == "refuse" and body["private"]["p-02"] == "text is bad"
+    assert body["cases"][1]["expected_error"] == "text is bad" and body["cases"][1]["fixtures"]["files"].keys() == {"inputs/a.csv"}
+
+
+def test_fixtures_are_staged_for_the_reference_tool_and_packed(tmp_path: Path) -> None:
+    base = with_fixtures(tmp_path, {"inputs/a.csv": "alpha", "b.txt": "beta"})
+    case_set = cases(["x"])
+    case_set.cases[0].fixtures = "fx"
+    body = derive(AGENT, case_set, base)
+    assert body["private"]["p-01"]["staged"] == {"b.txt": "beta", "inputs/a.csv": "alpha"}
+    fixtures = body["cases"][0]["fixtures"]
+    assert fixtures["files"] == {"b.txt": hashlib.sha256(b"beta").hexdigest(), "inputs/a.csv": hashlib.sha256(b"alpha").hexdigest()}
+    data = base64.b64decode(fixtures["archive"])
+    assert fixtures["sha256"] == hashlib.sha256(data).hexdigest()
+    with tarfile.open(fileobj=io.BytesIO(gzip.decompress(data))) as tar:
+        assert [(m.name, m.mtime, m.uid, m.gid, m.uname) for m in tar.getmembers()] == [
+            ("b.txt", 0, 0, 0, ""), ("inputs", 0, 0, 0, ""), ("inputs/a.csv", 0, 0, 0, ""),
+        ]  # fmt: skip
+
+
+def test_the_fixtures_archive_is_deterministic(tmp_path: Path) -> None:
+    base = with_fixtures(tmp_path, {"inputs/a.csv": "alpha", "b.txt": "beta"})
+    case_set = cases(["x"])
+    case_set.cases[0].fixtures = "fx"
+    first, second = derive(AGENT, case_set, base), derive(AGENT, case_set, base)
+    assert first["cases"][0]["fixtures"]["sha256"] == second["cases"][0]["fixtures"]["sha256"]
+    assert first["cases"][0]["fixtures"]["archive"] == second["cases"][0]["fixtures"]["archive"]
+
+
+def test_fixtures_resolve_against_an_uploaded_files_map() -> None:
+    case_set = cases(["x"])
+    case_set.cases[0].fixtures = "./fixtures/one"
+    uploaded = {"fixtures/one/a.txt": b"hi", "fixtures/one/inputs/b.txt": b"yo", "fixtures/two/c.txt": b"no"}
+    body = derive(AGENT, case_set, uploaded)
+    assert body["private"]["p-01"]["staged"] == {"a.txt": "hi", "inputs/b.txt": "yo"}
+    assert body["cases"][0]["fixtures"]["files"].keys() == {"a.txt", "inputs/b.txt"}
+
+
+@pytest.mark.parametrize("folder", ["fixtures/missing", "../fixtures/one", "/fixtures/one", "fixtures\\one"])
+def test_a_fixtures_folder_that_is_not_in_the_uploaded_files_is_refused(folder: str) -> None:
+    case_set = cases(["x"])
+    case_set.cases[0].fixtures = folder
+    with pytest.raises(PreparationError, match="case p-01: the fixtures .* (are not inside the case folder|are not a folder of the uploaded case folder)"):
+        derive(AGENT, case_set, {"fixtures/one/a.txt": b"hi"})
+
+
+def test_uploaded_file_paths_must_stay_inside_the_case_folder() -> None:
+    assert case_sets.decode_files({"a/b.txt": "aGk="}) == {"a/b.txt": b"hi"}
+    for bad in ({"../a": "aGk="}, {"/a": "aGk="}, {"a": "!!"}):
+        with pytest.raises(PreparationError, match="the uploaded file"):
+            case_sets.decode_files(bad)
+
+
+def test_a_fixture_named_answer_json_at_the_root_is_refused_from_a_folder_and_from_a_files_map(tmp_path: Path) -> None:
+    case_set = cases(["x"])
+    case_set.cases[0].fixtures = "fx"
+    with pytest.raises(PreparationError, match="case p-01: the fixtures hold answer.json at their root, which the platform seeds"):
+        derive(AGENT, case_set, with_fixtures(tmp_path, {"answer.json": "{}"}))
+    with pytest.raises(PreparationError, match="case p-01: the fixtures hold answer.json at their root"):
+        derive(AGENT, case_set, {"fx/answer.json": b"{}"})
+    # Deeper down it is an ordinary file.
+    assert derive(AGENT, case_set, {"fx/inputs/answer.json": b"{}"})["cases"][0]["fixtures"]["files"].keys() == {"inputs/answer.json"}
+
+
+CASE_FILE = """\
+plugin: p
+task: t
+cases:
+  - prompt: |
+      Report x.
+
+        Indented line, "quotes", 'apostrophes', # not a comment, and: colons.
+    arguments:
+      text: x
+    fixtures: fx
+refuse:
+  - prompt: |-
+      Report bad.
+    arguments:
+      text: bad
+    reference_error: text is bad
+"""
+
+
+def test_a_yaml_case_file_loads_with_its_prompts_byte_for_byte() -> None:
+    case_set = case_sets.parse_case_file(CASE_FILE)
+    assert case_set.cases[0].prompt == 'Report x.\n\n  Indented line, "quotes", \'apostrophes\', # not a comment, and: colons.\n'
+    assert case_set.cases[0].fixtures == "fx" and case_set.refuse[0].fixtures is None
+    assert case_set.refuse[0].prompt == "Report bad." and case_set.refuse[0].reference_error == "text is bad"
+
+
+def test_a_yaml_syntax_error_names_its_line() -> None:
+    with pytest.raises(PreparationError, match=r"not valid YAML at line 5, column"):
+        case_sets.parse_case_file("plugin: p\ntask: t\ncases:\n  - prompt: [unclosed\n    arguments: {}\n")
+
+
+def test_a_case_file_that_is_not_a_mapping_is_refused() -> None:
+    with pytest.raises(PreparationError, match="must be a YAML mapping"):
+        case_sets.parse_case_file("- just\n- a list\n")
+
+
+def test_the_old_case_file_shape_is_refused() -> None:
+    old = "plugin: p\ntask: t\ncontext: c\nanswer:\n  - text: x\nrefuse: []\n"
+    with pytest.raises(PreparationError, match="case file shape.*(context|answer)"):
+        case_sets.parse_case_file(old)
+
+
+def test_a_symlink_among_the_fixtures_is_refused_naming_its_path(tmp_path: Path) -> None:
+    base = with_fixtures(tmp_path, {"a.txt": "a"})
+    (tmp_path / "fx" / "link").symlink_to(tmp_path / "fx" / "a.txt")
+    case_set = cases(["x"])
+    case_set.cases[0].fixtures = "fx"
+    with pytest.raises(PreparationError, match="the fixture link is a symlink"):
+        derive(AGENT, case_set, base)
+
+
+def test_a_fixtures_folder_outside_the_case_file_folder_is_refused(tmp_path: Path) -> None:
+    (tmp_path / "base").mkdir()
+    with_fixtures(tmp_path, {"a.txt": "a"})
+    case_set = cases(["x"])
+    case_set.cases[0].fixtures = "../fx"
+    with pytest.raises(PreparationError, match="the fixtures ../fx are not inside"):
+        derive(AGENT, case_set, tmp_path / "base")
+
+
+@pytest.mark.parametrize(("value", "prompt"), [("5", "Process 15 items."), ("a.csv", "Read data.csv."), ("5", "Take 1.5 cups."), ("data.csv", "Read dir/data.csv.")])
+def test_the_lint_refuses_an_argument_the_prompt_only_holds_inside_a_longer_token(value: str, prompt: str) -> None:
+    with pytest.raises(PreparationError, match=rf"case p-01: the prompt does not state argument text \({re.escape(value)}\)"):
+        case_sets.lint("p-01", Case(prompt, {"text": value}))
+    case_sets.lint("p-01", Case(f"Use {value}.", {"text": value}))
+
+
+def test_the_lint_refuses_an_argument_of_a_type_it_cannot_check_naming_the_case() -> None:
+    with pytest.raises(PreparationError, match=r"case p-01: argument day is a date \(datetime.date\(2024, 1, 2\)\), which the prompt lint cannot check"):
+        case_sets.lint("p-01", Case("Report 2024-01-02.", {"day": datetime.date(2024, 1, 2)}))
+
+
+def test_a_refusal_whose_error_names_the_scratch_folder_is_refused_naming_the_case(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def call(manifest: Any, name: str, arguments: dict[str, Any], *, workspace: Path, **_: Any) -> dict[str, Any]:
+        raise ValueError(f"text is bad: no {workspace}/in.csv")
+
+    monkeypatch.setattr(case_sets, "call_tool_async", call)
+    with pytest.raises(PreparationError, match="case p-01: truth's rejection of .* names its scratch folder"):
+        derive(AGENT, CaseSet("p", "t", [], [Refusal("Report bad.", {"text": "bad"}, "text is bad")]))
+
+
+@pytest.mark.parametrize("folder", [".", "./", "fx/.."])
+def test_a_fixtures_folder_that_holds_the_case_file_is_refused_naming_the_case(tmp_path: Path, folder: str) -> None:
+    base = with_fixtures(tmp_path, {"a.txt": "a"})
+    (base / "cases.yaml").write_text("plugin: p")
+    case_set = cases(["x"])
+    case_set.cases[0].fixtures = folder
+    with pytest.raises(PreparationError, match="case p-01: the fixtures .* hold the case file itself"):
+        derive(AGENT, case_set, base)
+
+
+def test_an_output_schema_the_worker_cannot_skeleton_fails_publishing() -> None:
+    manifest = plugin("agent", reference="truth", tools=("read",))
+    task = SimpleNamespace(**{**vars(manifest.task(None)), "output": {"type": "object", "properties": {"n": {"anyOf": [{"type": "string"}, {"type": "integer"}]}}}})
+    manifest.task = lambda _: task
+    with pytest.raises(PreparationError, match=r"task t: output_schema_unsupported: \$\.n: anyOf without a null branch"):
+        derive(manifest, cases(["x"]))

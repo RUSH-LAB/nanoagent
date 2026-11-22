@@ -202,7 +202,8 @@ export function harnessPage() {
       shown().write("Press Enter to start a new one.");
     };
     try {
-      const id = await startRun("harness.run", { harness: "shell", ...(resume ? { resume, chat } : {}), ...(cli ? { start: cli } : {}) }, (name, data) => {
+      const params = { harness: "shell", ...(resume ? { resume, chat } : {}), ...(cli ? { start: cli } : {}) };
+      const id = await startRun("harness.run", params, (name, data) => {
         if (mine !== generation) return;  // a session this tab has since replaced
         switch (name) {
           case "harness.session":

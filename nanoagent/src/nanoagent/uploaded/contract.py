@@ -10,12 +10,9 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import re
-import stat
 from dataclasses import dataclass
 from importlib.resources import files
-from pathlib import Path
 from typing import Any
 
 import yaml
@@ -35,20 +32,6 @@ class ContractError(Exception):
         super().__init__(f"{code}: {message}")
         self.code = code
         self.message = message
-
-
-class ResultError(ContractError):
-    """The harness's final result is missing (`missing_result`) or unusable (`invalid_result`)."""
-
-
-@dataclass(frozen=True)
-class Answered:
-    answer: dict[str, Any]
-
-
-@dataclass(frozen=True)
-class Refused:
-    reason: str
 
 
 @dataclass(frozen=True)
@@ -265,69 +248,6 @@ def parse_manifest(data: bytes, max_bytes: int = DEFAULT_MAX_BYTES) -> HarnessMa
 
 
 # ---------------------------------------------------------------------------------------------
-# Result
-
-def validate_result(raw: bytes, output_schema: dict[str, Any], max_bytes: int = DEFAULT_MAX_BYTES) -> Answered | Refused:
-    """Decode and validate a submitted result; an answer must also satisfy the task's output schema.
-
-    A malformed `output_schema` is a platform fault, not a harness one, and raises jsonschema's
-    SchemaError rather than a [ResultError].
-    """
-    try:
-        result = decode_and_validate("Result", raw, max_bytes)
-    except ContractError as error:
-        raise ResultError("invalid_result", error.message) from error
-    if result["status"] == "refused":
-        return Refused(result["reason"])
-    Draft202012Validator.check_schema(output_schema)
-    error = best_match(Draft202012Validator(output_schema, format_checker=_FORMATS).iter_errors(result["answer"]))
-    if error is not None:
-        raise ResultError("invalid_result", f"answer{_pointer(error)} violates the output schema: {error.message}")
-    return Answered(result["answer"])
-
-
-def _open_beneath(root_fd: int, parts: list[str], leaf_flags: int) -> int:
-    """Open `parts` below `root_fd`, refusing a symlink at every component."""
-    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-    current = os.dup(root_fd)
-    try:
-        for part in parts[:-1]:
-            next_fd = os.open(part, directory_flags, dir_fd=current)
-            os.close(current)
-            current = next_fd
-        return os.open(parts[-1], leaf_flags | os.O_NOFOLLOW, dir_fd=current)
-    finally:
-        os.close(current)
-
-
-def read_result_file(sandbox_root: Path, relative_path: str, max_bytes: int) -> bytes:
-    """Read the result file beneath `sandbox_root` without following a link at any component."""
-    problem = path_problem(relative_path)
-    if problem is not None:
-        raise ContractError("invalid_path", f"{relative_path!r} is not a canonical relative path")
-    root_fd = os.open(sandbox_root, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        # O_NONBLOCK so a FIFO planted as the result cannot block the open.
-        fd = _open_beneath(root_fd, relative_path.split("/"), os.O_RDONLY | os.O_NONBLOCK)
-    except FileNotFoundError as error:
-        raise ResultError("missing_result", f"{relative_path} does not exist") from error
-    except OSError as error:
-        raise ResultError("invalid_result", f"{relative_path} cannot be opened safely: {error.strerror}") from error
-    finally:
-        os.close(root_fd)
-    try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise ResultError("invalid_result", f"{relative_path} is not a regular file")
-        with os.fdopen(fd, "rb", closefd=False) as handle:
-            data = handle.read(max_bytes + 1)
-    finally:
-        os.close(fd)
-    if len(data) > max_bytes:
-        raise ResultError("invalid_result", f"{relative_path} exceeds the {max_bytes} byte limit")
-    return data
-
-
-# ---------------------------------------------------------------------------------------------
 # Prompt contract
 
 def _is_text_part(part: Any, part_type: str, prompt: str) -> bool:
@@ -402,6 +322,30 @@ def contains_first_prompt(dialect: str, request_json: dict[str, Any], user: str 
     if user is None and system is None:
         raise ContractError("invalid_prompt", "a prompt has a system part, a user part or both")
     return (user is None or _user_matches(dialect, request_json, user)) and (system is None or _system_matches(dialect, request_json, system))
+
+
+def _first_user_texts(dialect: str, body: dict[str, Any]) -> list[str]:
+    """The text parts of the conversation's first user message (its string content, or each text part), or [] when it has none."""
+    if dialect == "responses" and isinstance(body.get("input"), str):
+        return [body["input"]]
+    messages = body.get("input") if dialect == "responses" else body.get("messages")
+    first = next((m for m in messages if isinstance(m, dict) and m.get("role") == "user"), None) if isinstance(messages, list) else None
+    if first is None:
+        return []
+    content = first.get("content")
+    if isinstance(content, str):
+        return [content]
+    parts = content if isinstance(content, list) else []
+    return [part["text"] for part in parts if isinstance(part, dict) and isinstance(part.get("text"), str)]
+
+
+def rewrites_first_prompt(dialect: str, request_json: dict[str, Any], user: str) -> bool:
+    """Whether the request is a rewritten case prompt: it does not carry ``user`` byte-exact (`contains_first_prompt`) but the
+    conversation's first user message has a text part that contains it with something added or changed around it (a prefix, a
+    suffix, a wrapper) or differs from it by surrounding whitespace only. A request whose first user message does not contain the prompt at all is a side request, not a rewrite."""
+    if dialect not in DIALECTS:
+        raise ContractError("unknown_dialect", f"{dialect!r} is not one of {DIALECTS}")
+    return not _user_matches(dialect, request_json, user) and any(user in text or text.strip() == user.strip() for text in _first_user_texts(dialect, request_json))
 
 
 # ---------------------------------------------------------------------------------------------

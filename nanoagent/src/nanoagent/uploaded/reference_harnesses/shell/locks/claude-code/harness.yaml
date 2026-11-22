@@ -1,0 +1,13 @@
+protocol: rush.harness.v1
+name: claude-code
+version: "1"
+dialects: [anthropic_messages]
+toolchain: javascript-22
+lockfiles: [package-lock.json]
+# package-lock.json: reproduced by `.venv/bin/python src/nanoagent/uploaded/reference_harnesses/regenerate_locks.py` (`--check` verifies it).
+# /deps/node_modules holds the lock-verified packages, the platform's claude binary among them; build.sh keeps the build architecture's.
+build:
+  argv: [sh, build.sh]
+  outputs: [node_modules]
+run:
+  argv: ["true"]

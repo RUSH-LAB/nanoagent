@@ -232,7 +232,9 @@ def test_unknown_path_token_and_method_are_599_violations(mock: MockProvider) ->
     assert post(f"{mock.root}/api/v1/chat/completions")[0] == 599
     assert post(f"{handle.base_url}/embeddings")[0] == 599
     assert post(f"{handle.anthropic_base_url}/v1/messages/count_tokens")[0] == 599
-    assert post(f"{handle.base_url}/models", method="GET")[0] == 599
+    assert post(f"{handle.base_url}/credits", method="GET")[0] == 599
+    # The model list a worker reads at start (each priced model's own maximum output) is the one GET the mock answers besides generations.
+    assert post(f"{handle.base_url}/models", method="GET")[0] == 200
     assert len(mock.violations) == before + 2
     assert len(handle.ledger.violations) == 3  # embeddings, count_tokens and the GET
     with pytest.raises(AssertionError, match="protocol violations"):

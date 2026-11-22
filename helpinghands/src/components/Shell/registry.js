@@ -1,6 +1,7 @@
 import React from 'react';
 import {HomeSection, page as homePage} from '@site/src/runtime-content/WorkspaceHomeRoute.js';
 import {AppsSection, page as appsPage} from '@site/src/pages/apps/index.js';
+import {BenchmarksSection, page as benchmarksPage} from '@site/src/pages/benchmarks/index.js';
 import {MarketplaceSection, page as marketplacePage} from '@site/src/pages/marketplace/index.js';
 import {SettingsSection, page as settingsPage} from '@site/src/pages/settings/index.js';
 import {WorkspaceSection, page as workspacePage} from '@site/src/pages/workspace/index.js';
@@ -22,6 +23,12 @@ const DRAWN = {
     Section: MarketplaceSection,
     page: marketplacePage,
     icon: <path d="M3.5 8h13l-1.1 9h-10.8zM7 8V6.5a3 3 0 0 1 6 0V8" />,
+  },
+  benchmarks: {
+    Section: BenchmarksSection,
+    page: benchmarksPage,
+    // A stopwatch: a dial with its crown.
+    icon: <path d="M7.5 2.75h5M10 5v1.5M10 17.25a6 6 0 1 0 0-12 6 6 0 0 0 0 12zM10 9v3.25l2 1.25" />,
   },
   workspace: {
     Section: WorkspaceSection,

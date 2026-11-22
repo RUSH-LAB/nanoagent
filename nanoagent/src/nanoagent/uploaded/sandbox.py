@@ -27,6 +27,7 @@ Every failure is a [SandboxError] with a stable `code`; nothing falls back to a 
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import hashlib
 import json
 import math
@@ -48,7 +49,7 @@ from nanoagent.plugin.egress import egress_port
 from nanoagent.plugin.install import INSTALL_HOSTS
 from nanoagent.uploaded.archive import ArchiveError, Extracted, copy_tree, unpack_tar
 from nanoagent.uploaded.collector import STRACE_FLAGS, CollectorError, ProcessEvent, ProcessEvidence, TraceSession, launch_argv, launched_processes, parse_trace
-from nanoagent.uploaded.contract import ContractError, HarnessManifest, is_canonical_relative_path, path_problem, read_result_file, validate_argv
+from nanoagent.uploaded.contract import ContractError, HarnessManifest, is_canonical_relative_path, path_problem, validate_argv
 from nanoagent.uploaded.toolchains import CLOSURE_ARCHIVE, DependencyClosure, ToolchainProfile
 
 # microsandbox has no wheel for Intel Macs (pyproject.toml's marker leaves it out there): everything else NanoAgent does runs
@@ -99,14 +100,17 @@ OUTPUT_MOUNT = "/rush-build-tar"  # where the build VM leaves OUTPUT_ARCHIVE, it
 OUTPUT_ARCHIVE = "build-out.tar"
 INODE_BYTES = 16 << 10  # ext4's default bytes per inode: a VM disk holds a file per this many bytes of its size
 DISK_SLACK_MIB = 64  # beyond a VM disk's contents: ext4's own
+# microsandbox formats an owned disk as ext4 with 128 MiB block groups and refuses one under 68 MiB or whose last group is a few MiB
+# ("image size is too small for ext4 formatting", "block group N has M blocks but ..."), so a disk is a whole number of groups.
+DISK_GROUP_MIB = 128
 UV_BIN = f"{TOOLS_DIR}/uv"
 STRACE_BIN = f"{TOOLS_DIR}/strace"
 FIXTURES_ENV = "NANOAGENT_FIXTURES"
 RESULT_NAME = "result.json"
 GUEST_HOST = "host.microsandbox.internal"  # the worker, as every VM addresses it
 EXEC_KILL_GRACE_S = 2
+KILL_RETRY_S = 0.25  # how long close() waits for the case to end before it kills its processes again
 DRAIN_S = 15.0  # how long a killed command's tracer is given to write its last lines
-MAX_RESULT_BYTES = 1 << 20
 MIB = 1 << 20
 # python:3.12-trixie: the runtime image's Debian release and Python, plus git, which uv needs for git-sourced
 # dependencies. Plugins are synced here so their virtual environment matches the tool VM's runtime.
@@ -329,10 +333,6 @@ class CaseHandle(Protocol):
         """`{identity, user_ns, system_ns}` per VM, read by `stop_and_drain`; empty when any is unreadable."""
         ...
 
-    def read_result(self) -> bytes:
-        """The bytes of `/rush/out/result.json`; raises a ResultError-coded SandboxError when absent or unusable."""
-        ...
-
     def evidence(self) -> ProcessEvidence:
         """The case's process evidence, once the harness has stopped."""
         ...
@@ -377,7 +377,7 @@ def _bind(path: Path, *, readonly: bool = True, quota: int | None = None) -> Mou
 
 def _disk(size: int) -> MountConfig:
     """A disk of the VM's own (ext4, removed with it) of ``size`` bytes beside ext4's own; it has an inode per INODE_BYTES."""
-    return Volume.owned(kind=VolumeKind.DISK, size_mib=_mib(size) + DISK_SLACK_MIB)
+    return Volume.owned(kind=VolumeKind.DISK, size_mib=-(-(_mib(size) + DISK_SLACK_MIB) // DISK_GROUP_MIB) * DISK_GROUP_MIB)
 
 
 def _tmpfs(size: int) -> MountConfig:
@@ -389,7 +389,8 @@ def _network(ports: Sequence[int], *, internet: bool = False, model_hosts: Seque
     ``model_hosts``, the model providers' APIs, whose names do not resolve: the attempt's gateway is its only way to a model."""
     rules = [Rule.allow(destination=Destination.group(DestGroup.HOST), protocol=NetProtocol.TCP, port=port) for port in ports]
     if internet:
-        rules += [*Rule.allow_dns(), Rule.allow(destination=Destination.group(DestGroup.PUBLIC))]
+        # microsandbox's PUBLIC group is "not private/loopback/link-local/metadata/multicast", which leaves 0.0.0.0/8 in it
+        rules += [*Rule.allow_dns(), Rule.deny(destination=Destination.cidr("0.0.0.0/8")), Rule.allow(destination=Destination.group(DestGroup.PUBLIC))]
     policy = NetworkPolicy(default_egress=Action.DENY, default_ingress=Action.DENY, rules=tuple(rules))
     return Network(policy=policy, deny_domains=tuple(model_hosts) if internet else ())
 
@@ -1318,10 +1319,6 @@ class _Case:
     def cpu_counters(self) -> list[dict[str, Any]]:
         return list(self._counters)
 
-    def read_result(self) -> bytes:
-        # Only result.json is read: anything else in the directory is ignored. The VM is frozen, so it cannot change.
-        return read_result_file(self._out, RESULT_NAME, MAX_RESULT_BYTES)
-
     def evidence(self, *, tracer_ok: bool = True) -> ProcessEvidence:
         with self._evidence_lock:  # wait() and close() both take it, from different threads
             if self._final is None:
@@ -1355,12 +1352,15 @@ class _Case:
             if self._paused:
                 self._run(_call(self._sandbox.resume))
                 self._paused = False
-            self._run(_kill_case_processes(self._sandbox))
-            for future in [self._future, *self._further()]:
-                try:
-                    future.result(timeout=DRAIN_S + 5)
-                except Exception:
-                    pass
+            # `started` fires when the tracer is launched, before the harness it forks is a process of the case user: a kill that
+            # lands in between finds nothing, and the harness then runs on. So kill again until every run has ended.
+            give_up = time.monotonic() + DRAIN_S + 5
+            while time.monotonic() < give_up:
+                self._run(_kill_case_processes(self._sandbox))
+                runs = [self._future, *self._further()]
+                concurrent.futures.wait(runs, timeout=KILL_RETRY_S)
+                if all(run.done() for run in runs):
+                    break
         if self._future is not None:
             try:
                 self.evidence(tracer_ok=self._future.done() and self._future.exception() is None)

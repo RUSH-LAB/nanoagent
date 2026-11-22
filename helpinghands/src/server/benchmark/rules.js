@@ -2,7 +2,7 @@
 
 /** The scoring and budget rules, pure so they can be tested without a database. */
 
-const METRIC_FIELDS = ['total_tokens', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'elapsed_ms'];
+const METRIC_FIELDS = ['total_tokens', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'elapsed_ms', 'tool_calls'];
 /** The attempt metric that counts, per model call, how many calls did not report the token field. */
 const MISSING_CALLS_KEY = {total_tokens: 'total', input_tokens: 'input', output_tokens: 'output', cache_read_tokens: 'cache_read', cache_write_tokens: 'cache_write'};
 
@@ -21,6 +21,8 @@ function latestByCase(attempts, keyOf = attempt => attempt.case_id) {
  * A run's score from each case's newest attempt: the cases that passed over the cases scored, those whose
  * attempt reached a verdict. `value` is null when none was scored, with the reason; `unscored` counts the others
  * (still running, failed before a verifier saw them, or a verifier error), and `complete` says every case's newest attempt is final.
+ * A worker error is the platform's failure, not a failed case: when any case's newest attempt ended in one (its retries are used up, for a
+ * retry in flight is the newest attempt instead), the run is not graded, `value` null with the reason `worker_error`.
  */
 function runScore(caseIds, attempts) {
   const latest = latestByCase(attempts);
@@ -29,10 +31,12 @@ function runScore(caseIds, attempts) {
   const passed = scored.filter(attempt => attempt.verdict === 'pass').length;
   const complete = newest.every(attempt => attempt?.state === 'final');
   const verifierErrors = newest.filter(attempt => attempt?.verifier_error).length;
+  const workerErrors = newest.some(attempt => attempt?.execution_status === 'worker_error');
   let unavailable = null;
-  if (!scored.length) unavailable = verifierErrors ? 'verifier_error' : complete ? 'no_scored_cases' : 'scoring_pending';
+  if (workerErrors) unavailable = 'worker_error';
+  else if (!scored.length) unavailable = verifierErrors ? 'verifier_error' : complete ? 'no_scored_cases' : 'scoring_pending';
   return {
-    value: scored.length ? passed / scored.length : null, passed, scored: scored.length, total: caseIds.length,
+    value: scored.length && !workerErrors ? passed / scored.length : null, passed, scored: scored.length, total: caseIds.length,
     unscored: caseIds.length - scored.length, verifier_errors: verifierErrors, complete, unavailable_reason: unavailable,
   };
 }
@@ -46,7 +50,7 @@ function sumMetrics(metricsList) {
   const sums = {};
   for (const field of METRIC_FIELDS) {
     const reported = metricsList.map(metrics => metrics?.[field]).filter(value => typeof value === 'number' && Number.isFinite(value));
-    const partial = metricsList.filter(metrics => metrics?.missing_calls?.[MISSING_CALLS_KEY[field]] > 0 && Number.isFinite(metrics?.[field])).length;
+    const partial = metricsList.filter(metrics => (field === 'tool_calls' ? metrics?.tool_calls_complete === false : metrics?.missing_calls?.[MISSING_CALLS_KEY[field]] > 0) && Number.isFinite(metrics?.[field])).length;
     sums[field] = {total: reported.reduce((sum, value) => sum + value, 0), missing_attempts: metricsList.length - reported.length + partial};
   }
   return sums;

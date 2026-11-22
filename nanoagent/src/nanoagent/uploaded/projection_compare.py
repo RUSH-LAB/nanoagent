@@ -47,7 +47,7 @@ def to_compare_attempt(p: Projection, payloads: Mapping[str, bytes] | None = Non
         dialect=next(iter(dialects)) if len(dialects) == 1 else None,
         policy=a.policy,
         internet_access=a.limits.get("internet_access"),
-        egress_hosts=a.egress_hosts if a.policy == "task_tools" else None,
+        egress_hosts=a.egress_hosts,
         limits=scalars or None,
         timing_method=f"{TIMING_METHOD_ID};clock_tolerance_ns={a.method.clock_tolerance_ns}",
         reference_tokens_per_second=a.method.reference_tokens_per_second,

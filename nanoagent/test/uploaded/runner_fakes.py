@@ -3,39 +3,41 @@
 from __future__ import annotations
 
 import base64
+import gzip
+import hashlib
 import io
 import json
+import shutil
+import tarfile
 import threading
-import zipfile
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import anyio
+from rush_rules import Invalid, check_finalize
 from nanoagent.plugin.manifest import load_manifest
 from nanoagent.uploaded.collector import ProcessEvidence
 from nanoagent.uploaded.rush_worker import Canceled, LeaseLost, RushError, Sealed, parse_job
 from nanoagent.uploaded.sandbox import BuildArtifact, CaseOutcome, SandboxError, Termination, TerminationKind, WorkspaceSnapshot
 
 PROBE = Path(__file__).resolve().parents[1] / "plugins" / "acceptance-probe"
-ANSWER = json.dumps({"protocol": "rush.harness.v1", "status": "answered", "answer": {"sum": 3}}).encode()
-OUTPUT_SCHEMA = {"type": "object", "required": ["sum"], "properties": {"sum": {"type": "integer"}}, "additionalProperties": False}
+ANSWER = json.dumps({"digest": "abcdefabcdef"}).encode()  # what a harness leaves in answer.json: an answer of the probe task's output class
 PLUGIN_SHA = "a" * 64
-PROMPT = "Task\nsum the numbers\n"
+PROMPT = "Task\nreport the digest of the token alpha\n"
 ATTEMPT_ID = "22222222-2222-4222-8222-222222222222"
 
 
-def source_zip(toolchain: str = "python-3", manifest: bool = True) -> bytes:
+def fixtures_archive(files: dict[str, bytes]) -> tuple[bytes, dict[str, str]]:
+    """A gzipped tar of ``files`` as the server serves a case's fixtures, and the `{path: sha256}` the claim lists for it."""
     buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as archive:
-        if manifest:
-            archive.writestr(
-                "harness.yaml",
-                f"protocol: rush.harness.v1\nname: h\nversion: '1'\ndialects: [chat_completions]\ntoolchain: {toolchain}\nlockfiles: []\nbuild:\n  argv: [sh, -c, cp main.py /build-out/main.py]\n  outputs: [main.py]\nrun:\n  argv: [python, /harness/main.py]\n",
-            )
-        archive.writestr("main.py", "print('hi')\n")
-    return buffer.getvalue()
+    with tarfile.open(fileobj=buffer, mode="w") as tar:
+        for name, data in sorted(files.items()):
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+    return gzip.compress(buffer.getvalue(), mtime=0), {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}
 
 
 LIMITS = {
@@ -48,27 +50,24 @@ CAPABILITIES = {**LIMITS, "wall_time_ms": 600000, "internet_access": True, "conc
 WAIT_TOOL = {"name": "wait", "description": "wait a while", "input_schema": {"type": "object"}, "output_schema": {"type": "object"}, "writes": False}
 
 
-def job_body(policy: str = "task_tools", limits: dict[str, Any] | None = None, tools: list[dict[str, Any]] | None = None, **overrides: Any) -> dict[str, Any]:
+def job_body(limits: dict[str, Any] | None = None, tools: list[dict[str, Any]] | None = None, harness: str = "claude", **overrides: Any) -> dict[str, Any]:
     body = {
         "kind": "attempt", "attempt_id": ATTEMPT_ID, "attempt_no": 1, "fence": 1, "lease_expires_at": "later", "lease_seconds": 60,
         "run": {
-            "run_id": "r", "model": "test/model", "endpoint_profile": "mock", "dialects": ["chat_completions"], "source_sha256": "b" * 64,
-            "policy": policy, "limits": {**LIMITS, **(limits or {})}, "interactive": False, "prompt_bound": True,
+            "run_id": "r", "harness": harness, "model": "test/model", "endpoint_profile": "mock", "limits": {**LIMITS, **(limits or {})},
+            "interactive": False, "prompt_bound": True,
         },
         "task": {
-            "id": "probe", "kind": "agent", "description": "Sum the numbers.", "instructions": "Be exact.", "plugin_name": "Acceptance probe",
-            "egress_hosts": ["api.example.com"], "tools": [] if tools is None else tools,
+            "id": "probe", "kind": "agent", "description": "Wait, then digest a token", "input_schema": {"type": "object"}, "output_schema": {"type": "object"},
+            "plugin_name": "Acceptance probe", "egress_hosts": ["api.example.com"], "tools": [] if tools is None else tools,
         },
         "case": {
-            "case_id": "c1", "position": 0, "kind": "answer", "arguments": {"token": "alpha", "wait_seconds": 0.0}, "context": "numbers", "input_schema": {"type": "object"},
-            "output_schema": OUTPUT_SCHEMA, "content_digest": "e" * 64,
+            "case_id": "c1", "kind": "answer", "prompt": PROMPT, "prompt_sha256": "c" * 64, "arguments": {"token": "alpha", "wait_seconds": 0.0},
+            "fixtures": None, "expected_error": None,
         },
-        "prompt": {"system": None, "user": PROMPT, "sha256": "c" * 64},
         "plugin": {"id": "acceptance-probe", "name": "Acceptance probe", "version": "0.1.0", "sha256": PLUGIN_SHA},
-        "case_set": {"case_set_id": "probe@1", "digest": "f" * 64},
-        "private_reference": {"digest": "x"},
+        "private_reference": {"digest": "abcdefabcdef"},
         "free_form": False,
-        "case_pending": False,
         "resume": None,
         "start": None,
     }
@@ -81,18 +80,11 @@ def job(**overrides: Any):
 
 
 def free_job(**overrides: Any):
-    """A free-form Terminal session's job: someone at it, no task, case set or case, and of its plugin only the id."""
-    body = job_body(policy="coding", **overrides)
-    body["run"] |= {"interactive": True, "prompt_bound": False}
+    """A free-form Terminal session's job: someone at it, no task, case or reference, and of its plugin only the id."""
+    body = job_body(**overrides)
+    body["run"] |= {"harness": "shell", "interactive": True, "prompt_bound": False}  # a session of the Terminal runs the shell, whose agent is anyone's
     plugin = {"id": body["plugin"]["id"], "name": None, "version": None, "sha256": None}
-    return parse_job({**body, "free_form": True, "task": None, "plugin": plugin, "case_set": None, "case": None, "prompt": None, "private_reference": None})
-
-
-def pending_job(**overrides: Any):
-    """A session's job claimed while its case is pinned, and what ``GET /attempts/{id}/case`` answers once it is."""
-    body = job_body(policy="coding", **overrides)
-    pinned = {key: body[key] for key in ("case_set", "case", "prompt", "private_reference")}
-    return parse_job({**body, "case_pending": True, "case_set": None, "case": None, "prompt": None, "private_reference": None}), pinned
+    return parse_job({**body, "free_form": True, "task": None, "plugin": plugin, "case": None, "private_reference": None})
 
 
 class StopPolling(Exception):
@@ -102,11 +94,11 @@ class StopPolling(Exception):
 class FakeRush:
     """The worker API: records everything, and loses the lease, cancels or seals on cue."""
 
-    def __init__(self, source: bytes | None = None) -> None:
+    def __init__(self, fixtures: bytes | None = None) -> None:
         self.screen = b""  # what the harness wrote to its terminal (0)
         self.closed_terminals: list[int] = []
         self.links: list[tuple[int, str]] = []  # where each session's page reaches its terminals
-        self.source_bytes = source if source is not None else source_zip()
+        self.fixtures_bytes = fixtures  # what GET /attempts/{id}/fixtures answers
         self.events: list[dict[str, Any]] = []
         self.event_ids: set[str] = set()
         self.payloads: dict[str, bytes] = {}
@@ -125,8 +117,6 @@ class FakeRush:
         self.renew_attempts = 0
         self.jobs: list[Any] = []  # what claim hands out, then StopPolling
         self.events_after_loss = 0
-        self.pinned_case: Any = None  # what GET /attempts/{id}/case answers (a body, or an exception it raises), after case_delay_s
-        self.case_delay_s = 0.0
         self.packages = 0  # how many times the plugin package was fetched
         self.opened: list[str] = []  # the sessions whose `nanoagent` asked for the plugin's tools (POST /attempts/{id}/tools)
         self.tools_error: Exception | None = None  # what that answers instead, e.g. a RushError
@@ -137,8 +127,11 @@ class FakeRush:
         if self.lost:
             raise LeaseLost(409, "lease_lost", "lease lost")
 
-    async def source(self, attempt_id: str, fence: int) -> bytes:
-        return self.source_bytes
+    async def fixtures(self, attempt_id: str, fence: int) -> bytes:
+        self._fenced()
+        if self.fixtures_bytes is None:
+            raise RushError(404, "no_fixtures", "The attempt's case has no fixtures")
+        return self.fixtures_bytes
 
     async def package(self, attempt_id: str, fence: int) -> bytes:
         self.packages += 1
@@ -150,13 +143,6 @@ class FakeRush:
             raise self.tools_error
         task = {**job_body()["task"], "tools": [WAIT_TOOL]}
         return {"plugin": job_body()["plugin"], "task": task, "package": base64.b64encode(b"package").decode()}
-
-    async def case(self, attempt_id: str, fence: int) -> Any:
-        self._fenced()
-        await anyio.sleep(self.case_delay_s)
-        if isinstance(self.pinned_case, Exception):
-            raise self.pinned_case
-        return self.pinned_case
 
     async def terminal_link(self, attempt_id: str, fence: int, port: int, token: str) -> None:
         self.links.append((port, token))
@@ -224,6 +210,11 @@ class FakeRush:
 
     async def finalize(self, attempt_id: str, body: dict[str, Any]) -> dict[str, Any]:
         self._fenced()
+        try:
+            json.loads(json.dumps(body))  # as posted: the server reads JSON, so an undefined key and a null differ
+            check_finalize(body)  # the server's rules (rush_rules.py, from validate.js finalizeBody)
+        except Invalid as error:
+            raise RushError(400, error.code, error.message) from error
         assert body["final_cursor_expected"] == len(self.events)
         self.finalized.append(body)
         self.sealed = True
@@ -284,11 +275,10 @@ class StrictRush(FakeRush):
 @dataclass
 class CaseScript:
     termination: Termination = field(default_factory=lambda: Termination(TerminationKind.EXITED, 0, None))
-    result: bytes | Exception = ANSWER
     evidence: ProcessEvidence = field(default_factory=evidence)
     block: bool = False  # wait() returns only once the case is closed
     cpu: list[dict[str, Any]] = field(default_factory=list)
-    workspace: dict[str, bytes] = field(default_factory=dict)  # files the harness left in the workspace, as frozen
+    workspace: dict[str, bytes] = field(default_factory=lambda: {"answer.json": ANSWER})  # files the harness left in the workspace, as frozen
     drain_error: Exception | None = None  # raised by stop_and_drain, e.g. a workspace over its bound
     closed_wait: bool = False  # a blocked wait() woken by close() fails as the real sandbox's does
     made: dict[str, bytes] = field(default_factory=dict)  # files the shell makes in the case workspace as it starts
@@ -297,7 +287,7 @@ class CaseScript:
 class FakeCase:
     container_id = "container-1"
 
-    def __init__(self, script: CaseScript, workdir: Path) -> None:
+    def __init__(self, script: CaseScript, workdir: Path, fixtures: Path | None = None) -> None:
         self.script = script
         self.released = threading.Event()
         self.closed = False
@@ -307,6 +297,8 @@ class FakeCase:
         self.workdir = workdir
         self.workspace = workdir / "workspace"
         self.workspace.mkdir(parents=True, exist_ok=True)
+        if fixtures is not None:  # the case's files, seeded as MicrosandboxSupervisor._preload does
+            shutil.copytree(fixtures, self.workspace, dirs_exist_ok=True)
 
     def _start(self) -> None:
         self.found = {path.relative_to(self.workspace).as_posix(): path.read_bytes() for path in self.workspace.rglob("*") if path.is_file()}
@@ -346,13 +338,12 @@ class FakeCase:
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "out.txt").write_text("made")
         for name, data in self.script.workspace.items():
+            (directory / name).parent.mkdir(parents=True, exist_ok=True)
             (directory / name).write_bytes(data)
-        return WorkspaceSnapshot(directory, {"out.txt": "d" * 64}, ("out.txt",), (), (), {}, 4)
-
-    def read_result(self) -> bytes:
-        if isinstance(self.script.result, Exception):
-            raise self.script.result
-        return self.script.result
+        # The sandbox's snapshot lists every file the harness left, session state (.rush/) included.
+        state = sorted(name for name in self.script.workspace if name.startswith(".rush/"))
+        files = {"out.txt": "d" * 64} | {name: "e" * 64 for name in state}
+        return WorkspaceSnapshot(directory, files, ("out.txt", *state), (), (), {}, 4)
 
     def evidence(self) -> ProcessEvidence:
         return self.script.evidence
@@ -373,6 +364,7 @@ class FakeSupervisor:
     def __init__(self, tmp_path: Path, script: CaseScript | None = None, build_error: Exception | None = None, case_error: Exception | None = None) -> None:
         self.tmp_path = tmp_path
         self.case_error = case_error  # raised when the case (and its tool container) is created
+        self.attach_error: Exception | None = None  # raised when the plugin's tool container is attached to a running case
         self.script = script or CaseScript()
         self.build_error = build_error
         self.builds = 0
@@ -398,13 +390,15 @@ class FakeSupervisor:
         self.specs.append(spec)
         if self.case_error is not None:
             raise self.case_error
-        self.case = FakeCase(self.script, self.tmp_path)
+        self.case = FakeCase(self.script, self.tmp_path, spec.fixtures)
         return self.case
 
     def prepare_plugin(self, root: Path, timeout_s: float) -> None:
         self.prepared.append(root)
 
     def attach_tool(self, case: Any, tool: Any) -> None:
+        if self.attach_error is not None:
+            raise self.attach_error
         self.attached.append(tool)
 
     def ready(self, profile: Any) -> None:

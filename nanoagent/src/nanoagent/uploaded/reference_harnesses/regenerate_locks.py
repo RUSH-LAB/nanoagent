@@ -1,4 +1,4 @@
-"""Reproduces the committed `package-lock.json` of each JavaScript reference harness from its `package.json`.
+"""Reproduces the committed `package-lock.json` of each JavaScript CLI of the shell harness (`shell/locks/<cli>/`) from its `package.json`.
 
     .venv/bin/python src/nanoagent/uploaded/reference_harnesses/regenerate_locks.py [--check] [harness ...]
 
@@ -21,7 +21,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parent / "shell" / "locks"
 HARNESSES = ("claude-code", "codex", "dsh", "pi")
 ARCHITECTURES = {"x64", "arm64"}
 DROPPED = {"node_modules/@deepseek-ai/libreoffice-kit-wasm", "node_modules/@img/sharp-wasm32"}
@@ -63,7 +63,7 @@ def main(argv: list[str]) -> int:
     names = [a for a in argv if not a.startswith("--")] or list(HARNESSES)
     unknown = [name for name in names if name not in HARNESSES]
     if unknown:
-        raise SystemExit(f"not a JavaScript reference harness: {', '.join(unknown)}; they are {', '.join(HARNESSES)}")
+        raise SystemExit(f"not a JavaScript CLI lock: {', '.join(unknown)}; they are {', '.join(HARNESSES)}")
     differing = []
     with tempfile.TemporaryDirectory() as scratch:
         for name in names:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import Any
 
@@ -140,7 +140,10 @@ def normalize(records: list[Record], payloads: Mapping[str, bytes], issues: list
         if r.source == R.WORKER:
             worker.setdefault(r.kind, []).append(r)
     started = (worker.get(R.ATTEMPT_STARTED) or [None])[0]
-    n = Normalized(_attempt(started, issues), records, worker, issues=issues, sequence_gaps=_gaps(records))
+    attempt = _attempt(started, issues)
+    if tools := worker.get(R.TOOLS_STARTED):  # the tool container starts when `nanoagent` asks: its hosts and broker are known only then
+        attempt = replace(attempt, egress_hosts=tuple(tools[0].data["egress_hosts"]), expected_sources=(*attempt.expected_sources, R.TOOL_BROKER))
+    n = Normalized(attempt, records, worker, issues=issues, sequence_gaps=_gaps(records))
     _model_calls(n)
     _tools(n)
     _commands(n, payloads)
@@ -204,6 +207,7 @@ def _model_calls(n: Normalized) -> None:
                 evidence=evidence,
                 client=(a.get("request_headers") or {}).get("user-agent"),
                 prompt=a.get("prompt"),
+                prompt_delivered=bool(a.get("prompt_delivered")),
                 run=a.get("run"),
             )
         )
@@ -318,7 +322,11 @@ def _processes(n: Normalized) -> None:
             rec["parent"] = (int(d["parent_tgid"]), int(d["parent_start_time"]))
             rec["start"] = t
         elif r.kind == R.PROCESS_EXEC:
+            if "argv" in rec:  # an exec after an exec (`sh bin/claude` then `exec claude`): the earlier command is kept, in order
+                rec.setdefault("exec_chain", []).append(rec["argv"])
             rec["argv"], rec["cwd"] = tuple(d.get("argv") or ()), d.get("cwd")
+            rec["binary_path"] = d.get("binary_path")
+            rec["argv_truncated"] = rec.get("argv_truncated", False) or bool(d.get("argv_truncated"))
             rec.setdefault("start", t)
             if d.get("launch_id"):
                 rec["launch_id"] = d["launch_id"]
@@ -334,7 +342,7 @@ def _processes(n: Normalized) -> None:
         n.processes.append(
             ProcessInfo(
                 ident, p.get("parent"), p.get("argv"), p.get("cwd"), p.get("launch_id"), p.get("start"), p.get("end"), p.get("exit_code"), p.get("signal"),
-                tuple(p["evidence"]), p.get("title"), p.get("run"),
+                tuple(p["evidence"]), p.get("title"), p.get("run"), tuple(p.get("exec_chain", ())), p.get("binary_path"), p.get("argv_truncated", False),
             )
         )
 

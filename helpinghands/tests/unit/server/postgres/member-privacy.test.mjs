@@ -44,16 +44,11 @@ describe('a plugin page\'s Dashboard, two members in one workspace', () => {
     traces = createPostgresTraceExport({pool, fs: null});
     // Alice's Terminal session on plugin `p`: bash, and in it `rush aider`, which made a model call.
     await db.exec(`
-      insert into benchmark_source (workspace_id, user_id, sha256, size, data, harness_name, harness_version, dialects)
-        values ('lab', 'alice', '${SHA}', 1, 'x', 'shell', 'v', '[]');
-      insert into benchmark_run (run_id, workspace_id, user_id, idempotency_key, request_digest, preview_id, source_sha256, model, endpoint_label,
-          dialects, policy, prompt_text, limits, selection, renderer_version, benchmark_id, benchmark_name, harness_name, harness_version, publisher,
-          plugin_id, context, session, interactive)
-        values ('${RUN}', 'lab', 'alice', 'k', '${SHA}', '${RUN}', '${SHA}', 'm', 'openrouter', '[]', 'coding', '', '{}', '{}', 'v', '${RUN}',
-          'harness-session', 'shell', 'v', '{}', 'p', '', true, true);
-      insert into benchmark_run_case (run_id, case_id, position, kind) values ('${RUN}', 'session', 0, 'answer');
+      insert into benchmark_run (run_id, workspace_id, user_id, idempotency_key, request_digest, model, endpoint_label,
+          limits, benchmark_id, benchmark_name, harness_name, publisher, plugin_id, session, interactive)
+        values ('${RUN}', 'lab', 'alice', 'k', '${SHA}', 'm', 'openrouter', '{}', '${RUN}', 'harness-session', 'shell', '{}', 'p', true, true);
       insert into benchmark_attempt (attempt_id, run_id, case_id, attempt_no, state, execution_status, finalized_at, chats)
-        values ('${ATTEMPT}', '${RUN}', 'session', 1, 'final', 'ended', now(), '[]');
+        values ('${ATTEMPT}', '${RUN}', null, 1, 'final', 'ended', now(), '[]');
       insert into benchmark_span (attempt_id, span_id, kind, name, parent_id, start_ns, end_ns, attributes) values
         ('${ATTEMPT}', 'p:1', 'process', 'bash', null, 0, null, '{"argv": ["bash", "--rcfile", "/harness/bashrc", "-i"], "cwd": "/rush/workspace"}'),
         ('${ATTEMPT}', 'p:2', 'process', 'rush', 'p:1', ${5n * S}, ${20n * S},

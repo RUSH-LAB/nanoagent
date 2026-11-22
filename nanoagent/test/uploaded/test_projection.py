@@ -105,6 +105,30 @@ def test_worked_example_metrics_come_first() -> None:
     assert flat["cpu_ns"] == 50
 
 
+def test_recorded_tool_calls_include_unlinked_proposals_and_invocations_without_double_counting() -> None:
+    t = Trace()
+    t.started()
+    t.span_start(0.0, "root", "agent", "main")
+    t.model_call("m1", ordinal=1, start=0.1, end=1.0, proposals=(t.proposal("linked", "read", {}), t.proposal("unlinked", "write", {})))
+    t.tool("t1", "read", {}, start=1.1, end=1.2, cause=("m1", "linked"))
+    t.tool("t2", "search", {}, start=1.3, end=1.4)
+    t.span_end(1.5, "root")
+    t.lifecycle(quiesce=2.0)
+    t.finish(2.1)
+    metrics = run(t).metrics.to_dict()
+    assert metrics["tool_calls"] == 3
+    assert metrics["tool_calls_complete"] is True
+
+
+def test_recorded_tool_calls_are_marked_partial_when_coverage_is_incomplete() -> None:
+    t = Trace()
+    t.started()
+    t.model_call("m1", ordinal=1, start=0.1, end=1.0, proposals=(t.proposal("c1", "read", {}),))
+    metrics = run(t).metrics.to_dict()
+    assert metrics["tool_calls"] == 1
+    assert metrics["tool_calls_complete"] is False
+
+
 def test_compare_input_uses_canonical_inputs() -> None:
     t = worked_example()
     p = run(t)
@@ -401,3 +425,37 @@ async def test_projection_restores_large_event_data_or_reports_why_it_cannot(ret
         call = next(call for call in actual.model_calls if call.call_id == call_id)
         original = next(call for call in expected.model_calls if call.call_id == call_id)
         assert call.generation_id == original.generation_id
+
+
+def test_the_trace_says_prompt_not_delivered_until_a_call_carries_the_prompt() -> None:
+    t = Trace()
+    t.started()
+    t.model_call("m1", ordinal=1, start=0.2, end=1.2)  # a side request
+    assert [i.message for i in run(t).issues if i.code == "prompt_not_delivered"] == ["prompt not delivered: no model call carried the exact case prompt"]
+    t.model_call("m2", ordinal=2, start=1.3, end=2.0, prompt_delivered=True)
+    p = run(t)
+    assert not any(i.code == "prompt_not_delivered" for i in p.issues)
+    assert [c.prompt_delivered for c in p.model_calls] == [False, True]
+
+
+def test_a_process_span_keeps_every_command_it_ran_the_binary_and_a_cut_argv() -> None:
+    """Regression: a process that exec'd again (`bash -c "pwd && ls"` then `ls`) showed only its last command, and the binary the kernel
+    ran and whether the recorder cut its argv were dropped before the trace."""
+    from nanoagent.uploaded import records as R
+
+    t = Trace()
+    t.started()
+    t.fact(R.ProcessExec(21, 4, ["bash", "-c", "pwd && ls -la"], "/rush/workspace", T0 + sec(0.1), None, "/usr/bin/bash"), T0 + sec(0.1))
+    t.fact(R.ProcessExec(21, 4, ["ls", "-la"], "/rush/workspace", T0 + sec(0.2), None, "/usr/bin/ls", True), T0 + sec(0.2))
+    t.fact(R.ProcessExit(21, 4, T0 + sec(0.3), exit_code=0), T0 + sec(0.3))
+    t.lifecycle(quiesce=0.5, cpu=(1, 1))
+    t.finish(0.6)
+    [span] = [s for s in run(t).spans if s.kind == "process"]
+    assert span.attributes["argv"] == ("ls", "-la") and span.attributes["exec_chain"] == [["bash", "-c", "pwd && ls -la"]]
+    assert span.attributes["binary_path"] == "/usr/bin/ls" and span.attributes["argv_truncated"] is True
+
+
+def test_a_model_call_span_carries_its_wait_for_the_first_byte() -> None:
+    p = run(worked_example())
+    span = next(s for s in p.spans if s.id == "m:m1")
+    assert span.attributes["first_byte_ms"] is not None and span.attributes["first_byte_ms"] >= 0

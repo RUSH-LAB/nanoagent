@@ -10,6 +10,7 @@ from nanoagent.uploaded.dialects import (
     MalformedFrameError,
     SseDecoder,
     assemble_body,
+    append_system,
     assemble_stream,
     parse_request,
     split_sse,
@@ -364,3 +365,31 @@ def test_parse_anthropic_request_tool_results_and_malformed():
 def test_a_non_string_tool_call_id_is_a_malformed_request(dialect, body):
     with pytest.raises(MalformedBodyError):
         parse_request(dialect, body)
+
+
+TEXT = "Write answer.json."
+
+
+def appended(dialect: str, body: dict[str, Any]) -> dict[str, Any]:
+    append_system(dialect, body, TEXT)  # type: ignore[arg-type]
+    return body
+
+
+def test_chat_system_text_is_appended_to_a_leading_system_message_or_inserted_first() -> None:
+    user = {"role": "user", "content": "q"}
+    assert appended("chat_completions", {"messages": [{"role": "system", "content": "A"}, user]})["messages"][0] == {"role": "system", "content": f"A\n\n{TEXT}"}
+    blocks = appended("chat_completions", {"messages": [{"role": "system", "content": [{"type": "text", "text": "A"}]}, user]})["messages"][0]
+    assert blocks["content"] == [{"type": "text", "text": "A"}, {"type": "text", "text": TEXT}]
+    assert appended("chat_completions", {"messages": [user]})["messages"] == [{"role": "system", "content": TEXT}, user]
+    assert appended("chat_completions", {"messages": [user, {"role": "system", "content": "late"}]})["messages"][0] == {"role": "system", "content": TEXT}
+
+
+def test_responses_system_text_is_appended_to_instructions_or_set() -> None:
+    assert appended("responses", {"input": "q", "instructions": "A"})["instructions"] == f"A\n\n{TEXT}"
+    assert appended("responses", {"input": "q"})["instructions"] == TEXT
+
+
+def test_anthropic_system_text_is_appended_to_a_string_or_block_list_or_set() -> None:
+    assert appended("anthropic_messages", {"system": "A"})["system"] == f"A\n\n{TEXT}"
+    assert appended("anthropic_messages", {"system": [{"type": "text", "text": "A"}]})["system"] == [{"type": "text", "text": "A"}, {"type": "text", "text": TEXT}]
+    assert appended("anthropic_messages", {"messages": []})["system"] == TEXT

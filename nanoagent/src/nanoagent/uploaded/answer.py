@@ -1,6 +1,6 @@
-"""The coding policy's result: what a harness left in `answer.json` of its frozen workspace.
+"""A case session's result: what a harness left in `answer.json` of its frozen workspace.
 
-One reader for the plugin benchmark's local runs (`examples/benchmark/step2_single_run.py`) and the uploaded worker.
+One reader for the uploaded worker.
 """
 
 from __future__ import annotations

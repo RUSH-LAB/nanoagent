@@ -3,7 +3,8 @@
 /**
  * Uploaded harness benchmarks, the member's side (docs/contracts/rush-benchmark-api.md in the
  * NanoAgent project). Under /api/workspaces/:id/benchmark/ (dispatched here as /api/benchmark/):
- * the setup defaults, published benchmarks, previews, source uploads, runs, and their saved or live
+ * the setup defaults, published benchmarks (visible to every member who has the plugin), runs (a member's own and no one else's: no route lists or
+ * reads another member's runs or attempts, which answer 404), and their saved or live
  * traces, and the comparison of two runs or of two attempts of one case. POST /api/benchmark/benchmarks, outside any workspace, is
  * how a member publishes a benchmark; POST benchmarks/pinned builds the body on the member's computer, where the plugin's reference
  * tool pins each case, and publishes it from NanoAgent's own text.
@@ -13,20 +14,16 @@ const aiSettings = require('../ai-settings');
 const {BenchmarkError} = require('../benchmark/errors');
 const {parseJson, stringifyJson} = require('../benchmark/json');
 const {compareAttempts, compareRuns} = require('../benchmark/compare');
-const {UUID, jsonBody, losslessBody, rawBody, sendFailure} = require('../benchmark/http');
-const {REFERENCE_HARNESSES, checkReference, referenceHarnessOf, referencePolicy, uploadedHarnessOf} = require('../benchmark/harness');
-const {previewBody, runBody, benchmarkPublication, importBody, publicationFrame, SHA256, object, string, CLI_COMMAND, CONVERSATION_ID} = require('../benchmark/validate');
-const {checkTaskAgainstEntry} = require('../benchmark/entry-check');
+const {UUID, jsonBody, losslessBody, sendFailure} = require('../benchmark/http');
+const {runBody, benchmarkPublication, pinnedBody, SHA256, object, string, CLI_COMMAND, CONVERSATION_ID} = require('../benchmark/validate');
 const {terminalSession, terminalChats, memberChats} = require('../benchmark/terminal-sessions');
 const {listen, wake} = require('../benchmark/wake');
-const {MAX_SOURCE_BYTES, TERMINAL_LIMITS} = require('../benchmark/limits');
+const {MAX_PUBLISH_BYTES, TERMINAL_LIMITS} = require('../benchmark/limits');
 
 // The endpoint profile of the worker RUSH Lab runs (nanoagent/deploy/worker/worker.openrouter.yaml), which a Harness tab session runs on.
 const SESSION_ENDPOINT = 'openrouter';
 // The case set name of a Harness tab session (nanoagent.uploaded.case_sets.SESSION), which a Terminal session's run is kept under too.
 const SESSION_NAME = 'harness-session';
-// What a Harness tab session's request may hold: what a plugin page's prompt may (PluginFrame/protocol.js).
-const SESSION_TEXT_LIMIT = 50_000;
 const STREAM_POLL_MS = 300;
 // A read of a session's terminal link waits this long for its worker to start it.
 const LINK_WAIT_MS = 20_000;
@@ -35,12 +32,11 @@ const PAGE = 1000;
 
 const ROUTE = new RegExp([
   '^/api/benchmark/(?:',
-  '(defaults|benchmarks|benchmarks/pinned|sessions|previews|sources|runs|compare|compare/attempts|worker-credentials|terminal-sessions|imports)',
+  '(defaults|benchmarks|benchmarks/pinned|sessions|runs|compare|compare/attempts|worker-credentials|terminal-sessions)',
   '|worker-credentials/([^/]+)',
-  '|benchmarks/([^/]+)(?:/(results))?',
+  '|benchmarks/([^/]+)',
   '|runs/([^/]+)(?:/(cancel)|/cases/([^/]+)/(rerun))?',
   '|attempts/([^/]+)(?:/(events|stream|terminal-link|spans|accounting|recording|archive)|/payloads/([^/]+))?',
-  '|sources/references/([^/]+)(?:/(computer))?',
   ')$',
 ].join(''));
 
@@ -69,6 +65,13 @@ function beforeOf(url) {
   const time = Date.parse(raw);
   if (Number.isNaN(time)) throw new BenchmarkError(400, 'invalid_request', 'before is a timestamp');
   return new Date(time).toISOString();
+}
+
+/** The event sources a read keeps (`source=worker,gateway`), or null for every source. */
+function sourcesOf(value) {
+  if (value === null) return null;
+  if (!/^[a-z_]{1,30}(,[a-z_]{1,30}){0,9}$/.test(value)) throw new BenchmarkError(400, 'invalid_request', 'source is a comma-separated list of up to 10 event sources');
+  return value.split(',');
 }
 
 function cursorOf(value) {
@@ -117,89 +120,47 @@ async function openApp(ctx, context, pluginId, computer) {
 }
 
 /**
- * One session of a plugin page's Harness tab, or of `nanoagent harness`: the member's request `text` to task `taskId` of their
- * installed app `pluginId`, worked once by a reference harness. Its run is queued at once, on its case set's frame (the plugin and the task, read from the member's computer) and the
- * endpoint RUSH Lab's worker serves, so the harness starts while the member's computer fills the task's input from the request with
- * the model every plugin run uses and pins the case, as it pins a benchmark's; the worker then reads the case (or why it could not be
- * pinned) from the attempt. `interactive` says whether the member is at the harness's terminal (the tab, the command without a
- * prompt); `model`, when given, is the harness's model in place of the one every run uses. The Terminal (`shell`) with someone at it
- * is free-form: an empty shell where they run any agent and prompt it themselves, the same whatever plugin's page opened it. It takes
- * no task and no text, and nothing of the plugin is opened, read or run for it: its run keeps `pluginId` only as the label of the page
- * it was opened from, runs under the Terminal's own limits (TERMINAL_LIMITS), and has no case set and no case, nothing filled, pinned
- * or scored; its one attempt records the model calls and commands. Given `resume`, an ended free-form session of the member's (its
- * attempt id), it resumes that one: its run is a new session linked to it (`resumed_from`), and the worker puts back what it kept of
- * it on the member's computer before the shell starts, or says it has nothing kept. Given `start` instead, an agent's CLI command
- * (`claude`), its first terminal runs it at its first prompt (`start_cli`), as a resumed one runs its agent's resume command. Given
- * `chat` with `resume`, one of that session's chats (`{agent, id, run}`, the Dashboard's chat row, its CLI's conversation id or null
- * for a run of a program, with that run), its first terminal reopens that conversation or reruns that run (`resume_chat`). One
- * session someone is at runs per member, on any plugin, and only its member ends it (exit, its time limit, quitting RUSH Lab): while
- * their free-form session runs, a free-form start (the Harness tab shown again, New session, a chat clicked, another window,
+ * One free-form session of the Terminal (`harness` `shell` with the member at it, from a plugin page's Harness tab or `nanoagent harness
+ * harness=shell`): an empty shell where they run any agent and prompt it themselves, the same whatever plugin's page opened it. Nothing
+ * of the plugin is opened, read or run for it: its run keeps `pluginId` only as the label of the page it was opened from, runs under
+ * the Terminal's own limits (TERMINAL_LIMITS), and has no case set and no case, nothing filled, pinned or scored; its one attempt records
+ * the model calls and commands. `model`, when given, is the model it runs on in place of the one every run uses. Given `resume`, an
+ * ended free-form session of the member's (its attempt id), it resumes that one: its run is a new session linked to it (`resumed_from`),
+ * and the worker puts back what it kept of it on the member's computer before the shell starts, or says it has nothing kept. Given
+ * `start` instead, an agent's CLI command (`claude`), its first terminal runs it at its first prompt (`start_cli`), as a resumed one
+ * runs its agent's resume command. Given `chat` with `resume`, one of that session's chats (`{agent, id, run}`, the Dashboard's chat row,
+ * its CLI's conversation id or null for a run of a program, with that run), its first terminal reopens that conversation or reruns that
+ * run (`resume_chat`). One session someone is at runs per member, on any plugin, and only its member ends it (exit, its time limit,
+ * quitting RUSH Lab): while it runs, a start (the Harness tab shown again, New session, a chat clicked, another window,
  * `nanoagent harness harness=shell`) is that session, answered with `joined`, and what it asked for (`start`, `resume` with `chat`)
- * opens in a new terminal of it, which the page asks its worker for; a start that cannot be a terminal of it (another harness, a
- * whole session resumed) is refused (`session_running`), never ending the live one. `{run, attempt_id, joined?}`.
+ * opens in a new terminal of it, which the page asks its worker for; a start that cannot be a terminal of it (a whole session resumed)
+ * is refused (`session_running`), never ending the live one. `{run, attempt_id, joined?}`.
  */
-async function startSession(ctx, context, {pluginId, taskId, harness, interactive, text, model, resume, start, chat}) {
+async function startSession(ctx, context, {pluginId, harness, interactive, model, resume, start, chat}) {
   const {repository, service} = ctx.benchmark;
-  const free = harness === 'shell' && interactive;
-  if (free && (text !== undefined || taskId !== undefined)) {
-    throw new BenchmarkError(400, 'invalid_request', 'A Terminal session someone is at is free-form: it takes no task and no text');
+  if (harness !== 'shell' || !interactive) {
+    throw new BenchmarkError(400, 'invalid_request', 'A session is the Terminal with its member at it: harness shell and interactive true. A benchmark case runs by POST /runs');
   }
-  const request = free ? null : string(text, 'text', {max: SESSION_TEXT_LIMIT});
-  const resumedFrom = resume === undefined ? null : await resumable(repository, context, free, resume);
+  const resumedFrom = resume === undefined ? null : await resumable(repository, context, resume);
   const resumeChat = chat === undefined ? null : await chatOf(repository, context, resumedFrom, chat);
-  const startCli = start === undefined ? null : cliCommand(free, resumedFrom, start);
-  const live = interactive ? await repository.liveSession(context) : null;
+  const startCli = start === undefined ? null : cliCommand(resumedFrom, start);
+  const live = await repository.liveSession(context);
   if (live) {
-    if (!free || !live.free) {
-      throw new BenchmarkError(409, 'session_running', `Your ${live.free ? 'Terminal' : 'harness'} session still runs, and only one runs at a time: leave its shell (exit) to end it, then start this one`);
-    }
     if (resumedFrom !== null && resumeChat === null) {
       throw new BenchmarkError(409, 'session_running', 'Your Terminal session still runs: leave its shell (exit) to end it, then resume this one, or open one of its chats from the Dashboard in a new terminal of it');
     }
     return {run: await repository.run(context, live.run_id), attempt_id: live.attempt_id, joined: true};
   }
   const harnessModel = string(model, 'model', {optional: true}) ?? aiSettings.MODEL.model;
-  if (!REFERENCE_HARNESSES.includes(harness)) {
-    throw new BenchmarkError(400, 'unknown_harness', `${harness} is not a reference harness (${REFERENCE_HARNESSES.join(', ')})`);
-  }
-  const computer = ctx.runners.computer(context.userId);
-  if (!computer) throw new BenchmarkError(503, 'runner_offline', RUNNER_OFFLINE);
-  let sha256, frame;
-  if (free) {
-    frame = {
-      name: SESSION_NAME, plugin_id: pluginId, plugin_name: null, version: null, package_sha256: null, task_id: null, task: null, context: '',
-      model: harnessModel, endpoint_profile: SESSION_ENDPOINT, limits: TERMINAL_LIMITS, coding_template: '', task_instructions: '', case_id: null,
-    };
-  } else {
-    ({sha256} = await openApp(ctx, context, pluginId, computer));
-    const framed = await computer.benchmarkSessionFrame(sha256, JSON.stringify({task: string(taskId, 'task_id'), text: request}));
-    if (framed.error) throw new BenchmarkError(framed.status, 'pin_failed', framed.error);
-    const parsed = parseJson(framed.value);
-    frame = {...publicationFrame({...parsed, model: harnessModel, endpoint_profile: SESSION_ENDPOINT}), case_id: string(parsed.case_id, 'case_id')};
-  }
-  const built = await computer.benchmarkReferenceHarness(harness);
-  if (built.error) throw new BenchmarkError(built.status, 'reference_unavailable', built.error);
-  const source = await repository.saveSource(context, built.value, referenceHarnessOf(built.value, harness));
-  const policy = referencePolicy(harness);
-  const {run_id: id, attempt_id: attemptId, session} = await service.session(context, frame, source, policy, {interactive, resumedFrom, startCli, resumeChat});
+  if (!ctx.runners.computer(context.userId)) throw new BenchmarkError(503, 'runner_offline', RUNNER_OFFLINE);
+  const frame = {name: SESSION_NAME, plugin_id: pluginId, model: harnessModel, endpoint_profile: SESSION_ENDPOINT, limits: TERMINAL_LIMITS};
+  const {run_id: id, attempt_id: attemptId} = await service.session(context, frame, {interactive, resumedFrom, startCli, resumeChat});
   wake(`claim:${context.userId}`);
-  if (!free) {
-    const pinning = async () => {
-      const pinned = await computer.benchmarkSession(sha256, JSON.stringify({task: taskId, text: request, model: aiSettings.MODEL}));
-      if (pinned.error) throw new BenchmarkError(pinned.status, 'pin_failed', pinned.error);
-      await service.pinSession(context, session, benchmarkPublication({...parseJson(pinned.value), model: harnessModel, endpoint_profile: SESSION_ENDPOINT}));
-    };
-    pinning()
-      .catch(error => repository.failSessionCase(context, id, frame.case_id, error instanceof BenchmarkError ? error.message : `Pinning the case failed: ${error.message}`))
-      .catch(error => console.error(`[benchmark] session ${id}: recording its pin's failure failed:`, error))
-      .finally(() => wake(`case:${id}`));
-  }
   return {run: await repository.run(context, id), attempt_id: attemptId};
 }
 
-/** The attempt id `resume` names, an ended free-form Terminal session of the member's that a new one (`free`) may resume. */
-async function resumable(repository, context, free, resume) {
-  if (!free) throw new BenchmarkError(400, 'invalid_request', 'Only a Terminal session someone is at resumes another');
+/** The attempt id `resume` names, an ended free-form Terminal session of the member's that a new one may resume. */
+async function resumable(repository, context, resume) {
   const id = string(resume, 'resume');
   const [old] = UUID.test(id) ? await repository.terminalRows(context, {attemptId: id}) : [];
   if (!old || old.harness_name !== 'shell' || old.task_id !== null) throw new BenchmarkError(404, 'unknown_session', 'No Terminal session of yours to resume has that id');
@@ -224,8 +185,8 @@ async function chatOf(repository, context, resumedFrom, chat) {
 }
 
 /** The agent CLI command `start` names, which a new free-form session runs first. */
-function cliCommand(free, resumedFrom, start) {
-  if (!free || resumedFrom !== null) throw new BenchmarkError(400, 'invalid_request', 'Only a new Terminal session someone is at starts an agent\'s CLI');
+function cliCommand(resumedFrom, start) {
+  if (resumedFrom !== null) throw new BenchmarkError(400, 'invalid_request', 'Only a new Terminal session starts an agent\'s CLI');
   const command = string(start, 'start');
   if (!CLI_COMMAND.test(command)) throw new BenchmarkError(400, 'invalid_request', 'start must be an agent\'s CLI command, such as claude');
   return command;
@@ -237,7 +198,7 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
   const {readBody, readRawBody, requireWorkspacePermission, benchmark: services, ai} = ctx;
   // Case arguments, tasks and references keep the spelling of their numbers, so a response writes them with the same serializer.
   const json = (res, status, data, opts) => ctx.json(res, status, data, {...opts, stringify: stringifyJson});
-  const [, top, credentialId, benchmarkId, results, runId, cancel, caseId, rerun, attemptId, attemptPart, payload, referenceName, onComputer] = match;
+  const [, top, credentialId, benchmarkId, runId, cancel, caseId, rerun, attemptId, attemptPart, payload] = match;
   try {
     if (!services) return json(res, 503, {error: 'Benchmarks need PostgreSQL (DATABASE_URL)', code: 'benchmark_disabled'});
     const {repository, service} = services;
@@ -246,7 +207,8 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
     if (top === 'benchmarks' && !req.context) {
       if (req.method !== 'POST') return json(res, 405, {error: 'Method not allowed'});
       if (!req.auth?.userId) return json(res, 401, {error: 'Not signed in'});
-      const published = await service.publish(req.auth.userId, benchmarkPublication(await losslessBody(req, readRawBody)));
+      // The body carries the cases' fixtures archives, so it may be larger than the other routes' bodies.
+      const published = await service.publish(req.auth.userId, benchmarkPublication(await losslessBody(req, request => readRawBody(request, MAX_PUBLISH_BYTES))));
       return json(res, published.created ? 201 : 200, published);
     }
     // A member's worker credentials, outside any workspace: the worker runs on the member's computer and acts only for the member.
@@ -284,10 +246,6 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
         return json(res, 200, {benchmarks: await repository.benchmarks(context, {pluginId, version, limit: limitOf(url, 50, 200), before: beforeOf(url)})});
       }
       if (!UUID.test(benchmarkId)) return notFound('benchmark');
-      if (results) {
-        const runs = await repository.benchmarkResults(context, benchmarkId, {limit: limitOf(url, 50, 200), before: beforeOf(url)});
-        return runs ? json(res, 200, {runs}) : notFound('benchmark');
-      }
       const found = await repository.benchmark(context, benchmarkId);
       return found ? json(res, 200, {benchmark: found}) : notFound('benchmark');
     }
@@ -304,36 +262,33 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       if (!ctx.workspaceApps) return json(res, 409, {error: 'Apps need a workspace file store', code: 'fs-disabled'});
       // Pinning every case runs the plugin's reference tool on the member's computer, which takes longer than the dispatcher's 30 second socket timeout.
       req.setTimeout(PIN_TIMEOUT_MS);
-      // The body is read with every number's spelling kept and sent to NanoAgent as text, so `1.0` in a case's arguments is pinned as `1.0`.
-      const {plugin_id: pluginId, name, cases, model, endpoint_profile: endpointProfile, limits, coding_template: codingTemplate, task_instructions: taskInstructions} = object(await losslessBody(req, readRawBody), 'The body');
+      // The body carries the uploaded case folder's fixture files, so it may be as large as a publication. Numbers keep their spelling (limits).
+      const {pluginId, name, caseFile, files, limits} = pinnedBody(await losslessBody(req, request => readRawBody(request, MAX_PUBLISH_BYTES)));
       // What a benchmark takes from the member rather than from the plugin is checked before the minutes it takes to pin.
-      string(model, 'model');
-      string(endpointProfile, 'endpoint_profile', {max: 100});
       const computer = ctx.runners.computer(context.userId);
       if (!computer) return json(res, 503, {error: RUNNER_OFFLINE, code: 'runner_offline'});
       // The app is installed on the member's computer first, which pins with the package it runs.
-      const opened = await ctx.workspaceApps.open(context, string(pluginId, 'plugin_id'), computer);
+      const opened = await ctx.workspaceApps.open(context, pluginId, computer);
       if (opened.error) return json(res, opened.status, {error: opened.error, code: 'app_unavailable'});
       if (opened.value.status !== 'ready') return json(res, 409, {error: `${opened.value.id} is not ready to run`, code: 'app_unavailable'});
-      // The case file's `_` class tag is the file's, not part of the benchmark.
-      const caseFile = cases && typeof cases === 'object' && !Array.isArray(cases) ? Object.fromEntries(Object.entries(cases).filter(([key]) => key !== '_')) : cases;
-      const pinned = await computer.benchmarkCaseSet(opened.value.sha256, stringifyJson({name, cases: caseFile}));
+      // NanoAgent parses the YAML and resolves each case's fixtures folder against the files: nothing of the case file is read here.
+      const pinned = await computer.benchmarkCaseSet(opened.value.sha256, stringifyJson({name, case_file: caseFile, files}));
       if (pinned.error) return json(res, pinned.status, {error: pinned.error, code: 'pin_failed'});
       // The pinned body, private references and all, is published here from NanoAgent's own text: it never reaches the browser.
       const publication = benchmarkPublication({
-        ...parseJson(pinned.value), name, model, endpoint_profile: endpointProfile, limits, coding_template: codingTemplate, task_instructions: taskInstructions,
+        ...parseJson(pinned.value), name, limits,
       });
       const published = await service.publish(context.userId, publication);
       return json(res, published.created ? 201 : 200, published);
     }
-    // One session of a plugin page's Harness tab, or of `nanoagent harness` (startSession).
+    // One Terminal session of a plugin page's Harness tab, or of `nanoagent harness harness=shell` (startSession).
     if (top === 'sessions') {
       if (req.method !== 'POST') return wrongMethod();
       write();
       const body = object(await jsonBody(req, readBody), 'The body');
       const [pluginId, harness] = ['plugin_id', 'harness'].map(name => string(body[name], name));
       if (typeof body.interactive !== 'boolean') throw new BenchmarkError(400, 'invalid_request', 'interactive must be a boolean');
-      return json(res, 201, await startSession(ctx, context, {pluginId, taskId: body.task_id, harness, interactive: body.interactive, text: body.text, model: body.model, resume: body.resume, start: body.start, chat: body.chat}));
+      return json(res, 201, await startSession(ctx, context, {pluginId, harness, interactive: body.interactive, model: body.model, resume: body.resume, start: body.start, chat: body.chat}));
     }
     // A plugin page's Dashboard: the chats the member's own Harness tab sessions on the plugin held, by agent, beside their own chats.
     if (top === 'terminal-sessions') {
@@ -343,60 +298,13 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       const rows = await repository.terminalRows(context, {pluginId, atCalls: true});
       return json(res, 200, {chats: memberChats(rows.map(terminalChats))});
     }
-    // A run of a reference harness made outside RUSH (examples/benchmark in the NanoAgent project), kept as the member's scored run, on
-    // the package of its plugin version as published: its task must be that version's.
-    if (top === 'imports') {
-      if (req.method !== 'POST') return wrongMethod();
-      write();
-      const record = importBody(await jsonBody(req, readBody));
-      const {plugin_id: pluginId, version} = record.frame;
-      const published = await repository.marketVersion(context, string(pluginId, 'frame.plugin_id'), string(version, 'frame.version', {max: 64}));
-      if (!published) throw new BenchmarkError(404, 'unknown_plugin_version', `${pluginId} ${version} is not published`);
-      const frame = publicationFrame({...record.frame, package_sha256: published.sha256});
-      checkTaskAgainstEntry(published.entry, frame);
-      const kept = await repository.importRun(context, frame, record);
-      return json(res, kept.created ? 201 : 200, kept);
-    }
-    if (top === 'previews') {
-      if (req.method !== 'POST') return wrongMethod();
-      write();
-      return json(res, 200, await service.preview(context, previewBody(await jsonBody(req, readBody))));
-    }
-    if (top === 'sources') {
-      if (req.method !== 'POST') return wrongMethod();
-      write();
-      if (!/^application\/zip(?:;|$)/i.test(req.headers['content-type'] ?? '')) {
-        throw new BenchmarkError(415, 'unsupported_media_type', 'Send the source as Content-Type: application/zip');
-      }
-      req.setTimeout(120_000);
-      const data = await rawBody(req, MAX_SOURCE_BYTES, 'source_too_large');
-      return json(res, 201, await repository.saveSource(context, data, uploadedHarnessOf(data)));
-    }
-    // A reference harness's ZIP, under its own name only (a member's own upload may not take it): sent here, or built by the member's computer.
-    if (referenceName !== undefined) {
-      if (req.method !== 'POST') return wrongMethod();
-      write();
-      checkReference(referenceName);
-      let data;
-      if (onComputer) {
-        const computer = ctx.runners.computer(context.userId);
-        if (!computer) return json(res, 503, {error: RUNNER_OFFLINE, code: 'runner_offline'});
-        const built = await computer.benchmarkReferenceHarness(referenceName);
-        if (built.error) return json(res, built.status, {error: built.error, code: 'reference_unavailable'});
-        data = built.value;
-      } else {
-        if (!/^application\/zip(?:;|$)/i.test(req.headers['content-type'] ?? '')) {
-          throw new BenchmarkError(415, 'unsupported_media_type', 'Send the source as Content-Type: application/zip');
-        }
-        req.setTimeout(120_000);
-        data = await rawBody(req, MAX_SOURCE_BYTES, 'source_too_large');
-      }
-      return json(res, 201, await repository.saveSource(context, data, referenceHarnessOf(data, referenceName)));
-    }
     if (top === 'runs') {
       if (req.method === 'GET') {
         read();
-        return json(res, 200, {runs: await repository.listRuns(context, {limit: limitOf(url, 50, 200), before: beforeOf(url)})});
+        const before = beforeOf(url);
+        const beforeId = url.searchParams.get('before_id');
+        if (beforeId !== null && (!before || !UUID.test(beforeId))) throw new BenchmarkError(400, 'invalid_request', 'before_id is a run UUID and requires before');
+        return json(res, 200, {runs: await repository.listRuns(context, {limit: limitOf(url, 50, 200), before, beforeId})});
       }
       if (req.method !== 'POST') return wrongMethod();
       write();
@@ -439,7 +347,7 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       return attempt ? json(res, 200, {attempt}) : notFound('attempt');
     }
     if (attemptPart === 'events') {
-      const page = await repository.events(context, attemptId, cursorOf(url.searchParams.get('after')), limitOf(url, 200, PAGE));
+      const page = await repository.events(context, attemptId, cursorOf(url.searchParams.get('after')), limitOf(url, 200, PAGE), sourcesOf(url.searchParams.get('source')));
       return page ? json(res, 200, page) : notFound('attempt');
     }
     if (attemptPart === 'stream') {

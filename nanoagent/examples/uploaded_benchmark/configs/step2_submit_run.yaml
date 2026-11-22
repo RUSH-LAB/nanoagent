@@ -4,29 +4,16 @@ server > nanoagent.uploaded.client.ServerConfig:
   base_url: ${oc.env:RUSH_BASE_URL,http://127.0.0.1:3000}
   workspace_id: ${oc.env:RUSH_WORKSPACE_ID}
   token_env: RUSH_SESSION_TOKEN
-# submit | rerun | cancel
-action: submit
-# submit: the harness, exactly one of `source` (set it with `-- source=<path>`), a folder (zipped deterministically) or a
-# ZIP, and `reference`, the name of one of NanoAgent's reference harnesses (claude-code, codex, dsh, hermes, nanoagent, pi;
-# set it with `-- reference=<name>`), built under its own name and a version derived from its content. And the benchmark to
-# run it on: a plugin, its version and the benchmark's name, all published with step 1.
-# Everything else (model, endpoint, limits, prompts, cases) is the benchmark's.
-source: null
-reference: null
+# The benchmark to run: a plugin, its version and the benchmark's name, all published with step 1.
+# Everything else (model, endpoint, limits, the cases' prompts) is the benchmark's.
 plugin: acceptance-probe
 plugin_version: 0.1.0
 benchmark: acceptance-probe
-# coding: the harness gets the case's prompt and writes answer.json, with no plugin tools. task_tools: it works the task
-# with the task's tools through the broker and writes its result.
-policy: coding
-# The same key and request return the same run, so a repeated submit never queues twice.
+# The agents to run it with, one run each: claude, codex, pi, dsh, hermes, nanoagent, or one of yours as `rush <command>`.
+harnesses: [claude, nanoagent]
+# The same key and request return the same run, so a repeated submit never queues twice; each run's key is this and its harness.
 idempotency_key: acceptance-probe-run-1
-# To repeat a submit, the first run's preview_id (in its run.json); null previews afresh.
-preview_id: null
-# rerun (run_id, case_id), cancel (run_id).
-run_id: null
-case_id: null
-# Wait until every attempt is sealed and the run is scored, and print the summary.
+# Wait until every attempt of every run is sealed and the run is scored, and print each summary.
 follow: true
 poll_seconds: 2.0
 follow_timeout: 3600.0

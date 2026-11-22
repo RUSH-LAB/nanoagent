@@ -65,4 +65,3 @@ sessions > nanoagent.uploaded.case_sets.SessionsConfig:
   max_model_calls: 200
   build_output_bytes: 3221225472
   build_wall_ms: 1800000
-  fill_max_tokens: 16384

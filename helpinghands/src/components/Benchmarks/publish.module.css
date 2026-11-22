@@ -1,0 +1,10 @@
+.instructions { position: relative; padding-right: 3rem; }
+.copy { position: absolute; right: 0; top: 0; background: transparent; border: 0; color: inherit; cursor: pointer; padding: 0.35rem; }
+.reviewCase { border: 1px solid var(--ifm-color-emphasis-300); border-radius: 0.5rem; padding: 1rem; margin: 1rem 0; }
+.reviewCase pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.review { border-top: 1px solid var(--ifm-color-emphasis-300); padding-top: 1rem; }
+.review h3 { margin-bottom: 0.5rem; }
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 0.75rem; }
+.summary dt { color: var(--ifm-color-emphasis-600); font-size: 0.8rem; }
+.summary dd { margin: 0; overflow-wrap: anywhere; }
+.actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }

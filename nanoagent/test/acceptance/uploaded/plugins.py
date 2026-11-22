@@ -1,5 +1,5 @@
 """Variants of the acceptance-probe plugin for the prompt and scoring gates, generated from the fixture at test time (the
-fixture itself is never edited) and the real marketplace publish and prune for a new version of one.
+fixture itself is never edited).
 
 A variant changes only what a gate needs: the plugin id (and so its package), the version, the manifest's instructions, and
 a task without a reference tool, a decide task, declared egress hosts, a verifier that raises for one token (a verifier failure) or one that fails every answer (to show a retained run keeps the verifier it was pinned with).
@@ -9,12 +9,9 @@ from __future__ import annotations
 
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
-HELPINGHANDS = Path(__file__).resolve().parents[4] / "helpinghands"
 PROBE = Path(__file__).resolve().parents[2] / "plugins" / "acceptance-probe"
-PUBLISH = Path(__file__).with_name("publish_version.js")
 IGNORED = shutil.ignore_patterns(".venv", "__pycache__", "*.egg-info", ".ruff_cache", ".pytest_cache")
 
 CRASH_TOKEN = "verifier-crash"
@@ -95,15 +92,3 @@ def variant(
     if fail_every_answer:
         edit("verifier/digest.py", lambda text: replaced(text, "    valid = output.digest ==", "    valid = False and output.digest =="))
     return destination
-
-
-def publish_version(database: str, owner_id: str, package: Path, entry_json: Path) -> None:
-    """Publish ``package`` as a new version of the owner's plugin with the real marketplace code, which prunes the versions no
-    member stays on (helpinghands/src/server/postgres/market.js ``publish``), exactly as the owner's publish does."""
-    done = subprocess.run(
-        ["node", str(PUBLISH), database, owner_id, str(package), str(entry_json)],
-        cwd=HELPINGHANDS,
-        capture_output=True,
-        text=True,
-    )
-    assert done.returncode == 0, done.stdout + done.stderr

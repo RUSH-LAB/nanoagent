@@ -251,16 +251,19 @@ def test_the_projection_puts_a_runs_id_and_title_on_the_process_that_ran_then() 
     assert (processes[(42, 2)].title, processes[(42, 2)].run) == (None, None)
 
 
-def test_a_runs_command_holds_a_key_naming_the_run_wherever_the_token_was(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_runs_command_holds_a_key_naming_the_run_wherever_the_token_was(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     for name in ("RUSH_ATTEMPT_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
         monkeypatch.setenv(name, "tok")
     monkeypatch.setenv("RUSH_MODEL", "tok-model")
-    monkeypatch.setattr(rush, "service", lambda path, body: {"run": "r1"} if path == "/runs/start" else {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0})
+    monkeypatch.setenv("RUSH_WORKSPACE", str(tmp_path))
+    (tmp_path / ".rush").mkdir()  # the session's own folder, which the worker made as it started
+    monkeypatch.setattr(rush, "service", lambda path, body: {"run": "r1", "agents": ["aider"]} if path == "/runs/start" else {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0})
     seen: dict[str, str] = {}
     monkeypatch.setattr(rush, "interact", lambda argv, heard: seen.update(os.environ) or 0)
     with pytest.raises(SystemExit):
         rush.run(["sh"])
     assert [seen[name] for name in ("RUSH_ATTEMPT_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "RUSH_MODEL")] == ["tok.r1", "tok.r1", "tok.r1", "tok-model"]
+    assert (tmp_path / ".rush" / "agents").read_text() == "aider\n"  # the remembered programs, written again from inside the VM
 
 
 def test_a_run_passes_its_output_through_and_exits_as_its_command_did(capfd: pytest.CaptureFixture[str]) -> None:

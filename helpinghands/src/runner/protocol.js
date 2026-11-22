@@ -47,12 +47,8 @@ const ROUTES = [
   ['POST', '/v1/runs'],
   // The case set a member publishes, its cases pinned by the plugin installed here (Publish benchmark).
   ['POST', `/v1/installs/${SEGMENT}/benchmark/case-set`],
-  // The one-case case set of a session in a plugin page's Harness tab, its input filled from the member's request here.
-  ['POST', `/v1/installs/${SEGMENT}/benchmark/session`],
-  // That case set but its case, read from the installed plugin at once: RUSH queues the session's run on it while the case is pinned.
+  // A free-form Terminal session's plugin frame, read from the installed plugin at once: what the session's `nanoagent` opens the plugin's tools from.
   ['POST', `/v1/installs/${SEGMENT}/benchmark/session-frame`],
-  // The ZIP of a reference harness, built by the NanoAgent here.
-  ['GET', `/v1/benchmark/reference-harnesses/${SEGMENT}`],
   ['GET', `/v1/installs/${SEGMENT}`],
   ['PUT', `/v1/installs/${SEGMENT}`],
   // The package installed there, digest-checked: what a Terminal session's `nanoagent` runs the plugin's tools from.

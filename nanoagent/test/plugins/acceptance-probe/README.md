@@ -10,12 +10,14 @@ digest of the input's token.
 |---|---|---|
 | `wait` | Sleeps `wait_seconds`, giving the run a tool phase of known length | `src/plugin/probe.py` |
 | `digest` | The first 12 hex digits of the SHA-256 of the token; refuses a token starting `refuse-`; the `probe` task's pinned reference | `src/plugin/probe.py` |
+| `ab_reference` | The A/B conversion rates, the winner and the before-state (each fixture's SHA-256, the parsed cloud state) of the staged fixtures; the `ab-report` task's pinned reference | `src/plugin/ab.py` |
 
 ### Tasks
 
 | Task | Does | Runner |
 |---|---|---|
 | `probe` | Waits, then reports the token's digest | `agent`, with `wait`; reference `digest` |
+| `ab-report` | Writes `record.json` with the A/B rates of the seeded CSVs and changes the seeded cloud state by the winner | `agent`, with `wait`; reference `ab_reference` |
 
 ## Layout
 

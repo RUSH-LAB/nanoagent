@@ -5,13 +5,15 @@ name) and returns what the model reply must contain. It raises :class:`ActionErr
 absent; the server answers that with HTTP 599 and a protocol violation.
 
 ``act`` is None (final text only), the string ``"malformed"`` or ``"text_only"``, a one-key mapping
-(``{wait: seconds}``, ``{answer: value}``, ``{refuse: reason}``, ``{malformed: true}``) or a list of those
-(several tool calls in one turn).
+(``{wait: seconds}``, ``{answer: value}``, ``{refuse: reason}``, ``{malformed: true}``, ``{write: {path, text}}`` to create or replace a
+workspace file, ``{append: {path, text}}`` to add to one, ``{shell: command}`` to run a command as it stands) or a list of those (several tool calls in one turn). ``write`` and ``append``
+are the shell harnesses' own file or shell tool call, never a plugin tool: they script an agent's changes to the workspace.
 """
 
 from __future__ import annotations
 
 import json
+import posixpath
 import shlex
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -43,6 +45,14 @@ def find_tool(tools: list[Any], name: str) -> str:
     if len(suffixed) == 1:
         return suffixed[0]
     raise ActionError(f"needs a {name!r} tool, request has {names}" if not suffixed else f"{name!r} is ambiguous among {suffixed}")
+
+
+def file_command(kind: str, value: dict[str, str]) -> str:
+    """The shell command a ``write`` (create or replace) or ``append`` act is: ``printf`` of the text into the path, its folder made first."""
+    path, text = value["path"], value["text"]
+    folder = posixpath.dirname(path)
+    redirect = ">>" if kind == "append" else ">"
+    return (f"mkdir -p {shlex.quote(folder)} && " if folder else "") + f"printf %s {shlex.quote(text)} {redirect} {shlex.quote(path)}"
 
 
 def _call(tools: list[Any], name: str, arguments: Any) -> RenderedCall:
@@ -87,13 +97,17 @@ def _codex(kind: str, value: Any, tools: list[Any]) -> Rendered:
             return write(json.dumps({"refused": str(value)}))
         case "malformed":
             return write(json.dumps({"malformed": True}))
+        case "write" | "append":
+            return shell(file_command(kind, value))
+        case "shell":
+            return shell(value)
         case "text_only":
             return Rendered()
     raise ActionError(f"unknown action {kind!r}")
 
 
 def _bash(extra: dict[str, str], tool: str = "bash") -> Callable[[str, Any, list[Any]], Rendered]:
-    """PI and dsh: ``bash {command}`` (dsh also requires a ``description``) runs in the workspace (the runner's cwd,
+    """PI, dsh, mgen, hermes (``terminal``) and claude (``Bash``): ``bash {command}`` (dsh also requires a ``description``) runs in the workspace (the runner's cwd,
     which the prompt names as ``{workspace}/answer.json``), so ``answer.json`` is relative."""
 
     def render_one(kind: str, value: Any, tools: list[Any]) -> Rendered:
@@ -112,6 +126,10 @@ def _bash(extra: dict[str, str], tool: str = "bash") -> Callable[[str, Any, list
                 return write(json.dumps({"refused": str(value)}))
             case "malformed":
                 return write(json.dumps({"malformed": True}))
+            case "write" | "append":
+                return shell(file_command(kind, value))
+            case "shell":
+                return shell(value)
             case "text_only":
                 return Rendered()
         raise ActionError(f"unknown action {kind!r}")
@@ -135,6 +153,8 @@ def _probe(kind: str, value: Any, tools: list[Any]) -> Rendered:
 HARNESS_RENDERERS: dict[str, Callable[[str, Any, list[Any]], Rendered]] = {
     "nanoagent": _nanoagent,
     "probe": _probe,
+    "mgen": _bash({}),  # the NanoAgent CLI as the shell runs a case (`mgen -p`): its own bash tool, no plugin tools
+    "hermes": _bash({}, "terminal"),
     "pi": _bash({}),
     "dsh": _bash({"description": "Run the step"}),
     "claude": _bash({}, "Bash"),

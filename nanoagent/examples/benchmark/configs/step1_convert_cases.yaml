@@ -1,0 +1,15 @@
+_ > step1_make_cases.ConvertCasesConfig:
+
+# The local RUSH database that helpinghands' `npm run local` makes, read only.
+database: postgres://neondb_owner@127.0.0.1:55432/mochi
+# Homebrew's keg-only postgresql@18, which the run scripts put on PATH (/opt/homebrew or /usr/local).
+psql: psql
+originals: ../plugin-cases
+selection: ../plugin-cases/verified/selection.json
+output: ../plugin-cases/verified
+bugs: examples/benchmark/configs/plugin_bugs.json
+# The plugins whose context writes out the files its arguments name.
+fixtures_from_context: [bill-split]
+fixtures_note: The receipt file named below is in the working directory.
+timeout: 300.0
+workers: 3

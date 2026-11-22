@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -19,10 +20,12 @@ from nanoagent.uploaded.rush_worker import (
     Lease,
     LeaseLost,
     RushAdmission,
+    RushError,
     RushJournal,
     RushUnavailable,
     RushWorkerClient,
     Sealed,
+    parse_job,
 )
 from nanoagent.uploaded import sandbox as sandbox_module
 from nanoagent.uploaded.sandbox import reap_leftovers
@@ -79,25 +82,6 @@ async def test_started_names_the_worker_and_returns_the_sessions_rush_interrupte
     assert (seen[0].method, seen[0].url.path, json.loads(seen[0].content)) == ("POST", "/api/benchmark-worker/started", {"worker_id": "w"})
 
 
-async def test_a_pending_case_is_read_with_the_fence_until_pinned_and_its_failure_raised() -> None:
-    from nanoagent.uploaded.rush_worker import CaseFailed
-
-    answers = [httpx.Response(204), httpx.Response(200, json={"case": {"case_id": "c1"}}), httpx.Response(422, json={"code": "case_failed", "error": "no input"})]
-    seen: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return answers.pop(0)
-
-    client = client_for(handler)
-    assert await client.case("a", 3) is None
-    assert await client.case("a", 3) == {"case": {"case_id": "c1"}}
-    with pytest.raises(CaseFailed) as failed:
-        await client.case("a", 3)
-    assert failed.value.message == "no input"
-    assert [(r.url.path, r.headers["x-rush-fence"]) for r in seen] == [("/api/benchmark-worker/attempts/a/case", "3")] * 3
-
-
 async def test_downloads_send_the_fence_and_check_the_declared_digest() -> None:
     import hashlib
 
@@ -105,12 +89,27 @@ async def test_downloads_send_the_fence_and_check_the_declared_digest() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.headers["x-rush-fence"] == "4"
-        return httpx.Response(200, content=data, headers={"X-Rush-Sha256": hashlib.sha256(data).hexdigest() if "source" in request.url.path else "0" * 64})
+        return httpx.Response(200, content=data, headers={"X-Rush-Sha256": hashlib.sha256(data).hexdigest() if "fixtures" in request.url.path else "0" * 64})
 
     client = client_for(handler)
-    assert await client.source("a", 4) == data
+    assert await client.fixtures("a", 4) == data
     with pytest.raises(Exception, match="digest"):
         await client.package("a", 4)
+
+
+async def test_a_claimed_attempt_carries_its_case_with_the_prompt_and_the_fixtures_digest_and_nothing_pinned_later() -> None:
+    import runner_fakes as fx
+
+    body = fx.job_body(harness="nanoagent")
+    body["case"]["fixtures"] = {"sha256": "a" * 64, "files": {"inputs/a.csv": "b" * 64}}
+    job = parse_job(body)
+    assert job.run["harness"] == "nanoagent" and job.case["prompt"] == fx.PROMPT and job.case["fixtures"]["sha256"] == "a" * 64
+    assert job.private_reference == {"digest": "abcdefabcdef"} and not job.free_form
+    for gone in ("case_pending", "prompt", "case_set", "policy", "source_sha256", "dialects"):
+        assert not hasattr(job, gone) and gone not in job.run  # the parsed job, not the fake's body
+    assert parse_job(fx.job_body(free_form=True, task=None, case=None, private_reference=None)).case is None
+    with pytest.raises(RushError, match="lacks 'case'"):
+        parse_job({key: value for key, value in body.items() if key != "case"})
 
 
 async def test_calls_retry_over_5xx_and_connection_errors_until_rush_answers_again() -> None:
@@ -395,7 +394,12 @@ def test_the_worker_has_no_other_key_path(tmp_path: Path) -> None:
     assert runner_config(_config(tmp_path), {"OPENROUTER_API_KEY": "k"}, MACHINE).endpoint.api_key == "k"
 
 
-async def test_losing_rush_is_waited_out_with_one_outage_log_and_one_recovery_log(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+@pytest.fixture
+def poll_runner() -> SimpleNamespace:
+    return SimpleNamespace(agents=SimpleNamespace(installed=lambda: {"z-agent", "a-agent"}))
+
+
+async def test_losing_rush_is_waited_out_with_one_outage_log_and_one_recovery_log(tmp_path: Path, caplog: pytest.LogCaptureFixture, poll_runner: SimpleNamespace) -> None:
     import anyio
     from nanoagent.uploaded import worker as worker_module
     from nanoagent.uploaded.worker import runner_config
@@ -409,7 +413,8 @@ async def test_losing_rush_is_waited_out_with_one_outage_log_and_one_recovery_lo
     class Rush:
         calls = 0
 
-        async def claim(self, *_: Any, interactive: bool) -> None:
+        async def claim(self, *args: Any, interactive: bool) -> None:
+            assert args[3]["installed_agents"] == ["a-agent", "z-agent"]
             self.calls += 1
             if self.calls <= 5:
                 raise RushUnavailable("down")
@@ -425,13 +430,55 @@ async def test_losing_rush_is_waited_out_with_one_outage_log_and_one_recovery_lo
     try:
         with caplog.at_level("INFO", logger=worker_module.LOG.name), pytest.raises(BaseExceptionGroup):
             async with anyio.create_task_group() as group:
-                await worker_module.poll(_config(tmp_path, "poll.idle_s=1", "poll.max_outage_s=4"), settings, Rush(), None, None, group)  # type: ignore[arg-type]
+                await worker_module.poll(_config(tmp_path, "poll.idle_s=1", "poll.max_outage_s=4"), settings, Rush(), poll_runner, None, group)  # type: ignore[arg-type]
     finally:
         worker_module.anyio.sleep = real_sleep
     assert sleeps[:5] == [1, 2, 4, 4, 4]  # capped exponential
     assert [r.getMessage() for r in caplog.records if "RUSH" in r.getMessage()] == [
         "RUSH is unreachable, retrying until it returns: down", "RUSH is reachable again", f"claiming from RUSH: {settings.endpoint.label}",
     ]  # the claiming line follows the recovery once, and is not repeated by the claims after it
+
+
+async def test_a_claim_loop_waiting_out_an_outage_survives_the_other_loop_finding_rush_back_meanwhile(tmp_path: Path, poll_runner: SimpleNamespace) -> None:
+    import anyio
+    from nanoagent.uploaded import worker as worker_module
+    from nanoagent.uploaded.worker import runner_config
+
+    settings = runner_config(_config(tmp_path, "poll.idle_s=1"), {"OPENROUTER_API_KEY": "k"}, MACHINE)
+    interactive_failed, batch_recovered = anyio.Event(), anyio.Event()
+
+    class Stop(Exception):
+        pass
+
+    class Rush:
+        interactive_calls = batch_calls = 0
+
+        async def claim(self, *_: Any, interactive: bool) -> None:
+            if interactive:
+                self.interactive_calls += 1
+                if self.interactive_calls == 1:
+                    interactive_failed.set()
+                    raise RushUnavailable("down")
+                raise Stop  # it claimed again after its wait: the regression would have raised TypeError first
+            self.batch_calls += 1
+            if self.batch_calls == 1:
+                await interactive_failed.wait()
+                return None  # RUSH answers this loop while the other waits out its outage: `outage` goes back to None
+            batch_recovered.set()
+            await anyio.Event().wait()
+
+    async def sleep(_: float) -> None:
+        await batch_recovered.wait()
+
+    real_sleep = anyio.sleep
+    worker_module.anyio.sleep = sleep  # type: ignore[assignment]
+    try:
+        with pytest.raises(BaseExceptionGroup) as raised:
+            async with anyio.create_task_group() as group:
+                await worker_module.poll(_config(tmp_path, "poll.idle_s=1"), settings, Rush(), poll_runner, None, group)  # type: ignore[arg-type]
+    finally:
+        worker_module.anyio.sleep = real_sleep
+    assert raised.group_contains(Stop) and not raised.group_contains(TypeError)
 
 
 def test_a_lease_that_ran_out_while_the_computer_slept_is_lost_on_waking() -> None:
@@ -452,7 +499,7 @@ def test_a_renewal_keeps_the_wall_clock_expiry_in_step() -> None:
     assert not lease.lapsed()
 
 
-async def test_claiming_from_rush_is_logged_once_at_startup_not_per_poll(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+async def test_claiming_from_rush_is_logged_once_at_startup_not_per_poll(tmp_path: Path, caplog: pytest.LogCaptureFixture, poll_runner: SimpleNamespace) -> None:
     import anyio
     from nanoagent.uploaded import worker as worker_module
     from nanoagent.uploaded.worker import runner_config
@@ -479,7 +526,7 @@ async def test_claiming_from_rush_is_logged_once_at_startup_not_per_poll(tmp_pat
     try:
         with caplog.at_level("INFO", logger=worker_module.LOG.name), pytest.raises(BaseExceptionGroup):
             async with anyio.create_task_group() as group:
-                await worker_module.poll(_config(tmp_path, "poll.idle_s=1"), settings, Rush(), None, None, group)  # type: ignore[arg-type]
+                await worker_module.poll(_config(tmp_path, "poll.idle_s=1"), settings, Rush(), poll_runner, None, group)  # type: ignore[arg-type]
     finally:
         worker_module.anyio.sleep = real_sleep
     assert [r.getMessage() for r in caplog.records if "RUSH" in r.getMessage()] == [f"claiming from RUSH: {settings.endpoint.label}"]

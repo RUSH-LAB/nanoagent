@@ -29,9 +29,7 @@ import {
  * event, or, when it ended meanwhile, given the turn the session kept
  * (`chat.turn`). Only `cancel` stops one.
  *
- * The Harness tab's session (`harness.run`) is a benchmark run of one case, the page's request to one of the plugin's tasks
- * worked by a reference harness on the member's own worker, or of the free-form Terminal (`shell`, no task, request or case), on a
- * terminal the member works in: RUSH queues and records it, and the page talks to its terminals on this computer, through RUSH
+ * The Harness tab's session (`harness.run`) is the free-form Terminal (`shell`): RUSH queues and records it, and the page talks to its terminals on this computer, through RUSH
  * Lab, not through RUSH (./harness.js). The page hears the terminal's output as it comes and the outcome, through `harness.done`,
  * and sends what is typed (`harness.input`) and the terminal's size (`harness.resize`), each to one of its terminals (0 the first);
  * `harness.open` opens another in a free-form session, `harness.close` closes one, and `harness.cancel` cancels the run. The frame
@@ -52,6 +50,8 @@ import {
 // As long as the member's computer holds a run for RUSH to take up again (runner/protocol.js HOLD_MS).
 const RECONNECT_MS = 10 * 60_000;
 const RECONNECT_WAIT_MS = 2000;
+const BENCHMARK = '/api/benchmark';
+const jsonPost = body => ({method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
 const CLOSED = 'The connection closed before the app finished. The session keeps its answer when it does: open the session again to see it.';
 const sleep = (ms, signal) => new Promise(resolve => {
   const timer = setTimeout(resolve, ms);
@@ -223,7 +223,15 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     post(runEvent('chat.done', runId, {}));
   }
 
-  async function harnessRun({harness, task, text, resume, start, chat}) {
+  /** A free-form Terminal session of the plugin's page: its run's and attempt's ids, and whether it is the member's live one. */
+  async function startShell({resume, start, chat}) {
+    const response = await request(`${BENCHMARK}/sessions`, jsonPost({plugin_id: plugin.id, harness: 'shell', resume, start, chat, interactive: true}));
+    if (!response.ok) throw await failed(response, 'Could not start the harness');
+    const {run, attempt_id: attempt, joined} = await response.json();
+    return {run: run.run_id, attempt, joined: Boolean(joined)};
+  }
+
+  async function harnessRun({resume, start, chat}) {
     runCount += 1;
     const runId = `harness-${runCount}`;
     const controller = new AbortController();
@@ -237,17 +245,11 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
       try {
         await awaitWorker({request, emit, signal: controller.signal, sleep: ms => pause(ms, controller.signal)});
         if (controller.signal.aborted) return;
-        const response = await request('/api/benchmark/sessions', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({plugin_id: plugin.id, task_id: task, harness, text, resume, start, chat, interactive: true}),
-        });
-        if (!response.ok) throw await failed(response, 'Could not start the harness');
-        const {run, attempt_id: attempt, joined} = await response.json();
-        Object.assign(entry, {run: run.run_id, attempt});
+        const {run, attempt, joined} = await startShell({resume, start, chat});
+        Object.assign(entry, {run, attempt});
         // A page given its running session again follows it here alone.
         for (const other of harnessRuns.values()) if (other !== entry && other.attempt === attempt) other.controller.abort();
-        emit('harness.session', {attemptId: attempt, joined: Boolean(joined)});  // the session the page's terminals are, which the Dashboard's chats name
+        emit('harness.session', {attemptId: attempt, joined});  // the session the page's terminals are, which the Dashboard's chats name
         if (controller.signal.aborted) return;
         await followHarness({attemptId: entry.attempt, request, emit, signal: controller.signal, linked});
       } catch (error) {
@@ -270,7 +272,7 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
   /** End a Harness tab session: its run, or, before RUSH has queued it, the wait for the worker. */
   const cancelHarness = async run => {
     if (!run.run) return run.controller.abort();
-    const response = await request(`/api/benchmark/runs/${run.run}/cancel`, {method: 'POST'});
+    const response = await request(`${BENCHMARK}/runs/${run.run}/cancel`, {method: 'POST'});
     if (!response.ok) throw await failed(response, 'Could not cancel the harness');
   };
 
@@ -307,14 +309,14 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     },
     'sessions.list': async () => {
       const [chats, terminals] = await Promise.all([
-        request(sessionsPath), request(`/api/benchmark/terminal-sessions?${new URLSearchParams({plugin_id: plugin.id})}`),
+        request(sessionsPath), request(`${BENCHMARK}/terminal-sessions?${new URLSearchParams({plugin_id: plugin.id})}`),
       ]);
       if (!chats.ok) throw await failed(chats, 'Could not list the sessions');
       if (!terminals.ok) throw await failed(terminals, 'Could not list the Harness sessions');
       return {result: {sessions: (await chats.json()).sessions, terminals: (await terminals.json()).chats}};
     },
     'terminal.archive': async ({attemptId, chat, archived}) => {
-      const response = await request(`/api/benchmark/attempts/${attemptId}/archive`, {
+      const response = await request(`${BENCHMARK}/attempts/${attemptId}/archive`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({archived, chat}),
