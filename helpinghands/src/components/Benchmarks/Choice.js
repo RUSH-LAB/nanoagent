@@ -33,7 +33,7 @@ export function ChoiceCard({pressed, onClick, children}) {
 
 /** A verdict, run status or case kind as a pill, green for a pass and red for a fail. */
 export function Pill({word}) {
-  return <span className={clsx(styles.pill, word === 'pass' && styles.pass, word === 'fail' && styles.fail)}>{word}</span>;
+  return <span className={clsx(styles.pill, word === 'pass' && styles.pass, word === 'fail' && styles.fail, styles[word])}>{word}</span>;
 }
 
 /** The cases of a benchmark, read-only: `benchmark.cases` of GET benchmarks/{id}. */

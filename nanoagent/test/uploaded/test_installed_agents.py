@@ -18,26 +18,32 @@ def session(scratch: Path, identifier: str, name: str, contents: str, ended: str
     return folder
 
 
-def test_catalog_and_run_install_are_pinned_without_touching_fixtures(tmp_path):
+def test_catalog_and_run_install_are_pinned_once_per_run(tmp_path):
     agents = RememberedAgents(tmp_path)
     agents.remember('aider')
     session(tmp_path, 'old', 'aider', 'old', '2026-01-01')
     latest = session(tmp_path, 'new', 'aider', 'new', '2026-01-02')
     assert agents.installed()['aider'] == latest / 'workspace'
     run = '00000000-0000-0000-0000-000000000001'
-    first = tmp_path / 'case1'
-    first.mkdir()
-    (first / 'fixture').write_text('fixture')
-    agents.seed('aider', run, first, 1000, 1000)
-    assert (first / 'fixture').read_text() == 'fixture'
-    assert (first / '.rush/python/bin/aider').read_text() == 'new'
+    first = agents.seed('aider', run, 1000)
+    assert (first / 'python/bin/aider').read_text() == 'new'
     (latest / 'workspace/.rush/python/bin/aider').write_text('changed')
-    second = tmp_path / 'case2'
-    second.mkdir()
-    agents.seed('aider', run, second, 1000, 1000)
-    assert (second / '.rush/python/bin/aider').read_text() == 'new'
+    assert agents.seed('aider', run, 1000) == first
+    assert (first / 'python/bin/aider').read_text() == 'new'
     with pytest.raises(ContractError, match='no installed executable'):
-        agents.seed('missing', '00000000-0000-0000-0000-000000000002', tmp_path / 'case3', 1000, 1000)
+        agents.seed('missing', '00000000-0000-0000-0000-000000000002', 1000)
+
+
+def test_an_installation_larger_than_a_case_workspace_is_pinned_whole(tmp_path):
+    """Regression: aider's 728 MB installation was copied into each case's 256 MB workspace, so every case of a `rush aider` run failed
+    with a bare TooLarge worker error. The installation is pinned whole within the agent storage and mounted, never copied into a case."""
+    agents = RememberedAgents(tmp_path)
+    agents.remember('aider')
+    session(tmp_path, 's', 'aider', 'x' * 5000, '2026-01-01')
+    pinned = agents.seed('aider', '00000000-0000-0000-0000-000000000001', 10000)
+    assert (pinned / 'python/bin/aider').read_text() == 'x' * 5000
+    with pytest.raises(ContractError, match=r"aider's installation \(0 MB\) is larger than the computer's benchmark agent storage \(0 MB\)"):
+        agents.seed('aider', '00000000-0000-0000-0000-000000000002', 1000)
 
 
 def test_catalog_excludes_missing_unremembered_and_external_links(tmp_path):
@@ -62,15 +68,11 @@ def test_npm_link_executes_after_copy_and_storage_limit_is_explicit(tmp_path):
     (npm / 'bin/myagent').symlink_to('../lib/node_modules/myagent/cli')
     (folder / 'session.json').write_text(json.dumps({'ended_at': '2026-01-01'}))
     assert 'myagent' in agents.installed()
-    workspace = tmp_path / 'case'
-    workspace.mkdir()
-    agents.seed('myagent', '00000000-0000-0000-0000-000000000001', workspace, 1000, 1000)
-    assert subprocess.check_output([workspace / '.rush/npm/bin/myagent', 'prompt'], text=True) == 'ran:prompt'
-    other = tmp_path / 'other'
-    other.mkdir()
+    pinned = agents.seed('myagent', '00000000-0000-0000-0000-000000000001', 1000)
+    assert subprocess.check_output([pinned / 'npm/bin/myagent', 'prompt'], text=True) == 'ran:prompt'
     with pytest.raises(ContractError, match='larger than the computer'):
-        agents.seed('myagent', '00000000-0000-0000-0000-000000000002', other, 1000, 1)
-    assert subprocess.check_output([workspace / '.rush/npm/bin/myagent', 'again'], text=True) == 'ran:again'
+        agents.seed('myagent', '00000000-0000-0000-0000-000000000002', 1)
+    assert subprocess.check_output([pinned / 'npm/bin/myagent', 'again'], text=True) == 'ran:again'
 
 
 def test_a_full_agent_storage_makes_room_by_dropping_idle_runs_installations_only(tmp_path):
@@ -85,23 +87,20 @@ def test_a_full_agent_storage_makes_room_by_dropping_idle_runs_installations_onl
     session(tmp_path, 's', 'aider', 'x' * 100, '2026-01-01')
     runs = [f'00000000-0000-0000-0000-00000000000{n}' for n in range(1, 5)]
 
-    def seed(run, name):
-        case = tmp_path / name
-        case.mkdir()
-        agents.seed('aider', run, case, 1000, 250)  # room for two copies of about 105 bytes
-        return case
+    def seed(run):
+        return agents.seed('aider', run, 250)  # room for two copies of about 105 bytes
 
-    seed(runs[0], 'a')
+    seed(runs[0])
     agents.release(runs[0])
-    seed(runs[1], 'b')  # still running: its case is not released
+    seed(runs[1])  # still running: its case is not released
     with pytest.raises(ContractError, match='used within the last day'):
-        seed(runs[2], 'c')  # runs[0] is idle only minutes, runs[1] in use
+        seed(runs[2])  # runs[0] is idle only minutes, runs[1] in use
     day_ago = time.time() - 2 * 24 * 3600
     for run in runs[:2]:
         os.utime(tmp_path / 'benchmark-installs' / run, (day_ago, day_ago))
-    assert (seed(runs[2], 'd') / '.rush/python/bin/aider').read_text() == 'x' * 100
+    assert (seed(runs[2]) / 'python/bin/aider').read_text() == 'x' * 100
     kept = sorted(folder.name for folder in (tmp_path / 'benchmark-installs').iterdir() if folder.is_dir())
     assert kept == [runs[1], runs[2]]  # the idle one went; the one in use stayed though older
     (tmp_path / 'sessions/s/workspace/.rush/python/bin/aider').write_text('y' * 100)
     with pytest.raises(ContractError, match='removed to make room'):
-        seed(runs[0], 'e')
+        seed(runs[0])

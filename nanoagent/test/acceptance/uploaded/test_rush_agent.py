@@ -2,7 +2,7 @@
 
 In a free-form Terminal session (the Harness tab's shell, driven over the worker's terminal link) the member installs `myagent` into
 `.rush/python/bin/` and runs it once as `rush myagent --version`, which remembers it; the session ends and is kept. Step 2 then runs the
-ab-report benchmark with `harness=rush myagent`: the worker copies that installation into the case's workspace, the shell starts the agent
+ab-report benchmark with `harness=rush myagent`: the worker pins that installation for the run and mounts it in the case's VM, the shell starts the agent
 through rush.py with the case's prompt, and the verifier scores what it left.
 
     .venv/bin/python -m pytest test/acceptance/uploaded/test_rush_agent.py -m uploaded_acceptance

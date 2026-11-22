@@ -251,6 +251,21 @@ def test_the_projection_puts_a_runs_id_and_title_on_the_process_that_ran_then() 
     assert (processes[(42, 2)].title, processes[(42, 2)].run) == (None, None)
 
 
+def test_a_runs_id_said_before_the_guest_clock_saw_its_process_start_is_still_that_processs() -> None:
+    facts = [
+        (rec.ProcessExec(42, 1, ["sleep", "1"], "/rush/workspace", 10), 10),
+        (rec.ProcessExit(42, 1, 20), 20),  # the pid's earlier process, ended before the run began
+        (rec.ProcessRush(42, 95, run="r1"), 95),  # the worker's clock, behind the guest's that stamped the run's start
+        (rec.ProcessExec(42, 2, ["python", "/harness/rush.py", "run", "aider"], "/rush/workspace", 100), 100),
+        (rec.ProcessRush(42, 300, title="y"), 300),
+    ]
+    raw = [rec.make_record(fact, event_id=f"e{n}", sequence=n, occurred_ns=at) for n, (fact, at) in enumerate(facts, 1)]
+    records, issues = parse_records(raw)
+    processes = {p.identity: p for p in normalize(records, {}, issues).processes}
+    assert (processes[(42, 2)].title, processes[(42, 2)].run) == ("y", "r1")
+    assert (processes[(42, 1)].title, processes[(42, 1)].run) == (None, None)
+
+
 def test_a_runs_command_holds_a_key_naming_the_run_wherever_the_token_was(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     for name in ("RUSH_ATTEMPT_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
         monkeypatch.setenv(name, "tok")

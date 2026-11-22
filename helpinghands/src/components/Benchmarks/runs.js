@@ -79,6 +79,8 @@ export function benchmarksOf(summaries) {
 /** The harnesses the runs were made with, in the order of their newest run. */
 export const harnessNames = runs => [...new Set(runs.map(run => run.harness.name))];
 
+export const harnessLabel = name => name.startsWith('rush ') ? name.split(/\s+/)[1] : name;
+
 /** The runs of the harnesses in `picked` (a Set), all of them when none is picked. */
 export const filterRuns = (runs, picked) => (picked.size ? runs.filter(run => picked.has(run.harness.name)) : runs);
 
@@ -113,12 +115,10 @@ export function compareTable(runs) {
   };
 }
 
-/** Filter the chronological run history. Case matches use the run details loaded for that search. */
-export function historyRuns(runs, {plugins, harness, caseQuery, details}) {
-  const query = caseQuery.trim().toLowerCase();
+/** Filter the chronological run history by plugin and harness. */
+export function historyRuns(runs, {plugins, harnesses}) {
   return [...runs].filter(isBenchmarkRun).filter(run => (
     (!plugins.size || plugins.has(run.plugin.id))
-    && (!harness || run.harness.name === harness)
-    && (!query || details[run.run_id].cases.some(one => one.case_id.toLowerCase().includes(query)))
+    && (!harnesses.size || harnesses.has(harnessLabel(run.harness.name)))
   )).sort((a, b) => b.created_at.localeCompare(a.created_at) || a.run_id.localeCompare(b.run_id));
 }

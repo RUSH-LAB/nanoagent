@@ -165,15 +165,15 @@ describe('searching the member\'s plugins', () => {
 
 
 describe('run history', () => {
-  it('sorts newest first and combines plugin, harness and case filters', () => {
+  it('sorts newest first and combines plugin and multiple harness filters', () => {
     const runs = [
       {...summary('old', 'codex'), created_at: '2026-01-01'},
       {...summary('new', 'codex'), created_at: '2026-03-01'},
       {...summary('other', 'claude'), created_at: '2026-02-01', plugin: {id: 'other'}},
     ];
-    const details = {old: {cases: [{case_id: 'case-a'}]}, new: {cases: [{case_id: 'case-b'}]}, other: {cases: [{case_id: 'case-b'}]}};
-    assert.deepEqual(historyRuns(runs, {plugins: new Set(), harness: '', caseQuery: '', details}).map(r => r.run_id), ['new', 'other', 'old']);
-    assert.deepEqual(historyRuns(runs, {plugins: new Set(['p']), harness: 'codex', caseQuery: 'CASE-B', details}).map(r => r.run_id), ['new']);
+    assert.deepEqual(historyRuns(runs, {plugins: new Set(), harnesses: new Set()}).map(r => r.run_id), ['new', 'other', 'old']);
+    assert.deepEqual(historyRuns(runs, {plugins: new Set(['p']), harnesses: new Set(['codex'])}).map(r => r.run_id), ['new', 'old']);
+    assert.deepEqual(historyRuns(runs, {plugins: new Set(), harnesses: new Set(['codex', 'claude'])}).map(r => r.run_id), ['new', 'other', 'old']);
   });
 });
 

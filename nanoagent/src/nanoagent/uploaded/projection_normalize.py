@@ -332,11 +332,13 @@ def _processes(n: Normalized) -> None:
                 rec["launch_id"] = d["launch_id"]
         elif r.kind == R.PROCESS_EXIT:
             rec["end"], rec["exit_code"], rec["signal"] = t, d.get("exit_code"), d.get("signal")
-    # What is said of a `rush` run is the process's with its tgid that ran then (the latest such to start): its records may come after.
+    # What is said of a `rush` run is the process's with its tgid that had not ended then (the earliest such to start): its records may
+    # come after. rush.py says it while it runs, and a tgid is not used again while its process lives; but its start is not compared,
+    # being stamped by the guest's clock, which can run ahead of the worker's that stamps what rush.py says (by ~200 ms seen).
     for tgid, at, facts in said:
-        running = [ident for ident in order if ident[0] == tgid and (info[ident].get("start") or 0) <= at and (info[ident].get("end") is None or info[ident]["end"] >= at)]
-        if running:
-            info[max(running, key=lambda ident: info[ident].get("start") or 0)].update(facts)
+        live = [ident for ident in order if ident[0] == tgid and (info[ident].get("end") is None or info[ident]["end"] >= at)]
+        if live:
+            info[min(live, key=lambda ident: info[ident].get("start") or 0)].update(facts)
     for ident in order:
         p = info[ident]
         n.processes.append(

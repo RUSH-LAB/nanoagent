@@ -94,6 +94,9 @@ PLUGIN_SOURCE_DIR = "/plugin-source"  # the prep VM's read-only view of the plug
 FIXTURES_DIR = "/fixtures"
 TOOLS_DIR = "/opt/rush-tools"  # the worker's guest tools (strace, uv), read-only in every VM
 CLIS_DIR = "/opt/rush/clis"  # the worker's installs of the reference CLIs (nanoagent.uploaded.clis), read-only in a case VM
+# A `rush <program>` run's installation of the member's own agent (runner.RememberedAgents.seed: its .rush/python and .rush/npm),
+# read-only in its case VM and outside the workspace, whose bounds hold only what the agent makes. The shell harness's shell.py names it too.
+AGENT_DIR = "/opt/rush/agent"
 TRACE_DIR = "/rush-trace"  # root-owned, each session's folder 0700: the case user can neither write the recording nor read it
 CLOSURE_MOUNT = "/rush-closure"  # the build's read-only view of the closure's tar, unpacked at the dependency mount
 OUTPUT_MOUNT = "/rush-build-tar"  # where the build VM leaves OUTPUT_ARCHIVE, its /build-out
@@ -282,6 +285,7 @@ class CaseSpec:
     tool: ToolContainerSpec | None = None
     on_output: Callable[[bytes], None] | None = None  # each chunk the harness writes to its terminal, as it comes
     clis: Path | None = None  # the worker's CLI installs, at CLIS_DIR: ones installed while the case runs appear there too
+    agent: Path | None = None  # a `rush <program>` run's installation of the member's agent, at AGENT_DIR
 
 
 class CaseHandle(Protocol):
@@ -940,6 +944,7 @@ class MicrosandboxSupervisor:
                     WORKSPACE: _bind(workspace, readonly=False, quota=spec.limits.workspace_bytes), OUT_DIR: _bind(out, readonly=False, quota=spec.limits.out_bytes),
                     HARNESS_DIR: _bind(spec.artifact.directory), TOOLS_DIR: MountConfig(kind=MountKind.BIND, bind=str(tools), readonly=True),
                     "/tmp": _tmpfs(spec.limits.tmp_bytes), **({} if spec.clis is None else {CLIS_DIR: _bind(spec.clis)}),
+                    **({} if spec.agent is None else {AGENT_DIR: _bind(spec.agent)}),
                 },
                 patches=[PatchConfig(kind=PatchKind.FILE, path=REQUEST_PATH, content=spec.request_json, mode=0o444)],
                 labels={"rush.attempt": spec.attempt_id},

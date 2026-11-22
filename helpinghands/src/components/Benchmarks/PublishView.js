@@ -3,13 +3,12 @@ import market from '@site/src/pages/marketplace/styles.module.css';
 import {workerNotice} from '../PluginFrame/worker.js';
 import {appManifest, benchmarkJson, jsonPost, runnerStatus} from './api';
 import {previewCaseFile, publishProblem, splitCaseFolder, validBenchmarkName} from './caseFolder';
-import {CaseList, Step} from './Choice';
+import {CaseList} from './Choice';
 import CopyInstructions from './CopyInstructions';
 import {countOf} from './runs';
 import PluginCards, {PluginHeader, useBenchmarkPlugins} from './PluginCards';
 import useLoad from './useLoad';
 import useUrlParam from './useUrlParam';
-import styles from './styles.module.css';
 import publishStyles from './publish.module.css';
 
 const readBase64 = file => new Promise((resolve, reject) => {
@@ -61,22 +60,24 @@ function PublishForm({plugin}) {
   };
   const {published} = state;
   return (
-    <form className={styles.form} onSubmit={submit}>
+    <form className={publishStyles.form} onSubmit={submit}>
       {notice && notice.tone !== 'ok' && <div className={market.notice}>{notice.text}</div>}
-      {!review && <><label>
-        Name
-        <input type="text" required disabled={state.busy} placeholder="lowercase letters, digits, . _ -" value={name} onChange={event => setName(event.target.value)} />
-      </label>
-      <label>
-        Case folder
-        <input type="file" disabled={state.busy} webkitdirectory="" aria-label="Case folder" onChange={event => setFiles([...event.target.files])} />
-        <span className={styles.muted}>
-          {split && !split.error
-            ? `${files[split.caseFile].name} and ${countOf(split.others.length, 'other file')}.`
-            : 'The folder with the case file (.yaml) at its top level and its fixtures beside it.'}
-        </span>
-      </label>
-      {split?.error && <div className={market.error}>{split.error}</div>}</>}
+      {!review && <>
+        <div className={publishStyles.field}>
+          <label htmlFor="benchmark-name">Benchmark name</label>
+          <input id="benchmark-name" type="text" required disabled={state.busy} placeholder="e.g. my-benchmark" value={name} onChange={event => setName(event.target.value)} />
+          <span>Use lowercase letters, numbers, dots, underscores, or hyphens.</span>
+        </div>
+        <div className={publishStyles.field}>
+          <span className={publishStyles.fieldLabel}>Case folder</span>
+          <label className={publishStyles.folderPicker}>
+            <span className={publishStyles.folderIcon} aria-hidden="true">▱</span>
+            <span className={publishStyles.folderText}><strong>{files.length ? 'Change folder' : 'Choose a folder'}</strong><span>{split && !split.error ? `${files[split.caseFile].name} · ${countOf(split.others.length, 'other file')}` : 'One YAML case file and any fixtures'}</span></span>
+            <input type="file" disabled={state.busy} webkitdirectory="" aria-label="Case folder" onChange={event => setFiles([...event.target.files])} />
+          </label>
+        </div>
+        {split?.error && <div className={market.error}>{split.error}</div>}
+      </>}
       {review && !published && <section className={publishStyles.review} aria-labelledby="review-heading">
         <h3 id="review-heading" ref={reviewHeading} tabIndex={-1}>Review cases</h3>
         <p>Check the cases before publishing. RUSH will validate them and pin the answers on your computer.</p>
@@ -87,7 +88,7 @@ function PublishForm({plugin}) {
           <div><dt>Cases</dt><dd>{review.cases.length} total · {review.cases.filter(one => one.kind === 'answer').length} answer · {review.cases.filter(one => one.kind === 'refuse').length} refuse</dd></div>
         </dl>
         {review.cases.map(one => <div className={publishStyles.reviewCase} key={one.case_id}>
-          <strong>{one.case_id}</strong> · {one.kind}
+          <div className={publishStyles.caseHeading}><strong>{one.case_id}</strong><span>{one.kind}</span></div>
           <pre>{one.prompt}</pre>
           <details><summary>Arguments</summary><pre>{JSON.stringify(one.arguments, null, 2)}</pre></details>
           <p>Fixtures: {one.fixturePath == null ? 'None' : one.fixturePath}</p>
@@ -126,13 +127,16 @@ function PublishPlugin({plugin, onBack}) {
   return (
     <>
       <PluginHeader plugin={plugin} back="Publish Benchmark" onBack={onBack} />
-      <Step title="Instructions">
+      <div className={publishStyles.page}>
+      <section className={publishStyles.panel}>
+        <div className={publishStyles.panelHeading}><span className={publishStyles.stepNumber}>1</span><div><h2>Prepare your cases</h2><p>Create a case folder for {plugin.name}.</p></div></div>
         {manifest.error && <div className={market.error}>{manifest.error}</div>}
         {manifest.loading && <p>Reading the plugin&apos;s tasks…</p>}
         {manifest.data && !manifest.data.tasks.length && <p>{plugin.name} declares no task to benchmark.</p>}
         {manifest.data?.tasks.length > 0 && <CopyInstructions plugin={manifest.data} />}
-      </Step>
-      {manifest.data?.tasks.length > 0 && <Step title="Publish"><PublishForm plugin={manifest.data} /></Step>}
+      </section>
+      {manifest.data?.tasks.length > 0 && <section className={publishStyles.panel}><div className={publishStyles.panelHeading}><span className={publishStyles.stepNumber}>2</span><div><h2>Publish benchmark</h2><p>Name your benchmark and select its case folder.</p></div></div><PublishForm plugin={manifest.data} /></section>}
+      </div>
     </>
   );
 }

@@ -333,8 +333,9 @@ class RememberedAgents:
                         break
         return result
 
-    def seed(self, command: str, run_id: str, workspace: Path, max_bytes: int, storage_bytes: int) -> None:
-        """Pin one installation per run, then copy only its package directories into a fresh case."""
+    def seed(self, command: str, run_id: str, storage_bytes: int) -> Path:
+        """Pin one installation per run (only its package directories) and return its folder, which the run's cases mount read-only
+        (sandbox.AGENT_DIR) until ``release``: never copied into a case's workspace, whose bounds are for what the agent makes."""
         if not AGENT_NAME.fullmatch(command) or not re.fullmatch(r"[0-9a-f-]{36}", run_id):
             raise ContractError("invalid_agent", "invalid installed agent or run id")
         target = self.path.parent / "benchmark-installs" / run_id
@@ -350,7 +351,9 @@ class RememberedAgents:
                 staged = target.with_name(f"{run_id}.{uuid.uuid4().hex}.copying")
                 needed = sum(tree_bytes(source / ".rush" / area) for area in AGENT_AREAS if (source / ".rush" / area).is_dir())
                 if needed + len(command.encode("utf-8")) > storage_bytes:
-                    raise ContractError("agent_storage_full", f"{command}'s installation is larger than the computer's benchmark agent storage")
+                    raise ContractError(
+                        "agent_storage_full", f"{command}'s installation ({needed >> 20} MB) is larger than the computer's benchmark agent storage ({storage_bytes >> 20} MB)"
+                    )
                 # Installations no case is using and none has used for a day make room, least recently used first; a run whose installation
                 # went says so if it asks again (agent_evicted). One still in use, or used lately, is never removed: then storage is full.
                 idle = time.time() - EVICT_IDLE_S
@@ -367,7 +370,7 @@ class RememberedAgents:
                 try:
                     staged.mkdir(parents=True)
                     (staged / "command").write_text(command, encoding="utf-8")
-                    remaining = max_bytes
+                    remaining = storage_bytes
                     for area in AGENT_AREAS:
                         folder = source / ".rush" / area
                         if folder.is_dir():
@@ -380,18 +383,7 @@ class RememberedAgents:
                 raise ContractError("invalid_agent", "the run's installed agent changed")
             os.utime(target)  # in use: the oldest used go first when room is made
             self.running[run_id] = self.running.get(run_id, 0) + 1  # until ``release``: its installation stays while the case runs
-        try:
-            rush = workspace / ".rush"
-            if rush.exists():
-                raise ContractError("agent_install_conflict", "the case fixtures contain .rush, reserved for the installed agent")
-            rush.mkdir()
-            remaining = max_bytes
-            for area in AGENT_AREAS:
-                if (target / area).is_dir():
-                    remaining -= copy_workspace(target / area, rush / area, remaining)
-        except BaseException:
-            self.release(run_id)
-            raise
+        return target
 
     def release(self, run_id: str) -> None:
         """One case of run ``run_id`` that ``seed`` seeded is over: its installation may be removed once no case of the run uses it."""
@@ -1206,6 +1198,14 @@ class AttemptRunner:
         request = self._request(job, archive.manifest.dialects, relay.base_url)
         terminal = Terminal(self.worker, job.attempt_id, job.fence, terminals=MAX_TERMINALS, scratch=cfg.scratch)
         offset = self.wall_clock_ns() - self.clock_ns()
+        # A member's own agent (`rush <program> [<argument>…]`): its program's installation, from a kept Terminal session, pinned for the
+        # run before its VM starts, which mounts it.
+        seeded = not job.free_form and job.run["harness"].startswith("rush ")
+        agent = None
+        if seeded:
+            program = job.run["harness"].removeprefix("rush ").split(" ")[0]
+            agent = await in_thread(self.agents.seed, program, job.run["run_id"], cfg.resume_bytes)
+            stack.callback(self.agents.release, job.run["run_id"])
         if warm is not None:
             handle = warm.handle
         else:
@@ -1213,7 +1213,7 @@ class AttemptRunner:
             clis.mkdir(parents=True, exist_ok=True)
             spec = CaseSpec(
                 job.attempt_id, profile, run_argv, artifact, json.dumps(request).encode(), token, network, work / "case", fixtures, limits, None,
-                partial(terminal.write, 0), clis,
+                partial(terminal.write, 0), clis, agent,
             )
             handle = await in_thread(self.supervisor.create_case, spec)
             LOG.info("attempt %s: case VMs up", job.attempt_id)
@@ -1228,12 +1228,8 @@ class AttemptRunner:
             LOG.info("attempt %s: resuming %s: %s", job.attempt_id, job.resume.attempt_id, said["line"])
         if job.start is not None:  # the agent CLI its first terminal runs, as a resumed one runs its agent's resume command
             await in_thread(start_cli, handle.workspace, job.start)
-        # A member's own agent (`rush <program> [<argument>…]`): its program's installation, from a kept Terminal session.
-        seeded = not job.free_form and job.run["harness"].startswith("rush ")
-        if seeded:
-            program = job.run["harness"].removeprefix("rush ").split(" ")[0]
-            await in_thread(self.agents.seed, program, job.run["run_id"], handle.workspace, limits.workspace_bytes, cfg.resume_bytes)
-            stack.callback(self.agents.release, job.run["run_id"])
+        if seeded and (handle.workspace / SESSION_STATE).exists():
+            raise ContractError("agent_install_conflict", "the case fixtures contain .rush, reserved for the installed agent")
         # The member's remembered programs, over any list a resumed session brought back.
         self.agents.attach(handle.workspace)
         stack.callback(self.agents.detach, handle.workspace)
@@ -1265,7 +1261,9 @@ class AttemptRunner:
             if outcome is None:  # a scored run canceled mid-run
                 await in_thread(handle.close)
                 return await self._finalize(job, journal, "canceled", None, result=AttemptResult("canceled"))
-            if seeded:  # the installation the worker seeded is no part of what the agent left: it is not frozen or held to the workspace's bounds
+            # The seeded agent's packages in the workspace (shell.py's link to its mounted installation, and what it installed as it ran) are
+            # its environment, no part of what it left: they are not frozen or held to the workspace's bounds.
+            if seeded:
                 for area in AGENT_AREAS:
                     await in_thread(shutil.rmtree, handle.workspace / SESSION_STATE / area, True)
             try:

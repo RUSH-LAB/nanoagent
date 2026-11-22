@@ -177,3 +177,14 @@ header.pluginHead {
   height: 2rem;
   border-radius: var(--site-radius);
 }
+
+.running { color: #1766ad; border-color: #1766ad; background: #1766ad14; }
+.queued { color: #7853a8; border-color: #7853a8; background: #7853a814; }
+.complete { color: #18804a; border-color: #18804a; background: #18804a14; }
+.failed { color: #bd3434; border-color: #bd3434; background: #bd343414; }
+.cancelled, .canceled { color: #966414; border-color: #966414; background: #96641414; }
+[data-theme='dark'] .running { color: #80beff; }
+[data-theme='dark'] .queued { color: #c7a4f5; }
+[data-theme='dark'] .complete { color: #7ddd9f; }
+[data-theme='dark'] .failed { color: #ff9999; }
+[data-theme='dark'] .cancelled, [data-theme='dark'] .canceled { color: #f2cc7d; }

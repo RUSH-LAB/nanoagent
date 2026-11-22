@@ -77,7 +77,7 @@ def copy_workspace(source: Path, destination: Path, max_bytes: int | None = None
                     raise TooLarge
                 shutil.copy2(path, target, follow_symlinks=False)
                 # The mode the VM gave it, which on macOS microsandbox keeps only in an attribute copy2 drops (archive.GUEST_STAT): a program
-                # the member installed stays executable when its session is kept, resumed, or seeded into a benchmark case.
+                # the member installed stays executable when its session is kept, resumed, or pinned for a benchmark run.
                 # Always readable and writable by the worker, which copies and deletes it again (the VM runs as root and may leave a file it can't read).
                 with open(path, "rb") as handle:
                     os.chmod(target, stat.S_IMODE(file_mode(handle.fileno())) | stat.S_IRUSR | stat.S_IWUSR)

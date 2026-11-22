@@ -25,6 +25,7 @@ HERE = Path(__file__).resolve().parent
 TERMINAL_ENV = Path("/tmp/rush-terminal-env.json")  # the first terminal's shell environment, which every other terminal starts with
 SHELL = ["bash", "--rcfile", str(HERE / "bashrc"), "-i"]
 RUSH_PREFIX = "rush "  # a member's own agent: `rush <command>`
+AGENT = Path("/opt/rush/agent")  # a case's installation of the member's own agent, read-only (sandbox.AGENT_DIR)
 
 
 def said(workspace: Path) -> dict[str, str]:
@@ -49,6 +50,17 @@ def agent_argv(harness: str | None) -> list[str]:
     if harness not in table:
         sys.exit(f"{harness} is not a harness here; they are {', '.join(table)}, or rush <command>")
     return list(table[harness]["headless"])
+
+
+def link_agent(user_base: Path) -> None:
+    """A case of a member's own agent: the Python packages of its installation (AGENT), found through a .pth in this workspace's user
+    site as they were in the Terminal it was installed in, their own .pth files read too; `pip install` still puts packages in the workspace."""
+    if not AGENT.is_dir():
+        sys.exit(f"this case's agent has no installation at {AGENT}")
+    for site in (AGENT / "python" / "lib").glob("python*/site-packages"):
+        mine = user_base / site.relative_to(AGENT / "python")
+        mine.mkdir(parents=True, exist_ok=True)
+        (mine / "rush-agent.pth").write_text(f"import site; site.addsitedir({str(site)!r})\n", encoding="utf-8")
 
 
 def main() -> None:
@@ -77,6 +89,9 @@ def main() -> None:
     user_base = workspace / ".rush" / "python"  # where `pip install` puts packages, the system's being read-only
     npm_prefix = workspace / ".rush" / "npm"  # where `npm install -g` puts packages, for the same reason
     path = [str(HERE / "bin"), str(user_base / "bin"), str(npm_prefix / "bin")]
+    seeded = request["case"] is not None and (request["harness"] or "").startswith(RUSH_PREFIX)
+    if seeded:  # its agent's programs, after the workspace's own
+        path += [str(AGENT / "python" / "bin"), str(AGENT / "npm" / "bin")]
     env = {
         **os.environ,
         "OPENAI_BASE_URL": gateway, "OPENAI_API_KEY": token,
@@ -90,6 +105,8 @@ def main() -> None:
     if request["case"] is not None:
         prompt = request["prompt"]["user"]
         env["RUSH_PROMPT"] = prompt
+        if seeded:
+            link_agent(user_base)
         # The harness's own process, with no shell around it: the case ends when it does, with its status (a signal's as a shell reports it).
         code = subprocess.run([*agent_argv(request["harness"]), prompt], env=env).returncode
         sys.exit(128 - code if code < 0 else code)

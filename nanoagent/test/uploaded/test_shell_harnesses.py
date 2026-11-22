@@ -47,6 +47,36 @@ def test_a_members_own_agent_runs_through_rush_with_its_arguments() -> None:
     assert argv == ["python", str(SHELL / "rush.py"), "run", "aider", "--yes", "--message-file", "a b.txt"]
 
 
+def test_a_members_own_agents_mounted_packages_import_through_the_workspaces_user_site(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Its installation's site-packages, with the paths its own .pth files add (aider's has a namespace package's), import as they did in
+    the Terminal it was installed in, from the read-only mount; the workspace's user site stays where `pip install` puts packages."""
+    agent = tmp_path / "agent"
+    version = f"python{os.sys.version_info.major}.{os.sys.version_info.minor}"
+    site = agent / "python" / "lib" / version / "site-packages"
+    (site / "agentpkg").mkdir(parents=True)
+    (site / "agentpkg" / "__init__.py").write_text("NAME = 'agent'\n")
+    extra = tmp_path / "extra"
+    extra.mkdir()
+    (extra / "fromdotpth.py").write_text("NAME = 'pth'\n")
+    (site / "extra.pth").write_text(f"{extra}\n")
+    monkeypatch.setattr(shell, "AGENT", agent)
+    user_base = tmp_path / "workspace" / ".rush" / "python"
+    shell.link_agent(user_base)
+    # The user site of the VM's Python (Linux: <base>/lib/pythonX.Y/site-packages), processed as its startup does.
+    user_site = user_base / "lib" / version / "site-packages"
+    said = subprocess.check_output(
+        [os.sys.executable, "-I", "-c", f"import site; site.addsitedir({str(user_site)!r}); import agentpkg, fromdotpth; print(agentpkg.NAME, fromdotpth.NAME)"],
+        text=True,
+    )
+    assert said.split() == ["agent", "pth"]
+
+
+def test_a_case_of_a_members_own_agent_without_its_installation_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(shell, "AGENT", tmp_path / "missing")
+    with pytest.raises(SystemExit, match=f"this case's agent has no installation at {tmp_path / 'missing'}"):
+        shell.link_agent(tmp_path / "user")
+
+
 def test_a_case_without_a_known_harness_is_refused() -> None:
     with pytest.raises(SystemExit, match="names the harness"):
         shell.agent_argv(None)

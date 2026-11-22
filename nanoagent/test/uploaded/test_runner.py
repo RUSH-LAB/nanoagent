@@ -149,9 +149,22 @@ async def test_the_request_and_the_vm_hold_the_prompt_alone_never_the_arguments_
 @pytest.mark.parametrize("harness", ["claude", "nanoagent", "rush mytool --flag"])
 async def test_the_request_names_the_harness_the_run_pins_and_that_no_person_is_at_it(tmp_path: Path, harness: str) -> None:
     rig = Rig(tmp_path)
-    await rig.run(fx.parse_job(fx.job_body(harness=harness)))
+    body = fx.job_body(harness=harness)
+    if harness.startswith("rush "):  # a member's own agent: installed in a kept Terminal session, pinned for the run and mounted in its VM
+        body["run"]["run_id"] = "00000000-0000-0000-0000-000000000001"
+        program = tmp_path / "scratch/sessions/s/workspace/.rush/python/bin/mytool"
+        program.parent.mkdir(parents=True)
+        program.write_text("#!/bin/sh\n")
+        program.chmod(0o755)
+        (tmp_path / "scratch/sessions/s/session.json").write_text(json.dumps({"ended_at": "2026-01-01"}))
+        rig.runner.agents.remember("mytool")
+    await rig.run(fx.parse_job(body))
     request = json.loads(rig.supervisor.specs[0].request_json)
     assert request["harness"] == harness and request["interactive"] is False and request["free_form"] is False
+    pinned = tmp_path / "scratch/benchmark-installs/00000000-0000-0000-0000-000000000001"
+    assert rig.supervisor.specs[0].agent == (pinned if harness.startswith("rush ") else None)
+    if harness.startswith("rush "):
+        assert (pinned / "python/bin/mytool").is_file()
 
 
 SHELL = FOLDER / "shell"

@@ -4,7 +4,7 @@ import market from '@site/src/pages/marketplace/styles.module.css';
 import BenchmarkTrace, {BenchmarkTraceCompare} from '@site/src/components/BenchmarkTrace';
 import {benchmarkJson, runDetail} from './api';
 import {Pill} from './Choice';
-import {ACTIVE, formatCost, formatTime, formatTokens, harnessNames, historyRuns, isBenchmarkRun, latestAttempts, scoreText, toggleSelection, toggled, verdictOf} from './runs';
+import {ACTIVE, formatCost, formatTime, formatTokens, harnessLabel, harnessNames, historyRuns, isBenchmarkRun, latestAttempts, scoreText, toggleSelection, toggled, verdictOf} from './runs';
 import useLoad, {usePoll} from './useLoad';
 import styles from './history.module.css';
 
@@ -52,6 +52,14 @@ function Metrics({run, cost}) {
 
 function RunDetail({id, openTrace, back}) {
   const {data, error, reload} = useDetails([id]);
+  const [cancelError, setCancelError] = useState(null);
+  const [cancelling, setCancelling] = useState(false);
+  const cancel = async () => {
+    setCancelling(true);
+    try { await benchmarkJson(`/runs/${id}/cancel`, {method: 'POST'}); await reload(); setCancelError(null); }
+    catch (failure) { setCancelError(failure.message); }
+    finally { setCancelling(false); }
+  };
   if (error) return <><button className={styles.link} onClick={back}>← My Benchmarks</button><div className={market.error}>{error}</div><button type="button" className="button button--secondary" onClick={reload}>Retry</button></>;
   if (!data) return <p>Reading the run…</p>;
   const {run, cost_usd: cost} = data[0];
@@ -59,15 +67,17 @@ function RunDetail({id, openTrace, back}) {
   return <>
     <button className={styles.link} onClick={back}>← My Benchmarks</button>
     <div className={styles.detailHeading}>
-      <h1>{run.harness.name}</h1><Pill word={run.status} />
+      <h1>{harnessLabel(run.harness.name)}</h1><Pill word={run.status} />
+      {ACTIVE.has(run.status) && <button type="button" className={styles.cancel} disabled={cancelling} onClick={cancel}>{cancelling ? 'Cancelling…' : 'Cancel run'}</button>}
     </div>
     <p className={styles.meta}>{run.model} · {run.benchmark.name} · {run.case_set.plugin.name ?? run.case_set.plugin.id} v{run.case_set.plugin.version} · {new Date(run.created_at).toLocaleString()}</p>
+    {cancelError && <div className={market.error} role="alert">{cancelError}</div>}
     <Metrics run={run} cost={cost} />
-    <h2>Cases</h2><div className={styles.scroll}><table className={styles.table}><thead><tr><th>Case</th><th>Verdict</th><th>Time</th><th>Tokens</th><th>Trace</th></tr></thead><tbody>
+    <h2 className={styles.tableTitle}>Cases</h2><div className={styles.scroll}><table className={styles.table}><thead><tr><th>Case</th><th>Verdict</th><th>Time</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th><th></th></tr></thead><tbody>
       {run.cases.map(one => { const attempt = attempts[one.case_id]; return <tr key={one.case_id}>
-        <td>{one.case_id}</td>
-        <td>{attempt ? <Pill word={verdictOf(attempt)} /> : '—'}</td><td>{metric(attempt?.metrics, 'elapsed_ms', true)}</td><td>{metric(attempt?.metrics, 'total_tokens')}</td>
-        <td><button type="button" className={styles.traceButton} disabled={!attempt || attempt.state === 'queued'} onClick={() => openTrace(attempt.attempt_id)}>View trace</button></td>
+        <td className={styles.caseName}>{one.case_id}</td>
+        <td>{attempt ? <Pill word={verdictOf(attempt)} /> : '—'}</td><td>{metric(attempt?.metrics, 'elapsed_ms', true)}</td>{['input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens'].map(field => <td key={field}>{metric(attempt?.metrics, field)}</td>)}
+        <td><button type="button" className={styles.traceButton} disabled={!attempt || attempt.state === 'queued'} onClick={() => openTrace(attempt.attempt_id)}>Traces</button></td>
       </tr>; })}
     </tbody></table></div>
   </>;
@@ -78,19 +88,12 @@ function ComparedCase({sides, ids, attempts, openTrace}) {
   const caseName = left && right && left.case_id !== right.case_id
     ? `${left.case_id} / ${right.case_id}` : (left?.case_id ?? right.case_id);
   return <tr>
-    <td>{left?.attempt_id && right?.attempt_id
-      ? <button type="button" className={styles.link} onClick={() => openTrace([left.attempt_id, right.attempt_id])}>{caseName}</button>
-      : caseName}</td>
+    <td className={styles.caseName}>{caseName}</td>
     {sides.map((side, index) => {
-      if (!side) return <td key={ids[index]}>—</td>;
-      const m = attempts[index][side.case_id]?.metrics;
-      return <td key={ids[index]}>
-        {side.verdict ?? side.outcome ?? '—'}<br />
-        {side.latency_ms == null ? '—' : formatTime(side.latency_ms, false)} · {side.tokens.total == null ? '—' : formatTokens(side.tokens.total, false)} tokens · {formatCost(side.cost_usd)}<br />
-        Input {metric(m, 'input_tokens')} · Output {metric(m, 'output_tokens')}<br />
-        Cache read {metric(m, 'cache_read_tokens')} · write {metric(m, 'cache_write_tokens')} · Tools {metric(m, 'tool_calls')}{m?.tool_calls != null && m.tool_calls_complete === false ? '+' : ''}
-      </td>;
+      const attempt = side && attempts[index][side.case_id];
+      return <td key={ids[index]}>{attempt ? <><Pill word={verdictOf(attempt)} /><div className={styles.tokenDetail}>Input {metric(attempt.metrics, 'input_tokens')} · Output {metric(attempt.metrics, 'output_tokens')}<br />Cache read {metric(attempt.metrics, 'cache_read_tokens')} · write {metric(attempt.metrics, 'cache_write_tokens')}</div></> : '—'}</td>;
     })}
+    <td>{left?.attempt_id && right?.attempt_id && <button type="button" className={styles.traceButton} onClick={() => openTrace([left.attempt_id, right.attempt_id])}>Traces</button>}</td>
   </tr>;
 }
 
@@ -109,70 +112,55 @@ function Comparison({ids, openTrace, back}) {
   const rows = [...comparison.shared.map(row => [row.a, row.b]), ...comparison.only_a.map(side => [side, null]), ...comparison.only_b.map(side => [null, side])];
   return <>
     <button className={styles.link} onClick={back}>← My Benchmarks</button><h1>Compare runs</h1>
-    <div className={styles.columns}>{details.map(({run, cost_usd: cost}) => <section key={run.run_id}><h2>{run.harness.name}</h2><p className={styles.meta}>{run.model} · {run.benchmark.name} · {new Date(run.created_at).toLocaleString()}</p><Metrics run={run} cost={cost} /></section>)}</div>
-    <h2>Cases</h2><div className={styles.scroll}><table className={styles.table}><thead><tr><th>Case</th>{details.map(({run}) => <th key={run.run_id}>{run.harness.name}<br /><span className={styles.meta}>{run.model}</span></th>)}</tr></thead><tbody>
+    <h2>Run totals</h2><div className={styles.scroll}><table className={styles.table}><thead><tr><th>Harness</th><th>Pass rate</th><th>Input tokens</th><th>Output tokens</th><th>Cache read</th><th>Cache write</th><th>Time</th></tr></thead><tbody>
+      {details.map(({run}) => <tr key={run.run_id}><td><strong>{harnessLabel(run.harness.name)}</strong><div className={styles.secondary}>{run.model} · {run.benchmark.name}</div></td><td>{scoreText(run.score)}</td>{['input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens'].map(field => <td key={field}>{metric(run.metrics, field)}</td>)}<td>{metric(run.metrics, 'elapsed_ms', true)}</td></tr>)}
+    </tbody></table></div>
+    <h2 className={styles.tableTitle}>Cases</h2><div className={styles.scroll}><table className={styles.table}><thead><tr><th>Case</th>{details.map(({run}) => <th key={run.run_id}>{harnessLabel(run.harness.name)}<br /><span className={styles.meta}>{run.model}</span></th>)}<th></th></tr></thead><tbody>
       {rows.map((sides, index) => <ComparedCase key={`${sides[0]?.case_id ?? ''}:${sides[1]?.case_id ?? ''}:${index}`}
         sides={sides} ids={ids} attempts={attempts} openTrace={openTrace} />)}
     </tbody></table></div>
   </>;
 }
 
-function Filters({runs, plugins, setPlugins, pluginSearch, setPluginSearch, caseQuery, setCaseQuery, harness, setHarness}) {
+function Filters({runs, plugins, setPlugins, pluginSearch, setPluginSearch, harnesses, setHarnesses}) {
   const options = [...new Map(runs.map(run => [run.plugin.id, run.plugin])).values()];
   const matching = options.filter(plugin => `${plugin.name ?? ''} ${plugin.id}`.toLowerCase().includes(pluginSearch.toLowerCase()));
-  const clear = () => { setPlugins(new Set()); setPluginSearch(''); setCaseQuery(''); setHarness(''); };
-  const filtered = plugins.size || pluginSearch || caseQuery || harness;
-  return <div className={styles.filterPanel}>
-    <div className={styles.filters}>
-      <div className={styles.filterField}>
-        <span className={styles.filterLabel}>Plugins</span>
-        <details className={styles.pluginPicker}>
-          <summary>{plugins.size ? `${plugins.size} selected` : 'All plugins'}</summary>
-          <div className={styles.pluginMenu}>
-            <input aria-label="Search plugins" value={pluginSearch} onChange={event => setPluginSearch(event.target.value)} placeholder="Search plugins" />
-            <div className={styles.pluginOptions}>
-              {matching.map(plugin => <label key={plugin.id}>
-                <input type="checkbox" checked={plugins.has(plugin.id)} onChange={() => setPlugins(toggled(plugins, plugin.id))} />
-                <span>{plugin.name ?? plugin.id}</span>
-              </label>)}
-              {!matching.length && <span className={styles.meta}>No plugins found.</span>}
-            </div>
-          </div>
-        </details>
-      </div>
-      <label className={styles.filterField}><span className={styles.filterLabel}>Case</span>
-        <input value={caseQuery} onChange={event => setCaseQuery(event.target.value)} placeholder="Search case IDs" />
-      </label>
-      <label className={styles.filterField}><span className={styles.filterLabel}>Harness</span>
-        <select value={harness} onChange={event => setHarness(event.target.value)}>
-          <option value="">All harnesses</option>{harnessNames(runs).map(name => <option key={name}>{name}</option>)}
-        </select>
-      </label>
-      {Boolean(filtered) && <button type="button" className={styles.clear} onClick={clear}>Clear filters</button>}
+  const names = [...new Set(harnessNames(runs).map(harnessLabel))];
+  const clear = () => { setPlugins(new Set()); setPluginSearch(''); setHarnesses(new Set()); };
+  return <div className={styles.filterPanel}><div className={styles.filters}>
+    <div className={styles.filterField}><span className={styles.filterLabel}>Plugins</span>
+      <details className={styles.pluginPicker}><summary>{plugins.size ? `${plugins.size} selected` : 'All plugins'}</summary>
+        <div className={styles.pluginMenu}><input aria-label="Search plugins" value={pluginSearch} onChange={event => setPluginSearch(event.target.value)} placeholder="Search plugins" />
+          <div className={styles.pluginOptions}>{matching.map(plugin => <label key={plugin.id}><input type="checkbox" checked={plugins.has(plugin.id)} onChange={() => setPlugins(toggled(plugins, plugin.id))} /><span>{plugin.name ?? plugin.id}</span></label>)}
+            {!matching.length && <span className={styles.meta}>No plugins found.</span>}</div></div>
+      </details>
     </div>
-    {plugins.size > 0 && <div className={styles.chips} aria-label="Selected plugins">
-      {options.filter(plugin => plugins.has(plugin.id)).map(plugin => <button type="button" key={plugin.id} className={styles.chip}
-        onClick={() => setPlugins(toggled(plugins, plugin.id))} aria-label={`Remove ${plugin.name ?? plugin.id} filter`}>
-        {plugin.name ?? plugin.id} <span aria-hidden="true">×</span>
-      </button>)}
-    </div>}
-  </div>;
+    <div className={styles.filterField}><span className={styles.filterLabel}>Harnesses</span>
+      <details className={styles.pluginPicker}><summary>{harnesses.size ? `${harnesses.size} selected` : 'All harnesses'}</summary>
+        <div className={styles.pluginMenu}><div className={styles.pluginOptions}>{names.map(name => <label key={name}><input type="checkbox" checked={harnesses.has(name)} onChange={() => setHarnesses(toggled(harnesses, name))} /><span>{name}</span></label>)}</div></div>
+      </details>
+    </div>
+    {Boolean(plugins.size || pluginSearch || harnesses.size) && <button type="button" className={styles.clear} onClick={clear}>Clear filters</button>}
+  </div>
+  {(plugins.size > 0 || harnesses.size > 0) && <div className={styles.chips} aria-label="Selected filters">
+    {options.filter(plugin => plugins.has(plugin.id)).map(plugin => <button type="button" key={plugin.id} className={styles.chip} onClick={() => setPlugins(toggled(plugins, plugin.id))}>{plugin.name ?? plugin.id} <span aria-hidden="true">×</span></button>)}
+    {names.filter(name => harnesses.has(name)).map(name => <button type="button" key={name} className={styles.chip} onClick={() => setHarnesses(toggled(harnesses, name))}>{name} <span aria-hidden="true">×</span></button>)}
+  </div>}</div>;
 }
 
 function RunTable({runs, selected, setSelected, open}) {
   return <div className={styles.scroll}><table className={styles.table}>
-    <thead><tr><th>Compare</th><th>Harness</th><th>Plugin / benchmark</th><th>Status</th><th>Pass rate</th><th>Tokens</th><th>Time</th><th>Started</th></tr></thead>
+    <thead><tr><th>Compare</th><th>Harness</th><th>Plugin / benchmark</th><th>Status</th><th>Pass rate</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th><th>Time</th></tr></thead>
     <tbody>{runs.map(run => <tr key={run.run_id} className={styles.runRow} onClick={() => open(run.run_id)}>
       <td onClick={event => event.stopPropagation()}>
-        <input type="checkbox" aria-label={`Compare ${run.harness.name} run ${run.run_id}`}
+        <input type="checkbox" aria-label={`Compare ${harnessLabel(run.harness.name)} run ${run.run_id}`}
           checked={selected.includes(run.run_id)} disabled={selected.length === 2 && !selected.includes(run.run_id)}
           onChange={() => setSelected(toggleSelection(selected, run.run_id))} />
       </td>
-      <td><button type="button" className={styles.link} onClick={event => { event.stopPropagation(); open(run.run_id); }}>{run.harness.name}</button></td>
-      <td>{run.plugin.name ?? run.plugin.id} v{run.plugin.version}<br />{run.benchmark.name}</td>
+      <td><button type="button" className={styles.link} onClick={event => { event.stopPropagation(); open(run.run_id); }}>{harnessLabel(run.harness.name)}</button></td>
+      <td>{run.plugin.name ?? run.plugin.id} <span className={styles.secondary}>v{run.plugin.version}</span><div className={styles.secondary}>{run.benchmark.name}</div></td>
       <td><Pill word={run.status} /></td><td>{scoreText(run.score)}</td>
-      <td>{metric(run.metrics, 'total_tokens')}</td><td>{metric(run.metrics, 'elapsed_ms', true)}</td>
-      <td>{new Date(run.created_at).toLocaleString()}</td>
+      {['input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens'].map(field => <td key={field}>{metric(run.metrics, field)}</td>)}<td>{metric(run.metrics, 'elapsed_ms', true)}</td>
     </tr>)}</tbody>
   </table></div>;
 }
@@ -193,44 +181,37 @@ export default function MyBenchmarksView() {
   const [error, setError] = useState(null);
   const [plugins, setPlugins] = useState(new Set());
   const [pluginSearch, setPluginSearch] = useState('');
-  const [caseQuery, setCaseQuery] = useState('');
-  const [harness, setHarness] = useState('');
+  const [harnesses, setHarnesses] = useState(new Set());
   const [selected, setSelected] = useState([]);
   const reload = useCallback(async () => {
     try { setSummaries(await allRuns()); setError(null); } catch (failure) { setError(failure.message); }
   }, []);
   useEffect(() => { reload(); }, [reload]);
   usePoll(reload, 3000, Boolean(summaries?.some(run => ACTIVE.has(run.status))));
-  // A run's cases never change, so the search reads each run's cases once per query and set of runs, not on every poll of their status.
-  const runIds = (summaries ?? []).filter(isBenchmarkRun).map(run => run.run_id);
-  const caseDetails = useLoad(() => caseQuery.trim() && summaries ? Promise.all(runIds.map(async id => [id, (await benchmarkJson(`/runs/${id}`)).run])).then(Object.fromEntries) : Promise.resolve({}), [caseQuery.trim(), summaries !== null, runIds.join(',')]);
   if (traceIds.length) {
-    const names = compareIds.map(id => summaries?.find(run => run.run_id === id)?.harness.name);
+    const names = compareIds.map(id => { const name = summaries?.find(run => run.run_id === id)?.harness.name; return name && harnessLabel(name); });
     return <><button className={styles.link} onClick={() => navigate({trace: null})}>← Back to {compareIds.length ? 'comparison' : 'run'}</button>
-      {traceIds.length === 2 ? <BenchmarkTraceCompare leftAttemptId={traceIds[0]} rightAttemptId={traceIds[1]} leftHarnessName={names[0]} rightHarnessName={names[1]} /> : <BenchmarkTrace attemptId={traceIds[0]} harnessName={summaries?.find(run => run.run_id === runId)?.harness.name} />}</>;
+      {traceIds.length === 2 ? <BenchmarkTraceCompare leftAttemptId={traceIds[0]} rightAttemptId={traceIds[1]} leftHarnessName={names[0]} rightHarnessName={names[1]} /> : <BenchmarkTrace attemptId={traceIds[0]} harnessName={(() => { const name = summaries?.find(run => run.run_id === runId)?.harness.name; return name && harnessLabel(name); })()} />}</>;
   }
   const back = () => navigate({run: null, compare: null, trace: null});
   if (runId) return <RunDetail id={runId} back={back} openTrace={id => navigate({trace: id})} />;
   if (compareIds.length) return compareIds.length === 2 && compareIds[0] !== compareIds[1]
     ? <Comparison ids={compareIds} back={back} openTrace={ids => navigate({trace: ids.join(',')})} /> : <div className={market.error}>Select two different runs to compare.</div>;
   const runs = (summaries ?? []).filter(isBenchmarkRun);
-  const shown = summaries && caseDetails.data ? historyRuns(runs, {plugins, harness, caseQuery, details: caseDetails.data}) : [];
+  const shown = historyRuns(runs, {plugins, harnesses});
   return <>
     <header className={styles.header}>
-      <div><h1>My Benchmarks</h1><p className={styles.meta}>Review runs and compare two harnesses.</p></div>
-      <button type="button" className="button button--primary" disabled={selected.length !== 2} onClick={() => navigate({compare: selected.join(',')})}>
-        Compare{selected.length ? ` (${selected.length}/2)` : ''}
-      </button>
+      <h1>My Benchmarks</h1>
     </header>
     {error && <div className={market.error}>{error}</div>}
-    {caseDetails.error && <div className={market.error}>{caseDetails.error}</div>}
     {summaries && runs.length > 0 && <Filters runs={runs} plugins={plugins} setPlugins={setPlugins} pluginSearch={pluginSearch}
-      setPluginSearch={setPluginSearch} caseQuery={caseQuery} setCaseQuery={setCaseQuery} harness={harness} setHarness={setHarness} />}
+      setPluginSearch={setPluginSearch} harnesses={harnesses} setHarnesses={setHarnesses} />}
     {!summaries ? (error ? null : <p className={styles.empty}>Reading runs…</p>)
       : !runs.length ? <p className={styles.empty}>You have no benchmark runs yet. Use Benchmark a Harness to make one.</p>
-        : caseDetails.loading ? <p className={styles.empty}>Searching cases…</p>
-          : caseDetails.error ? null
-            : !shown.length ? <p className={styles.empty}>No runs match these filters.</p>
+        : !shown.length ? <p className={styles.empty}>No runs match these filters.</p>
               : <RunTable runs={shown} selected={selected} setSelected={setSelected} open={id => navigate({run: id})} />}
+    <div className={styles.compareFloat}>
+      <button type="button" className="button button--primary" disabled={selected.length !== 2} onClick={() => navigate({compare: selected.join(',')})}>Compare</button>
+    </div>
   </>;
 }
