@@ -20,8 +20,8 @@
 .list { overflow: hidden; border: 1px solid var(--site-hairline); border-radius: var(--site-radius); background: var(--ifm-background-surface-color); }
 .benchmarkRow, .runRow { display: flex; align-items: center; gap: 1.25rem; box-sizing: border-box; width: 100%; min-height: 3rem; padding: .625rem 1rem; border: 0; border-bottom: 1px solid var(--site-hairline); background: transparent; color: var(--ifm-font-color-base); font: inherit; font-size: .875rem; text-align: left; text-decoration: none; cursor: pointer; }
 .benchmarkRow:last-child, .runRow:last-child { border-bottom: 0; }
-.benchmarkRow:hover, .runRow:hover { background: var(--ifm-color-emphasis-100); color: var(--ifm-font-color-base); text-decoration: none; }
-.benchmarkRow:focus-visible, .runRow:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: -2px; }
+.benchmarkRow:hover { background: var(--ifm-color-emphasis-100); color: var(--ifm-font-color-base); text-decoration: none; }
+.benchmarkRow:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: -2px; }
 .benchmarkName, .runAgent { flex: 1 1 auto; min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .runAgent { flex: 0 0 8rem; }
 .runMeta { flex: 0 0 auto; color: var(--ifm-color-emphasis-700); font-size: .8125rem; white-space: nowrap; }
@@ -29,7 +29,19 @@
 .rowIcon { width: 1.25rem; height: 1.25rem; border-radius: 4px; }
 .publishLink { color: var(--ifm-color-primary); font-size: .8125rem; font-weight: 600; }
 .chevron { flex: 0 0 auto; margin-left: auto; color: var(--ifm-color-emphasis-500); font-size: 1.125rem; line-height: 1; }
-.runRow > :nth-child(2) { flex: 1 1 auto; }
+.runRow { padding: 0; cursor: default; }
+.runRow:hover { background: transparent; }
+.runOpen { display: flex; flex: 1 1 auto; align-items: center; gap: 1.25rem; min-width: 0; min-height: 3rem; padding: .625rem 0 .625rem 1rem; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.runOpen > :nth-child(2) { flex: 1 1 auto; }
+.runRow:hover .runOpen { background: var(--ifm-color-emphasis-100); }
+.runOpen:focus-visible, .archive:focus-visible, .toggleArchived:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: -2px; }
+.runRow[data-archived] .runOpen { opacity: .55; }
+.archive { flex: 0 0 auto; align-self: stretch; padding: 0 1rem; border: 0; background: transparent; color: var(--ifm-color-emphasis-600); font: inherit; font-size: .8125rem; cursor: pointer; }
+.runRow:not(:hover):not(:focus-within) .archive:not(:focus-visible) { opacity: 0; }
+.archive:hover { color: var(--ifm-color-primary); }
+.section { position: relative; }
+.toggleArchived { position: absolute; top: 0; right: 0; padding: 0; border: 0; background: none; color: var(--ifm-color-emphasis-700); font: inherit; font-size: .8125rem; cursor: pointer; }
+.toggleArchived:hover { color: var(--ifm-color-primary); }
 
 /* Run agents: the agent chips, the installed-agent fields, then the count and Run. */
 .panel { margin-bottom: 2rem; border: 1px solid var(--site-hairline); border-radius: var(--site-radius); background: var(--ifm-background-surface-color); }
@@ -60,6 +72,7 @@
 .cases[open] summary::after { transform: rotate(90deg); }
 
 @media (max-width: 720px) {
-  .benchmarkRow .runMeta:nth-of-type(n+3), .runRow .runMeta:nth-of-type(n+2) { display: none; }
+  .benchmarkRow .runMeta:nth-of-type(n+3), .runOpen .runMeta:nth-of-type(n+2) { display: none; }
+  .runRow .archive { opacity: 1; }
   .rush { grid-template-columns: 1fr; }
 }

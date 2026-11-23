@@ -20,7 +20,7 @@ The RUSH server side of benchmarks run as Terminal sessions ([verified-benchmark
 | Worker credentials | The member's session, no workspace: `POST /api/benchmark/worker-credentials` with `{"name": "…"}` (1 to 100 characters) mints a credential: `201 {"credential_id", "name", "token", "created_at"}`. The token is random (`rwk_` and 256 bits) and shown only in that response; the server keeps its SHA-256. `GET /api/benchmark/worker-credentials` lists the member's credentials (`credential_id`, `name`, `created_at`, `last_used_at`, `revoked_at`, never the token). `DELETE /api/benchmark/worker-credentials/{credential_id}` revokes one (`200 {"credential_id", "revoked_at"}`, `404 unknown_credential` for another member's or an unknown id); a revoked credential never works again. |
 | Worker API | `Authorization: Bearer <worker credential>` on every `/api/benchmark-worker/...` request. A worker runs on its member's computer and acts only for that member: the credential is good for these routes and nothing else. Missing, unknown or revoked: `401 unauthorized`. |
 
-Everything a member creates (runs and all their attempts, events, payloads, accounting) belongs to that member in that workspace. Another member, even of the same workspace, another workspace, or a member who left gets `404` for it: the run, attempt, event, span, payload, accounting, rerun, cancel and compare routes are **owner-only** and never answer for another member's rows. No member response carries references; a worker does receive them (see `POST /claim`).
+Everything a member creates (runs and all their attempts, events, payloads, accounting) belongs to that member in that workspace. Another member, even of the same workspace, another workspace, or a member who left gets `404` for it: the run, attempt, event, span, payload, accounting, rerun, cancel, archive and compare routes are **owner-only** and never answer for another member's rows. No member response carries references; a worker does receive them (see `POST /claim`).
 
 Benchmarks are the exception: they belong to no workspace, and every signed-in member reads every published benchmark. Runs are **private**: no route lists, counts or summarizes another member's runs (there is no results, leaderboard or all-members scope), and a member who reads another member's run or attempt by id gets `404` for it, as for an id that does not exist.
 
@@ -112,12 +112,14 @@ One shape, returned by `GET /runs` (the caller's own runs, and no one else's):
  "metrics": {"total_tokens": {"total": 48210, "missing_attempts": 0}, "…": {}, "elapsed_ms": {"total": 134000, "missing_attempts": 1}},
  "status": "queued|running|complete|canceled",
  "score": {"value": 0.8, "passed": 8, "scored": 10, "total": 10, "unscored": 0, "verifier_errors": 0, "complete": true, "unavailable_reason": null},
- "created_at": "…"}
+ "created_at": "…",
+ "archived": false}
 ```
 
 - `harness.name` is the agent the run named (`claude`, `rush aider`, ...); `user` is who ran it (`id`, `name`, and `github` the GitHub login, `null` when the member has none).
 - `metrics.total_tokens` and `metrics.elapsed_ms` are the **metric sums** of the run detail, computed by the same code: `total` sums the newest attempt of each case that reported the metric and `missing_attempts` counts those that did not (so a live run shows partial totals). `elapsed_ms` is the sum of the attempts' `elapsed_ms`, not wall clock. `status` and `score` are the run detail's.
 - A row carries no evidence (no events, spans, payloads, attempts or cases); the run detail has them.
+- `archived` is whether the member archived the run (`POST /runs/{run_id}/archive`); archived runs stay listed, and the member's screens hide them until asked.
 
 ## `POST /runs`
 
@@ -257,6 +259,10 @@ Queues a new attempt (`attempt_no` + 1, `rerun_of` the newest) using the run's r
 ## `POST /runs/{run_id}/cancel`
 
 Marks the run canceled. Queued attempts end `canceled` at once; leased ones are told at their next renewal or admission (`409 canceled`) and finalize themselves. `200 {"canceled_attempts": n, "signaled_attempts": n}`; repeating is harmless.
+
+## `POST /runs/{run_id}/archive`
+
+Body `{"archived": true|false}`: archives the run or brings it back. Nothing about the run changes but its `archived` flag in `GET /runs`; a live run keeps running. `200 {"archived": …}`; repeating is harmless. Errors: `400 invalid_request` when `archived` is not a boolean, `404 unknown_run` (also for another member's run).
 
 ## `GET /compare?a=<run>&b=<run>`
 

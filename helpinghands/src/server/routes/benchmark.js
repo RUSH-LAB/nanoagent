@@ -35,7 +35,7 @@ const ROUTE = new RegExp([
   '(defaults|benchmarks|benchmarks/pinned|sessions|runs|compare|compare/attempts|worker-credentials|terminal-sessions)',
   '|worker-credentials/([^/]+)',
   '|benchmarks/([^/]+)',
-  '|runs/([^/]+)(?:/(cancel)|/cases/([^/]+)/(rerun))?',
+  '|runs/([^/]+)(?:/(cancel|archive)|/cases/([^/]+)/(rerun))?',
   '|attempts/([^/]+)(?:/(events|stream|terminal-link|spans|accounting|recording|archive)|/payloads/([^/]+))?',
   ')$',
 ].join(''));
@@ -361,7 +361,12 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       }
       if (req.method !== 'POST') return wrongMethod();
       write();
-      if (cancel) return json(res, 200, await repository.cancel(context, runId));
+      if (cancel === 'cancel') return json(res, 200, await repository.cancel(context, runId));
+      if (cancel === 'archive') {
+        const {archived} = object(await jsonBody(req, readBody), 'The body');
+        if (typeof archived !== 'boolean') throw new BenchmarkError(400, 'invalid_request', 'archived is true or false');
+        return json(res, 200, await repository.archive(context, runId, archived));
+      }
       const queued = await repository.rerun(context, runId, segment(caseId, 'The case id'));
       wake(`claim:${context.userId}`);
       return json(res, 201, queued);
