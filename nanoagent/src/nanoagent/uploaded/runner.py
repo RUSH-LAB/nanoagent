@@ -476,6 +476,15 @@ class RunnerConfig:
     workspace_upload_bytes: int = 200 << 20  # the most of an ended Terminal session's workspace uploaded to RUSH, compressed (workspace_upload)
 
 
+def provider_unavailable(statuses: Sequence[int]) -> str | None:
+    """Why the model provider failed every model call of an attempt (each answered 429 or 5xx, or was not reached), or None when one got
+    through or none was made: such an attempt says nothing of its harness, whose exit it caused."""
+    if not statuses or any(status != 0 and status != 429 and status < 500 for status in statuses):
+        return None
+    answered = ", ".join(str(status) if status else "no answer" for status in sorted(set(statuses)))
+    return f"the model provider failed all {len(statuses)} model calls ({answered}); the case is run again"
+
+
 @dataclass(frozen=True)
 class AttemptResult:
     """How the attempt ended: `finalized`, `canceled` (finalized as such), `worker_error` (a case attempt the worker failed, finalized as
@@ -1190,6 +1199,7 @@ class AttemptRunner:
             max_output_tokens_per_call=run_limits["max_output_tokens_per_call"], input_price_bound=input_price, output_price_bound=output_price,
             tools=(),  # the plugin's tools are the session's `nanoagent`'s alone, started when it asks (`_late_tools`)
             prompt_bound=run["prompt_bound"], model_max_output_tokens=cfg.output_maxima.get(model),
+            provider={"order": list(run["providers"])},  # the run's pinned providers, in order; policy.py adds no fallbacks
         )
         commands = CaseCommands(limits)
         late = LateTools()  # a session's `nanoagent` asks for the plugin's tools
@@ -1199,7 +1209,6 @@ class AttemptRunner:
             command_runner=commands, workspace=workspace, clock_ns=self.clock_ns,
             install_cli=lambda name: self._install_cli(job, name),
             rush_run=lambda action, body: self._rush_run(runs, emit, journal, services, action, body),
-            provider={"order": list(run["providers"])},  # the run's pinned providers, in order; policy.py adds no fallbacks
             start_tools=late.start,
         )
         services.attempt.lease_lapsed = lease.lapsed  # the services refuse new work once the lease's known expiry passes
@@ -1310,6 +1319,10 @@ class AttemptRunner:
             else:
                 case_outcome = await self._read_outcome(outcome.termination, job, snapshot.directory, snapshot.skipped)
                 frozen = snapshot.directory
+            unavailable = provider_unavailable(services.gateway.upstream_statuses)
+            if case_outcome["status"] == "execution_failed" and unavailable is not None:
+                # The harness never got a model answer: that is no verdict on it, so RUSH queues the case again (`worker_error`).
+                return await self._worker_error(job, journal, unavailable)
             status = case_outcome["status"]
             await emit.emit(rec.ResultRead(case_outcome))
             verdict = await self._verify(manifest, job, case_outcome, frozen, evidence)
