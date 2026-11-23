@@ -559,8 +559,8 @@ try {
   const runs = (await api(`${base}/runs`, {cookie: alice.cookie})).body.runs;
   const listedRun = runs.find(entry => entry.run_id === run.run_id);
   check('the member lists their runs as run summaries',
-    JSON.stringify(Object.keys(listedRun).sort()) === JSON.stringify(['benchmark', 'created_at', 'harness', 'metrics', 'model', 'plugin', 'run_id', 'score', 'status', 'user'])
-    && listedRun.harness.name === 'claude' && listedRun.benchmark.name === mainName && listedRun.plugin.id === pluginId && listedRun.plugin.version === '1.0.0'
+    JSON.stringify(Object.keys(listedRun).sort()) === JSON.stringify(['archived', 'benchmark', 'created_at', 'harness', 'metrics', 'model', 'plugin', 'run_id', 'score', 'status', 'user'])
+    && listedRun.archived === false && listedRun.harness.name === 'claude' && listedRun.benchmark.name === mainName && listedRun.plugin.id === pluginId && listedRun.plugin.version === '1.0.0'
     && listedRun.model === 'mock/model' && listedRun.user.id === alice.id && listedRun.status === 'queued'
     && listedRun.metrics.total_tokens.total === 0 && listedRun.metrics.elapsed_ms.missing_attempts === 2);
 
