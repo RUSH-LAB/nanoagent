@@ -576,8 +576,8 @@ try {
   const shared2Run = await sharedRun(alice, `shared-a3-${token}`, shared2);
   const carolBase = `/api/workspaces/${w2.id}/benchmark`;
   const carolRefused = await publish(carol, publication(`carol-${token}`, ['c1']));
-  check('a member with no worker running cannot publish or run, and is told to start RUSH Lab with Docker running',
-    carolRefused.status === 409 && carolRefused.body.code === 'worker_unavailable' && /start RUSH Lab with Docker running/.test(carolRefused.body.error)
+  check('a member with no worker running cannot publish or run, and is told to open RUSH Lab',
+    carolRefused.status === 409 && carolRefused.body.code === 'worker_unavailable' && /Open RUSH Lab on this computer/.test(carolRefused.body.error)
     && (await submitRun(carol, `carol-${token}`, shared, 'claude', {}, carolBase)).body.code === 'worker_unavailable');
   check('a second member\'s worker never claims the first member\'s run, though its capabilities fit and the runs are queued',
     (await claim('wc', {token: credentials.carol})).status === 204

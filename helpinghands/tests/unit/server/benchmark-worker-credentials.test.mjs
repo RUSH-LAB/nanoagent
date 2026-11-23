@@ -123,11 +123,11 @@ describe('benchmark worker API authentication', () => {
 });
 
 describe('run creation needs the member\'s own worker', () => {
-  test('refuses with worker_unavailable, telling the member to start RUSH Lab with Docker running', () => {
+  test('refuses with worker_unavailable, telling the member to open RUSH Lab', () => {
     assert.throws(() => checkWorkers(DEFAULT_LIMITS, 'vendor/model', null, 'mock'), error => {
       assert.equal(error.status, 409);
       assert.equal(error.code, 'worker_unavailable');
-      assert.match(error.message, /start RUSH Lab with Docker running/);
+      assert.match(error.message, /Open RUSH Lab on this computer/);
       return true;
     });
   });
