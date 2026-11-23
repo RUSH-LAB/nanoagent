@@ -173,7 +173,7 @@ function BenchmarkPage({benchmarkId, plugins, onBack}) {
         <div>
           <h1>{benchmark.name}</h1>
           <p className={styles.hint}>
-            {benchmark.plugin.name ?? benchmark.plugin.id} v{benchmark.plugin.version} · <code>{benchmark.task_id}</code> · {countOf(benchmark.cases.length, 'case')} · {benchmark.model} · by {benchmark.publisher.name}
+            {benchmark.plugin.name ?? benchmark.plugin.id} v{benchmark.plugin.version} · <code>{benchmark.task_id}</code> · {countOf(benchmark.cases.length, 'case')} · {benchmark.model} via {benchmark.providers.join(', ')} · by {benchmark.publisher.name}
           </p>
         </div>
         <a className={`button button--secondary button--sm ${styles.headAction}`} href={link({view: 'publish', plugin: benchmark.plugin.id, from: benchmark.benchmark_id})}

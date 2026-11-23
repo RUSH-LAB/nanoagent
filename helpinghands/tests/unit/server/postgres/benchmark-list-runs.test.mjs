@@ -50,8 +50,8 @@ describe('listing a member\'s runs', () => {
     for (const [n, created] of Object.entries(CREATED)) {
       await db.exec(`
         insert into benchmark_run (run_id, workspace_id, user_id, idempotency_key, request_digest, model, endpoint_label, limits, benchmark_id, benchmark_name,
-            harness_name, publisher, plugin_id, created_at)
-          values ('${id(n)}', 'lab', 'alice', 'k${n}', '${sha256(n)}', 'm', 'openrouter', '{}', '${id(n)}', 'b', 'claude', '{}', 'p', '${created}');
+            harness_name, publisher, plugin_id, providers, created_at)
+          values ('${id(n)}', 'lab', 'alice', 'k${n}', '${sha256(n)}', 'm', 'openrouter', '{}', '${id(n)}', 'b', 'claude', '{}', 'p', '{deepinfra}', '${created}');
         insert into benchmark_run_case (run_id, case_id, position, kind, prompt, prompt_sha256, arguments, content_digest)
           values ('${id(n)}', 'c1', 0, 'answer', 'x', '${sha256('x')}', '{}', '${sha256(n)}');
         insert into benchmark_attempt (attempt_id, run_id, case_id, attempt_no) values ('${id(Number(n) + 100)}', '${id(n)}', 'c1', 1);`);

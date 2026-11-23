@@ -1199,6 +1199,7 @@ class AttemptRunner:
             command_runner=commands, workspace=workspace, clock_ns=self.clock_ns,
             install_cli=lambda name: self._install_cli(job, name),
             rush_run=lambda action, body: self._rush_run(runs, emit, journal, services, action, body),
+            provider={"order": list(run["providers"])},  # the run's pinned providers, in order; policy.py adds no fallbacks
             start_tools=late.start,
         )
         services.attempt.lease_lapsed = lease.lapsed  # the services refuse new work once the lease's known expiry passes

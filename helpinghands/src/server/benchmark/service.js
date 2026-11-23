@@ -2,7 +2,7 @@
 
 const crypto = require('crypto');
 const {BenchmarkError} = require('./errors');
-const {DEFAULT_LIMITS, RUN_ENDPOINT, RUN_MODEL} = require('./limits');
+const {DEFAULT_LIMITS, RUN_ENDPOINT, RUN_MODEL, RUN_PROVIDERS} = require('./limits');
 const {AGENTS, rushProgram} = require('./harness');
 const {checkWorkers, resolve} = require('./plan');
 const {canonicalJson, sha256Hex} = require('./prompt');
@@ -66,7 +66,7 @@ function createBenchmarkService({repository}) {
         benchmark_id: crypto.randomUUID(), name: frame.name, publisher: await repository.publisher(context.userId),
         plugin: {id: frame.plugin_id, name: null, version: null, sha256: null},
         case_set_id: null, case_set_digest: null, task_id: null, task: null,
-        model: frame.model, endpoint_profile: frame.endpoint_profile, limits: frame.limits,
+        model: frame.model, endpoint_profile: frame.endpoint_profile, providers: RUN_PROVIDERS, limits: frame.limits,
       };
       const request = {benchmark_id: benchmark.benchmark_id, harness: 'shell', idempotency_key: crypto.randomUUID()};
       const {run_id: runId, attempt_id: attemptId} = await repository.createRun(
