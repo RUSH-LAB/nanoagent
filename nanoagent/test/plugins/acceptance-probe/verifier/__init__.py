@@ -2,11 +2,11 @@
 
 from contract import Task, Tool
 
-from . import digest, wait
+from . import ab, digest, wait
 
-TOOLS = {Tool.WAIT: wait, Tool.DIGEST: digest}
+TOOLS = {Tool.WAIT: wait, Tool.DIGEST: digest, Tool.AB_REFERENCE: ab}
 # task -> its output's check, verify_task(arguments, output, reference, workspace)
-TASKS = {Task.PROBE: digest.verify_task}
+TASKS = {Task.PROBE: digest.verify_task, Task.AB_REPORT: ab.verify_task}
 
 
 def verify_input(tool, value):

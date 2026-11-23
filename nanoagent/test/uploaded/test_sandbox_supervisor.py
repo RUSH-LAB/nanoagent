@@ -169,8 +169,11 @@ def test_a_case_network_denies_everything_but_its_ports_and_internet_adds_only_p
     services = _network([4100]).policy.rules
     assert [(r.action.value, r.destination.value, r.port) for r in services] == [("allow", "host", 4100)]
     public = _network([4100], internet=True).policy.rules
-    assert {r.destination.value for r in public} == {"host", "public"}
+    assert {r.destination.value for r in public} == {"host", "public", "0.0.0.0/8"}
     assert {r.port for r in public if r.destination.value == "host"} == {4100, 53}, "DNS goes to the sandbox's own resolver"
+    deny = [r for r in public if r.action.value == "deny"]
+    assert [r.destination.value for r in deny] == ["0.0.0.0/8"], "the public group includes 0.0.0.0/8, which is no destination"
+    assert public.index(deny[0]) < next(i for i, r in enumerate(public) if r.destination.value == "public"), "the deny comes before the allow"
 
 
 def test_an_internet_case_cannot_resolve_the_model_providers_apis_and_a_closed_one_needs_no_list():

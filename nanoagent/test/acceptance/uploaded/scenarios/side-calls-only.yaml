@@ -1,6 +1,0 @@
-_ > mockllm.engine.Scenario:
-name: side-calls-only
-# The probe-behaviors harness sends one plain chat request without tools per case: a side call, answered "ok" with this usage.
-# There are no turns, so a request that is a main call (it carries tools) is a violation.
-turns: []
-side_usage: {prompt: 120, cached: 0, completion: 4, reasoning: 0, cache_write: 0}

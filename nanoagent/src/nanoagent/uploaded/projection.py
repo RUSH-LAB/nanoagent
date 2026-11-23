@@ -199,8 +199,10 @@ def _model_calls(j: _Join) -> None:
             provenance=OBSERVED, target=c.model,
             attributes={**extra, "call_id": c.call_id, "dialect": c.dialect, "terminal": c.terminal, "http_status": c.http_status, "stream": c.stream, "ordinal": c.ordinal,
                         "generation_id": c.generation_id, "response_id": c.response_id, "resolved_model": c.resolved_model, "provider": c.provider, "finish_reason": c.finish_reason,
-                        "error": c.error, "rejected": c.rejected, "client": c.client, "prompt": c.prompt, "run": c.run, "submitted_request_sha256": c.submitted_sha256, "effective_request_sha256": c.effective_sha256,
+                        "error": c.error, "rejected": c.rejected, "client": c.client, "prompt": c.prompt, "prompt_delivered": c.prompt_delivered, "run": c.run, "submitted_request_sha256": c.submitted_sha256, "effective_request_sha256": c.effective_sha256,
                         "response_sha256": c.response_sha256, "frames_sha256": c.frames_sha256, "usage": None if usage is None else {k: getattr(usage, k) for k in ("input", "output", "total", "cache_read", "cache_write", "reasoning")},
+                        # The wait for the upstream's first byte after dispatch (time to first token, for a stream), on the gateway's clock.
+                        "first_byte_ms": None if c.first_byte_ns is None or c.dispatched_ns is None else (c.first_byte_ns - c.dispatched_ns) / 1e6,
                         "evidence": list(c.evidence)},
         )  # fmt: skip
         for i, p in enumerate(c.proposals):
@@ -357,7 +359,8 @@ def _processes(j: _Join) -> None:
         status = "unfinished" if p.end_ns is None else ("ok" if p.exit_code == 0 and p.signal is None else "error")
         j.add(id=pid[ident], kind="process", name=base, parent=parent, scope=None, status=status, start_ns=p.start_ns, end_ns=p.end_ns, provenance=OBSERVED, target=p.argv[0] if p.argv else None,
               attributes={"tgid": ident[0], "start_time": ident[1], "argv": p.argv, "cwd": p.cwd, "exit_code": p.exit_code, "signal": p.signal, "launch_id": p.launch_id,
-                          "title": p.title, "run": p.run, "linked_command": parent_link[0] if parent_link else None, "evidence": list(p.evidence)})  # fmt: skip
+                          "title": p.title, "run": p.run, "linked_command": parent_link[0] if parent_link else None, "evidence": list(p.evidence),
+                          "binary_path": p.binary_path, "argv_truncated": p.argv_truncated, "exec_chain": [list(argv) for argv in p.exec_chain]})  # fmt: skip
         if parent_link:
             j.links.append(LinkOut("command_process", parent_link[0], pid[ident], parent_link[1],
                                    {"launch_id": p.launch_id, "exit_code": p.exit_code, "signal": p.signal, "evidence": list(p.evidence)}))  # fmt: skip
@@ -447,12 +450,20 @@ def project(
     w = n.worker
     coverage = _coverage(n, redactions or {})
     admitted = [c for c in n.model_calls if c.rejected is None and c.admitted_ns is not None]
+    if n.attempt.prompt_sha256 and not any(c.prompt_delivered for c in admitted):  # a prompt-bound attempt whose harness never sent the case prompt
+        n.issues.append(Issue("prompt_not_delivered", "prompt not delivered: no model call carried the exact case prompt", (), "warning"))
     usages = [c.usage or UNKNOWN_USAGE for c in admitted]
     usage = aggregate(usages)
     # Complete only when every physical call reported every counted field: `missing_calls` carries what is not known.
     reported = all(field.missing == 0 for field in (usage.total, usage.input, usage.output, usage.cache_read, usage.cache_write))
     usage_complete = "gateway" not in n.sequence_gaps and all(c.terminal is not None for c in admitted) and reported
     method = n.attempt.method
+    # Count broker invocations and model proposals not already linked to an invocation.
+    # Partial coverage can leave calls unseen or prevent a link, so the count is then uncertain.
+    linked = {link.from_id for link in j.links if link.kind == "proposal_invocation"}
+    proposals = {f"m:{call.call_id}/{proposal.tool_call_id or f'#{index}'}"
+                 for call in n.model_calls for index, proposal in enumerate(call.proposals)}
+    tool_calls = len(n.tools) + len(proposals - linked)
     metrics = Metrics(
         usage=usage,
         usage_complete=usage_complete,
@@ -460,6 +471,8 @@ def project(
         timing=analyze(timing, method) if timing else None,
         timing_unavailable=unavailable,
         timing_method=method,
+        tool_calls=tool_calls,
+        tool_calls_complete=not coverage.partial,
     )
     root = j.spans[0]
     j.spans[0] = SpanOut(**{**root.__dict__, "status": "partial" if coverage.partial else "ok"})

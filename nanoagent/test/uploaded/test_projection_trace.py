@@ -61,7 +61,7 @@ class Trace:
 
     def started(self, *, expected: tuple[str, ...] = ("gateway", "tool_broker", "exec", "harness", "process", "worker"), reference: float = 100.0, tolerance: int = 1_000_000) -> None:
         self.fact(
-            R.AttemptStarted("att-1", "w1", {"label": "prod", "mode": "openrouter"}, "vendor/model", ("chat_completions",), "p" * 64, "task_tools", {"python": "3.12"}, "s" * 64, "rev1",
+            R.AttemptStarted("att-1", "w1", {"label": "prod", "mode": "openrouter"}, "vendor/model", ("chat_completions",), "p" * 64, "shell", {"python": "3.12"}, "s" * 64, "rev1",
                              {"max_model_calls": 20}, (), {"reference_tokens_per_second": reference, "clock_tolerance_ns": tolerance}, expected),
             T0 - sec(5),
         )  # fmt: skip
@@ -100,6 +100,7 @@ class Trace:
         respond: bool = True,
         client: str | None = None,
         prompt: str | None = None,
+        prompt_delivered: bool = False,
     ) -> str:
         body = request or chat_request(extra=call_id)
         submitted, effective = self.payload(body), self.payload({"effective": body})
@@ -108,7 +109,7 @@ class Trace:
             "gateway", "model_call.admitted", a - 1000,
             {"call_id": call_id, "dialect": "chat_completions", "span_id": span_ref, "model": "vendor/model", "stream": frames is not None, "ordinal": ordinal,
              "submitted_request_sha256": submitted, "effective_request_sha256": effective, "request_headers": {} if client is None else {"user-agent": client},
-             "prompt": prompt},
+             "prompt": prompt, "prompt_delivered": prompt_delivered},
             (submitted, effective),
         )  # fmt: skip
         self.add("gateway", "model_call.dispatched", a, {"call_id": call_id, "span_id": span_ref, "effective_request_sha256": effective}, (effective,))

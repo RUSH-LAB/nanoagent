@@ -1,4 +1,4 @@
-"""Step 4 (compare) against a fake RUSH server holding two recorded attempts built with the projection trace builder."""
+"""Step 4 (compare two harnesses) against a fake RUSH server holding two recorded attempts built with the projection trace builder."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fake_rush import TOKEN, WORKSPACE, FakeRush
+from fake_rush import TOKEN, WORKSPACE, FakeRush, make_run, publication
 from slimconfig import load_layout
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -49,15 +49,15 @@ class CompareServer(FakeRush):
     def __init__(self) -> None:
         super().__init__()
         self.traces: dict[str, Trace] = {}
-        self.attempts: dict[str, dict[str, Any]] = {}
+        self.evidence: dict[str, dict[str, Any]] = {}
 
     def add(self, attempt_id: str, trace: Trace, *, sealed: bool = True, digest: str = "d1") -> None:
         self.traces[attempt_id] = trace
-        self.attempts[attempt_id] = {"sealed": sealed, "digest": digest}
+        self.evidence[attempt_id] = {"sealed": sealed, "digest": digest}
 
     def compare_attempts(self, request: Request) -> JSONResponse:
         ids = [request.query_params["a"], request.query_params["b"]]
-        held = [self.attempts[i] for i in ids]
+        held = [self.evidence[i] for i in ids]
         if not all(h["sealed"] for h in held):
             return self.error(409, "attempt_not_sealed")
         if held[0]["digest"] != held[1]["digest"]:
@@ -85,6 +85,15 @@ def server(monkeypatch: pytest.MonkeyPatch):
         yield fake
 
 
+def seeded(server: CompareServer) -> None:
+    """The member's own runs of two harnesses on the benchmark: the attempts at its one case are `a` and `b`."""
+    with server.client_of() as member:
+        benchmark = member.publish_benchmark(publication())[1]
+    for harness, attempt, verdict in (("claude", "a", "pass"), ("codex", "b", "fail")):
+        run_id = f"run-{harness}"
+        server.runs[run_id] = make_run(run_id, benchmark, {"name": harness}, {"c1": (attempt, verdict)})
+
+
 def compare(monkeypatch, server: CompareServer, tmp_path: Path, *overrides: str):
     config = "examples/uploaded_benchmark/configs/step4_compare.yaml"
     arguments = [
@@ -93,36 +102,39 @@ def compare(monkeypatch, server: CompareServer, tmp_path: Path, *overrides: str)
         f"home={tmp_path / 'home'}",
         "--",
         f"server.base_url={server.url}",
-        "run_a=run-a",
-        "run_b=run-b",
-        "attempt_a=a",
-        "attempt_b=b",
+        "plugin=p",
+        "plugin_version=1.0.0",
+        "benchmark=probe",
+        "harness_a=claude",
+        "harness_b=codex",
+        "case=c1",
         *overrides,
     ]
     monkeypatch.setattr(sys, "argv", arguments)
     with pytest.raises(SystemExit) as exit:
-        step4.CompareRuns().run()
+        step4.CompareHarnesses().run()
     assert exit.value.code in (None, 0)
-    return load_layout(tmp_path / "home", step4.CompareLayout).comparison.attempts
+    return load_layout(tmp_path / "home", step4.CompareLayout).comparison
 
 
 def pair(server: CompareServer, a: Trace, b: Trace, **kwargs: Any) -> None:
+    seeded(server)
     server.add("a", a)
     server.add("b", b, **kwargs)
 
 
 def test_identical_attempts_have_no_difference(server, monkeypatch, tmp_path: Path) -> None:
     pair(server, recorded(), recorded())
-    result = compare(monkeypatch, server, tmp_path, "differences_only=true")
+    result = compare(monkeypatch, server, tmp_path, "differences_only=true").attempts
     assert result.first_difference is None and result.rows == []
     assert result.header["condition_differences"] == [] and result.header["estimate_withheld"] is None
     assert result.header["case"] == {"package_sha256": "pkg", "task_id": "t", "content_digest": "d1"}
-    assert all(method == "GET" for method, _ in server.requests)
+    assert all(method == "GET" for method, _ in server.requests[1:]), "after the set-up publish, the step only reads"
 
 
 def test_a_changed_command_argv_is_a_field_diff(server, monkeypatch, tmp_path: Path) -> None:
     pair(server, recorded(), recorded(argv=("go", "test", "./pkg")))
-    result = compare(monkeypatch, server, tmp_path, "differences_only=true")
+    result = compare(monkeypatch, server, tmp_path, "differences_only=true").attempts
     assert [row["status"] for row in result.rows] == ["changed"]
     row = result.rows[0]
     assert [d["path"] for d in row["input_diff"]] == ["$.argv[2]"]
@@ -131,7 +143,7 @@ def test_a_changed_command_argv_is_a_field_diff(server, monkeypatch, tmp_path: P
 
 def test_an_extra_tool_call_is_only_in_b(server, monkeypatch, tmp_path: Path) -> None:
     pair(server, recorded(), recorded(extra_tool=True))
-    result = compare(monkeypatch, server, tmp_path, "differences_only=true")
+    result = compare(monkeypatch, server, tmp_path, "differences_only=true").attempts
     # The model call that proposed the extra call differs in its output; the extra call itself is only in B.
     assert [row["status"] for row in result.rows if row["status"] != "same"] == ["only_b"]
     assert [row["b"][0]["target"] for row in result.rows if row["status"] == "only_b"] == ["validate"]
@@ -140,15 +152,15 @@ def test_an_extra_tool_call_is_only_in_b(server, monkeypatch, tmp_path: Path) ->
 
 def test_parallel_calls_finishing_in_another_order_are_not_a_difference(server, monkeypatch, tmp_path: Path) -> None:
     pair(server, recorded(), recorded(swap=True))
-    result = compare(monkeypatch, server, tmp_path, "differences_only=true")
+    result = compare(monkeypatch, server, tmp_path, "differences_only=true").attempts
     assert result.rows == [] and result.first_difference is None
-    full = compare(monkeypatch, server, tmp_path / "full", "differences_only=false")
+    full = compare(monkeypatch, server, tmp_path / "full", "differences_only=false").attempts
     assert len(full.rows) > 0 and {row["status"] for row in full.rows} == {"same"}
 
 
 def test_a_different_reference_rate_withholds_the_estimate_delta(server, monkeypatch, tmp_path: Path) -> None:
     pair(server, recorded(), recorded(reference=50.0))
-    result = compare(monkeypatch, server, tmp_path)
+    result = compare(monkeypatch, server, tmp_path).attempts
     assert result.header["estimate_delta_ns"] is None and "reference rate" in result.header["estimate_withheld"]
     assert [d["name"] for d in result.header["condition_differences"]] == ["reference_tokens_per_second"]
 
@@ -166,41 +178,26 @@ def test_different_case_content_is_rejected_by_the_server(server, monkeypatch, t
         compare(monkeypatch, server, tmp_path)
     assert (raised.value.status, raised.value.code) == (409, "not_same_case")
     assert server.attempt_compares == [{"a": "a", "b": "b"}]
-    assert all(method == "GET" for method, _ in server.requests)
+    assert all(method == "GET" for method, _ in server.requests[1:]), "after the set-up publish, the step only reads"
 
 
-def test_the_run_comparison_prints_the_configuration_and_prompt_differences(server, monkeypatch, tmp_path: Path, capsys) -> None:
-    server.comparison = {
-        "config": [
-            {"field": "policy", "a": "coding", "b": "task_tools", "differs": True},
-            {"field": "limits.internet_access", "a": True, "b": False, "differs": True},
-            {"field": "model", "a": "m", "b": "m", "differs": False},
-        ],
-        "prompt_diff": {
-            "a_kind": "template", "b_kind": "template",
-            "text": [{"type": "removed", "text": "Solve it\n"}, {"type": "added", "text": "Solve it well\n"}, {"type": "same", "text": "x\n"}],
-            "rendered": [{"content_digest": "cd1", "identical": False}, {"content_digest": "cd2", "identical": True}],
-        },
-        "shared": [{"a": {"case_id": "c1", "verdict": "fail", "outcome": "answered", "explanation": "invalid_answer", "cost_usd": None, "uncertain_cost": True}, "b": {"case_id": "c1", "verdict": "pass", "outcome": "answered", "explanation": None, "cost_usd": 0.5, "uncertain_cost": False}}], "only_a": [], "only_b": [{}],
-        "unverified_egress": {"a": True, "b": False},
-    }
-    pair(server, recorded(), recorded())
-    compare(monkeypatch, server, tmp_path)
+def test_the_pair_s_table_and_the_attempts_are_found_by_case_and_harness_not_by_run_id(server, monkeypatch, tmp_path: Path, capsys) -> None:
+    pair(server, recorded(), recorded(argv=("go", "test", "./pkg")))
+    result = compare(monkeypatch, server, tmp_path)
+    assert [(row.harness, row.verdicts) for row in result.table.rows] == [("claude", {"c1": "pass"}), ("codex", {"c1": "fail"})]
+    assert (result.attempts.case, result.attempts.attempt_a, result.attempts.attempt_b) == ("c1", "a", "b")
+    assert server.attempt_compares == [{"a": "a", "b": "b"}]
     out = capsys.readouterr().out
-    assert server.compares == [{"a": "run-a", "b": "run-b"}]
-    assert "policy: 'coding' -> 'task_tools'" in out and "limits.internet_access: True -> False" in out and "model" not in out.split("prompt differences")[0].split("configuration differences")[1]
-    assert "- Solve it" in out and "+ Solve it well" in out and "differ in 1 shared case(s)" in out
-    assert "c1: a fail invalid_answer, cost unknown (uncertain); b pass, cost $0.5" in out
-    assert "cases: 1 shared, 0 only in a, 1 only in b" in out and "unverified egress (internet access on): a True, b False" in out
+    assert out.splitlines()[0].split()[:2] == ["harness", "c1"] and "first difference: row" in out
 
 
-def test_a_run_comparison_alone_skips_the_attempts(server, monkeypatch, tmp_path: Path) -> None:
-    result = compare(monkeypatch, server, tmp_path, "attempt_a=null", "attempt_b=null")
-    assert result is None
+def test_without_a_case_only_the_table_is_made(server, monkeypatch, tmp_path: Path) -> None:
+    pair(server, recorded(), recorded())
+    result = compare(monkeypatch, server, tmp_path, "case=null")
+    assert result.attempts is None and len(result.table.rows) == 2 and server.attempt_compares == []
 
 
-def test_the_comparison_is_titled_with_each_runs_harness_benchmark_and_plugin_version(server, monkeypatch, tmp_path: Path, capsys) -> None:
-    compare(monkeypatch, server, tmp_path, "attempt_a=null", "attempt_b=null")
-    comparison = load_layout(tmp_path / "home", step4.CompareLayout).comparison
-    assert comparison.title_a == comparison.title_b == "h@1 on probe (p @ 1.0.0)"
-    assert "h@1 on probe (p @ 1.0.0)\n  against\nh@1 on probe (p @ 1.0.0)" in capsys.readouterr().out
+def test_a_harness_you_never_ran_is_named(server, monkeypatch, tmp_path: Path) -> None:
+    pair(server, recorded(), recorded())
+    with pytest.raises(LookupError, match="no run of pi"):
+        compare(monkeypatch, server, tmp_path, "harness_b=pi")

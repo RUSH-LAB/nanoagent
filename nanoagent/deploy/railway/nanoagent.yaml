@@ -75,4 +75,3 @@ sessions > nanoagent.uploaded.case_sets.SessionsConfig:
   tmp_bytes: 4294967296
   workspace_bytes: 10737418240
   memory_mb: 4096
-  fill_max_tokens: 16384

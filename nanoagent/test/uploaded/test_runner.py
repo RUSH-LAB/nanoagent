@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
+import hashlib
+import importlib.util
+import io
 import json
 import os
 import shutil
+import tarfile
 import threading
 import time
 from dataclasses import replace
@@ -17,17 +22,26 @@ import httpx
 import pytest
 import runner_fakes as fx
 import service_fakes as sf
-from nanoagent.plugin.verifier import CaseVerdict, VerifierError
+from nanoagent.plugin.verifier import CaseVerdict, VerifierError, Verification
 from nanoagent.uploaded.app import AttemptServices
 from nanoagent.uploaded.execservice import ExecError
+from nanoagent.uploaded.outcome import answer_instructions
 from nanoagent.uploaded.collector import ProcessEvent, ProcessEventKind, ProcessEvidence
 from nanoagent.uploaded.rush_worker import LeaseLost, RushError, RushUnavailable
 from nanoagent.uploaded.clis import CLIS
+from nanoagent.uploaded.reference import FOLDER
 from nanoagent.uploaded.runner import EXEC_THREADS, AttemptRunner, CaseCommands, RunnerConfig, default_project
 from nanoagent.uploaded.sandbox import CLIS_DIR, BuildArtifact, SandboxError, Termination, TerminationKind
 from nanoagent.uploaded.toolchains import DependencyClosure
 from nanoagent.uploaded.worker import runner_config  # noqa: F401  (imported so the worker module stays importable)
 from test_workspace_upload import members
+
+
+CHECKS = [{"name": "outcome_exists", "status": "passed", "message": "the file is there"}, {"name": "schema_valid", "status": "failed", "message": "digest is missing"}]
+
+
+def verification(valid: bool = True) -> Verification:
+    return Verification(valid, 1.0 if valid else 0.0, "message", {"checks": CHECKS})
 
 
 class Rig:
@@ -36,8 +50,10 @@ class Rig:
         self.supervisor = fx.FakeSupervisor(tmp_path, script, build_error, case_error)
         self.relay = fx.FakeRelay()
         self.services: list[AttemptServices] = []
-        self.verified: list[dict[str, Any]] = []
+        self.verified: list[dict[str, Any]] = []  # the outcomes verify_task_verifier_case decided
+        self.judged: list[dict[str, Any]] = []  # the answers verify_task judged (an answered answer case)
         self.references: list[Any] = []
+        self.frozen: list[bool] = []  # per verifier call: whether the frozen workspace it was given held .rush/
         self.transport = transport
         self.verify_result: Any = verify or CaseVerdict("pass", 1.0, None)
 
@@ -46,8 +62,17 @@ class Rig:
             self.services.append(services)
             return services
 
+        def verify_task(manifest: Any, task: str, arguments: dict, answer: dict, reference: Any, workspace: Path) -> Verification:
+            self.judged.append(answer)
+            self.frozen.append((workspace / ".rush").exists())
+            self.references.append(reference)
+            if isinstance(self.verify_result, Exception):
+                raise self.verify_result
+            return verification(self.verify_result.verdict == "pass")
+
         def verify_case(manifest: Any, task: str, arguments: dict, outcome: dict, reference: Any, workspace: Path) -> CaseVerdict:
             self.verified.append(outcome)
+            self.frozen.append((workspace / ".rush").exists())
             self.references.append(reference)
             if isinstance(self.verify_result, Exception):
                 raise self.verify_result
@@ -60,8 +85,18 @@ class Rig:
         (tmp_path / "scratch").mkdir(parents=True)
         self.runner = AttemptRunner(
             config, supervisor=self.supervisor, worker=self.rush, relay=self.relay, plugins=fx.FakePlugins(),  # type: ignore[arg-type]
-            services_factory=services_factory, verify_task_case=verify_case, project=fx.fake_project, **({} if clock_ns is None else {"clock_ns": clock_ns}),
+            services_factory=services_factory, verify_task_case=verify_case, verify_task=verify_task, project=fx.fake_project, **({} if clock_ns is None else {"clock_ns": clock_ns}),
         )
+
+        # The case's CLI is there at once (a test that installs one replaces this); each install asked for is kept, with whether its case's
+        # VM had been made yet.
+        self.installs: list[tuple[str, bool]] = []
+
+        async def install_cli(job: Any, name: str) -> Any:
+            self.installs.append((name, bool(self.supervisor.specs)))
+            yield {"path": f"/opt/rush/clis/{name}/harness", "key": name}
+
+        self.runner._install_cli = install_cli  # type: ignore[method-assign]
 
     async def run(self, job: Any = None):
         return await self.runner.run(job or fx.job())
@@ -74,11 +109,13 @@ async def test_answered_attempt_runs_the_whole_lifecycle_and_finalizes_once(tmp_
     [final] = rig.rush.finalized
     assert final["execution"] == {"status": "answered", "reason": None}
     assert final["verdict"] == "pass" and final["verifier_error"] is None and final["explanation"] is None and "score" not in final
+    assert final["checks"] == [{"name": "outcome_exists", "status": "passed"}, {"name": "schema_valid", "status": "failed"}]  # never their messages
     assert final["coverage"] == {"status": "complete"}
     kinds = rig.rush.kinds()
-    expected = ["attempt.started", "case.launched", "case.exited", "case.quiesced", "snapshot.taken", "collector.health", "result.read"]
-    assert [kind for kind in kinds if kind in expected] == expected
-    assert rig.verified == [{"status": "answered", "answer": {"sum": 3}}]
+    expected = ["attempt.started", "case.launched", "case.exited", "case.quiesced", "snapshot.taken", "collector.health", "result.read", "verdict"]
+    assert [kind for kind in kinds if kind in expected] == expected  # the harness exits, the workspace is frozen, then the verdict
+    assert rig.judged == [{"digest": "abcdefabcdef"}] and rig.verified == []  # the verifier ran once, on the frozen workspace's answer
+    assert rig.rush.of("verdict") == [{"verdict": "pass", "checks": [{"name": "outcome_exists", "status": "passed"}, {"name": "schema_valid", "status": "failed"}]}]  # records omit null fields
     assert rig.rush.span_bodies and rig.relay.handle.closed and rig.supervisor.case.closed
     assert rig.rush.of("attempt.started")[0]["expected_sources"] == ["worker", "gateway", "process"]
     assert not rig.rush.events_after_loss and rig.rush.sealed
@@ -87,58 +124,216 @@ async def test_answered_attempt_runs_the_whole_lifecycle_and_finalizes_once(tmp_
 async def test_request_points_the_guest_at_the_relay(tmp_path: Path) -> None:
     rig = Rig(tmp_path)
     await rig.run()
-    import json
-
     request = json.loads(rig.supervisor.specs[0].request_json)
     assert request["openrouter"]["base_url"] == "http://10.1.2.3:8080/api/v1"
+    assert request["openrouter"]["dialects"] == ["chat_completions", "responses", "anthropic_messages"]  # the shell harness's
     assert request["exec_url"] == "http://10.1.2.3:8080/exec" and request["tools"]["url"].endswith("/tools")
-    assert request["limits"] == fx.LIMITS and request["policy"] == "task_tools" and request["workspace"] == "/rush/workspace"
-    assert request["prompt"] == {"system": None, "user": fx.PROMPT, "sha256": "c" * 64}
-    assert request["task"] == {"id": "probe", "kind": "agent", "description": "Sum the numbers.", "instructions": "Be exact.", "plugin_name": "Acceptance probe"}
-    assert request["case"]["case_id"] == "c1" and request["case"]["context"] == "numbers" and "kind" not in request["case"]
+    assert request["limits"] == fx.LIMITS and request["workspace"] == "/rush/workspace" and request["interactive"] is False
+    assert request["prompt"] == {"system": answer_instructions({"output_schema": {"type": "object"}}), "user": fx.PROMPT, "sha256": "c" * 64}
+    assert rig.services[0].attempt.policy.prompt_system == request["prompt"]["system"] and '{"type":"object"}' in request["prompt"]["system"]
+    assert request["task"] == {"id": "probe", "kind": "agent", "description": "Wait, then digest a token", "plugin_name": "Acceptance probe"}
+    assert request["case"] == {"case_id": "c1"} and request["harness"] == "claude" and "policy" not in request
     assert rig.supervisor.specs[0].attempt_token == rig.services[0].attempt.policy.token
 
 
-async def test_source_rejection_finalizes_a_source_failure_without_executing(tmp_path: Path) -> None:
-    rig = Rig(tmp_path, rush=fx.FakeRush(fx.source_zip(manifest=False)))
-    result = await rig.run()
-    assert result.execution == {"status": "build_failed", "reason": "missing_manifest"}
-    assert rig.supervisor.builds == 0 and rig.supervisor.case is None and rig.rush.finalized[0]["verdict"] is None
-    assert "toolchain" not in rig.rush.of("attempt.started")[0]
+async def test_the_request_and_the_vm_hold_the_prompt_alone_never_the_arguments_or_the_reference(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    await rig.run()
+    [spec] = rig.supervisor.specs
+    wire = spec.request_json.decode()
+    assert "arguments" not in wire and "input_schema" not in wire and "output_schema" not in wire and "private_reference" not in wire
+    assert "wait_seconds" not in wire and "abcdefabcdef" not in wire  # the case's argument names and the reference's value
+    assert rig.services[0].attempt.policy.prompt_user == fx.PROMPT
 
 
-async def test_unknown_toolchain_is_rejected_before_execution(tmp_path: Path) -> None:
-    rig = Rig(tmp_path, rush=fx.FakeRush(fx.source_zip("cobol-1")))
-    result = await rig.run()
-    assert result.execution == {"status": "build_failed", "reason": "unknown_toolchain"}
-    assert rig.supervisor.builds == 0 and "build.completed" not in rig.rush.kinds()
+@pytest.mark.parametrize("harness", ["claude", "nanoagent", "rush mytool --flag"])
+async def test_the_request_names_the_harness_the_run_pins_and_that_no_person_is_at_it(tmp_path: Path, harness: str) -> None:
+    rig = Rig(tmp_path)
+    body = fx.job_body(harness=harness)
+    if harness.startswith("rush "):  # a member's own agent: installed in a kept Terminal session, pinned for the run and mounted in its VM
+        body["run"]["run_id"] = "00000000-0000-0000-0000-000000000001"
+        program = tmp_path / "scratch/sessions/s/workspace/.rush/python/bin/mytool"
+        program.parent.mkdir(parents=True)
+        program.write_text("#!/bin/sh\n")
+        program.chmod(0o755)
+        (tmp_path / "scratch/sessions/s/session.json").write_text(json.dumps({"ended_at": "2026-01-01"}))
+        rig.runner.agents.remember("mytool")
+    await rig.run(fx.parse_job(body))
+    request = json.loads(rig.supervisor.specs[0].request_json)
+    assert request["harness"] == harness and request["interactive"] is False and request["free_form"] is False
+    pinned = tmp_path / "scratch/benchmark-installs/00000000-0000-0000-0000-000000000001"
+    assert rig.supervisor.specs[0].agent == (pinned if harness.startswith("rush ") else None)
+    if harness.startswith("rush "):
+        assert (pinned / "python/bin/mytool").is_file()
 
 
-async def test_build_failure_is_a_build_failed_attempt(tmp_path: Path) -> None:
+SHELL = FOLDER / "shell"
+HARNESSES = json.loads((SHELL / "harnesses.yaml").read_text())
+_spec = importlib.util.spec_from_file_location("shell_harness", SHELL / "shell.py")
+shell_harness = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(shell_harness)
+
+
+@pytest.mark.parametrize("entry", HARNESSES, ids=lambda entry: entry["name"])
+async def test_a_case_names_a_harness_of_the_shells_table_and_the_shell_launches_its_bin_wrapper(tmp_path: Path, entry: dict) -> None:
+    rig = Rig(tmp_path)
+    await rig.run(fx.parse_job(fx.job_body(harness=entry["name"])))
+    request = json.loads(rig.supervisor.specs[0].request_json)
+    # The VM is faked, never the harness choice: the request carries the run's harness and the prompt shell.py ends the
+    # argv with (tested against the table in test_shell_harnesses.py); the argv it resolves to starts at a wrapper of bin/.
+    assert (request["harness"], request["interactive"], request["prompt"]["user"]) == (entry["name"], False, fx.PROMPT)
+    assert (SHELL / "bin" / shell_harness.agent_argv(request["harness"])[0]).is_file()
+    assert rig.supervisor.specs[0].run_argv == ("python", "/harness/shell.py")
+
+
+def without_rush_files(found: dict[str, bytes]) -> dict[str, bytes]:
+    """The workspace as the case's files alone: the session's own `.rush/` (its remembered agents, its agents' homes) is beside them."""
+    return {path: data for path, data in found.items() if not path.startswith(".rush/")}
+
+
+async def test_the_case_fixtures_are_fetched_checked_unpacked_and_seed_the_workspace(tmp_path: Path) -> None:
+    data, files = fx.fixtures_archive({"inputs/a.csv": b"x,y\n1,2\n", "inputs/cloud.json": b"{}"})
+    body = fx.job_body()
+    body["case"]["fixtures"] = {"sha256": hashlib.sha256(data).hexdigest(), "files": files}
+    rig = Rig(tmp_path, rush=fx.FakeRush(data))
+    result = await rig.run(fx.parse_job(body))
+    assert result.outcome == "finalized"
+    [spec] = rig.supervisor.specs
+    assert spec.fixtures is not None and spec.fixtures.name == "fixtures"
+    assert without_rush_files(rig.supervisor.case.found) == {"inputs/a.csv": b"x,y\n1,2\n", "inputs/cloud.json": b"{}", "answer.json": SEEDED_ANSWER}  # the workspace at start holds the fixtures and the unfilled answer
+
+
+SEEDED_ANSWER = b"{}\n"  # the skeleton of the probe task's output schema, `{"type": "object"}`, in the seeded format
+
+
+async def test_a_case_without_fixtures_fetches_none_and_starts_with_only_the_seeded_answer(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)  # a fetch would fail: FakeRush has no archive
+    await rig.run()
+    [spec] = rig.supervisor.specs
+    assert spec.fixtures is not None  # a folder of its own, though the case has no fixtures
+    assert without_rush_files(rig.supervisor.case.found) == {"answer.json": SEEDED_ANSWER}
+
+
+async def test_the_seeded_answer_is_the_skeleton_of_the_tasks_output_schema_in_stable_format(tmp_path: Path) -> None:
+    body = fx.job_body()
+    body["task"]["output_schema"] = {"type": "object", "properties": {"digest": {"type": "string"}, "rows": {"type": "array", "items": {"type": "integer"}}}}
+    rig = Rig(tmp_path)
+    await rig.run(fx.parse_job(body))
+    assert without_rush_files(rig.supervisor.case.found)["answer.json"] == b'{\n  "digest": null,\n  "rows": []\n}\n'
+
+
+async def test_a_session_that_leaves_the_seeded_answer_untouched_has_it_judged_like_any_answer(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, script=fx.CaseScript(workspace={"answer.json": SEEDED_ANSWER}))
+    out = await rig.run()
+    assert out.execution == {"status": "answered", "reason": None} and (rig.judged, rig.verified) == ([], [{"status": "answered", "answer": {}}])  # the verifier decides; nothing here reads it as unfilled
+
+
+def assert_worker_error(rig: Rig, fragment: str) -> None:
+    """The attempt was finalized as a worker error whose reason names `fragment`, with no verdict and no verifier run."""
+    [body] = rig.rush.finalized
+    assert body["execution"]["status"] == "worker_error" and fragment in body["execution"]["reason"] and len(body["execution"]["reason"]) <= 200
+    assert body["verdict"] is None and body["verifier_error"] is None and rig.rush.sealed
+
+
+@pytest.mark.parametrize(("path", "code"), [("answer.json", "fixtures_reserved"), (".rush/agents", "fixtures_reserved"), ("a.txt", "fixtures_too_large")])
+async def test_fixtures_the_platform_reserves_or_that_are_too_large_end_the_attempt_as_a_worker_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str, code: str
+) -> None:
+    data, files = fx.fixtures_archive({path: b"a" * 4096})
+    if code == "fixtures_too_large":
+        monkeypatch.setattr("nanoagent.uploaded.runner.MAX_FIXTURES_BYTES", 1024)
+    body = fx.job_body()
+    body["case"]["fixtures"] = {"sha256": hashlib.sha256(data).hexdigest(), "files": files}
+    rig = Rig(tmp_path, rush=fx.FakeRush(data))
+    await rig.run(fx.parse_job(body))
+    assert rig.supervisor.specs == [] and rig.judged == []
+    assert_worker_error(rig, code)
+
+
+@pytest.mark.parametrize("fault", ["wrong digest", "extra file", "link"])
+async def test_fixtures_that_are_not_what_the_claim_says_end_the_attempt_as_a_worker_error(tmp_path: Path, fault: str) -> None:
+    data, files = fx.fixtures_archive({"a.txt": b"a"})
+    declared = {"sha256": hashlib.sha256(data).hexdigest(), "files": files}
+    if fault == "wrong digest":
+        declared["sha256"] = "0" * 64
+    elif fault == "extra file":
+        declared["files"] = {**files, "b.txt": "0" * 64}
+    else:
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w") as tar:
+            link = tarfile.TarInfo("a.txt")
+            link.type, link.linkname = tarfile.SYMTYPE, "/etc/passwd"
+            tar.addfile(link)
+        data = gzip.compress(buffer.getvalue(), mtime=0)
+        declared = {"sha256": hashlib.sha256(data).hexdigest(), "files": {}}
+    body = fx.job_body()
+    body["case"]["fixtures"] = declared
+    rig = Rig(tmp_path, rush=fx.FakeRush(data))
+    result = await rig.run(fx.parse_job(body))
+    assert result.outcome == "worker_error" and "fixtures_" in result.execution["error"]
+    assert rig.supervisor.specs == [] and rig.verified == [] and rig.judged == []
+    assert_worker_error(rig, "fixtures_")
+
+
+async def test_a_failing_shell_build_is_a_worker_error_not_a_member_failure(tmp_path: Path) -> None:
     rig = Rig(tmp_path, build_error=SandboxError("build_failed", "build exited 2"))
     result = await rig.run()
-    assert result.execution == {"status": "build_failed", "reason": "build_failed"}
-    assert rig.supervisor.case is None and not [kind for kind in rig.rush.kinds() if kind.startswith("build.")]
+    assert result.outcome == "worker_error" and "build_failed" in result.execution["error"]
+    assert rig.supervisor.case is None and rig.verified == [] and rig.judged == []
+    assert_worker_error(rig, "build_failed")
 
 
-async def test_timeout_is_an_execution_failure_scored_by_the_verifier(tmp_path: Path) -> None:
-    rig = Rig(tmp_path, script=fx.CaseScript(termination=Termination(TerminationKind.TIMED_OUT, None, 9), result=SandboxError("missing_result", "none")))
+async def test_a_free_form_sessions_fault_finalizes_nothing_and_it_expires_as_interrupted(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, build_error=SandboxError("build_failed", "build exited 2"))
+    result = await rig.run(fx.free_job())
+    assert result.outcome == "platform_fault" and "build_failed" in result.execution["error"]
+    assert not rig.rush.finalized and not rig.rush.sealed
+
+
+async def test_the_shell_is_the_only_harness_built_whatever_the_run_names(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    await rig.run(fx.job(harness="codex"))
+    started = rig.rush.of("attempt.started")[0]
+    assert rig.supervisor.probed == ["shell-1"] and started["policy"] == "shell" and started["toolchain"] == "shell-1"
+    assert rig.supervisor.specs[0].run_argv == ("python", "/harness/shell.py")
+
+
+async def test_timeout_is_an_execution_failure_the_verifier_never_sees(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, script=fx.CaseScript(termination=Termination(TerminationKind.TIMED_OUT, None, 9)))
     result = await rig.run()
     assert result.execution == {"status": "execution_failed", "reason": "timed_out"}
-    assert rig.verified == [{"status": "execution_failed", "reason": "timed_out"}]
-    assert rig.rush.finalized[0]["verdict"] == "pass"  # the verifier scored it (a fake that always passes)
+    assert rig.verified == [] and rig.judged == []  # no verifier ran; the case is a failure all the same
+    assert (rig.rush.finalized[0]["verdict"], rig.rush.finalized[0]["explanation"], rig.rush.finalized[0].get("checks")) == ("fail", "execution_failed", None)
     assert rig.rush.of("case.exited")[0]["termination"] == {"status": "timed_out"}
 
 
 @pytest.mark.parametrize(
-    ("result", "reason"),
-    [(SandboxError("missing_result", "no result.json"), "missing_result"), (b'{"protocol":"rush.harness.v1","status":"answered","answer":{"sum":"x"}}', "invalid_result"), (b"nope", "invalid_result")],
+    ("termination", "reason"),
+    [
+        (Termination(TerminationKind.TIMED_OUT, None, 9), "timed_out"),
+        (Termination(TerminationKind.SIGNALED, None, 9), "signaled"),
+        (Termination(TerminationKind.NONZERO_EXIT, 3, None), "nonzero_exit"),
+        (Termination(TerminationKind.EXITED, 2, None), "nonzero_exit"),
+    ],
 )
-async def test_missing_and_invalid_results_are_execution_failures(tmp_path: Path, result: Any, reason: str) -> None:
-    rig = Rig(tmp_path, script=fx.CaseScript(result=result))
+async def test_a_harness_that_did_not_exit_cleanly_is_an_execution_failure_without_a_verifier_call_whatever_it_wrote(tmp_path: Path, termination: Termination, reason: str) -> None:
+    rig = Rig(tmp_path, script=fx.CaseScript(termination=termination))  # answer.json is in its workspace
+    result = await rig.run()
+    assert result.execution == {"status": "execution_failed", "reason": reason}
+    assert rig.verified == [] and rig.judged == [] and rig.rush.of("result.read") == [{"outcome": {"status": "execution_failed", "reason": reason}}]
+
+
+@pytest.mark.parametrize(
+    ("workspace", "reason"),
+    [({}, "missing_result"), ({"answer.json": b"nope"}, "invalid_result"), ({"answer.json": b'{"sum": "\\udc80"}'}, "invalid_result")],
+)
+async def test_a_missing_or_invalid_answer_file_is_an_execution_failure_without_a_verifier_call(tmp_path: Path, workspace: dict[str, bytes], reason: str) -> None:
+    rig = Rig(tmp_path, script=fx.CaseScript(workspace=workspace))
     out = await rig.run()
-    assert out.execution == {"status": "execution_failed", "reason": reason}
-    assert rig.verified == [{"status": "execution_failed", "reason": reason}]
+    assert out.outcome == "finalized" and out.execution == {"status": "execution_failed", "reason": reason}
+    assert rig.verified == [] and rig.judged == []
+    for event in rig.rush.events:
+        json.dumps(event, ensure_ascii=False).encode("utf-8")  # a lone surrogate never reaches the journal
 
 
 async def test_nonzero_exit_with_incomplete_process_evidence_leaves_the_score_unavailable(tmp_path: Path) -> None:
@@ -150,13 +345,36 @@ async def test_nonzero_exit_with_incomplete_process_evidence_leaves_the_score_un
     assert rig.rush.of("collector.health")[0]["complete"] is False
 
 
-async def test_verifier_error_keeps_the_trace_and_leaves_the_score_unavailable(tmp_path: Path) -> None:
-    rig = Rig(tmp_path, verify=VerifierError("boom: private detail"))
+@pytest.mark.parametrize("error", [VerifierError("boom: private detail"), RuntimeError("boom: private detail"), ValueError("boom: private detail")])
+async def test_a_verifier_that_raises_is_a_verifier_error_never_a_pass_and_keeps_the_trace(tmp_path: Path, error: Exception) -> None:
+    rig = Rig(tmp_path, verify=error)
     result = await rig.run()
     assert result.execution == {"status": "answered", "reason": None}
-    assert rig.rush.finalized[0]["verdict"] is None and rig.rush.finalized[0]["verifier_error"] == "verifier_error"
-    assert not [kind for kind in rig.rush.kinds() if kind.startswith("verifier.")]
+    final = rig.rush.finalized[0]
+    assert final["verdict"] is None and final["verifier_error"] == "verifier_error" and "checks" not in final
+    assert rig.rush.of("verdict") == [{"verifier_error": "verifier_error"}]
     assert "private detail" not in str(rig.rush.events)
+
+
+@pytest.mark.parametrize("checks", [[{"name": "a"}], "no", [{"name": "a", "status": "maybe"}], [{"name": "", "status": "passed"}], [{"name": "a", "status": "passed"}] * 101])
+async def test_checks_that_are_not_named_statuses_are_a_verifier_error(tmp_path: Path, checks: Any) -> None:
+    rig = Rig(tmp_path)
+    rig.runner.verify_task = lambda *args: Verification(True, 1.0, "m", {"checks": checks})  # type: ignore[assignment]
+    await rig.run()
+    assert rig.rush.finalized[0]["verdict"] is None and rig.rush.finalized[0]["verifier_error"] == "verifier_error"
+
+
+async def test_a_verifier_that_names_no_checks_finalizes_a_verdict_without_them(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    rig.runner.verify_task = lambda *args: Verification(False, 0.0, "m", {})  # type: ignore[assignment]
+    await rig.run()
+    assert (rig.rush.finalized[0]["verdict"], rig.rush.finalized[0].get("checks"), rig.rush.finalized[0]["explanation"]) == ("fail", None, None)
+
+
+async def test_a_free_form_session_is_seeded_no_answer_file(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    await rig.run(fx.free_job())
+    assert rig.supervisor.specs[0].fixtures is None and "answer.json" not in rig.supervisor.case.found
 
 
 async def test_cancel_stops_the_case_and_finalizes_canceled_without_a_score(tmp_path: Path) -> None:
@@ -176,7 +394,7 @@ async def test_cancel_woken_wait_that_fails_as_closed_is_still_a_cancel(tmp_path
 
 
 async def test_a_free_form_session_has_no_case_reads_no_result_and_ends_unscored(tmp_path: Path) -> None:
-    rig = Rig(tmp_path, script=fx.CaseScript(result=SandboxError("missing_result", "ignored"), workspace=answer_file('{"sum": 3}')))
+    rig = Rig(tmp_path, script=fx.CaseScript(workspace=answer_file('{"digest": "abcdefabcdef"}')))
     result = await rig.run(fx.free_job())
     request = json.loads(rig.supervisor.specs[0].request_json)
     assert (request["free_form"], request["task"], request["case"], request["prompt"]) == (True, None, None, None)
@@ -184,14 +402,14 @@ async def test_a_free_form_session_has_no_case_reads_no_result_and_ends_unscored
     assert rig.services[0].attempt.policy.prompt_user is None
     assert result.execution == {"status": "ended", "reason": None} and rig.verified == []
     assert rig.rush.finalized[0]["verdict"] is None and rig.rush.of("result.read") == [] and rig.rush.of("collector.health")
-    # Under coding, the session has none of the task's tools and no tool container, as an experiment's coding agent has none.
+    # A session starts with none of a task's tools and no tool container: its `nanoagent` asks for them.
     assert request["tools"]["available"] == [] and rig.supervisor.specs[0].tool is None and rig.supervisor.prepared == []
     assert "egress_hosts" not in rig.rush.of("attempt.started")[0]
-    assert rig.supervisor.probed == ["python-3"]  # the tracer proven in the toolchain's image before the build
+    assert rig.supervisor.probed == ["shell-1"]  # the tracer proven in the toolchain's image before the build
 
 
 async def test_a_free_form_sessions_nanoagent_starts_the_plugins_tools_which_serve_its_token_alone(tmp_path: Path) -> None:
-    rig = Rig(tmp_path, script=fx.CaseScript(block=True, result=SandboxError("missing_result", "ignored")))
+    rig = Rig(tmp_path, script=fx.CaseScript(block=True))
     seen: dict[str, Any] = {}
 
     async def nanoagent(client: httpx.AsyncClient) -> None:
@@ -205,7 +423,8 @@ async def test_a_free_form_sessions_nanoagent_starts_the_plugins_tools_which_ser
     result = await _with_harness(rig, nanoagent, fx.free_job())
     first, again = seen["started"]
     assert first == again and rig.rush.opened == [fx.ATTEMPT_ID]  # started once, for the session's first `nanoagent`
-    assert [tool["name"] for tool in first["tools"]] == ["wait"] and first["system"].endswith("Task: Sum the numbers..\nBe exact.")
+    instructions = fx.FakePlugins().manifest.task("probe").instructions  # the plugin's own, read from its package
+    assert [tool["name"] for tool in first["tools"]] == ["wait"] and first["system"].endswith(f"Task: Wait, then digest a token.\n{instructions}")
     [attached] = rig.supervisor.attached  # one tool VM, booted beside the running case
     assert attached.egress_hosts == ("api.example.com",)
     assert seen["theirs"].json()["output"] == {"waited": 0.0} and seen["shell"].status_code == 401
@@ -215,7 +434,7 @@ async def test_a_free_form_sessions_nanoagent_starts_the_plugins_tools_which_ser
 async def test_a_free_form_sessions_tools_that_cannot_start_say_why_to_each_nanoagent(tmp_path: Path) -> None:
     rush = fx.FakeRush()
     rush.tools_error = fx.RushError(409, "package_unavailable", "acceptance-probe's installed version is not published")
-    rig = Rig(tmp_path, rush=rush, script=fx.CaseScript(block=True, result=SandboxError("missing_result", "ignored")))
+    rig = Rig(tmp_path, rush=rush, script=fx.CaseScript(block=True))
     answers: list[httpx.Response] = []
 
     async def nanoagent(client: httpx.AsyncClient) -> None:
@@ -226,6 +445,20 @@ async def test_a_free_form_sessions_tools_that_cannot_start_say_why_to_each_nano
     assert rush.opened == [fx.ATTEMPT_ID]
     assert answers[0].json()["error"]["message"] == "the plugin's tools could not start: acceptance-probe's installed version is not published"
     assert rig.supervisor.attached == [] and result.execution == {"status": "ended", "reason": None}
+
+
+async def test_a_cases_tools_that_cannot_start_are_a_worker_error_not_the_harnesss_failure(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, script=fx.CaseScript(block=True))
+    rig.supervisor.attach_error = SandboxError("start_failed", "create tool container: injected launch failure")
+    answers: list[httpx.Response] = []
+
+    async def nanoagent(client: httpx.AsyncClient) -> None:
+        answers.append(await client.post("/tools/start"))
+
+    result = await _with_harness(rig, nanoagent, fx.parse_job(fx.job_body(tools=[fx.WAIT_TOOL])))
+    assert [answer.status_code for answer in answers] == [503]
+    assert result.outcome == "worker_error" and "start_failed" in result.execution["error"]
+    assert_worker_error(rig, "start_failed")  # unscored: a worker error, not a failed attempt of the harness
 
 
 async def test_a_free_form_session_is_kept_to_resume_and_a_resuming_one_starts_on_its_workspace(tmp_path: Path) -> None:
@@ -329,40 +562,17 @@ async def test_a_running_free_form_session_sends_its_processes_as_they_run(tmp_p
     assert len(live) == 1 and len(rig.rush.span_bodies) == 2  # nothing new, nothing sent again
 
 
-async def test_any_other_harness_starts_only_once_its_case_is_pinned(tmp_path: Path) -> None:
-    from nanoagent.uploaded.rush_worker import CaseFailed
-
-    job, pinned = fx.pending_job()
-    rig = Rig(tmp_path, script=fx.CaseScript(result=SandboxError("missing_result", "ignored"), workspace=answer_file('{"sum": 3}')))
-    rig.rush.pinned_case = pinned
-    await rig.run(job)
-    request = json.loads(rig.supervisor.specs[0].request_json)
-    assert request["free_form"] is False and request["prompt"] == pinned["prompt"]
-    (tmp_path / "failing").mkdir()
-    failing = Rig(tmp_path / "failing", script=fx.CaseScript())
-    failing.rush.pinned_case = CaseFailed(422, "case_failed", "no such task")
-    result = await failing.run(fx.pending_job()[0])
-    assert result.execution == {"status": "execution_failed", "reason": "case_failed: no such task"} and failing.supervisor.case is None
-
-
 async def test_a_workspace_over_its_bound_is_a_scored_failure_not_a_platform_fault(tmp_path: Path) -> None:
     rig = Rig(tmp_path, script=fx.CaseScript(drain_error=SandboxError("snapshot_too_large", "more than 20000 files")))
     result = await rig.run()
     assert result.execution == {"status": "execution_failed", "reason": "invalid_result"}
-    assert rig.verified == [{"status": "execution_failed", "reason": "invalid_result"}]
-    assert rig.rush.finalized[0]["verdict"] == "pass"  # went through verification (a fake that always passes) and finalize
+    assert rig.verified == [] and rig.judged == []  # the verifier did not run
+    assert rig.rush.finalized[0]["verdict"] == "fail" and rig.rush.finalized[0]["explanation"] == "execution_failed"
 
 
-async def test_an_output_folder_over_its_bound_is_a_scored_failure(tmp_path: Path) -> None:
-    rig = Rig(tmp_path, script=fx.CaseScript(result=SandboxError("snapshot_too_large", "more than 20000 files")))
-    result = await rig.run()
-    assert result.execution == {"status": "execution_failed", "reason": "invalid_result"}
-    assert rig.verified == [{"status": "execution_failed", "reason": "invalid_result"}]
-
-
-async def test_other_drain_errors_stay_platform_faults(tmp_path: Path) -> None:
+async def test_other_drain_errors_are_worker_errors(tmp_path: Path) -> None:
     rig = Rig(tmp_path, script=fx.CaseScript(drain_error=SandboxError("freeze_failed", "freeze the sandbox")))
-    assert (await rig.run()).outcome == "platform_fault"
+    assert (await rig.run()).outcome == "worker_error"
 
 
 async def test_cancel_during_the_build_stops_the_attempt_before_any_case_runs_and_finalizes_canceled(tmp_path: Path) -> None:
@@ -445,7 +655,7 @@ async def test_a_lost_lease_before_the_first_fetch_fails_the_attempt_quietly(tmp
     async def lost(*_: Any) -> bytes:
         raise LeaseLost(409, "lease_lost", "gone")
 
-    rush.source = lost  # type: ignore[method-assign]
+    rush.package = lost  # type: ignore[method-assign]
     rig = Rig(tmp_path, rush=rush)
     assert (await rig.run()).outcome == "lease_lost" and not rush.events
 
@@ -464,12 +674,12 @@ async def test_no_cpu_counters_are_emitted_when_none_were_read(tmp_path: Path) -
     assert rig.rush.of("cpu.counters") == []
 
 
-async def test_a_tool_suite_prepares_the_plugin_and_runs_it_in_a_tool_container_before_the_harness_starts(tmp_path: Path) -> None:
+async def test_a_tool_suite_prepares_the_plugin_before_the_harness_starts_and_its_tool_container_comes_when_nanoagent_asks(tmp_path: Path) -> None:
     rig = Rig(tmp_path)
     await rig.run(fx.parse_job(fx.job_body(tools=[fx.WAIT_TOOL])))
     [spec] = rig.supervisor.specs
-    assert spec.tool is not None and spec.tool.name.startswith("rush-tool-22222222-") and spec.tool.fixtures is None
-    assert rig.supervisor.prepared == [spec.tool.plugin_root]
+    assert spec.tool is None and len(rig.supervisor.prepared) == 1  # the plugin is synced for the verifier and its tools
+    assert rig.supervisor.attached == [] and rig.rush.opened == []  # no `nanoagent` asked, so no tool VM
     assert rig.supervisor.case.launched
 
 
@@ -487,8 +697,8 @@ async def test_a_plugin_synced_once_serves_the_next_tooled_attempt_without_anoth
 async def test_a_tool_container_launch_failure_ends_only_that_attempt_and_leaves_nothing_behind(tmp_path: Path) -> None:
     rig = Rig(tmp_path, case_error=SandboxError("start_failed", "create tool container: injected"))
     result = await rig.run(fx.parse_job(fx.job_body(tools=[fx.WAIT_TOOL])))
-    assert result.outcome == "platform_fault" and "start_failed" in result.execution["error"]
-    assert not rig.rush.finalized and not rig.rush.sealed, "the server interrupts it when the lease expires; the worker finalizes nothing"
+    assert result.outcome == "worker_error" and "start_failed" in result.execution["error"]
+    assert_worker_error(rig, "start_failed")  # the worker finalizes it as a worker error, and RUSH queues the case again
     assert rig.relay.handle.closed
     assert not (tmp_path / "scratch" / fx.ATTEMPT_ID).exists()
     assert "attempt.started" in rig.rush.kinds() and "case.launched" not in rig.rush.kinds()
@@ -498,15 +708,16 @@ async def test_a_tool_container_launch_failure_ends_only_that_attempt_and_leaves
 
 
 async def test_a_fault_after_launch_stops_the_case_and_commits_the_process_evidence(tmp_path: Path) -> None:
-    rig = Rig(tmp_path, script=fx.CaseScript(result=RuntimeError("the result volume vanished")))
+    rig = Rig(tmp_path, script=fx.CaseScript(drain_error=RuntimeError("the workspace volume vanished")))
     result = await rig.run()
-    assert result.outcome == "platform_fault" and "the result volume vanished" in result.execution["error"]
-    assert not rig.rush.finalized and rig.supervisor.case.closed
+    assert result.outcome == "worker_error" and "the workspace volume vanished" in result.execution["error"]
+    assert_worker_error(rig, "the workspace volume vanished")
+    assert rig.supervisor.case.closed
     assert rig.rush.of("collector.health"), "the evidence the collector had is kept on the interrupted attempt"
     assert rig.services[0].attempt.revoked
 
 
-@pytest.mark.parametrize("tools", [[], [fx.WAIT_TOOL]], ids=["coding", "task_tools"])
+@pytest.mark.parametrize("tools", [[], [fx.WAIT_TOOL]], ids=["no_tools", "task_tools"])
 async def test_a_worker_shutdown_mid_case_still_closes_the_case_and_its_relay(tmp_path: Path, tools: list) -> None:
     rig = Rig(tmp_path, script=fx.CaseScript(block=True))
     with anyio.fail_after(10):
@@ -518,7 +729,7 @@ async def test_a_worker_shutdown_mid_case_still_closes_the_case_and_its_relay(tm
     assert rig.supervisor.case.closed and rig.relay.handle.closed
 
 
-async def test_the_worker_goes_on_to_its_next_job_after_a_platform_fault(tmp_path: Path) -> None:
+async def test_the_worker_goes_on_to_its_next_job_after_a_worker_error(tmp_path: Path) -> None:
     from nanoagent.uploaded import worker
 
     first = fx.job_body(attempt_id="11111111-1111-4111-8111-111111111111", tools=[fx.WAIT_TOOL])
@@ -555,11 +766,11 @@ async def test_a_lease_that_cannot_be_renewed_lapses_locally_and_the_services_re
     assert rig.services[0].attempt.revoked
 
 
-async def test_a_renewal_interval_that_cannot_keep_the_lease_alive_is_a_platform_fault(tmp_path: Path) -> None:
+async def test_a_renewal_interval_that_cannot_keep_the_lease_alive_is_a_worker_error(tmp_path: Path) -> None:
     body = fx.job_body(lease_seconds=0.01)
     rig = Rig(tmp_path)
     result = await rig.run(fx.parse_job(body))
-    assert result.outcome == "platform_fault" and "renew_interval_s" in result.execution["error"]
+    assert result.outcome == "worker_error" and "renew_interval_s" in result.execution["error"]
     assert rig.supervisor.builds == 0
 
 
@@ -570,30 +781,30 @@ def answer_file(content: bytes | str) -> dict[str, bytes]:
     return {"answer.json": content.encode() if isinstance(content, str) else content}
 
 
-async def test_the_tool_policy_gives_the_task_tools_and_reads_rush_result(tmp_path: Path) -> None:
-    import json
-
-    rig = Rig(tmp_path, script=fx.CaseScript(workspace=answer_file('{"sum": 99}')))
+async def test_a_case_session_gets_the_tasks_tools_and_reads_answer_json_from_the_frozen_workspace(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, script=fx.CaseScript(workspace=answer_file('{"digest": "999999999999"}')))
     await rig.run(fx.parse_job(fx.job_body(tools=[fx.WAIT_TOOL])))
     request = json.loads(rig.supervisor.specs[0].request_json)
-    assert [tool["name"] for tool in request["tools"]["available"]] == ["wait"] and "writes" not in request["tools"]["available"][0]
-    assert rig.supervisor.specs[0].tool is not None
-    assert rig.verified == [{"status": "answered", "answer": {"sum": 3}}], "answer.json is not read under the task tools policy"
-    assert rig.rush.of("attempt.started")[0]["expected_sources"] == ["worker", "gateway", "process", "tool_broker"]
+    assert request["tools"]["available"] == [] and rig.supervisor.specs[0].tool is None  # its tools are `nanoagent`'s, started when it asks
+    assert rig.judged == [{"digest": "999999999999"}]
+    assert rig.rush.of("attempt.started")[0]["expected_sources"] == ["worker", "gateway", "process"]
 
 
-async def test_the_coding_policy_has_no_tools_and_reads_answer_json_from_the_frozen_workspace(tmp_path: Path) -> None:
-    import json
+async def test_a_case_session_captures_what_a_terminal_session_does_before_its_verdict(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    await rig.run()
+    [final] = rig.rush.finalized
+    kinds = rig.rush.kinds()
+    assert final["chats"] == [] and "workspace" in final and "resumable" not in final  # held beside the verdict; a case is not resumed
+    assert "collector.health" in kinds and kinds.index("case.exited") < kinds.index("snapshot.taken") < kinds.index("verdict")
 
-    body = fx.job_body("coding", tools=[fx.WAIT_TOOL])  # even a claim that lists tools gets none
-    rig = Rig(tmp_path, script=fx.CaseScript(result=SandboxError("missing_result", "RUSH_RESULT is ignored"), workspace=answer_file('{"sum": 7}')))
-    result = await rig.run(fx.parse_job(body))
-    assert result.execution == {"status": "answered", "reason": None}
+
+async def test_a_task_without_tools_has_no_tool_container(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    result = await rig.run()
     request = json.loads(rig.supervisor.specs[0].request_json)
-    assert request["policy"] == "coding" and request["tools"]["available"] == []
-    assert rig.supervisor.specs[0].tool is None and rig.supervisor.prepared == []
-    assert rig.verified == [{"status": "answered", "answer": {"sum": 7}}]
-    # Not applicable under coding: null (omitted from the record), as the run's effective config says, never an empty list.
+    assert result.execution == {"status": "answered", "reason": None}
+    assert request["tools"]["available"] == [] and rig.supervisor.specs[0].tool is None and rig.supervisor.prepared == []
     assert "egress_hosts" not in rig.rush.of("attempt.started")[0]  # records omit null fields
     assert rig.rush.of("attempt.started")[0]["expected_sources"] == ["worker", "gateway", "process"]
 
@@ -606,30 +817,28 @@ async def test_the_coding_policy_has_no_tools_and_reads_answer_json_from_the_fro
         (answer_file("[1]"), "execution_failed", "invalid_result"),
         (answer_file('{"refused": "  "}'), "execution_failed", "invalid_result"),
         (answer_file('{"refused": "no data"}'), "refused", "no data"),
-        (answer_file('{"sum": "not an integer"}'), "answered", None),
+        (answer_file('{"digest": 7}'), "answered", None),
     ],
 )
-async def test_coding_policy_outcomes_follow_read_answer(tmp_path: Path, workspace: dict[str, bytes], status: str, reason: str | None) -> None:
+async def test_outcomes_follow_the_answer_file(tmp_path: Path, workspace: dict[str, bytes], status: str, reason: str | None) -> None:
     rig = Rig(tmp_path, script=fx.CaseScript(workspace=workspace))
-    result = await rig.run(fx.parse_job(fx.job_body("coding")))
+    result = await rig.run()
     assert result.execution["status"] == status
-    [outcome] = rig.verified
-    assert outcome["status"] == status and outcome.get("reason") == reason
-    assert (result.execution["reason"] if status == "execution_failed" else None) == (reason if status == "execution_failed" else None)
+    [outcome] = rig.rush.of("result.read")
+    assert outcome["outcome"]["status"] == status and outcome["outcome"].get("reason") == reason
+    # An answer of the wrong shape and a refusal are decided without plugin code; an execution failure never reaches a verifier.
+    assert [item["status"] for item in rig.verified] == ([] if status == "execution_failed" else [status]) and rig.judged == []
 
 
-async def test_a_coding_harness_that_failed_to_exit_cleanly_is_an_execution_failure_whatever_it_wrote(tmp_path: Path) -> None:
-    script = fx.CaseScript(termination=Termination(TerminationKind.TIMED_OUT, None, 9), workspace=answer_file('{"sum": 1}'))
-    rig = Rig(tmp_path, script=script)
-    result = await rig.run(fx.parse_job(fx.job_body("coding")))
-    assert result.execution == {"status": "execution_failed", "reason": "timed_out"}
-
-
-@pytest.mark.parametrize("policy", ["task_tools", "coding"])
-async def test_both_policies_hand_the_verifier_the_same_outcome_and_reference(tmp_path: Path, policy: str) -> None:
-    rig = Rig(tmp_path, script=fx.CaseScript(workspace=answer_file('{"sum": 3}')))
-    await rig.run(fx.parse_job(fx.job_body(policy, private_reference="no such value")))
-    assert rig.references == ["no such value"] and rig.verified == [{"status": "answered", "answer": {"sum": 3}}]
+async def test_an_answer_case_hands_verify_task_the_reference_and_a_refusal_case_its_error(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    await rig.run(fx.parse_job(fx.job_body(private_reference={"digest": "abcdefabcdef"})))
+    assert rig.references == [{"digest": "abcdefabcdef"}] and rig.verified == []
+    (tmp_path / "refusal").mkdir()
+    refusal = Rig(tmp_path / "refusal")
+    await refusal.run(fx.parse_job(fx.job_body(private_reference="no such value")))
+    assert refusal.references == ["no such value"] and refusal.judged == []  # answered a refusal case: decided without the plugin
+    assert refusal.verified == [{"status": "answered", "answer": {"digest": "abcdefabcdef"}}]
 
 
 async def test_an_answer_case_with_no_reference_reaches_the_verifier_with_none(tmp_path: Path) -> None:
@@ -648,7 +857,7 @@ async def test_the_runs_limits_are_applied_to_the_attempt_and_pinned_in_its_reco
     policy = rig.services[0].attempt.policy
     assert (policy.max_model_calls, policy.max_output_tokens_per_call) == (3, 77)
     started = rig.rush.of("attempt.started")[0]
-    assert started["policy"] == "task_tools" and started["limits"] == {**fx.LIMITS, **limits}
+    assert started["policy"] == "shell" and started["limits"] == {**fx.LIMITS, **limits}
 
 
 async def test_the_build_gets_its_own_limits_not_the_workspace_ones(tmp_path: Path) -> None:
@@ -678,15 +887,16 @@ async def test_the_harness_network_follows_internet_access(tmp_path: Path, inter
 async def test_a_run_asking_for_more_than_the_worker_advertised_is_refused_before_anything_runs(tmp_path: Path, limits: dict[str, Any], message: str) -> None:
     rig = Rig(tmp_path)
     result = await rig.run(fx.parse_job(fx.job_body(limits=limits)))
-    assert result.outcome == "platform_fault" and message in result.execution["error"]
-    assert not rig.rush.finalized and rig.supervisor.builds == 0 and not rig.supervisor.networks
+    assert result.outcome == "worker_error" and message in result.execution["error"]
+    assert_worker_error(rig, message)
+    assert rig.supervisor.builds == 0 and not rig.supervisor.networks
 
 
 async def test_internet_access_is_refused_by_a_worker_that_does_not_support_it(tmp_path: Path) -> None:
     rig = Rig(tmp_path)
     rig.runner.config = replace(rig.runner.config, capabilities={**fx.CAPABILITIES, "internet_access": False})
     result = await rig.run(fx.parse_job(fx.job_body(limits={"internet_access": True})))
-    assert result.outcome == "platform_fault" and "internet_access" in result.execution["error"]
+    assert result.outcome == "worker_error" and "internet_access" in result.execution["error"]
     assert rig.supervisor.builds == 0
 
 
@@ -695,22 +905,20 @@ async def test_the_new_limits_are_checked_against_the_workers_capabilities(tmp_p
     rig = Rig(tmp_path)
     rig.runner.config = replace(rig.runner.config, capabilities={**fx.CAPABILITIES, name: 1})
     result = await rig.run(fx.parse_job(fx.job_body(limits={name: 2})))
-    assert result.outcome == "platform_fault" and name in result.execution["error"]
+    assert result.outcome == "worker_error" and name in result.execution["error"]
     assert rig.supervisor.builds == 0
 
 
-async def test_an_unknown_policy_is_refused(tmp_path: Path) -> None:
-    rig = Rig(tmp_path)
-    result = await rig.run(fx.parse_job(fx.job_body("agentic")))
-    assert result.outcome == "platform_fault" and "agentic" in result.execution["error"]
+async def test_the_tool_container_nanoagent_asks_for_gets_the_declared_hosts(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, script=fx.CaseScript(block=True))
 
+    async def nanoagent(client: httpx.AsyncClient) -> None:
+        response = await client.post("/tools/start")
+        assert response.status_code == 200, response.text
 
-async def test_the_tool_container_gets_the_declared_hosts_and_the_record_pins_them(tmp_path: Path) -> None:
-    rig = Rig(tmp_path)
-    await rig.run(fx.parse_job(fx.job_body(tools=[fx.WAIT_TOOL])))
-    [spec] = rig.supervisor.specs
-    assert spec.tool.egress_hosts == ("api.example.com",)
-    assert rig.rush.of("attempt.started")[0]["egress_hosts"] == ["api.example.com"]
+    await _with_harness(rig, nanoagent, fx.parse_job(fx.job_body(tools=[fx.WAIT_TOOL])))
+    [tool] = rig.supervisor.attached
+    assert tool.egress_hosts == ("api.example.com",)
 
 
 async def test_the_worker_runs_at_most_its_advertised_concurrency_of_attempts_at_once(tmp_path: Path) -> None:
@@ -836,20 +1044,7 @@ async def test_a_crash_that_overflows_the_collector_is_scored_unless_other_evide
     rig = Rig(tmp_path, script=script, verify=CaseVerdict("fail", 0.0, None))
     await rig.run()
     assert rig.rush.finalized[0]["verdict"] == verdict
-    assert len(rig.verified) == (verdict is not None)
-
-
-@pytest.mark.parametrize("policy", ["task_tools", "coding"])
-async def test_an_outcome_with_a_lone_surrogate_is_an_invalid_result_not_a_platform_fault(tmp_path: Path, policy: str) -> None:
-    if policy == "coding":
-        script = fx.CaseScript(result=SandboxError("missing_result", "ignored"), workspace={"answer.json": b'{"sum": "\\udc80"}'})
-    else:
-        script = fx.CaseScript(result=b'{"protocol":"rush.harness.v1","status":"answered","answer":"\\udc80"}')
-    rig = Rig(tmp_path, script=script)
-    result = await rig.run(fx.parse_job(fx.job_body(policy)))
-    assert result.outcome == "finalized" and result.execution == {"status": "execution_failed", "reason": "invalid_result"}
-    for event in rig.rush.events:
-        json.dumps(event, ensure_ascii=False).encode("utf-8")
+    assert rig.verified == [] and rig.judged == []  # an execution failure is a failed case with no verifier
 
 
 class StrictSpansRush(fx.FakeRush):
@@ -956,10 +1151,10 @@ async def _with_harness(rig: Rig, post: Any, job: Any = None) -> Any:
 
 async def test_a_huge_refusal_in_answer_json_is_still_scored_on_the_whole_answer(tmp_path: Path) -> None:
     reason = "x" * 300_000
-    script = fx.CaseScript(result=fx.SandboxError("missing_result", "ignored"), workspace={"answer.json": json.dumps({"refused": reason}).encode()})
+    script = fx.CaseScript(workspace={"answer.json": json.dumps({"refused": reason}).encode()})
     rush = fx.StrictRush()
     rig = Rig(tmp_path, rush=rush, script=script, verify=CaseVerdict("fail", 0.0, "refused_answer_case"))
-    result = await rig.run(fx.parse_job(fx.job_body("coding")))
+    result = await rig.run()
     assert result.outcome == "finalized" and rush.refusals == []
     assert rig.verified == [{"status": "refused", "reason": reason}]  # the verifier saw the whole reason
     [final] = rush.finalized
@@ -1065,7 +1260,7 @@ async def test_a_later_attempt_of_the_same_source_runs_the_build_an_earlier_one_
 
 
 async def test_a_terminal_session_is_handed_the_warm_terminal_the_one_before_it_left(tmp_path: Path) -> None:
-    rig = Rig(tmp_path, script=fx.CaseScript(result=SandboxError("missing_result", "ignored")))
+    rig = Rig(tmp_path, script=fx.CaseScript())
     async with anyio.create_task_group() as group:
         group.start_soon(rig.runner.keep_warm)
         assert (await rig.run(fx.free_job())).execution == {"status": "ended", "reason": None}  # none warm yet: booted and launched
@@ -1099,13 +1294,14 @@ async def test_a_worker_start_warms_a_terminal_from_the_limits_the_last_session_
 
 async def test_the_clis_install_ahead_of_sessions_and_a_session_typing_one_meanwhile_waits_on_that_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     runner = Rig(tmp_path).runner
+    del runner._install_cli  # the real install, which this test is about
     gate, built = threading.Event(), []
 
     def build_now(attempt_id: str, run_limits: Any, archive: Any, profile: Any, work: Path) -> BuildArtifact:
         built.append(attempt_id)
         assert gate.wait(5)
         (work / "harness").mkdir()
-        return BuildArtifact(work / "harness", ("main.mjs",), "digest", b"", b"", 0.0)
+        return BuildArtifact(work / "harness", ("install",), "digest", b"", b"", 0.0)
 
     monkeypatch.setattr(runner, "_build_now", build_now)
     ahead = asyncio.ensure_future(runner._install_clis(fx.LIMITS))
@@ -1121,3 +1317,56 @@ async def test_the_clis_install_ahead_of_sessions_and_a_session_typing_one_meanw
     assert built == ["cli-nanoagent", "cli-claude", "cli-codex", "cli-pi", "cli-hermes", "cli-dsh"]  # each once, NanoAgent's shared with the session
     [found] = [event async for event in runner._install_cli(fx.free_job(), "dsh")]  # typed later: there at once
     assert found["path"] == f"{CLIS_DIR}/{found['key']}/harness"
+
+
+async def test_the_trace_and_the_verifier_see_the_frozen_workspace_without_session_state(tmp_path: Path) -> None:
+    state = {".rush/claude/state.json": b"{}"}
+    rig = Rig(tmp_path, script=fx.CaseScript(workspace={"answer.json": fx.ANSWER, **state}, made=state))
+    result = await rig.run()
+    assert result.outcome == "finalized"
+    assert rig.frozen == [False]  # the verifier's workspace has no .rush/
+    [event] = rig.rush.of("snapshot.taken")
+    assert [entry["path"] for entry in event["diff"]] == ["out.txt"]  # the trace's diff names only what the agent made
+    payload = json.loads(rig.rush.payloads[event["payload_sha256"]])
+    assert set(payload["files"]) == {"out.txt"} and [entry["path"] for entry in payload["diff"]] == ["out.txt"]
+
+
+async def test_a_case_gets_the_sandbox_wall_and_its_timeout_is_a_failure(tmp_path: Path) -> None:
+    # The wall itself is the sandbox's (sandbox.py `launch` gives the harness exec limits.wall_s).
+    rig = Rig(tmp_path, script=fx.CaseScript(termination=Termination(TerminationKind.TIMED_OUT, None, 9)))
+    result = await rig.run(fx.parse_job(fx.job_body(limits={"wall_time_ms": 12_000})))
+    assert rig.supervisor.specs[0].limits.wall_s == 12.0
+    assert result.execution == {"status": "execution_failed", "reason": "timed_out"}
+    assert rig.verified == [] and rig.judged == []
+    assert rig.rush.of("case.exited")[0]["termination"] == {"status": "timed_out"}
+
+
+async def test_the_plugin_tools_hosts_are_recorded_when_the_tools_start(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, script=fx.CaseScript(block=True))
+
+    async def nanoagent(client: httpx.AsyncClient) -> None:
+        assert (await client.post("/tools/start")).status_code == 200
+
+    await _with_harness(rig, nanoagent, fx.parse_job(fx.job_body(tools=[fx.WAIT_TOOL])))
+    assert rig.rush.of("tools.started") == [{"egress_hosts": ["api.example.com"]}]
+    assert rig.rush.kinds().index("tools.started") > rig.rush.kinds().index("attempt.started")
+
+
+async def test_a_cases_cli_is_installed_before_its_vm_starts(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    result = await rig.run(fx.parse_job(fx.job_body(harness="mgen")))
+    assert result.outcome == "finalized"
+    assert rig.installs == [("nanoagent", False)]  # mgen is NanoAgent's CLI; installed with no case VM made yet, so not on the case's clock
+
+
+async def test_a_cases_cli_that_fails_to_install_is_a_worker_error_not_a_failed_case(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+
+    async def broken(job: Any, name: str) -> Any:
+        yield {"installing": "Claude Code", "version": "1"}
+        yield {"error": "installing Claude Code 1 failed: download_failed: the registry went away"}
+
+    rig.runner._install_cli = broken  # type: ignore[method-assign]
+    result = await rig.run()
+    assert result.outcome == "worker_error" and "download_failed" in result.execution["error"]
+    assert not rig.supervisor.specs and rig.verified == []  # no VM was made and nothing was scored

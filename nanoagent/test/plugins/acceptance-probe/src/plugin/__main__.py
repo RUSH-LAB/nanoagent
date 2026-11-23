@@ -11,12 +11,12 @@ from mcp.server.stdio import stdio_server
 from slimconfig import build_output, output_schema, plain_output
 
 from contract import TOOLS, Tool
-from plugin import digest, wait
+from plugin import ab_reference, digest, wait
 
 server = Server("acceptance-probe")
 # Each tool's implementation: its input -> its output, as contract.TOOLS types them. Every tool reads
-# only the text it is given and writes nothing.
-IMPLEMENTATIONS = {Tool.WAIT: wait, Tool.DIGEST: digest}
+# only the text it is given, or the staged files of its workspace, and writes nothing.
+IMPLEMENTATIONS = {Tool.WAIT: wait, Tool.DIGEST: digest, Tool.AB_REFERENCE: ab_reference}
 
 
 @server.list_tools()

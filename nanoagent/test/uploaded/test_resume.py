@@ -185,3 +185,48 @@ def test_a_chat_kept_in_a_reopened_chats_folder_comes_back_with_that_folder_alon
     said = restore(tmp_path / "scratch", ResumeOf("s1", AT, ChatOf("claude", second)), back)
     assert "RUSH_WORKSPACE=/rush/workspace/.rush/chats/c1 claude --resume" in said["run"]
     assert files(back) - {".rush/resume-0.json"} == {".rush/chats/c1/app.txt"} | {f".rush/chats/c1/{path}" for path in files(CLAUDE_STATE)}
+
+
+def test_a_kept_workspace_keeps_the_mode_the_vm_gave_a_file(tmp_path: Path) -> None:
+    """Regression: on macOS microsandbox keeps a guest's `chmod +x` only in GUEST_STAT, which copying dropped, so a program the member
+    installed in a Terminal session (`rush myagent`) was never executable in its kept workspace and never offered to benchmarks."""
+    import struct
+    import subprocess
+
+    from nanoagent.uploaded.archive import GUEST_STAT
+    from nanoagent.uploaded.resume import copy_workspace
+
+    source = tmp_path / "source"
+    program = source / ".rush" / "python" / "bin" / "myagent"
+    program.parent.mkdir(parents=True)
+    program.write_text("#!/bin/sh\n")
+    program.chmod(0o600)  # the host's own mode, as microsandbox leaves it on macOS
+    value = struct.pack("<5I", 1, 0, 0, 0o100755, 0)
+    if hasattr(os, "setxattr"):
+        os.setxattr(program, GUEST_STAT, value)
+    else:
+        subprocess.run(["xattr", "-wx", GUEST_STAT, value.hex(), str(program)], check=True)
+    copy_workspace(source, tmp_path / "kept")
+    copied = tmp_path / "kept" / ".rush" / "python" / "bin" / "myagent"
+    assert copied.stat().st_mode & 0o777 == 0o755 and os.access(copied, os.X_OK)
+
+
+def test_a_kept_file_the_vm_left_unreadable_can_still_be_copied_again(tmp_path: Path) -> None:
+    """The VM runs as root and may leave a file without owner read; the kept copy must still be readable to resume or seed from."""
+    import struct
+    import subprocess
+
+    from nanoagent.uploaded.archive import GUEST_STAT
+    from nanoagent.uploaded.resume import copy_workspace
+
+    secret = tmp_path / "source" / "secret"
+    secret.parent.mkdir()
+    secret.write_text("x")
+    value = struct.pack("<5I", 1, 0, 0, 0o100200, 0)
+    if hasattr(os, "setxattr"):
+        os.setxattr(secret, GUEST_STAT, value)
+    else:
+        subprocess.run(["xattr", "-wx", GUEST_STAT, value.hex(), str(secret)], check=True)
+    copy_workspace(tmp_path / "source", tmp_path / "kept")
+    copy_workspace(tmp_path / "kept", tmp_path / "resumed")
+    assert (tmp_path / "resumed" / "secret").read_text() == "x"

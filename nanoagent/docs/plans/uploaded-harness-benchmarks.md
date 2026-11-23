@@ -205,7 +205,6 @@ The plugin's ordinary `verify_task` scores both policies against the case's pinn
 
 | Harness | Policy | Toolchain and notes |
 | --- | --- | --- |
-| `nanoagent` | `task_tools` | `python-3`. `assemble.py <folder>` copies the unmodified engine modules the task path imports from `src/nanoagent` beside `main.py` and `taskharness/`. It works the task as `run_task` does: tool calls through the broker (with `cause` for agent tasks; decide-task calls are harness-initiated and nest under a harness span per decider batch), model calls through the gateway, a submission as `answered`, a text-only ending as `refused`. Its config turns `require_parameters` off because the gateway sets provider routing itself. |
 | `claude-code` | `coding` | `javascript-22`; speaks `anthropic_messages`. |
 | `codex` | `coding` | `javascript-22`; speaks `responses`. |
 | `pi` | `coding` | `javascript-22`; `chat_completions`. |

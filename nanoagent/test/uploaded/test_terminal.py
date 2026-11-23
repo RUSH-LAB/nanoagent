@@ -109,6 +109,29 @@ async def test_output_goes_to_rush_in_order_and_stops_at_its_bound() -> None:
     assert b"passed its 10 byte bound" in rush.screens[1]
 
 
+async def test_a_pump_cancelled_while_its_chunk_is_sent_still_counts_it_sent_so_the_last_flush_does_not_resend_it_longer() -> None:
+    class Slow(Rush):
+        def __init__(self) -> None:
+            super().__init__()
+            self.arrived = asyncio.Event()
+
+        async def terminal(self, attempt_id: str, fence: int, terminal: int, offset: int, data: bytes) -> None:
+            await super().terminal(attempt_id, fence, terminal, offset, data)  # RUSH keeps the chunk,
+            self.arrived.set()
+            await anyio.sleep(0.05)  # and answers after the case ended and cancelled the pump
+
+    rush = Slow()
+    terminal = Terminal(rush, "a", 3)  # type: ignore[arg-type]
+    terminal.write(0, b"first")
+    async with anyio.create_task_group() as group:
+        group.start_soon(terminal.pump, Case())
+        await rush.arrived.wait()
+        terminal.write(0, b" and later")
+        group.cancel_scope.cancel()
+    await terminal.flush(Case())
+    assert rush.screens[0] == b"first and later"  # Rush asserts each chunk's offset is the bytes it holds
+
+
 async def test_a_terminal_that_ended_is_told_to_rush_once_after_its_output() -> None:
     rush = Rush()
     terminal = Terminal(rush, "a", 3)  # type: ignore[arg-type]

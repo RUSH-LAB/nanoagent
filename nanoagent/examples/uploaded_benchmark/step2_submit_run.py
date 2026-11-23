@@ -1,34 +1,24 @@
-"""Step 2: submit an uploaded harness to a published benchmark, and follow the run.
+"""Step 2: run a published benchmark with one or more harnesses, and follow the runs.
 
-`action` is one of:
-  * submit: zip `source` (a folder, packed deterministically: sorted entries, fixed timestamps, no symlinks; or a
-    ZIP taken as it is) or build the reference harness `reference` (one of NanoAgent's own, under its own name and a version
-    derived from its content; set exactly one of the two), upload it, preview the run, and submit it with `idempotency_key` (repeat a submit with the
-    first run's `preview_id`). The run is the benchmark `benchmark` of `plugin` at `plugin_version` under the participant
-    `policy` (`coding`: the harness is given the case's prompt and writes answer.json; `task_tools`: it works the task with
-    the task's tools) and the harness `source`; the model, endpoint, limits, prompts and cases are the benchmark's and the
-    harness name, version and dialects are its manifest's. The benchmark's case set (task, context and every case) is
-    written to case_set.json. The preview and the run print the effective configuration and the resolved case ids. A
-    preview gone stale stops the step with the current configuration; it never resubmits itself.
-  * rerun: queue a new attempt of `case_id` of run `run_id`.
-  * cancel: cancel run `run_id`.
-With `follow`, the step waits until every attempt is sealed and the run is scored, then prints the summary: the primary
-metrics first (tokens, with how many attempts did not report each, and elapsed time), then the verdicts and the run's
-score (passed cases over scored cases). run.json holds the same, machine-readable."""
+`harnesses` lists the agents to run, each a listed one (`claude`, `codex`, `pi`, `dsh`, `hermes`, `nanoagent`) or one of your own as
+`rush <command>`. Every run is the whole benchmark. The benchmark is the one named `benchmark`
+of `plugin` at `plugin_version` (published with step 1). One run is submitted per harness, each under the key
+`<idempotency_key>-<harness>`, so repeating the step never queues a harness twice. The model, endpoint, limits and the cases' prompts
+are the benchmark's; every harness gets the same starter prompt and uses its own tools (`nanoagent` alone is given the plugin's tools).
+The attempts of one run go one after another on your worker, and the runs queue.
+With `follow`, the step waits until every attempt of every run is sealed and the run is scored, then prints each run's summary: the
+primary metrics first (tokens, with how many attempts did not report each, and elapsed time), then the verdicts, with the verifier's
+named checks of each, and the run's score (passed cases over scored cases). runs.json holds the same, machine-readable, and
+case_set.json the benchmark's task and cases (never the private references)."""
 
 import time
-import zipfile
 from dataclasses import dataclass, field
-from enum import Enum
-from pathlib import Path
 from typing import Any
 
 from omegaconf import MISSING
 from slimconfig import Config, Layout, Output, Run
 
-from nanoagent.uploaded.client import BenchmarkClient, ServerConfig, StalePreview, run_title
-from nanoagent.uploaded.reference import build_reference
-from nanoagent.uploaded.source_zip import zip_folder
+from nanoagent.uploaded.client import BenchmarkClient, ServerConfig, run_title
 
 METRICS = (
     ("total_tokens", "total tokens"),
@@ -40,37 +30,18 @@ METRICS = (
 )
 
 
-class Action(Enum):
-    SUBMIT = "submit"
-    RERUN = "rerun"
-    CANCEL = "cancel"
-
-
-class Policy(Enum):
-    CODING = "coding"
-    TASK_TOOLS = "task_tools"
-
-
 @dataclass
 class SubmitConfig(Config):
     server: ServerConfig = field(default_factory=ServerConfig)
-    action: Action = MISSING
-    # submit: the harness source, and the benchmark by plugin, plugin version and name
-    source: str | None = None
-    reference: str | None = None
-    plugin: str | None = None
-    plugin_version: str | None = None
-    benchmark: str | None = None
-    policy: Policy = MISSING
-    idempotency_key: str | None = None
-    # To repeat a submit, give the first run's preview_id (its run.json): the server compares the whole request,
-    # preview included, so a fresh preview under a used key is an idempotency conflict. Null makes a preview.
-    preview_id: str | None = None
-    # rerun and cancel
-    run_id: str | None = None
-    case_id: str | None = None
-    # Wait for every attempt to seal and the run to score, polling every `poll_seconds` for at most
-    # `follow_timeout` seconds.
+    # The benchmark by plugin, plugin version and name (published with step 1).
+    plugin: str = MISSING
+    plugin_version: str = MISSING
+    benchmark: str = MISSING
+    # The agents to run it with, one run each: claude, codex, pi, dsh, hermes, nanoagent, or `rush <command>`.
+    harnesses: list[str] = MISSING
+    # The same key and request return the same run, so a repeated submit never queues a harness twice; each run's key is this and its harness.
+    idempotency_key: str = MISSING
+    # Wait for every attempt to seal and every run to score, polling every `poll_seconds` for at most `follow_timeout` seconds.
     follow: bool = MISSING
     poll_seconds: float = MISSING
     follow_timeout: float = MISSING
@@ -87,6 +58,8 @@ class AttemptLine:
     # Why the verdict is a fail (a TASK_VERIFIER_EXPLANATIONS code); null for a pass and for a failure only verify_task judged.
     explanation: str | None
     verifier_error: str | None
+    # The verifier's named checks in order, `[{name, status}]`; null for an attempt with no verdict.
+    checks: list[dict[str, str]] | None
     sealed: bool
     coverage: dict[str, Any]
     metrics: dict[str, Any]
@@ -94,33 +67,24 @@ class AttemptLine:
 
 @dataclass
 class BenchmarkCaseSet(Output):
-    """The case set of the benchmark the run is on: its task, context and every case (never the private references)."""
+    """The case set of the benchmark the runs are on: its task and every case (never the private references)."""
 
     benchmark_id: str
     name: str
     plugin: dict[str, Any]
     task: dict[str, Any]
-    context: str
     cases: list[dict[str, Any]]
 
 
 @dataclass
 class RunReport(Output):
-    action: str
+    harness: str
     run_id: str
     status: str
-    # Whether the server answered a repeated idempotency key with the original run; null for other actions.
-    replayed: bool | None
+    # Whether the server answered a repeated idempotency key with the original run.
+    replayed: bool
     model: str
     endpoint_profile: str
-    preview_id: str
-    # The benchmark ({benchmark_id, name}) and the harness ({name, version, dialects}) the run is of.
-    benchmark: dict[str, Any]
-    harness: dict[str, Any]
-    case_set: dict[str, Any]
-    policy: str
-    # Where the prompt came from (default or custom) and its text, as pinned.
-    prompt: dict[str, Any]
     # The effective limits, every one the run is held to.
     limits: dict[str, Any]
     case_ids: list[str]
@@ -130,26 +94,19 @@ class RunReport(Output):
     # verifier_errors, complete, unavailable_reason}.
     score: dict[str, Any]
     attempts: list[AttemptLine]
-    # The attempts a rerun queued.
-    queued_attempts: list[str]
+
+
+@dataclass
+class RunsReport(Output):
+    """One run per harness, in the order the harnesses were given."""
+
+    runs: list[RunReport]
 
 
 @dataclass
 class RunLayout(Layout):
     case_set: BenchmarkCaseSet
-    run: RunReport
-
-
-def zip_source(path: str) -> bytes:
-    """The ZIP of folder ``path`` (see zip_folder); a file is taken as the ZIP it is."""
-    root = Path(path)
-    if root.is_file():
-        if not zipfile.is_zipfile(root):
-            raise ValueError(f"{root} is not a ZIP")
-        return root.read_bytes()
-    if not root.is_dir():
-        raise FileNotFoundError(root)
-    return zip_folder(root)
+    runs: RunsReport
 
 
 def format_metric(name: str, key: str, sums: dict[str, Any]) -> str:
@@ -162,29 +119,20 @@ def cases_of(view: dict[str, Any]) -> list[dict[str, Any]]:
     return view.get("cases", [])
 
 
-def format_setup(view: dict[str, Any]) -> str:
-    """The effective configuration of a preview or a run: benchmark, policy, prompt source, every limit, the resolved case ids."""
-    benchmark = view.get("benchmark") or {}
-    prompt = view.get("prompt") or {}
-    limits = view.get("limits") or {}
-    limits = limits.get("effective", limits)  # a preview nests them beside the defaults and the worker's capabilities
-    lines = [
-        "Effective configuration",
-        f"  benchmark: {benchmark.get('name')} ({benchmark.get('benchmark_id')})",
-        f"  policy: {view.get('policy')}",
-        f"  prompt: {prompt.get('source')} ({'template' if view.get('policy') == 'coding' else 'instructions'}, {len(prompt.get('text') or '')} characters)",
-        "  limits:",
-        *[f"    {name}: {value}" for name, value in limits.items()],
-        f"  internet access: {'on, so model calls that bypass the gateway are unverified' if limits.get('internet_access') else 'off'}",
-    ]
-    ids = [case["case_id"] for case in cases_of(view)]
-    lines.append(f"Cases ({len(ids)}): {', '.join(ids)}")
-    return "\n".join(lines)
+def format_checks(checks: list[dict[str, str]] | None) -> str:
+    return "" if not checks else ", checks " + " ".join(f"{check['name']}={check['status']}" for check in checks)
 
 
 def format_summary(run: dict[str, Any]) -> str:
-    """The run's summary: its configuration, primary metrics first, then each attempt's verdict and the run's score."""
-    lines = [f"Run {run['run_id']} ({run['status']}): {run_title(run)}", format_setup(run), "Primary metrics"]
+    """The run's summary: its model and limits, primary metrics first, then each attempt's verdict and the run's score."""
+    limits = run["limits"]
+    lines = [
+        f"Run {run['run_id']} ({run['status']}): {run_title(run)}",
+        f"  model: {run['model']} via {run['endpoint_profile']}",
+        f"  limits: {', '.join(f'{name} {value}' for name, value in limits.items())}",
+        f"  internet access: {'on, so model calls that bypass the gateway are unverified' if limits.get('internet_access') else 'off'}",
+        "Primary metrics",
+    ]
     lines += [format_metric(label, key, run["metrics"][key]) for key, label in METRICS]
     lines.append("Verdicts")
     for case in cases_of(run):
@@ -194,6 +142,7 @@ def format_summary(run: dict[str, Any]) -> str:
                 f"  {case['case_id']} #{attempt['attempt_no']}: {attempt['verdict'] or '-'} ({execution}"
                 f"{', ' + attempt['explanation'] if attempt.get('explanation') else ''}"
                 f"{', verifier error: ' + attempt['verifier_error'] if attempt.get('verifier_error') else ''})"
+                f"{format_checks(attempt.get('checks'))}"
             )
     score = run["score"]
     lines.append("Score (passed cases over scored cases)")
@@ -228,7 +177,7 @@ def follow(client: BenchmarkClient, run_id: str, poll_seconds: float, timeout: f
         time.sleep(poll_seconds)
 
 
-def report(action: str, run: dict[str, Any], **extra: Any) -> RunReport:
+def report(run: dict[str, Any], replayed: bool) -> RunReport:
     attempts = [
         AttemptLine(
             case_id=case["case_id"],
@@ -239,6 +188,7 @@ def report(action: str, run: dict[str, Any], **extra: Any) -> RunReport:
             verdict=attempt["verdict"],
             explanation=attempt.get("explanation"),
             verifier_error=attempt.get("verifier_error"),
+            checks=attempt.get("checks"),
             sealed=attempt["sealed"],
             coverage=attempt["coverage"] or {},
             metrics=attempt["metrics"] or {},
@@ -247,30 +197,17 @@ def report(action: str, run: dict[str, Any], **extra: Any) -> RunReport:
         for attempt in case["attempts"]
     ]
     return RunReport(
-        action=action,
+        harness=run["harness"]["name"],
         run_id=run["run_id"],
         status=run["status"],
-        replayed=extra.get("replayed"),
+        replayed=replayed,
         model=run["model"],
         endpoint_profile=run["endpoint_profile"],
-        preview_id=run["preview_id"],
-        benchmark=run["benchmark"],
-        harness=run["harness"],
-        case_set=run["case_set"],
-        policy=run["policy"],
-        prompt=run["prompt"],
         limits=run["limits"],
         case_ids=[case["case_id"] for case in cases_of(run)],
         metrics=run["metrics"],
         score=run["score"],
         attempts=attempts,
-        queued_attempts=extra.get("queued_attempts", []),
-    )
-
-
-def stale_message(error: StalePreview) -> str:
-    return (
-        f"the preview is stale: {', '.join(error.stale)} changed\n{format_setup(error.current)}\nrun the step again to preview it afresh"
     )
 
 
@@ -280,57 +217,8 @@ def case_set_of(benchmark: dict[str, Any]) -> BenchmarkCaseSet:
         name=benchmark["name"],
         plugin=benchmark["plugin"],
         task=benchmark["task"],
-        context=benchmark["context"],
         cases=benchmark["cases"],
     )
-
-
-def submit(client: BenchmarkClient, config: SubmitConfig, layout: RunLayout) -> tuple[dict[str, Any], dict[str, Any]]:
-    if config.idempotency_key is None or config.plugin is None or config.plugin_version is None or config.benchmark is None:
-        raise ValueError("submit needs `plugin`, `plugin_version`, `benchmark` and `idempotency_key`")
-    if (config.source is None) == (config.reference is None):
-        raise ValueError("submit needs exactly one of `source` and `reference`")
-    benchmark = client.benchmark(client.find_benchmark(config.plugin, config.plugin_version, config.benchmark)["benchmark_id"])
-    layout.case_set = case_set_of(benchmark)
-    source = client.upload_source(zip_source(config.source)) if config.reference is None else client.upload_reference(config.reference, build_reference(config.reference))
-    harness = source["harness"]
-    print(f"harness {harness['name']}@{harness['version']} (dialects {', '.join(harness['dialects'])}) on {config.benchmark} ({config.plugin} @ {config.plugin_version})")
-    if config.preview_id is None:
-        preview = client.preview(benchmark["benchmark_id"], config.policy.value)
-        print(format_setup(preview))
-        preview_id = preview["preview_id"]
-    else:
-        preview_id = config.preview_id
-    try:
-        submission = client.create_run(
-            benchmark_id=benchmark["benchmark_id"],
-            policy=config.policy.value,
-            preview_id=preview_id,
-            source_sha256=source["source_sha256"],
-            idempotency_key=config.idempotency_key,
-        )
-    except StalePreview as error:
-        raise RuntimeError(stale_message(error)) from error
-    print(f"{'replayed' if submission.replayed else 'queued'} run {submission.run['run_id']}")
-    return submission.run, {"replayed": submission.replayed}
-
-
-def act(client: BenchmarkClient, config: SubmitConfig, layout: RunLayout) -> tuple[dict[str, Any], dict[str, Any]]:
-    if config.action is Action.SUBMIT:
-        return submit(client, config, layout)
-    if config.run_id is None:
-        raise ValueError(f"{config.action.value} needs `run_id`")
-    extra: dict[str, Any] = {}
-    match config.action:
-        case Action.RERUN:
-            if config.case_id is None:
-                raise ValueError("rerun needs `case_id`")
-            extra["queued_attempts"] = [client.rerun(config.run_id, config.case_id)["attempt_id"]]
-        case Action.CANCEL:
-            print(client.cancel(config.run_id))
-    run = client.run(config.run_id)
-    layout.case_set = case_set_of(client.benchmark(run["benchmark"]["benchmark_id"]))
-    return run, extra
 
 
 class SubmitRun(Run):
@@ -339,12 +227,27 @@ class SubmitRun(Run):
 
     def main(self) -> None:
         config = self.config
+        if not config.harnesses or len(set(config.harnesses)) != len(config.harnesses):
+            raise ValueError("`harnesses` lists each harness once, and at least one")
         with config.server.client() as client:
-            run, extra = act(client, config, self.layout)
-            if config.follow:
-                run = follow(client, run["run_id"], config.poll_seconds, config.follow_timeout)
-        print(format_summary(run))
-        self.layout.run = report(config.action.value, run, **extra)
+            benchmark = client.benchmark(client.find_benchmark(config.plugin, config.plugin_version, config.benchmark)["benchmark_id"])
+            self.layout.case_set = case_set_of(benchmark)
+            # Every run is queued before any is followed, so the runs wait on the worker together, not on this step.
+            submissions = []
+            for harness in config.harnesses:
+                submission = client.create_run(
+                    benchmark_id=benchmark["benchmark_id"],
+                    harness=harness,
+                    idempotency_key=f"{config.idempotency_key}-{harness}",
+                )
+                print(f"{'replayed' if submission.replayed else 'queued'} run {submission.run['run_id']}: {harness} on {config.benchmark}")
+                submissions.append(submission)
+            reports = []
+            for submission in submissions:
+                run = follow(client, submission.run["run_id"], config.poll_seconds, config.follow_timeout) if config.follow else submission.run
+                print(format_summary(run))
+                reports.append(report(run, submission.replayed))
+        self.layout.runs = RunsReport(runs=reports)
 
 
 if __name__ == "__main__":

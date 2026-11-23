@@ -5,16 +5,13 @@ server > nanoagent.uploaded.client.ServerConfig:
   base_url: ${oc.env:RUSH_BASE_URL,http://127.0.0.1:3000}
   workspace_id: ${oc.env:RUSH_WORKSPACE_ID}
   token_env: RUSH_SESSION_TOKEN
-# The task's cases (examples/benchmark's step 1 file, which names the plugin and the task), the plugin version the benchmark is
+# The case file (YAML, which names the plugin and the task; fixtures folders are relative to it), the plugin version the benchmark is
 # tied to, and its name (unique per plugin version). Everything else of the case set is derived from the cases and the package.
-cases: test/acceptance/benchmark/cases/probe_cases.json
+cases: test/acceptance/benchmark/cases/probe_cases.yaml
 plugin_version: 0.1.0
 name: acceptance-probe
-# What every harness run on the benchmark gets. Only the member's own worker advertising the endpoint profile label serves the runs:
-# `npm start` (helpinghands) runs one in the worker image, on OpenRouter, as `openrouter`, and prices this model. (The acceptance suite's
-# worker is `mock`; it overrides this.)
-model: deepseek/deepseek-v4-flash-0731
-endpoint_profile: openrouter
+# The model and the endpoint are the server's one (openrouter, deepseek/deepseek-v4-flash-0731), pinned on every benchmark: only the
+# member's own worker advertising that endpoint serves the runs, which `npm start` (helpinghands) runs in the worker image.
 # Overrides of the server's defaults; null takes the default. The effective values are pinned with the benchmark.
 limits > step1_publish_benchmark.Limits:
   wall_time_ms: null
@@ -33,9 +30,6 @@ limits > step1_publish_benchmark.Limits:
   build_output_bytes: null
   build_files: null
   build_tmp_bytes: null
-# coding takes the template, task_tools the instructions; null is the default of each.
-coding_template: null
-task_instructions: null
 # market: the published package, downloaded. folder: `folder` packed locally; its SHA-256 must
 # be `sha256`, the published version's.
 plugin_source: market

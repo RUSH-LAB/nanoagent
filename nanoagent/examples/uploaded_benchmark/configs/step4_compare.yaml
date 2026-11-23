@@ -4,12 +4,16 @@ server > nanoagent.uploaded.client.ServerConfig:
   base_url: ${oc.env:RUSH_BASE_URL,http://127.0.0.1:3000}
   workspace_id: ${oc.env:RUSH_WORKSPACE_ID}
   token_env: RUSH_SESSION_TOKEN
-# The two runs to compare (set them with `-- run_a=<id> run_b=<id>`); they need the same plugin package and task.
-run_a: ${oc.env:RUSH_RUN_A}
-run_b: ${oc.env:RUSH_RUN_B}
-# Optionally also compare two sealed attempts of the same case content, action by action (set both, or neither).
-attempt_a: null
-attempt_b: null
+# The benchmark, by plugin, plugin version and name (step 1's), and two harnesses you ran on it with step 2.
+plugin: acceptance-probe
+plugin_version: 0.1.0
+benchmark: acceptance-probe
+harness_a: ${oc.env:RUSH_HARNESS_A,claude}
+harness_b: ${oc.env:RUSH_HARNESS_B,nanoagent}
+# Optionally also compare the two harnesses' attempts at one case (a case id, e.g. `-- case=acceptance-probe-01`), action by action; null skips it.
+case: null
+# The most of your runs to read for the table (1 to 200).
+limit: 200
 # Keep only attempt rows that differ; equal rows are collapsed.
 differences_only: false
 # first_difference reports the earliest changed action (or group of parallel actions) of the attempts; none leaves it null.
