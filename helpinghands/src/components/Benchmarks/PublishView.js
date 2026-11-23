@@ -2,7 +2,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import market from '@site/src/pages/marketplace/styles.module.css';
 import {jsonPost} from '../PluginFrame/host.js';
 import {appManifest, benchmarkJson, runnerNotice} from './api';
-import {previewCaseFile, publishProblem, splitCaseFolder, validBenchmarkName} from './caseFolder';
+import {caseFileOf, nextVersionName, previewCaseFile, publishProblem, splitCaseFolder, validBenchmarkName} from './caseFolder';
 import {CaseList} from './Choice';
 import CopyInstructions from './CopyInstructions';
 import {countOf} from './runs';
@@ -28,8 +28,8 @@ async function publish({plugin, name, files, split, caseText}) {
   return {created, benchmark: (await benchmarkJson(`/benchmarks/${benchmark.benchmark_id}`)).benchmark};
 }
 
-function PublishForm({plugin}) {
-  const [name, setName] = useState('');
+function PublishForm({plugin, initialName = ''}) {
+  const [name, setName] = useState(initialName);
   const [files, setFiles] = useState([]);
   const [state, setState] = useState({busy: false, error: null, published: null});
   const [notice, setNotice] = useState(null);
@@ -125,10 +125,34 @@ function PublishForm({plugin}) {
   );
 }
 
-/** One plugin's screen: the instructions for its case folder, then the form. */
-function PublishPlugin({plugin}) {
+/** Where a new version starts: the published benchmark's case file, to copy and edit, and why it is a new benchmark. */
+function FromBenchmark({benchmark}) {
+  const [copied, setCopied] = useState(null);
+  const text = caseFileOf(benchmark);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(text); setCopied('Copied'); } catch { setCopied('Could not copy: select the text below instead'); }
+  };
+  return (
+    <div className={publishStyles.from}>
+      <p>
+        New version of <strong>{benchmark.name}</strong>. A published benchmark never changes, so its runs stay comparable: save its case file
+        as <code>cases.yaml</code> in a new folder, edit it, add back any fixtures, then choose that folder below.
+      </p>
+      <div className={publishStyles.fromActions}>
+        <button type="button" className="button button--secondary button--sm" onClick={copy}>Copy case file</button>
+        {copied && <span role="status">{copied}</span>}
+      </div>
+      <details><summary>Show case file</summary><pre>{text}</pre></details>
+    </div>
+  );
+}
+
+/** One plugin's screen: the instructions for its case folder, then the form; started from benchmark `fromId` for a new version. */
+function PublishPlugin({plugin, fromId}) {
   // The plugin's tasks and their input schemas come from its manifest, which the app list does not carry.
   const manifest = useLoad(() => appManifest(plugin.id), [plugin.id]);
+  // A new version is of the same plugin: a `from` of another plugin's benchmark is left out.
+  const from = useLoad(() => (fromId ? benchmarkJson(`/benchmarks/${fromId}`).then(read => (read.benchmark.plugin.id === plugin.id ? read.benchmark : null)) : Promise.resolve(null)), [fromId]);
   return (
     <>
       <div className={publishStyles.page}>
@@ -139,7 +163,11 @@ function PublishPlugin({plugin}) {
         {manifest.data && !manifest.data.tasks.length && <p>{plugin.name} declares no task to benchmark.</p>}
         {manifest.data?.tasks.length > 0 && <CopyInstructions plugin={manifest.data} />}
       </section>
-      {manifest.data?.tasks.length > 0 && <section className={publishStyles.panel}><div className={publishStyles.panelHeading}><span className={publishStyles.stepNumber}>2</span><div><h2>Publish benchmark</h2><p>Name your benchmark and select its case folder.</p></div></div><PublishForm plugin={manifest.data} /></section>}
+      {manifest.data?.tasks.length > 0 && <section className={publishStyles.panel}><div className={publishStyles.panelHeading}><span className={publishStyles.stepNumber}>2</span><div><h2>Publish benchmark</h2><p>Name your benchmark and select its case folder.</p></div></div>
+        {from.error && <div className={market.error}>{from.error}</div>}
+        {from.data && <FromBenchmark benchmark={from.data} />}
+        {!from.loading && <PublishForm key={from.data?.benchmark_id ?? 'new'} plugin={manifest.data} initialName={from.data ? nextVersionName(from.data.name) : ''} />}
+      </section>}
       </div>
     </>
   );
@@ -149,6 +177,7 @@ function PublishPlugin({plugin}) {
 export default function PublishView() {
   const {apps, error} = useBenchmarkPlugins();
   const [pluginId, setPluginId] = useUrlParam('plugin');
+  const [fromId] = useUrlParam('from');
   const plugin = apps?.find(app => app.id === pluginId);
   return (
     <>
@@ -170,7 +199,7 @@ export default function PublishView() {
         </label>
       )}
       {pluginId && apps && !plugin && <div className={market.error} role="alert">The plugin &quot;{pluginId}&quot; in the address is not installed or not ready to publish for.</div>}
-      {plugin && <PublishPlugin key={plugin.id} plugin={plugin} />}
+      {plugin && <PublishPlugin key={plugin.id} plugin={plugin} fromId={fromId} />}
     </>
   );
 }

@@ -76,3 +76,4 @@
   .runRow .archive { opacity: 1; }
   .rush { grid-template-columns: 1fr; }
 }
+.headAction { flex: 0 0 auto; align-self: flex-start; margin-left: auto; }

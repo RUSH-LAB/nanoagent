@@ -176,6 +176,8 @@ function BenchmarkPage({benchmarkId, plugins, onBack}) {
             {benchmark.plugin.name ?? benchmark.plugin.id} v{benchmark.plugin.version} · <code>{benchmark.task_id}</code> · {countOf(benchmark.cases.length, 'case')} · {benchmark.model} · by {benchmark.publisher.name}
           </p>
         </div>
+        <a className={`button button--secondary button--sm ${styles.headAction}`} href={link({view: 'publish', plugin: benchmark.plugin.id, from: benchmark.benchmark_id})}
+          title="A published benchmark never changes, so its runs stay comparable. Start a new version from its cases instead.">New version</a>
       </header>
       <RunPanel benchmark={benchmark} onQueued={runs.reload} />
       <section className={styles.section}>
@@ -184,6 +186,7 @@ function BenchmarkPage({benchmarkId, plugins, onBack}) {
       </section>
       <details className={styles.cases}>
         <summary><h2>Cases <span className={styles.count}>{benchmark.cases.length}</span></h2></summary>
+        <p className={styles.hint}>A published benchmark never changes, so every run of it is graded the same way. To change its cases, start a <a href={link({view: 'publish', plugin: benchmark.plugin.id, from: benchmark.benchmark_id})}>new version</a>.</p>
         <CaseList cases={benchmark.cases} />
       </details>
     </>
