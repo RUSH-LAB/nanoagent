@@ -54,3 +54,9 @@
 .pluginSelect:focus-within { border-color: var(--ifm-color-primary); }
 .pluginSelect img { width: 1.25rem; height: 1.25rem; border-radius: 4px; }
 .pluginSelect select { flex: 1; min-width: 0; height: 2.375rem; border: 0; background: transparent; color: var(--ifm-font-color-base); font: inherit; font-size: .875rem; font-weight: 400; outline: none; }
+.from { margin-bottom: 1.25rem; padding: .875rem 1rem; border: 1px solid var(--site-hairline); border-left: 3px solid var(--ifm-color-primary); border-radius: var(--site-radius); background: var(--ifm-color-emphasis-100); font-size: .875rem; }
+.from p { margin: 0 0 .75rem; }
+.fromActions { display: flex; align-items: center; gap: .75rem; color: var(--ifm-color-emphasis-700); font-size: .8125rem; }
+.from details { margin-top: .75rem; }
+.from summary { color: var(--ifm-color-emphasis-700); font-size: .8125rem; cursor: pointer; }
+.from pre { max-height: 20rem; margin: .5rem 0 0; overflow: auto; font-size: .75rem; white-space: pre-wrap; }

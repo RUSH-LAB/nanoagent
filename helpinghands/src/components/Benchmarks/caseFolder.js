@@ -1,4 +1,4 @@
-import {load} from 'js-yaml';
+import {dump, load} from 'js-yaml';
 
 /** What a picked case folder holds and what a failed publish says, both read without drawing anything. */
 
@@ -59,4 +59,27 @@ export function previewCaseFile(text, plugin, paths) {
     return {case_id: id, kind, prompt: item.prompt, arguments: item.arguments, fixturePath: item.fixtures, fixtureFiles, expected_error: item.reference_error};
   });
   return {task: doc.task, cases};
+}
+
+/**
+ * A published benchmark (GET benchmarks/{id}) back as the case file it was published from, to edit into a new version. A case's fixtures
+ * are named `fixtures/<case id>`: the published benchmark keeps their files' digests, not the files, so they are put back by hand.
+ */
+export function caseFileOf(benchmark) {
+  const entry = one => ({prompt: one.prompt, arguments: one.arguments, ...(one.fixtures ? {fixtures: `fixtures/${one.case_id}`} : {})});
+  const withFixtures = benchmark.cases.filter(one => one.fixtures);
+  const head = [`# ${benchmark.name}, published for ${benchmark.plugin.id} v${benchmark.plugin.version}. Edit the cases, then publish it under a new name.`,
+    ...(withFixtures.length ? [`# Put each case's fixture files back in its folder: ${withFixtures.map(one => `fixtures/${one.case_id}`).join(', ')}.`] : [])];
+  return `${head.join('\n')}\n${dump({
+    plugin: benchmark.plugin.id,
+    task: benchmark.task_id,
+    cases: benchmark.cases.filter(one => one.kind === 'answer').map(entry),
+    refuse: benchmark.cases.filter(one => one.kind === 'refuse').map(one => ({...entry(one), reference_error: one.expected_error})),
+  }, {lineWidth: -1})}`;
+}
+
+/** The name a new version of benchmark `name` suggests: `name-v2`, or the next number after a `-vN` it ends with. */
+export function nextVersionName(name) {
+  const versioned = /^(.*)-v(\d+)$/.exec(name);
+  return versioned ? `${versioned[1]}-v${Number(versioned[2]) + 1}` : `${name}-v2`;
 }
