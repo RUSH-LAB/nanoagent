@@ -1,14 +1,14 @@
-import {attemptStatus, explanationText, verdictText} from './attempt.js';
+import {attemptStatus} from './attempt.js';
 import {workerNotice} from './worker.js';
 
 /**
- * A session of a plugin page's Harness tab, on the host's side: the run RUSH queued for it (POST /api/benchmark/sessions) is a
- * benchmark run of one case whose harness runs on terminals the member works in (0 the first; a free-form session opens more, all in
+ * A session of a plugin page's Harness tab, on the host's side: the run RUSH queued for it (POST /api/benchmark/sessions for the
+ * free-form Terminal) is a run whose harness runs on terminals the member works in (0 the first; it opens more, all in
  * its one VM), on the member's own computer. The page reaches them there, not through RUSH: RUSH says where the session's worker
  * serves them (GET attempts/{id}/terminal-link, to the session's member alone), and RUSH Lab, whose window the page is in, links the
  * page to it (`openLink`). What each terminal writes reaches the page over the link as it comes (`harness.output`), with that it ended
  * (`harness.closed`); what the member types, each terminal's size, and opening or closing one go back over it (`linkLine`). Once the
- * attempt is sealed the page gets its outcome (`harness.outcome`): the verifier's verdict, tokens, time and cost.
+ * attempt is sealed the page gets its outcome (`harness.outcome`): tokens, time and cost.
  */
 
 const BASE = '/api/benchmark';
@@ -34,13 +34,8 @@ export function harnessOutcome(attempt, accounting) {
   const metrics = attempt.metrics ?? {};
   return {
     status: attemptStatus(attempt),
-    // A free-form Terminal session has no case: it ends, unscored.
     ended: attempt.execution?.status === 'ended',
-    // An answer, or a refusal, is what the verifier scores; a harness that ended without one has nothing to score.
-    scored: ['answered', 'refused'].includes(attempt.execution?.status),
     reason: attempt.execution?.reason ?? null,
-    verdict: verdictText(attempt),
-    explanation: explanationText(attempt.explanation),
     inputTokens: metrics.input_tokens ?? null,
     outputTokens: metrics.output_tokens ?? null,
     elapsedMs: metrics.elapsed_ms ?? null,

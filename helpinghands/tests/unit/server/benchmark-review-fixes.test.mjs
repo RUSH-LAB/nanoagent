@@ -32,7 +32,7 @@ function recordingPool(answers = {}) {
 }
 
 describe('the member storage quota', () => {
-  const client = used => ({query: async sql => ({rows: String(sql).includes('sum(size)') ? [{used}] : [{prior: 'off'}]})});
+  const client = used => ({query: async sql => ({rows: String(sql).includes('sum(octet_length(archive))') ? [{used}] : [{prior: 'off'}]})});
 
   test('refuses bytes that would pass the quota with a 413, takes the member\'s lock first and reads as the system only for the total', async () => {
     const statements = [];
@@ -79,15 +79,15 @@ describe('a published task is checked against the package\'s catalog entry', () 
   };
   const publication = () => ({
     plugin_id: 'p', version: '1', plugin_name: 'Plugin', task_id: 'sum',
-    task: {kind: 'agent', description: 'd', instructions: 'i', egress_hosts: ['a.example', 'b.example'], tools: [{name: 'work', description: 'does', writes: false}]},
+    task: {kind: 'agent', description: 'd', egress_hosts: ['a.example', 'b.example'], tools: [{name: 'work', description: 'does', writes: false}]},
   });
 
   test('accepts what NanoAgent derived', () => checkTaskAgainstEntry(entry, publication()));
 
-  test('refuses a tool, a host, an instruction, a name or a task the package does not have, with 422 task_mismatch', () => {
+  test('refuses a tool, a host, a description, a name or a task the package does not have, with 422 task_mismatch', () => {
     for (const [change, differing] of [
       [p => { p.task.tools[0].description = 'x'; }, ['tools']], [p => { p.task.tools.push({name: 'ref', description: 'pins', writes: false}); }, ['tools']],
-      [p => { p.task.egress_hosts.push('evil.example'); }, ['egress_hosts']], [p => { p.task.instructions = 'x'; }, ['instructions']],
+      [p => { p.task.egress_hosts.push('evil.example'); }, ['egress_hosts']], [p => { p.task.description = 'x'; }, ['description']],
       [p => { p.plugin_name = 'Other'; }, ['plugin_name']], [p => { p.task_id = 'nope'; }, ['task_id']],
     ]) {
       const published = publication();

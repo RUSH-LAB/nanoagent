@@ -8,7 +8,7 @@ const {createPostgresBenchmarkWorker} = require('../../../src/server/postgres/be
 const {createPostgresBenchmark} = require('../../../src/server/postgres/benchmark.js');
 const limits = require('../../../src/server/benchmark/limits.js');
 const {benchmarkPublication, accountingBody, admissionBody, eventsBody, fenceOf, finalizeBody, settleBody, spansBody} = require('../../../src/server/benchmark/validate.js');
-const {canonicalJson, pythonFormat, renderTaskTools, sha256Hex} = require('../../../src/server/benchmark/prompt.js');
+const {canonicalJson, sha256Hex} = require('../../../src/server/benchmark/prompt.js');
 
 const config = {leaseSeconds: 60, uncertainDeadlineSeconds: 3600, memberBudgetUsd: 25, workspaceBudgetUsd: 100};
 const HEX = 'a'.repeat(64);
@@ -34,38 +34,34 @@ function recordingPool(answers = {}) {
 
 const publication = (extra = {}) => ({
   name: 'amp', plugin_id: 'p', plugin_name: 'p', version: '1.0.0', package_sha256: HEX, task_id: 't',
-  task: {kind: 'agent', description: 'd', instructions: 'i', input_schema: {}, output_schema: {}, tools: [], egress_hosts: []},
-  context: '', cases: [{case_id: 'c0', kind: 'answer', arguments: {a: 1}}], private: {c0: null}, model: 'm', endpoint_profile: 'e', ...extra,
+  task: {kind: 'agent', description: 'd', input_schema: {}, output_schema: {}, tools: [], egress_hosts: []},
+  cases: [{case_id: 'c0', kind: 'answer', prompt: 'p', arguments: {a: 1}, fixtures: null}], private: {c0: null}, ...extra,
 });
-const withCases = (count, blob, extra = {}) => {
-  const cases = [{case_id: 'c0', kind: 'answer', arguments: {a: 1}}];
-  for (let i = 1; i < count; i += 1) cases.push({case_id: `c${i}`, kind: 'answer', arguments: {blob}});
+const withPrompt = (count, size, extra = {}) => {
+  const cases = [];
+  for (let i = 0; i < count; i += 1) cases.push({case_id: `c${i}`, kind: 'answer', prompt: 'x'.repeat(size), arguments: {a: 1}, fixtures: null});
   return publication({cases, private: Object.fromEntries(cases.map(c => [c.case_id, null])), ...extra});
 };
 
-describe('prompt amplification', () => {
-  test('the renderer stops a template that repeats {arguments} past the prompt cap, 400 prompt_too_long', () => {
-    assert.throws(() => pythonFormat('{arguments}'.repeat(9000), {arguments: 'x'.repeat(20_000)}), {status: 400, code: 'prompt_too_long'});
-    assert.equal(pythonFormat('{a}{a}', {a: 'x'.repeat(1000)}).length, 2000);
+describe('a case\'s prompt is the text it is given', () => {
+  test('is capped at a million characters, and kept as given under it', () => {
+    assert.equal(benchmarkPublication(withPrompt(2, 1_000_000)).cases[1].prompt.length, 1_000_000);
+    assert.throws(() => benchmarkPublication(withPrompt(2, 1_000_001)), {status: 400, code: 'invalid_request', message: /Case c0's prompt/});
   });
 
-  test('a task tools prompt past the cap is refused too', () => {
-    const task = {kind: 'agent', description: 'd'};
-    assert.throws(() => renderTaskTools({pluginName: 'p', task, instructions: 'i', args: {blob: 'x'.repeat(1_100_000)}}), {code: 'prompt_too_long'});
+  test('may not be blank, hold a NUL or an unpaired surrogate', () => {
+    for (const prompt of [' \n', '', 'a\0b', 'a\ud800']) {
+      assert.throws(() => benchmarkPublication({...publication(), cases: [{...publication().cases[0], prompt}]}), {status: 400, code: 'invalid_request'});
+    }
   });
+});
 
-  test('a benchmark whose later case amplifies is refused at publish, not at preview', () => {
-    const body = withCases(3, 'x'.repeat(20_000), {coding_template: '{arguments}'.repeat(Math.floor(99_000 / 11))});
-    assert.throws(() => benchmarkPublication(body), {status: 400, code: 'prompt_too_long'});
-  });
-
-  test('every case renders at publish under both policies: a later case the task tools policy cannot hold is refused', () => {
-    assert.throws(() => benchmarkPublication(withCases(2, 'x'.repeat(1_100_000))), {code: 'prompt_too_long'});
-  });
-
-  test('the rendered prompts of all cases are capped together, 400 prompts_too_long', () => {
-    assert.throws(() => benchmarkPublication(withCases(80, 'x'.repeat(450_000))), {status: 400, code: 'prompts_too_long'});
-    assert.equal(benchmarkPublication(withCases(3, 'x'.repeat(450_000))).cases.length, 3);
+describe('a case\'s prompt is pinned byte for byte', () => {
+  test('may not start or end with whitespace, and the refusal names the case', () => {
+    for (const prompt of [' a', 'a ', 'a\n', '\ta']) {
+      assert.throws(() => benchmarkPublication({...publication(), cases: [{...publication().cases[0], prompt}]}), {status: 400, code: 'invalid_request', message: /Case c0's prompt must not start or end with whitespace/});
+    }
+    assert.equal(benchmarkPublication({...publication(), cases: [{...publication().cases[0], prompt: 'a b\nc'}]}).cases[0].prompt, 'a b\nc');
   });
 });
 
@@ -154,7 +150,7 @@ describe('what the worker API stores is bounded', () => {
       'select a.*, r.canceled_at': [{fence: 1, state: 'leased', lease_expires_at: new Date(), next_cursor: 1}],
       'select $1::timestamptz < now()': [{expired: false}],
       'select (select count(*) from benchmark_span': [{spans: limits.MAX_ATTEMPT_SPANS, links: limits.MAX_ATTEMPT_LINKS}],
-      'select coalesce(current_setting': [{prior: 'on'}], 'select (select coalesce(sum(size)': [{used: 0}],
+      'select coalesce(current_setting': [{prior: 'on'}], 'select (select coalesce(sum(octet_length(archive))': [{used: 0}],
     });
     const result = await createPostgresBenchmarkWorker({pool, config}).putSpans('u', 'a', 1,
       [{id: 's', kind: 'tool', name: 'n', end_ns: '2', status: 'ok', attributes: {done: true}}],
@@ -182,7 +178,10 @@ describe('the events page and the links read are bounded', () => {
     const page = await createPostgresBenchmark({pool}).events({userId: 'u', workspaceId: 'w'}, 'a', 0, 1000);
     const query = pool.statements.find(s => s.text.startsWith('select cursor, event_id'));
     assert.match(query.text, /sum\(octet_length\(data::text\)\) over \(order by cursor\)/);
-    assert.deepEqual(query.params.slice(-1), [limits.MAX_EVENT_PAGE_BYTES]);
+    assert.deepEqual(query.params.slice(3), [limits.MAX_EVENT_PAGE_BYTES, null]);
+    // Given sources, the read keeps only theirs.
+    await createPostgresBenchmark({pool}).events({userId: 'u', workspaceId: 'w'}, 'a', 0, 1000, ['worker', 'gateway']);
+    assert.deepEqual(pool.statements.filter(s => s.text.startsWith('select cursor, event_id')).at(-1).params.at(-1), ['worker', 'gateway']);
     assert.deepEqual([page.events.length, page.has_more], [2, true]);
   });
 
@@ -193,12 +192,6 @@ describe('the events page and the links read are bounded', () => {
     assert.match(links.text, /limit \$2\) page\) sized where before_bytes < \$3/);
     assert.deepEqual(links.params, ['a', limits.MAX_ATTEMPT_LINKS, limits.MAX_TRACE_PAGE_BYTES]);
   });
-
-  test('a member keeps their newest previews: saving one prunes the rest', async () => {
-    const pool = recordingPool();
-    await createPostgresBenchmark({pool}).savePreview({userId: 'u', workspaceId: 'w'}, {cases: []}, 'd');
-    assert.ok(pool.statements.some(s => s.text.startsWith('delete from benchmark_preview where user_id = $1') && /offset 50\)$/.test(s.text)));
-  });
 });
 
 describe('settling and numeric ranges', () => {
@@ -206,7 +199,7 @@ describe('settling and numeric ranges', () => {
     config, pool: recordingPool({
       'select a.attempt_id, r.user_id': [{attempt_id: 'a', user_id: 'u', workspace_id: 'w'}],
       'select status, reserve_usd': [{status: 'reserved', reserve, cost: null, day: '2026-01-01'}],
-      'select coalesce(current_setting': [{prior: 'off'}], 'select (select coalesce(sum(size)': [{used: 0}],
+      'select coalesce(current_setting': [{prior: 'off'}], 'select (select coalesce(sum(octet_length(archive))': [{used: 0}],
     }),
   }).settle('u', 'a', 'call', {outcome: 'settled', costUsd: cost, provenance: {}});
 

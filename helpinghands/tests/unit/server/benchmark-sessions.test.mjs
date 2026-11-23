@@ -5,11 +5,9 @@ import {createRequire} from 'node:module';
 import {invoke, loadRoute, makeCtx} from '../_harness.mjs';
 
 const require = createRequire(import.meta.url);
-const {strToU8, zipSync} = require('fflate');
 const {allowed} = require('../../../src/runner/protocol.js');
 const {MODEL} = require('../../../src/server/ai-settings.js');
 const {createBenchmarkService} = require('../../../src/server/benchmark/service.js');
-const {benchmarkPublication, publicationFrame} = require('../../../src/server/benchmark/validate.js');
 const {TERMINAL_LIMITS} = require('../../../src/server/benchmark/limits.js');
 const route = loadRoute('benchmark');
 const workerRoute = require('../../../src/server/routes/benchmark-worker.js');
@@ -17,45 +15,25 @@ const CONTEXT = {userId: 'u', workspaceId: 'w', membershipId: 'm', role: 'owner'
 const SHA = 'a'.repeat(64);
 const PATH = '/api/benchmark/sessions';
 
-/** The one-case case set NanoAgent pins for a session: the request as its context, the input its plugin model filled. */
-const pinned = {
+/** The plugin frame NanoAgent reads from the installed plugin for a Terminal session's `nanoagent`. */
+const frame = {
   name: 'harness-session', plugin_id: 'p', plugin_name: 'P', version: '1.0.0', package_sha256: SHA, task_id: 'sum',
-  task: {kind: 'agent', description: 'd', instructions: 'i', input_schema: {}, output_schema: {}, tools: [], egress_hosts: []},
-  context: 'Add one and two', cases: [{case_id: 'p-01', kind: 'answer', arguments: {x: 1, y: 2}, expected_error: null}], private: {'p-01': {sum: 3}},
+  task: {kind: 'agent', description: 'd', input_schema: {}, output_schema: {}, tools: [], egress_hosts: []},
 };
-const referenceZip = name => Buffer.from(zipSync({'harness.yaml': strToU8(`protocol: rush.harness.v1
-name: ${name}
-version: "abc"
-dialects: [anthropic_messages]
-toolchain: javascript-22
-lockfiles: []
-build: {argv: [npm, ci], outputs: [node_modules]}
-run: {argv: [node, main.js]}
-`)}));
-
-/** The case set but its case, which NanoAgent reads from the installed plugin at once. */
-const {cases: _cases, private: _private, ...frame} = {...pinned, case_id: 'p-01'};
-/** Let the session's pin, which runs after the answer, finish. */
-const settled = () => new Promise(resolve => setTimeout(resolve, 10));
 
 function ctxFor({computer, app = {value: {id: 'p', sha256: SHA, status: 'ready', tasks: [{id: 'sum', description: 'Add two numbers'}, {id: 'other', description: 'o'}]}}} = {}) {
   const calls = [];
   const on = computer ?? {
-    benchmarkSessionFrame: async (sha, bodyText) => { calls.push(['frame', sha, JSON.parse(bodyText)]); return {value: JSON.stringify(frame)}; },
-    benchmarkSession: async (sha, bodyText) => { calls.push(['pin', sha, JSON.parse(bodyText)]); return {value: JSON.stringify(pinned)}; },
-    benchmarkReferenceHarness: async name => { calls.push(['build', name]); return {value: referenceZip(name)}; },
+    benchmarkSessionFrame: async (sha, bodyText) => { calls.push(['frame', sha, JSON.parse(bodyText)]); return {value: JSON.stringify({...frame, case_id: 'p-01'})}; },
   };
   const ctx = makeCtx({
     benchmark: {
       service: {
-        session: async (context, sessionFrame, source, policy, options) => { calls.push(['session', sessionFrame, source, policy, options]); return {run_id: 'r1', attempt_id: 'a1', session: {run_id: 'r1'}}; },
-        pinSession: async (context, session, publication) => { calls.push(['pinned', session, publication]); },
+        session: async (context, sessionFrame, options) => { calls.push(['session', sessionFrame, options]); return {run_id: 'r1', attempt_id: 'a1'}; },
       },
       repository: {
-        saveSource: async (context, data, harness) => ({source_sha256: 'b'.repeat(64), size: data.length, harness}),
         run: async (context, id) => ({run_id: id}),
         liveSession: async () => null,
-        failSessionCase: async (context, runId, caseId, error) => { calls.push(['failed', runId, caseId, error]); },
       },
     },
     runners: {computer: () => on},
@@ -65,35 +43,26 @@ function ctxFor({computer, app = {value: {id: 'p', sha256: SHA, status: 'ready',
 }
 
 const post = (ctx, body) => invoke(route, {method: 'POST', path: PATH, body, requestContext: CONTEXT, ctx});
-const BODY = {plugin_id: 'p', task_id: 'sum', harness: 'claude-code', text: 'Add one and two', interactive: true};
+const BODY = {plugin_id: 'p', harness: 'shell', interactive: true};
 
 describe('POST /api/benchmark/sessions', () => {
-  it('queues the run on its case set\'s frame at once, then has the member\'s computer fill the task\'s input with the model every run uses and pin it', async () => {
+  it('queues a free-form Terminal session with nothing of its plugin opened or read: the plugin\'s id its label, the Terminal\'s limits', async () => {
     const {ctx, calls} = ctxFor();
     const {status, payload} = await post(ctx, BODY);
     assert.equal(status, 201);
     assert.deepEqual(payload, {run: {run_id: 'r1'}, attempt_id: 'a1'});
-    assert.deepEqual(calls.slice(0, 3), [['open', 'p'], ['frame', SHA, {task: 'sum', text: 'Add one and two'}], ['build', 'claude-code']]);
-    const [, queued, source, policy, options] = calls[3];
-    assert.deepEqual([queued.model, queued.endpoint_profile, queued.context, queued.case_id, queued.cases], [MODEL.model, 'openrouter', 'Add one and two', 'p-01', undefined]);
-    assert.deepEqual([source.harness.name, policy, options], ['claude-code', 'coding', {interactive: true, resumedFrom: null, startCli: null, resumeChat: null}]);
-    await settled();
-    assert.deepEqual(calls[4], ['pin', SHA, {task: 'sum', text: 'Add one and two', model: MODEL}]);
-    const [what, session, publication] = calls[5];
-    assert.deepEqual([what, session, publication.cases.length, publication.case_set_digest.length], ['pinned', {run_id: 'r1'}, 1, 64]);
+    assert.deepEqual(calls.map(([what]) => what), ['session']);
+    const queued = calls[0][1];
+    assert.deepEqual(queued, {name: 'harness-session', plugin_id: 'p', model: MODEL.model, endpoint_profile: 'openrouter', limits: TERMINAL_LIMITS});
   });
 
-  it('queues a free-form Terminal session with nothing of its plugin opened or read: the plugin\'s id its label, the Terminal\'s limits', async () => {
+  it('is only the Terminal with its member at it: a case runs by POST /runs, never by a session', async () => {
     const {ctx, calls} = ctxFor();
-    const {status, payload} = await post(ctx, {plugin_id: 'p', harness: 'shell', interactive: true});
-    assert.equal(status, 201);
-    assert.deepEqual(payload, {run: {run_id: 'r1'}, attempt_id: 'a1'});
-    assert.deepEqual(calls.map(([what]) => what), ['build', 'session']);
-    const queued = calls[1][1];
-    assert.deepEqual([queued.plugin_id, queued.package_sha256, queued.task_id, queued.task, queued.case_id, queued.limits], ['p', null, null, null, null, TERMINAL_LIMITS]);
-    await settled();
-    assert.ok(!calls.some(([what]) => what === 'pin'));
-    for (const extra of [{text: 'hi'}, {task_id: 'sum'}]) assert.equal((await post(ctx, {plugin_id: 'p', harness: 'shell', interactive: true, ...extra})).status, 400);
+    for (const body of [{...BODY, harness: 'claude'}, {...BODY, harness: 'claude-code'}, {...BODY, interactive: false}, {...BODY, harness: 'nanoagent', interactive: false}]) {
+      const {status, payload} = await post(ctx, body);
+      assert.deepEqual([status, payload.code], [400, 'invalid_request'], JSON.stringify(body));
+    }
+    assert.deepEqual(calls, []);
   });
 
   it('gives every free-form start the member\'s live session, on any plugin, as a new terminal of it (joined), never ending it or starting a second', async () => {
@@ -113,21 +82,11 @@ describe('POST /api/benchmark/sessions', () => {
       return [status, payload.code];
     };
     assert.deepEqual(await refused({plugin_id: 'p', harness: 'shell', interactive: true, resume: OLD}), [409, 'session_running']);
-    assert.deepEqual(await refused(BODY), [409, 'session_running']);
-    ctx.benchmark.repository.liveSession = async () => ({run_id: 'live', attempt_id: 'a-live', free: false});  // a harness session someone is at
-    assert.deepEqual(await refused({plugin_id: 'p', harness: 'shell', interactive: true, start: 'claude'}), [409, 'session_running']);
     assert.deepEqual(calls, []);
     // None live: a new session runs what was asked in its first terminal.
     ctx.benchmark.repository.liveSession = async () => null;
     assert.deepEqual((await post(ctx, {plugin_id: 'p', harness: 'shell', interactive: true, start: 'claude'})).payload, {run: {run_id: 'r1'}, attempt_id: 'a1'});
-    assert.equal(calls.find(([what]) => what === 'session')[4].startCli, 'claude');
-  });
-
-  it('leaves a one-shot run nobody is at to run beside the live session', async () => {
-    const {ctx, calls} = ctxFor();
-    ctx.benchmark.repository.liveSession = async () => { throw new Error('a one-shot run never asks'); };
-    assert.equal((await post(ctx, {...BODY, interactive: false})).status, 201);
-    assert.ok(calls.some(([what]) => what === 'session'));
+    assert.equal(calls.find(([what]) => what === 'session')[2].startCli, 'claude');
   });
 
   it('resumes an ended free-form Terminal session of the member\'s as a new session linked to it, and no other', async () => {
@@ -135,20 +94,20 @@ describe('POST /api/benchmark/sessions', () => {
     const rows = {
       [OLD]: {attempt_id: OLD, harness_name: 'shell', task_id: null, state: 'final'},
       '22222222-2222-4222-8222-222222222222': {attempt_id: '22222222-2222-4222-8222-222222222222', harness_name: 'shell', task_id: null, state: 'leased'},
-      '33333333-3333-4333-8333-333333333333': {attempt_id: '33333333-3333-4333-8333-333333333333', harness_name: 'claude-code', task_id: 'sum', state: 'final'},
+      '33333333-3333-4333-8333-333333333333': {attempt_id: '33333333-3333-4333-8333-333333333333', harness_name: 'claude', task_id: 'sum', state: 'final'},
     };
     const {ctx, calls} = ctxFor();
     ctx.benchmark.repository.terminalRows = async (context, {attemptId}) => (rows[attemptId] ? [rows[attemptId]] : []);
     const body = resume => ({plugin_id: 'p', harness: 'shell', interactive: true, resume});
     assert.equal((await post(ctx, body(OLD))).status, 201);
-    assert.deepEqual(calls.find(([what]) => what === 'session')[4], {interactive: true, resumedFrom: OLD, startCli: null, resumeChat: null});
+    assert.deepEqual(calls.find(([what]) => what === 'session')[2], {interactive: true, resumedFrom: OLD, startCli: null, resumeChat: null});
     const refused = async (resume, extra = {}) => {
       const {status, payload} = await post(ctx, {...body(resume), ...extra});
       return [status, payload.code];
     };
     assert.deepEqual(await refused('22222222-2222-4222-8222-222222222222'), [409, 'session_running']);
     for (const other of ['33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444', 'not-an-id']) assert.deepEqual(await refused(other), [404, 'unknown_session']);
-    assert.deepEqual(await refused(OLD, {harness: 'claude-code', task_id: 'sum', text: 'hi'}), [400, 'invalid_request']);
+    assert.deepEqual(await refused(OLD, {harness: 'claude'}), [400, 'invalid_request']);
   });
 
   it('resumes an ended session for one of its chats, which its first terminal reopens, and for no chat it did not hold', async () => {
@@ -163,10 +122,10 @@ describe('POST /api/benchmark/sessions', () => {
     ctx.benchmark.repository.terminalRows = async () => [row];
     const body = extra => ({plugin_id: 'p', harness: 'shell', interactive: true, resume: OLD, ...extra});
     assert.equal((await post(ctx, body({chat: {agent: 'claude', id: 'aaaa', run: null}}))).status, 201);
-    assert.deepEqual(calls.find(([what]) => what === 'session')[4].resumeChat, {agent: 'claude', id: 'aaaa', run: null});
+    assert.deepEqual(calls.find(([what]) => what === 'session')[2].resumeChat, {agent: 'claude', id: 'aaaa', run: null});
     const run = {argv: ['rush', 'aider', '--yes'], cwd: '/rush/workspace'};  // a `rush <command>` run, which its first terminal reruns
     assert.equal((await post(ctx, body({chat: {agent: 'aider', id: null, run}}))).status, 201);
-    assert.deepEqual(calls.filter(([what]) => what === 'session').at(-1)[4].resumeChat, {agent: 'aider', id: null, run});
+    assert.deepEqual(calls.filter(([what]) => what === 'session').at(-1)[2].resumeChat, {agent: 'aider', id: null, run});
     const status = async extra => (await post(ctx, body(extra))).status;
     assert.deepEqual(
       [await status({chat: {agent: 'claude', id: 'bbbb', run: null}}), await status({chat: {agent: 'aider', id: null, run: {...run, argv: ['rm', '-rf', '/']}}}),
@@ -180,54 +139,28 @@ describe('POST /api/benchmark/sessions', () => {
     const {ctx, calls} = ctxFor();
     const body = {plugin_id: 'p', harness: 'shell', interactive: true, start: 'claude'};
     assert.equal((await post(ctx, body)).status, 201);
-    assert.deepEqual(calls.find(([what]) => what === 'session')[4], {interactive: true, resumedFrom: null, startCli: 'claude', resumeChat: null});
-    for (const extra of [{start: 'claude; rm -rf /'}, {start: ''}, {interactive: false}, {harness: 'claude-code', task_id: 'sum', text: 'hi'}]) {
+    assert.deepEqual(calls.find(([what]) => what === 'session')[2], {interactive: true, resumedFrom: null, startCli: 'claude', resumeChat: null});
+    for (const extra of [{start: 'claude; rm -rf /'}, {start: ''}, {interactive: false}, {harness: 'claude'}]) {
       assert.equal((await post(ctx, {...body, ...extra})).status, 400);
     }
   });
 
-  it('takes the harness\'s model and whether the member is at its terminal from the request', async () => {
+  it('takes the session\'s model from the request', async () => {
     const {ctx, calls} = ctxFor();
-    await post(ctx, {...BODY, interactive: false, model: 'openai/gpt-5.5'});
-    assert.deepEqual([calls[3][1].model, calls[3][4]], ['openai/gpt-5.5', {interactive: false, resumedFrom: null, startCli: null, resumeChat: null}]);
-    await settled();
-    assert.deepEqual(calls[4][2].model, MODEL); // the case is pinned with the model every run uses
+    await post(ctx, {...BODY, model: 'openai/gpt-5.5'});
+    assert.equal(calls[0][1].model, 'openai/gpt-5.5');
     assert.equal((await post(ctxFor().ctx, {...BODY, interactive: undefined})).status, 400);
   });
 
-  it('works RUSH\'s own harness with the task\'s tools', async () => {
-    const {ctx, calls} = ctxFor();
-    await post(ctx, {...BODY, harness: 'nanoagent'});
-    assert.equal(calls[3][3], 'task_tools');
-  });
-
-  it('refuses a harness that is no reference harness, a missing field and an unknown task, and keeps why a pin failed for the worker', async () => {
-    assert.deepEqual((await post(ctxFor().ctx, {...BODY, harness: 'mine'})).payload.code, 'unknown_harness');
-    assert.equal((await post(ctxFor().ctx, {...BODY, text: ''})).status, 400);
-    const unknown = ctxFor({computer: {benchmarkSessionFrame: async () => ({error: 'p has an unknown task: nope', status: 422})}});
-    const refused = await post(unknown.ctx, BODY);
-    assert.deepEqual([refused.status, refused.payload.code, refused.payload.error], [422, 'pin_failed', 'p has an unknown task: nope']);
-    const failing = ctxFor();
-    const on = {
-      benchmarkSessionFrame: async () => ({value: JSON.stringify(frame)}), benchmarkReferenceHarness: async name => ({value: referenceZip(name)}),
-      benchmarkSession: async () => ({error: 'the model could not make task sum\'s input', status: 422}),
-    };
-    failing.ctx.runners.computer = () => on;
-    assert.equal((await post(failing.ctx, BODY)).status, 201); // queued before the pin fails
-    await settled();
-    assert.deepEqual(failing.calls.at(-1), ['failed', 'r1', 'p-01', 'the model could not make task sum\'s input']);
-  });
-
-  it('runs only on the member\'s own computer, and only an app of theirs that is ready', async () => {
-    const offline = makeCtx({benchmark: {repository: {liveSession: async () => null}, service: {}}, runners: {computer: () => null}, workspaceApps: {open: async () => assert.fail('must not open')}});
+  it('runs only on the member\'s own computer', async () => {
+    const offline = makeCtx({benchmark: {repository: {liveSession: async () => null}, service: {}}, runners: {computer: () => null}});
     assert.equal((await post(offline, BODY)).status, 503);
-    const refused = await post(ctxFor({app: {value: {id: 'p', sha256: SHA, status: 'refused'}}}).ctx, BODY);
-    assert.deepEqual([refused.status, refused.payload.code], [409, 'app_unavailable']);
   });
 
-  it('is a request the relay lets through to NanoAgent', () => {
-    assert.ok(allowed('POST', `/v1/installs/${SHA}/benchmark/session`));
+  it('is a plugin frame request the relay lets through to NanoAgent, and no longer a case pin or a harness build', () => {
     assert.ok(allowed('POST', `/v1/installs/${SHA}/benchmark/session-frame`));
+    assert.ok(!allowed('POST', `/v1/installs/${SHA}/benchmark/session`));
+    assert.ok(!allowed('GET', '/v1/benchmark/reference-harnesses/claude-code'));
   });
 });
 
@@ -250,7 +183,7 @@ describe('a Terminal session\'s plugin: POST /api/benchmark-worker/attempts/{id}
     const {ctx, calls} = scoring();
     const sha = createHash('sha256').update(kept).digest('hex');
     const on = ctx.runners.computer();
-    on.benchmarkSessionFrame = async (at, bodyText) => { calls.push(['frame', at, JSON.parse(bodyText)]); return {value: JSON.stringify({...frame, package_sha256: sha})}; };
+    on.benchmarkSessionFrame = async (at, bodyText) => { calls.push(['frame', at, JSON.parse(bodyText)]); return {value: JSON.stringify({...frame, case_id: 'p-01', package_sha256: sha})}; };
     on.installedPackage = async at => { calls.push(['package', at]); return {value: Buffer.from(served)}; };
     const ask = part => () => invoke(workerRoute, {
       method: 'POST', path: `/api/benchmark-worker/attempts/${ATTEMPT}/${part}`, headers: {authorization: 'Bearer cred'}, body: {fence: 3}, ctx, auth: null,
@@ -262,12 +195,12 @@ describe('a Terminal session\'s plugin: POST /api/benchmark-worker/attempts/{id}
     const {tools, calls, sha} = installedAs('zip', 'zip');
     const opened = await tools();
     assert.deepEqual([opened.status, opened.payload], [200, {
-      plugin: {id: 'p', name: 'P', version: '1.0.0', sha256: sha}, task: {id: 'sum', plugin_name: 'P', ...pinned.task}, package: Buffer.from('zip').toString('base64'),
+      plugin: {id: 'p', name: 'P', version: '1.0.0', sha256: sha}, task: {id: 'sum', plugin_name: 'P', ...frame.task}, package: Buffer.from('zip').toString('base64'),
     }]);
     assert.deepEqual(calls.filter(([what]) => what !== 'open'), [['frame', SHA, {task: 'sum', text: 'Add two numbers'}], ['package', sha]]);
   });
 
-  it('serves no scored case: nothing in a Terminal session is scored', async () => {
+  it('has no score route: nothing in a Terminal session is scored', async () => {
     const {score} = installedAs('zip', 'zip');
     assert.equal((await score()).status, 404);
   });
@@ -278,49 +211,30 @@ describe('a Terminal session\'s plugin: POST /api/benchmark-worker/attempts/{id}
   });
 });
 
-describe('a session\'s run', () => {
+describe('a free-form session\'s run', () => {
   const capabilities = {models: [MODEL.model], max_cost_usd: 100, wall_time_ms: 10_000_000, max_model_calls: 10_000, max_output_tokens_per_call: 100_000,
     cpus: 8, memory_mb: 64_000, pids: 10_000, workspace_bytes: 1e12, workspace_files: 1e9, tmp_bytes: 1e12, build_wall_ms: 1e9, build_memory_mb: 64_000,
     build_output_bytes: 1e12, build_files: 1e9, build_tmp_bytes: 1e12, internet_access: true};
 
-  it('is queued on its frame before its case is known, a run of a benchmark nobody publishes, and pinned like any run once it is', async () => {
+  it('is queued at once as a run of a benchmark nobody publishes, of the shell, with no case and no plugin version', async () => {
     const kept = [];
     const repository = {
       publisher: async userId => ({id: userId, name: 'Ada', github: null}),
-      saveCaseSet: async (userId, publication) => { kept.push(['case set', userId, publication.case_set_digest]); return {id: userId, name: 'Ada', github: null}; },
       capabilities: async () => capabilities,
-      savePreview: async (context, plan, digest, id) => { kept.push(['preview', plan.cases.length, digest.length, id]); return id; },
-      createRun: async (context, request, resolved, benchmark, harness, options) => { kept.push(['run', request, resolved, benchmark, harness, options]); return {run_id: 'r1', replayed: false}; },
-      pinSessionCase: async (context, runId, benchmark, c) => { kept.push(['pin', runId, benchmark.case_set_id, c]); },
+      createRun: async (context, request, resolved, benchmark, options) => { kept.push([request, resolved, benchmark, options]); return {run_id: 'r1', attempt_id: 'a1', replayed: false}; },
     };
     const service = createBenchmarkService({repository});
-    const sessionFrame = {...publicationFrame({...frame, model: MODEL.model, endpoint_profile: 'openrouter'}), case_id: 'p-01'};
-    const source = {source_sha256: 'b'.repeat(64), harness: {name: 'shell', version: 'abc', dialects: ['anthropic_messages']}};
-    const {run_id: runId, session} = await service.session(CONTEXT, sessionFrame, source, 'coding', {interactive: true});
-    assert.equal(runId, 'r1');
-    const [, request, resolved, benchmark, harness, options] = kept[0];
-    assert.deepEqual(options, {session: true, interactive: true, free: false, resumedFrom: null, startCli: null, resumeChat: null}); // a session's run, which the member's results do not list
-    assert.deepEqual([request.policy, request.source_sha256, request.request_digest.length], ['coding', 'b'.repeat(64), 64]);
-    assert.deepEqual(resolved.cases, [{case_id: 'p-01', position: 0, kind: 'answer', arguments: null, expected_error: null, content_digest: null, prompt: null}]);
-    assert.deepEqual([benchmark.case_set_id, benchmark.publisher.name, benchmark.plugin.sha256, benchmark.context, harness.name], [null, 'Ada', SHA, 'Add one and two', 'shell']);
-    const publication = benchmarkPublication({...pinned, model: MODEL.model, endpoint_profile: 'openrouter'});
-    await service.pinSession(CONTEXT, session, publication);
-    assert.deepEqual(kept.slice(1, 3), [['case set', 'u', publication.case_set_digest], ['preview', 1, 64, request.preview_id]]);
-    const [, pinnedRun, caseSetId, c] = kept[3];
-    assert.deepEqual([pinnedRun, caseSetId, c.case_id, c.arguments, c.prompt.sha256.length], ['r1', publication.case_set_digest, 'p-01', {x: 1, y: 2}, 64]);
-  });
-
-  it('is never pinned to a case set whose frame differs from the one it was queued on', async () => {
-    const repository = {publisher: async () => ({}), capabilities: async () => capabilities, createRun: async () => ({run_id: 'r1'}), saveCaseSet: async () => assert.fail('must not keep it')};
-    const service = createBenchmarkService({repository});
-    const sessionFrame = {...publicationFrame({...frame, model: MODEL.model, endpoint_profile: 'openrouter'}), case_id: 'p-01'};
-    const {session} = await service.session(CONTEXT, sessionFrame, {source_sha256: 'b'.repeat(64), harness: {name: 'shell', version: 'a', dialects: ['responses']}}, 'coding', {interactive: true});
-    const other = benchmarkPublication({...pinned, context: 'Something else', model: MODEL.model, endpoint_profile: 'openrouter'});
-    await assert.rejects(service.pinSession(CONTEXT, session, other), error => error.code === 'case_mismatch' && /context/.test(error.message));
+    const sessionFrame = {name: 'harness-session', plugin_id: 'p', model: MODEL.model, endpoint_profile: 'openrouter', limits: TERMINAL_LIMITS};
+    assert.deepEqual(await service.session(CONTEXT, sessionFrame, {interactive: true}), {run_id: 'r1', attempt_id: 'a1'});
+    const [request, resolved, benchmark, options] = kept[0];
+    assert.deepEqual(options, {session: true, interactive: true, free: true, resumedFrom: null, startCli: null, resumeChat: null}); // a session's run, which the member's results do not list
+    assert.deepEqual([request.harness, request.request_digest.length], ['shell', 64]);
+    assert.deepEqual(resolved, {cases: [], limits: TERMINAL_LIMITS});
+    assert.deepEqual([benchmark.case_set_id, benchmark.publisher.name, benchmark.plugin, benchmark.task], [null, 'Ada', {id: 'p', name: null, version: null, sha256: null}, null]);
   });
 });
 
-describe('the worker\'s wait for work and for a session\'s case', () => {
+describe('the worker\'s wait for work', () => {
   const {wake} = require('../../../src/server/benchmark/wake.js');
   const ATTEMPT = '00000000-0000-4000-8000-000000000009';
   const CAPS = {wall_time_ms: 1, max_model_calls: 1, max_output_tokens_per_call: 1, max_cost_usd: 1, cpus: 1, memory_mb: 1, pids: 1, workspace_bytes: 1,
@@ -343,14 +257,8 @@ describe('the worker\'s wait for work and for a session\'s case', () => {
     assert.equal(idle.res.written.status, 204); // no wait_s: answered at once
   });
 
-  it('gives a pending case once it is pinned, and why it could not be', async () => {
-    let state = {case: null, pin_error: null};
-    const pinnedCase = async () => ({run_id: 'r1', created_at: new Date().toISOString(), ...state});
-    setTimeout(() => { state = {case: {case_id: 'p-01'}, prompt: {user: 'u'}, case_set: null, private_reference: null}; wake('case:r1'); }, 50);
-    const got = await call({pinnedCase}, {method: 'GET', path: `/api/benchmark-worker/attempts/${ATTEMPT}/case`});
-    assert.deepEqual([got.status, got.payload.case, got.payload.run_id], [200, {case_id: 'p-01'}, undefined]);
-    state = {case: null, pin_error: 'no input'};
-    const failed = await call({pinnedCase}, {method: 'GET', path: `/api/benchmark-worker/attempts/${ATTEMPT}/case`});
-    assert.deepEqual([failed.status, failed.payload.code, failed.payload.error], [422, 'case_failed', 'no input']);
+  it('has no case route: a claim carries its case', async () => {
+    const got = await call({}, {method: 'GET', path: `/api/benchmark-worker/attempts/${ATTEMPT}/case`});
+    assert.equal(got.status, 404);
   });
 });
