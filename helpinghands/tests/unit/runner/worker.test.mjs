@@ -245,11 +245,31 @@ test('a credential RUSH cannot give while it restarts (5xx, no answer) is tried 
   await settle();
   assert.equal(t.runs.length, 1);
   assert.equal(t.last().state, 'ready');
-  const refused = setup({mint: async () => { throw Object.assign(new Error('Sign in again'), {status: 401}); }});
+  const refused = setup({mint: async () => { throw Object.assign(new Error('Forbidden'), {status: 403}); }});
   await refused.worker.start();
   await settle();
   assert.equal(refused.last().state, 'failed');
-  assert.match(refused.last().message, /Could not get a worker credential from https:\/\/rush-lab\.org: Sign in again/);
+  assert.match(refused.last().message, /Could not get a worker credential from https:\/\/rush-lab\.org: Forbidden/);
+});
+
+test('a session RUSH no longer knows (401) waits for the relay to sign in again, then starts with the new one', async () => {
+  const tokens = [];
+  const t = setup({session: 'stale', mint: async ({token}) => {
+    tokens.push(token);
+    if (token === 'stale') throw Object.assign(new Error('Not signed in'), {status: 401});
+    return {token: 'rwk'};
+  }});
+  // Like a launch without a session, the start waits for the relay's sign-in.
+  const started = t.worker.start();
+  await settle();
+  assert.equal(t.runs.length, 0);
+  assert.notEqual(t.last().state, 'failed');
+  t.state.session = 'fresh';
+  await started;
+  await settle();
+  assert.deepEqual([...new Set(tokens)], ['stale', 'fresh']);
+  assert.equal(t.runs.length, 1);
+  assert.equal(t.last().state, 'ready');
 });
 
 test('a worker that exits in startup is reported with its status', async () => {
