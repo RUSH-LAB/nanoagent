@@ -1,7 +1,5 @@
 'use strict';
 
-const {REFERENCE_LABELS} = require('./harness');
-
 /**
  * The agent CLIs a Terminal session installs, by what the member types: its package's path, or for Hermes and NanoAgent its module
  * (NanoAgent's `nanoagent` and `mgen` both run nanoagent.cli), appears in the argv of the process its wrapper execs (the shell
@@ -18,9 +16,6 @@ const seconds = (start, end) => (start === null || end === null ? null : (end - 
 /** A time in nanoseconds since the epoch, as an ISO timestamp. */
 const iso = at => new Date(at / 1e6).toISOString();
 const figure = (sum, known) => ({sum: known ? sum : 0, count: known ? 1 : 0});
-
-/** A run's agent: a reference harness's CLI command. */
-const harnessLabel = name => REFERENCE_LABELS[name] ?? name;
 
 const PYTHON = /^python[0-9.]*$/;
 const base = path => path.slice(path.lastIndexOf('/') + 1);
@@ -126,7 +121,7 @@ function terminalSession(row) {
     id: process.span_id, parent: process.parent_id, start: ns(process.start_ns), end: ns(process.end_ns), agent: agentOf(process.argv ?? []),
     run: process.run ?? null,
   }));
-  const label = harnessLabel(row.harness_name);
+  const label = row.harness_name;
   const calls = row.calls
     .filter(call => call.status !== 'rejected')
     .map(call => {
@@ -191,7 +186,7 @@ function typed(process) {
  */
 function terminalChats(row) {
   const final = row.state === 'final';
-  const label = harnessLabel(row.harness_name);
+  const label = row.harness_name;
   const session = {
     attemptId: row.attempt_id, running: !final, resumable: row.resumable === true, freeForm: row.harness_name === 'shell' && row.task_id === null,
     startedAt: row.created_at, updatedAt: row.finalized_at ?? row.created_at,

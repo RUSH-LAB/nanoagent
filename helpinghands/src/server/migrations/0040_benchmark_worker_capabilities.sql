@@ -1,0 +1,1 @@
+-- Worker capability storage is PostgreSQL-only.

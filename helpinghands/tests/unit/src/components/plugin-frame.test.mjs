@@ -12,6 +12,7 @@ const eventStream = text => new Response(text, {headers: {'Content-Type': 'text/
 
 const SESSION = '00000000-0000-4000-8000-000000000001';
 const SESSIONS = '/api/apps/arxiv-source/sessions';
+const BENCHMARK = '00000000-0000-4000-8000-0000000000b1';
 const sessionWith = (chat = []) => ({id: SESSION, pluginId: 'arxiv-source', title: '', chat, calls: []});
 
 /**
@@ -89,7 +90,6 @@ describe('nanoagent.ui/v1 requests', () => {
       ['session.shown', {id: null}],
       ['plugin.version', {version: '1.2.0'}],
       ['plugin.version', {version: null}],
-      ['harness.run', {harness: 'claude-code', task: 'save-paper-source', text: 'hi'}],
       ['harness.run', {harness: 'shell'}],
       ['harness.run', {harness: 'shell', resume: SESSION}],
       ['harness.run', {harness: 'shell', start: 'claude'}],
@@ -126,12 +126,12 @@ describe('nanoagent.ui/v1 requests', () => {
       ['session.shown', {id: 'not-an-id'}],
       ['plugin.version', {}],
       ['plugin.version', {version: ''}],
-      ['harness.run', {harness: 'Not a name', task: 'save-paper-source', text: 'hi'}],
-      ['harness.run', {harness: 'nanoagent', task: '', text: 'hi'}],
-      ['harness.run', {harness: 'nanoagent', task: 'save-paper-source', text: ' '}],
+      ['harness.run', {harness: 'claude'}],
+      ['harness.run', {harness: 'shell', case: {benchmark_id: BENCHMARK, case_id: 'arxiv-source-01'}}],
+      ['harness.run', {harness: 'nanoagent'}],
+      ['harness.run', {harness: 'nanoagent', task: 'save-paper-source', text: 'hi'}],
       ['harness.run', {harness: 'shell', task: 'save-paper-source'}],
       ['harness.run', {harness: 'shell', resume: 'not-an-id'}],
-      ['harness.run', {harness: 'claude-code', task: 'save-paper-source', text: 'hi', resume: SESSION}],
       ['harness.run', {harness: 'shell', start: 'claude code'}],
       ['harness.run', {harness: 'shell', resume: SESSION, start: 'claude'}],
       ['harness.reopen', {runId: 'harness-1', rows: 40, cols: 120, reopen: {start: 'claude', chat: {agent: 'claude', id: 'a', run: null}}}],
@@ -489,7 +489,7 @@ describe('the bridge host', () => {
     return lab;
   }
 
-  it('runs a Harness tab session as a one-case benchmark run once the worker is ready, linking the page to its terminals on this computer: their output as it comes, what is typed, opening and closing them, and then its outcome', async () => {
+  it('opens the Harness tab terminal, as an interactive session once the worker is ready, linking the page to its terminals on this computer: their output as it comes, what is typed, opening and closing them, and then its outcome', async () => {
     const ATTEMPT = '00000000-0000-4000-8000-0000000000aa';
     const base64 = text => Buffer.from(text).toString('base64');
     const statuses = [{connected: true, worker: {state: 'starting', progress: {done: 5e6, total: 2e7}}}, READY];
@@ -504,7 +504,7 @@ describe('the bridge host', () => {
     ]);
     const answers = {
       '/api/runner/status': () => Response.json(statuses.shift()),
-      '/api/benchmark/sessions': () => Response.json({run: {run_id: 'r1', cases: [{attempts: [{attempt_id: ATTEMPT}]}]}, attempt_id: ATTEMPT}, {status: 201}),
+      '/api/benchmark/sessions': () => Response.json({run: {run_id: 'r1'}, attempt_id: ATTEMPT}, {status: 201}),
       [`/api/benchmark/attempts/${ATTEMPT}/terminal-link`]: () => links.shift(),
       // Sealed once the page has typed its last and the link ended.
       [`/api/benchmark/attempts/${ATTEMPT}`]: () => Response.json({attempt: {
@@ -516,7 +516,7 @@ describe('the bridge host', () => {
     globalThis.__TAURI_INTERNALS__ = lab.tauri;
     try {
       const {posted, calls, send} = await hostWith((path, init) => answers[path](init), {started: false});
-      send('h', 'harness.run', {harness: 'claude-code', task: 'save-paper-source', text: 'Get 2401.00001'});
+      send('h', 'harness.run', {harness: 'shell'});
       await until(() => eventsOf(posted, 'harness-1').length);
       send('r', 'harness.resize', {runId: 'harness-1', terminal: 0, rows: 30, cols: 100});
       send('o', 'harness.open', {runId: 'harness-1', terminal: 1, rows: 20, cols: 80});
@@ -524,7 +524,8 @@ describe('the bridge host', () => {
       send('i', 'harness.input', {runId: 'harness-1', terminal: 0, data: 'é\r'});
       await until(() => messages(posted).some(message => message.event === 'harness.done'));
       assert.deepEqual(calls.slice(0, 2).map(call => call.path), ['/api/runner/status', '/api/runner/status']);
-      assert.deepEqual(JSON.parse(calls[2].init.body), {plugin_id: 'arxiv-source', task_id: 'save-paper-source', harness: 'claude-code', text: 'Get 2401.00001', interactive: true});
+      const queued = JSON.parse(calls[2].init.body);
+      assert.deepEqual(queued, {plugin_id: 'arxiv-source', harness: 'shell', interactive: true});
       assert.deepEqual(messages(posted)[0], {protocol: PROTOCOL, id: 'h', result: {runId: 'harness-1'}});
       // Nothing typed goes to RUSH: RUSH named the link, and the page sent it all there.
       assert.deepEqual(lab.linked, [{port: 51234, token: 't0k'}]);
@@ -538,7 +539,7 @@ describe('the bridge host', () => {
       assert.deepEqual(of(1), [['harness.output', {terminal: 1, data: base64('$ ')}], ['harness.closed', {terminal: 1}]]);
       assert.deepEqual(events[0], ['harness.preparing', {done: 5e6, total: 2e7}]);
       assert.deepEqual(events.slice(-2), [
-        ['harness.outcome', {status: 'Answered', ended: false, scored: true, reason: null, verdict: 'Pass', explanation: '', inputTokens: 120, outputTokens: 30, elapsedMs: 4200, cost: 0.0012, uploadError: null}],
+        ['harness.outcome', {status: 'Answered', ended: false, reason: null, inputTokens: 120, outputTokens: 30, elapsedMs: 4200, cost: 0.0012, uploadError: null}],
         ['harness.done', {}],
       ]);
     } finally {
@@ -599,14 +600,14 @@ describe('the bridge host', () => {
     const held = new Promise(resolve => { release = resolve; });
     const answers = {
       '/api/runner/status': () => Response.json(READY),
-      '/api/benchmark/sessions': () => Response.json({run: {run_id: 'r1', cases: [{attempts: [{attempt_id: 'a1'}]}]}, attempt_id: 'a1'}, {status: 201}),
+      '/api/benchmark/sessions': () => Response.json({run: {run_id: 'r1'}, attempt_id: 'a1'}, {status: 201}),
       '/api/benchmark/attempts/a1/terminal-link': async () => { await held; return new Response(null, {status: 204}); },
       '/api/benchmark/runs/r1/cancel': () => { release(); return Response.json({}); },
       '/api/benchmark/attempts/a1': () => Response.json({attempt: {state: 'final', sealed: true, execution: {status: 'canceled', reason: null}, verdict: null, metrics: null}}),
       '/api/benchmark/attempts/a1/accounting': () => Response.json({totals: {settled_usd: null}}),
     };
     const {posted, calls, send} = await hostWith(path => answers[path](), {started: false});
-    send('h', 'harness.run', {harness: 'nanoagent', task: 'save-paper-source', text: 'Get it'});
+    send('h', 'harness.run', {harness: 'shell'});
     await until(() => calls.some(call => call.path === '/api/benchmark/attempts/a1/terminal-link'));
     send('c', 'harness.cancel', {runId: 'harness-1'});
     await until(() => messages(posted).some(message => message.event === 'harness.done'));
@@ -614,13 +615,13 @@ describe('the bridge host', () => {
     assert.equal(eventsOf(posted, 'harness-1').find(([name]) => name === 'harness.outcome')[1].status, 'Canceled');
 
     const refused = await hostWith(path => (path === '/api/runner/status' ? Response.json(READY) : Response.json({error: 'Your benchmark worker is not running'}, {status: 409})), {started: false});
-    refused.send('h', 'harness.run', {harness: 'nanoagent', task: 'save-paper-source', text: 'Get it'});
+    refused.send('h', 'harness.run', {harness: 'shell'});
     await until(() => messages(refused.posted).some(message => message.event === 'harness.done'));
     assert.deepEqual(eventsOf(refused.posted, 'harness-1'), [['harness.error', {message: 'Your benchmark worker is not running'}], ['harness.done', {}]]);
 
     // A worker that cannot start fails the session before RUSH queues it.
     const keyless = await hostWith(() => Response.json({connected: true, worker: {state: 'no-key'}}), {started: false});
-    keyless.send('h', 'harness.run', {harness: 'nanoagent', task: 'save-paper-source', text: 'Get it'});
+    keyless.send('h', 'harness.run', {harness: 'shell'});
     await until(() => messages(keyless.posted).some(message => message.event === 'harness.done'));
     assert.deepEqual(eventsOf(keyless.posted, 'harness-1'), [['harness.error', {message: 'Add your OpenRouter key in Settings to run benchmarks.'}], ['harness.done', {}]]);
     assert.ok(keyless.calls.every(call => call.path === '/api/runner/status'));

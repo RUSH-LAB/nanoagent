@@ -11,7 +11,7 @@ const MAX_EVIDENCE_EVENT_BYTES = 64 * 1024 * 1024;
 const MAX_EVIDENCE_PAYLOAD_BYTES = 64 * 1024 * 1024;
 // Myers' diff is quadratic in the edits: past this many, a text shows as wholly replaced instead of line by line.
 const MAX_DIFF_EDITS = 2000;
-// How many shared cases' rendered prompts one comparison diffs line by line; the rest show as wholly replaced.
+// How many shared cases' prompts one comparison diffs line by line; the rest show as wholly replaced.
 const MAX_RENDERED_DIFFS = 50;
 
 const tooLarge = (attemptId, what) => new BenchmarkError(413, 'evidence_too_large', `Attempt ${attemptId} is too large to compare: it has over ${what}`);
@@ -114,23 +114,23 @@ function sideOf(c, costs) {
 /** Every setting of a run that a comparison shows, as `{field: value}`. */
 function configOf(run) {
   return {
-    benchmark_id: run.benchmark.benchmark_id, harness: `${run.harness.name}@${run.harness.version}`,
-    case_set_id: run.case_set.case_set_id, case_set_digest: run.case_set.digest, policy: run.policy, model: run.model,
-    endpoint_profile: run.endpoint_profile, dialects: run.dialects,
+    benchmark_id: run.benchmark.benchmark_id, harness: run.harness.name,
+    case_set_id: run.case_set.case_set_id, case_set_digest: run.case_set.digest, model: run.model,
+    endpoint_profile: run.endpoint_profile,
     ...Object.fromEntries(LIMIT_FIELDS.map(name => [`limits.${name}`, run.limits[name]])),
     egress_hosts: run.egress_hosts,
-    selection: run.cases.map(c => c.case_id), renderer_version: run.prompt.renderer_version,
+    selection: run.cases.map(c => c.case_id),
   };
 }
 
 const summaryOf = run => ({
-  run_id: run.run_id, status: run.status, case_set_id: run.case_set.case_set_id, case_set_name: run.case_set.name, policy: run.policy, model: run.model,
-  endpoint_profile: run.endpoint_profile, score: run.score, source: run.source, created_at: run.created_at,
+  run_id: run.run_id, status: run.status, case_set_id: run.case_set.case_set_id, case_set_name: run.case_set.name, harness: run.harness.name, model: run.model,
+  endpoint_profile: run.endpoint_profile, score: run.score, created_at: run.created_at,
 });
 
 /**
  * The comparison of two runs that share a task verifier (the same plugin package digest and task id), whatever their case sets, selections,
- * policies, models, prompts and limits: every difference in configuration, the prompt text diffed (and each shared case's rendered prompt),
+ * harnesses, models and limits: every difference in configuration (and each shared case's prompt diffed),
  * the cases both ran aligned by their pinned content, those only one ran, and whether either run had internet access (egress that
  * the gateway cannot account for).
  */
@@ -155,7 +155,7 @@ async function compareRuns({repository, context, a, b}) {
   const onlyA = [];
   for (const c of first.run.cases) {
     const match = waiting.get(c.content_digest)?.shift();
-    if (match) shared.push({content_digest: c.content_digest, kind: c.kind, a: sideOf(c, first.costs), b: sideOf(match, second.costs), prompts: [c.prompt, match.prompt]});
+    if (match) shared.push({content_digest: c.content_digest, kind: c.kind, a: sideOf(c, first.costs), b: sideOf(match, second.costs), prompts: [{text: c.prompt, sha256: c.prompt_sha256}, {text: match.prompt, sha256: match.prompt_sha256}]});
     else onlyA.push({content_digest: c.content_digest, kind: c.kind, ...sideOf(c, first.costs)});
   }
   const onlyB = [...waiting.values()].flat().sort((x, y) => x.position - y.position)
@@ -166,15 +166,10 @@ async function compareRuns({repository, context, a, b}) {
     a: summaryOf(first.run), b: summaryOf(second.run),
     config, differences: config.filter(entry => entry.differs).map(entry => entry.field),
     prompt_diff: {
-      a_kind: first.run.policy === 'coding' ? 'template' : 'instructions', b_kind: second.run.policy === 'coding' ? 'template' : 'instructions',
-      text: textDiff(first.run.prompt.text, second.run.prompt.text),
       rendered: shared.map(({content_digest: digest, a: left_, b: right_, prompts: [pa, pb]}) => {
-        const identical = pa.sha256 === pb.sha256 && pa.system === pb.system && pa.user === pb.user;
+        const identical = pa.sha256 === pb.sha256 && pa.text === pb.text;
         const line = identical || (diffed += 1) <= MAX_RENDERED_DIFFS;
-        return {
-          content_digest: digest, a_case_id: left_.case_id, b_case_id: right_.case_id, identical,
-          ...(identical ? {} : {system: textDiff(pa.system, pb.system, line), user: textDiff(pa.user, pb.user, line)}),
-        };
+        return {content_digest: digest, a_case_id: left_.case_id, b_case_id: right_.case_id, identical, ...(identical ? {} : {text: textDiff(pa.text, pb.text, line)})};
       }),
     },
     shared: shared.map(({prompts, ...rest}) => rest),

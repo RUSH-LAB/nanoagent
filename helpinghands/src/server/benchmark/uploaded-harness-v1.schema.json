@@ -48,27 +48,21 @@
         }
       }
     },
-    "Policy": {"enum": ["coding", "task_tools"]},
     "Task": {
       "type": "object", "additionalProperties": false,
-      "required": ["id", "kind", "description", "instructions", "plugin_name"],
+      "required": ["id", "kind", "description", "plugin_name"],
       "properties": {
         "id": {"$ref": "#/$defs/Id"},
         "kind": {"enum": ["agent", "decide", "tool"]},
         "description": {"type": "string"},
-        "instructions": {"type": "string"},
         "plugin_name": {"type": "string", "minLength": 1, "maxLength": 256}
       }
     },
     "Case": {
       "type": "object", "additionalProperties": false,
-      "required": ["case_id", "arguments", "context", "input_schema", "output_schema"],
+      "required": ["case_id"],
       "properties": {
-        "case_id": {"$ref": "#/$defs/Id"},
-        "arguments": {"type": "object"},
-        "context": {"type": "string"},
-        "input_schema": {"type": "object"},
-        "output_schema": {"type": "object"}
+        "case_id": {"$ref": "#/$defs/Id"}
       }
     },
     "Prompt": {
@@ -213,15 +207,15 @@
     },
     "Request": {
       "type": "object", "additionalProperties": false,
-      "required": ["protocol", "attempt_id", "policy", "task", "free_form", "case", "prompt", "workspace", "openrouter", "tools", "exec_url", "events_url", "limits", "interactive"],
+      "required": ["protocol", "attempt_id", "task", "free_form", "case", "prompt", "harness", "workspace", "openrouter", "tools", "exec_url", "events_url", "limits", "interactive"],
       "properties": {
         "protocol": {"$ref": "#/$defs/Protocol"},
         "attempt_id": {"type": "string", "format": "uuid"},
-        "policy": {"$ref": "#/$defs/Policy"},
         "task": {"oneOf": [{"$ref": "#/$defs/Task"}, {"type": "null"}]},
         "free_form": {"type": "boolean", "description": "Whether the session has no case: only the Terminal's with a person at it, who runs any agent and prompts it themselves. It is the same empty shell whichever plugin's page opened it, so task, case and prompt are null, nothing is written for a task, and nothing scores the session; its model calls and commands are recorded."},
         "case": {"oneOf": [{"$ref": "#/$defs/Case"}, {"type": "null"}]},
         "prompt": {"oneOf": [{"$ref": "#/$defs/Prompt"}, {"type": "null"}]},
+        "harness": {"type": ["string", "null"], "description": "The agent the case runs: a CLI of the shell harness (claude, codex, pi, dsh, hermes, nanoagent) or a member's own `rush <command>`, started with the case's prompt as its last argument (harnesses.yaml); null for a free-form session."},
         "workspace": {"const": "/rush/workspace"},
         "openrouter": {"$ref": "#/$defs/OpenRouter"},
         "tools": {"$ref": "#/$defs/Tools"},
@@ -231,24 +225,8 @@
         "interactive": {"type": "boolean", "description": "Whether a person is at the harness's terminal (a plugin page's Harness tab session), who types at it and ends it: the harness then runs its CLI interactively. In a free-form session they open more terminals in the same VM, each running run.argv again with RUSH_TERMINAL its id (the harness's is 0), and the session ends with the last."}
       },
       "if": {"properties": {"free_form": {"const": true}}},
-      "then": {"properties": {"task": {"type": "null"}, "case": {"type": "null"}, "prompt": {"type": "null"}}},
-      "else": {"properties": {"task": {"type": "object"}, "case": {"type": "object"}, "prompt": {"type": "object"}}}
-    },
-    "Result": {
-      "type": "object",
-      "properties": {"protocol": {"$ref": "#/$defs/Protocol"}},
-      "required": ["protocol", "status"],
-      "oneOf": [
-        {
-          "properties": {"status": {"const": "answered"}, "answer": {"type": "object"}},
-          "required": ["answer"]
-        },
-        {
-          "properties": {"status": {"const": "refused"}, "reason": {"type": "string", "minLength": 1, "maxLength": 8192, "pattern": "\\S"}},
-          "required": ["reason"]
-        }
-      ],
-      "unevaluatedProperties": false
+      "then": {"properties": {"task": {"type": "null"}, "case": {"type": "null"}, "prompt": {"type": "null"}, "harness": {"type": "null"}}},
+      "else": {"properties": {"task": {"type": "object"}, "case": {"type": "object"}, "prompt": {"type": "object"}, "harness": {"type": "string"}}}
     },
     "HarnessEvent": {
       "type": "object",

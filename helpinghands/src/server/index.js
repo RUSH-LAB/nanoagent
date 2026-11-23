@@ -250,13 +250,13 @@ function readBody(req) {
   });
 }
 
-function readRawBody(req) {
+function readRawBody(req, max = MAX_BODY_SIZE) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
     req.on('data', c => {
       size += c.length;
-      if (size > MAX_BODY_SIZE) { req.destroy(); return reject(new Error('Body too large')); }
+      if (size > max) { req.destroy(); return reject(new Error('Body too large')); }
       chunks.push(c);
     });
     req.on('end', () => resolve(Buffer.concat(chunks)));

@@ -63,28 +63,28 @@ describe('benchmark worker credentials', () => {
     assert.deepEqual(revoke.params, ['c1', 'user-a']);
   });
 
-  test('a claim leases only the credential\'s member\'s runs and keeps capabilities per member and label', async () => {
+  test('a claim leases only the credential\'s member\'s runs and keeps capabilities per member, label and worker', async () => {
     const pool = recordingPool();
     await createPostgresBenchmarkWorker({pool, config}).claim('user-a', 'w', 'mock', {...DEFAULT_LIMITS, models: ['vendor/model']}, true);
     const select = pool.statements.find(s => s.text.startsWith('select r.run_id, r.limits from benchmark_run'));
     assert.match(select.text, /r\.user_id = \$1 and r\.endpoint_label = \$2 and r\.interactive = \$3/);
     assert.deepEqual(select.params, ['user-a', 'mock', true]);
     const advertise = pool.statements.find(s => s.text.startsWith('insert into benchmark_worker_capability'));
-    assert.match(advertise.text, /on conflict \(user_id, endpoint_label\)/);
+    assert.match(advertise.text, /on conflict \(user_id, endpoint_label, worker_id\)/);
     assert.deepEqual(advertise.params.slice(0, 3), ['user-a', 'mock', 'w']);
   });
 
   test('a lease renewal keeps its member\'s worker advertised for the attempt\'s label', async () => {
     const future = new Date(Date.now() + 60_000);
     const pool = recordingPool({
-      'select a.*': [{fence: 3, state: 'leased', execution_status: 'running', lease_expires_at: future, endpoint_label: 'openrouter'}],
+      'select a.*': [{fence: 3, state: 'leased', execution_status: 'running', lease_expires_at: future, endpoint_label: 'openrouter', worker_id: 'worker-1'}],
       'select $1::timestamptz < now()': [{expired: false}],
       'update benchmark_attempt set lease_expires_at': [{lease_expires_at: future}],
     });
     await createPostgresBenchmarkWorker({pool, config}).renew('user-a', 'attempt-1', 3);
     const seen = pool.statements.find(s => s.text.startsWith('update benchmark_worker_capability set updated_at = now()'));
-    assert.match(seen.text, /where user_id = \$1 and endpoint_label = \$2/);
-    assert.deepEqual(seen.params, ['user-a', 'openrouter']);
+    assert.match(seen.text, /where user_id = \$1 and endpoint_label = \$2 and worker_id = \$3/);
+    assert.deepEqual(seen.params, ['user-a', 'openrouter', 'worker-1']);
   });
 
   test('a fenced route finds only the member\'s own attempts', async () => {

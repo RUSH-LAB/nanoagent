@@ -570,22 +570,16 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
     packageSource: (archive, path) => nanoFetch(`/v1/packages/source?path=${encodeURIComponent(path)}`, {
       method: 'POST', body: archive, contentType: 'application/gzip', waitMs: timeoutMs,
     }),
-    // The POST body of a case set the member publishes, as text: `bodyText` is the case set spec and the answer is NanoAgent's own
-    // text, so a number's spelling (`1.0`) survives both ways. Its cases are pinned by the plugin installed as `sha256` on their computer.
+    // The POST body of a case set the member publishes, as text: `bodyText` is `{name, case_file, files}` (the YAML case file's text and the
+    // uploaded case folder's other files) and the answer is NanoAgent's own text, so a number's spelling (`1.0`) survives. Its cases are
+    // pinned by the plugin installed as `sha256` on their computer.
     benchmarkCaseSet: (sha256, bodyText) => nanoFetch(`/v1/installs/${encodeURIComponent(sha256)}/benchmark/case-set`, {
-      method: 'POST', body: bodyText, contentType: 'application/json', text: true, waitMs: PIN_TIMEOUT_MS,
-    }),
-    // The one-case case set of a Harness tab session, as text: `bodyText` is `{task, text, model}`, the member's request to the
-    // task, whose input NanoAgent's plugin model fills from it before the plugin installed as `sha256` pins it.
-    benchmarkSession: (sha256, bodyText) => nanoFetch(`/v1/installs/${encodeURIComponent(sha256)}/benchmark/session`, {
       method: 'POST', body: bodyText, contentType: 'application/json', text: true, waitMs: PIN_TIMEOUT_MS,
     }),
     // That case set but its case (`bodyText` is `{task, text}`), read from the installed plugin at once.
     benchmarkSessionFrame: (sha256, bodyText) => nanoFetch(`/v1/installs/${encodeURIComponent(sha256)}/benchmark/session-frame`, {
       method: 'POST', body: bodyText, contentType: 'application/json', text: true, waitMs: timeoutMs,
     }),
-    // The ZIP of the reference harness `name`, built by the NanoAgent on that computer (nanoagent.uploaded.reference).
-    benchmarkReferenceHarness: name => nanoFetch(`/v1/benchmark/reference-harnesses/${encodeURIComponent(name)}`, {bytes: true, waitMs: timeoutMs}),
     // Two sealed attempts' records and payloads compared by the path the benchmark CLI's step 4 uses (nanoagent.uploaded.compare_view).
     benchmarkCompare: body => nanoFetch('/v1/benchmark/compare', {
       method: 'POST', body: JSON.stringify(body), contentType: 'application/json', waitMs: timeoutMs,
@@ -637,9 +631,7 @@ module.exports = {
   inspect: gateway.inspect,
   benchmarkCompare: gateway.benchmarkCompare,
   benchmarkCaseSet: gateway.benchmarkCaseSet,
-  benchmarkSession: gateway.benchmarkSession,
   benchmarkSessionFrame: gateway.benchmarkSessionFrame,
-  benchmarkReferenceHarness: gateway.benchmarkReferenceHarness,
   describe: gateway.describe,
   local: gateway.local,
 };

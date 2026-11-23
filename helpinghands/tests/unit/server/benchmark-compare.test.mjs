@@ -88,16 +88,15 @@ describe('GET /api/benchmark/compare/attempts', () => {
 });
 
 // Runs as repository.run shows them.
-const limits = {wall_time_ms: 600000, max_model_calls: 50, max_output_tokens_per_call: 4096, max_cost_usd: 1.5, cpus: 1, memory_mb: 1024, pids: 256,
+const limits = {wall_time_ms: 600000, max_model_calls: 50, max_output_tokens_per_call: 32768, max_cost_usd: 1.5, cpus: 1, memory_mb: 1024, pids: 256,
   workspace_bytes: 1, workspace_files: 1, tmp_bytes: 1, build_wall_ms: 1, build_memory_mb: 1, build_output_bytes: 1, build_files: 1, build_tmp_bytes: 1, internet_access: true};
-const prompt = (system, user) => ({system, user, sha256: `${system}|${user}`});
 const caseOf = (id, digest, position, user, attempt = {}) => ({
-  case_id: id, position, kind: 'answer', content_digest: digest, prompt: prompt(null, user), latest_attempt_id: `att-${id}`,
+  case_id: id, position, kind: 'answer', content_digest: digest, prompt: user, prompt_sha256: `sha-${user}`, latest_attempt_id: `att-${id}`,
   attempts: [{attempt_id: `att-${id}`, state: 'final', execution: {status: 'answered', reason: null}, verdict: 'pass', verifier_error: null, metrics: {total_tokens: 10, input_tokens: 6, output_tokens: 4, elapsed_ms: 99}, ...attempt}],
 });
 const runOf = (id, overrides = {}) => ({
-  run_id: id, status: 'complete', created_at: 't', benchmark: {benchmark_id: 'b1', name: 'bm'}, harness: {name: 'h', version: '1', dialects: ['responses']}, model: 'm1', endpoint_profile: 'mock', dialects: ['responses'], policy: 'coding', limits, unverified_egress: true, egress_hosts: null,
-  prompt: {source: 'benchmark', text: 'Line one\nLine two\n', renderer_version: 'rush.prompt.v1'}, source: {sha256: SHA, size: 1}, score: {value: 1},
+  run_id: id, status: 'complete', created_at: 't', benchmark: {benchmark_id: 'b1', name: 'bm'}, harness: {name: 'claude'}, model: 'm1', endpoint_profile: 'mock', limits, unverified_egress: true, egress_hosts: null,
+  score: {value: 1},
   case_set: {case_set_id: 'cs@u', name: 'cs', digest: 'dd', plugin: {id: 'p', sha256: 'pkg'}, task_id: 't'},
   cases: [caseOf('a1', 'd-1', 0, 'one'), caseOf('a2', 'd-2', 1, 'two')],
   ...overrides,
@@ -117,9 +116,8 @@ describe('GET /api/benchmark/compare (runs)', () => {
     const {status, payload} = await compareRuns({
       [RA]: runOf(RA),
       [RB]: runOf(RB, {
-        model: 'm2', policy: 'task_tools', unverified_egress: false, limits: {...limits, internet_access: false, memory_mb: 512},
-        prompt: {source: 'benchmark', text: 'Line one\nLine 2\n', renderer_version: 'rush.prompt.v1'},
-        benchmark: {benchmark_id: 'b2', name: 'other'}, harness: {name: 'h', version: '2', dialects: ['responses']},
+        model: 'm2', unverified_egress: false, limits: {...limits, internet_access: false, memory_mb: 512},
+        benchmark: {benchmark_id: 'b2', name: 'other'}, harness: {name: 'nanoagent'},
         case_set: {case_set_id: 'other', name: 'other', digest: 'ee', plugin: {id: 'p', sha256: 'pkg'}, task_id: 't'},
         cases: [caseOf('x9', 'd-2', 0, 'two'), caseOf('x1', 'd-3', 1, 'three', {verdict: 'fail', execution: {status: 'refused', reason: null}})],
       }),
@@ -130,14 +128,11 @@ describe('GET /api/benchmark/compare (runs)', () => {
     assert.deepEqual(payload.only_a.map(c => c.case_id), ['a1']);
     assert.deepEqual(payload.only_b.map(c => [c.case_id, c.outcome, c.verdict]), [['x1', 'refused', 'fail']]);
     assert.deepEqual(payload.differences.sort(), [
-      'benchmark_id', 'case_set_digest', 'case_set_id', 'harness', 'limits.internet_access', 'limits.memory_mb', 'model', 'policy', 'selection',
+      'benchmark_id', 'case_set_digest', 'case_set_id', 'harness', 'limits.internet_access', 'limits.memory_mb', 'model', 'selection',
     ]);
     assert.deepEqual(payload.unverified_egress, {a: true, b: false});
     assert.deepEqual(payload.config.find(entry => entry.field === 'limits.memory_mb'), {field: 'limits.memory_mb', a: 1024, b: 512, differs: true});
-    assert.deepEqual([payload.prompt_diff.a_kind, payload.prompt_diff.b_kind], ['template', 'instructions']);
-    assert.deepEqual(payload.prompt_diff.text, [
-      {type: 'same', text: 'Line one\n'}, {type: 'removed', text: 'Line two\n'}, {type: 'added', text: 'Line 2\n'},
-    ]);
+    assert.deepEqual([payload.a.harness, payload.b.harness], ['claude', 'nanoagent']);
     assert.deepEqual(payload.prompt_diff.rendered.map(r => [r.content_digest, r.identical]), [['d-2', true]]);
     assert.deepEqual(payload.shared[0].a, {
       case_id: 'a2', attempt_id: 'att-a2', outcome: 'answered', execution_reason: null, verdict: 'pass', explanation: null, verifier_error: null,
@@ -147,14 +142,13 @@ describe('GET /api/benchmark/compare (runs)', () => {
     assert.equal(payload.only_a[0].uncertain_cost, true);
   });
 
-  it('diffs the rendered prompt of a shared case when it differs', async () => {
+  it('diffs the prompt of a shared case when it differs', async () => {
     const {payload} = await compareRuns({
       [RA]: runOf(RA),
       [RB]: runOf(RB, {cases: [caseOf('a1', 'd-1', 0, 'one changed'), caseOf('a2', 'd-2', 1, 'two')]}),
     });
     assert.deepEqual(payload.prompt_diff.rendered.map(r => r.identical), [false, true]);
-    assert.deepEqual(payload.prompt_diff.rendered[0].user, [{type: 'removed', text: 'one'}, {type: 'added', text: 'one changed'}]);
-    assert.deepEqual(payload.prompt_diff.rendered[0].system, []);
+    assert.deepEqual(payload.prompt_diff.rendered[0].text, [{type: 'removed', text: 'one'}, {type: 'added', text: 'one changed'}]);
   });
 
   it('refuses runs that do not share a task verifier, with 409 not_same_verifier', async () => {

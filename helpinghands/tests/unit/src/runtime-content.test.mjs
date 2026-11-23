@@ -20,7 +20,7 @@ describe('core runtime workspace routes', () => {
       assert.ok(paths.includes(`/w/:workspaceSlug/${page}`));
     }
     // The shell's sections are one route, Home at the workspace's own path.
-    assert.ok(paths.includes('/w/:workspaceSlug/:section(apps|marketplace|workspace|settings)?'));
+    assert.ok(paths.includes('/w/:workspaceSlug/:section(apps|marketplace|benchmarks|workspace|settings)?'));
     assert.ok(!paths.includes('/w/:workspaceSlug'));
     for (const {path} of SECTIONS.filter(section => section.path)) {
       assert.ok(!paths.includes(`/w/:workspaceSlug/${path}`));
@@ -40,6 +40,7 @@ describe('the shell\'s sections', () => {
     assert.equal(sectionAt('/w/acme')?.id, 'home');
     assert.equal(sectionAt('/w/acme/')?.id, 'home');
     assert.equal(sectionAt('/w/acme/apps')?.id, 'plugins');
+    assert.equal(sectionAt('/w/acme/benchmarks')?.id, 'benchmarks');
     assert.equal(sectionAt('/w/acme/workspace/')?.id, 'workspace');
     assert.equal(sectionAt('/w/acme/tasks'), null);
     assert.equal(sectionAt('/w/acme/documents/intro'), null);
