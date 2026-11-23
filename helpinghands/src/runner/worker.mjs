@@ -229,12 +229,23 @@ export function benchmarkWorker({
       session = readSession();
     }
     let credential;
-    // RUSH restarting or down is waited out; an answer that refuses the credential fails.
+    // RUSH restarting or down is waited out; a session RUSH no longer knows (401: the relay signs in again, as after its database
+    // changed) is waited out until the relay holds a new one; any other refusal fails.
     for (let wait = RETRY_FIRST_MS; !credential; wait = Math.min(wait * 2, RETRY_MAX_MS)) {
       try {
         credential = await mint({site, token: session, name: credentialName});
       } catch (error) {
         if (mine !== generation) return;
+        if (error.status === 401) {
+          mark('proofs', 'running', `${site} does not know RUSH Lab's sign-in; the worker starts once RUSH Lab has signed in again.`);
+          while (readSession() === session) {
+            await sleep(1000);
+            if (mine !== generation) return;
+          }
+          session = readSession();
+          wait = RETRY_FIRST_MS / 2;
+          continue;
+        }
         if (!rushDown(error)) {
           mark('proofs', 'fail', `Could not get a worker credential from ${site}: ${error.message}`, 'Check that RUSH is reachable, then press Re-check.');
           return;
