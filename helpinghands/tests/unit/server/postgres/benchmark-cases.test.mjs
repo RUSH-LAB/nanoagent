@@ -157,7 +157,8 @@ describe('benchmark cases with prompts and fixtures', () => {
       id: 't', kind: 'agent', description: 'Sum', input_schema: {type: 'object'}, output_schema: {type: 'object'}, plugin_name: 'P', tools: [], egress_hosts: [],
     });
     assert.deepEqual(job.run.harness, 'claude');
-    assert.deepEqual(Object.keys(job.run).sort(), ['endpoint_profile', 'harness', 'interactive', 'limits', 'model', 'prompt_bound', 'run_id']);
+    assert.deepEqual(Object.keys(job.run).sort(), ['endpoint_profile', 'harness', 'interactive', 'limits', 'model', 'prompt_bound', 'providers', 'run_id']);
+    assert.deepEqual(job.run.providers, ['deepinfra', 'nebius']);  // the benchmark's pinned providers, in order
     assert.equal(job.free_form, false);
   });
 

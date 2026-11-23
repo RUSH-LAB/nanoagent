@@ -119,6 +119,7 @@ async def test_answered_attempt_runs_the_whole_lifecycle_and_finalizes_once(tmp_
     assert rig.rush.span_bodies and rig.relay.handle.closed and rig.supervisor.case.closed
     assert rig.rush.of("attempt.started")[0]["expected_sources"] == ["worker", "gateway", "process"]
     assert not rig.rush.events_after_loss and rig.rush.sealed
+    assert rig.services[0].attempt.policy.provider == {"order": ["mock-provider"]}  # the run's pinned providers reach the gateway
 
 
 async def test_request_points_the_guest_at_the_relay(tmp_path: Path) -> None:

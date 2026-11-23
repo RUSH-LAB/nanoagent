@@ -35,6 +35,7 @@ Benchmarks are the exception: they belong to no workspace, and every signed-in m
 | `BENCHMARK_SWEEP_SECONDS` | `15` | How often the server expires leases and settles reservations past their deadline, without waiting for a claim. |
 | `BENCHMARK_PUBLISH_MAX_BYTES` | `134217728` | Largest benchmark publication (`POST /api/benchmark/benchmarks`), whose cases carry their fixtures archives. |
 | `BENCHMARK_PAYLOAD_MAX_BYTES` | `16777216` | Largest payload. |
+| `RUSH_BENCHMARK_PROVIDERS` | `deepinfra,nebius` | The model's providers every new benchmark is pinned to, in order (OpenRouter provider slugs, comma-separated; none is a startup error). |
 
 JSON bodies may be 10 MiB, but a benchmark publication.
 
@@ -61,7 +62,7 @@ What a benchmark publication starts from: the defaults its `limits` overrides si
 
 ## Benchmarks
 
-A **benchmark** is a case set plus a pinned run configuration (model, endpoint, limits including `internet_access`). The endpoint is always `openrouter` and the model always `deepseek/deepseek-v4-flash-0731`: the server pins both on every benchmark from one constant in its configuration (`RUSH_BENCHMARK_ENDPOINT` and `RUSH_BENCHMARK_MODEL` override it, as the acceptance stack points them at its mock upstream), and a publication (direct or pinned) that carries `model` or `endpoint_profile` is `400 invalid_request`. It belongs to one plugin version, is immutable once published, and is named: the name is unique per `(plugin_id, plugin_version, name)`. A run takes everything but the harness (and the cases it picks) from the benchmark. The case set under a benchmark is an implementation detail (`case_set_id` is an opaque string) that the server creates or reuses on publish.
+A **benchmark** is a case set plus a pinned run configuration (model, endpoint, limits including `internet_access`). The endpoint is always `openrouter` and the model always `deepseek/deepseek-v4-flash-0731`: the server pins both on every benchmark from one constant in its configuration (`RUSH_BENCHMARK_ENDPOINT` and `RUSH_BENCHMARK_MODEL` override it, as the acceptance stack points them at its mock upstream), and a publication (direct or pinned) that carries `model`, `endpoint_profile` or `providers` is `400 invalid_request`. It is also pinned to the model's `providers`, in order (`RUSH_BENCHMARK_PROVIDERS`): every model call of its runs goes to the first of them that serves it and to no other provider (OpenRouter's `provider.order` with `allow_fallbacks: false`), so its runs never land on whatever provider OpenRouter defaults to that day. It belongs to one plugin version, is immutable once published, and is named: the name is unique per `(plugin_id, plugin_version, name)`. A run takes everything but the harness (and the cases it picks) from the benchmark. The case set under a benchmark is an implementation detail (`case_set_id` is an opaque string) that the server creates or reuses on publish.
 
 A **benchmark summary**:
 
@@ -70,7 +71,7 @@ A **benchmark summary**:
  "plugin": {"id": "classroom", "name": "Classroom", "version": "0.1.0", "sha256": "<package digest>"},
  "task_id": "sum", "task_kind": "agent", "publisher": {"id": "u1", "name": "Una", "github": "una"},
  "case_set_id": "…", "case_set_digest": "…", "digest": "…",
- "model": "vendor/model", "endpoint_profile": "label",
+ "model": "vendor/model", "endpoint_profile": "label", "providers": ["deepinfra", "nebius"],
  "limits": {"wall_time_ms": 600000, "…": 0, "internet_access": true},
  "published_at": "…", "case_count": 4, "answer_count": 2, "refuse_count": 2}
 ```
@@ -375,7 +376,7 @@ Job (`200`):
 ```json
 {
   "kind": "attempt", "attempt_id": "…", "attempt_no": 1, "fence": 1, "lease_expires_at": "…", "lease_seconds": 60,
-  "run": {"run_id": "…", "harness": "claude", "model": "…", "endpoint_profile": "…",
+  "run": {"run_id": "…", "harness": "claude", "model": "…", "providers": ["deepinfra", "nebius"], "endpoint_profile": "…",
           "limits": {"wall_time_ms": 600000, "…": 0, "internet_access": true}, "interactive": false, "prompt_bound": true},
   "plugin": {"id": "…", "name": "…", "version": "…", "sha256": "…"},
   "task": {"id": "sum", "kind": "agent|decide|tool", "description": "…", "input_schema": {}, "output_schema": {}, "plugin_name": "…",

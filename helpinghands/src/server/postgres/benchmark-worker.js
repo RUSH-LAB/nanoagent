@@ -100,7 +100,7 @@ function createPostgresBenchmarkWorker({pool, config}) {
         kind: 'attempt', attempt_id: attempt.attempt_id, attempt_no: attempt.attempt_no, fence: attempt.fence, lease_expires_at: attempt.lease_expires_at,
         lease_seconds: Number(config.leaseSeconds),
         run: {
-          run_id: run.run_id, harness: run.harness_name, model: run.model, endpoint_profile: run.endpoint_label, limits: run.limits, interactive: run.interactive,
+          run_id: run.run_id, harness: run.harness_name, model: run.model, providers: run.providers, endpoint_profile: run.endpoint_label, limits: run.limits, interactive: run.interactive,
           // The gateway holds a run to its case's prompt (the first call carries it) but for a session of the Terminal, whose agent is
           // anything a member runs and phrases its own calls.
           prompt_bound: !(run.session && run.harness_name === 'shell'),

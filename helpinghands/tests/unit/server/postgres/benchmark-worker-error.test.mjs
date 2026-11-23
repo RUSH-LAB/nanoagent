@@ -131,8 +131,8 @@ describe('a worker error on a benchmark case', () => {
     const last = '00000000-0000-4000-8000-0000000000d1';
     await db.exec(`
       insert into benchmark_run (run_id, workspace_id, user_id, idempotency_key, request_digest, model, endpoint_label, limits, benchmark_id, benchmark_name,
-          harness_name, publisher, plugin_id)
-        values ('${last}', 'lab', 'alice', 'd', '${sha256('d')}', 'm', 'openrouter', '{}', '${last}', 'b', 'claude', '{}', 'p');
+          harness_name, publisher, plugin_id, providers)
+        values ('${last}', 'lab', 'alice', 'd', '${sha256('d')}', 'm', 'openrouter', '{}', '${last}', 'b', 'claude', '{}', 'p', '{deepinfra}');
       insert into benchmark_run_case (run_id, case_id, position, kind, prompt, prompt_sha256, arguments, content_digest)
         values ('${last}', 'c1', 0, 'answer', 'x', '${sha256('x')}', '{}', '${sha256('d')}');
       insert into benchmark_attempt (attempt_id, run_id, case_id, attempt_no, state, execution_status, finalized_at, sealed)
@@ -149,8 +149,8 @@ describe('a worker error on a benchmark case', () => {
     const reran = '00000000-0000-4000-8000-0000000000e1';
     await db.exec(`
       insert into benchmark_run (run_id, workspace_id, user_id, idempotency_key, request_digest, model, endpoint_label, limits, benchmark_id, benchmark_name,
-          harness_name, publisher, plugin_id)
-        values ('${reran}', 'lab', 'alice', 'e', '${sha256('e')}', 'm', 'openrouter', '{}', '${reran}', 'b', 'claude', '{}', 'p');
+          harness_name, publisher, plugin_id, providers)
+        values ('${reran}', 'lab', 'alice', 'e', '${sha256('e')}', 'm', 'openrouter', '{}', '${reran}', 'b', 'claude', '{}', 'p', '{deepinfra}');
       insert into benchmark_run_case (run_id, case_id, position, kind, prompt, prompt_sha256, arguments, content_digest)
         values ('${reran}', 'c1', 0, 'answer', 'x', '${sha256('x')}', '{}', '${sha256('e')}');
       insert into benchmark_attempt (attempt_id, run_id, case_id, attempt_no, state, execution_status, verdict, finalized_at, sealed)
@@ -176,8 +176,8 @@ describe('a worker error on a benchmark case', () => {
   it('does not retry a free-form session, whose lease expiry stays interrupted', async () => {
     await db.exec(`
       insert into benchmark_run (run_id, workspace_id, user_id, idempotency_key, request_digest, model, endpoint_label,
-          limits, benchmark_id, benchmark_name, harness_name, publisher, plugin_id, session, interactive)
-        values ('${FREE_RUN}', 'lab', 'alice', 'free', '${sha256('free')}', 'm', 'openrouter', '{}', '${FREE_RUN}', 'harness-session', 'shell', '{}', 'p', true, true);
+          limits, benchmark_id, benchmark_name, harness_name, publisher, plugin_id, providers, session, interactive)
+        values ('${FREE_RUN}', 'lab', 'alice', 'free', '${sha256('free')}', 'm', 'openrouter', '{}', '${FREE_RUN}', 'harness-session', 'shell', '{}', 'p', '{deepinfra}', true, true);
       insert into benchmark_attempt (attempt_id, run_id, case_id, attempt_no, state, fence, worker_id, lease_expires_at)
         values ('${FREE_ATTEMPT}', '${FREE_RUN}', null, 1, 'leased', 1, 'w1', now() - interval '1 second');`);
     await repository.listRuns(as('alice'), {limit: 10, before: null});
@@ -189,8 +189,8 @@ describe('a worker error on a benchmark case', () => {
     const canceled = '00000000-0000-4000-8000-0000000000c1';
     await db.exec(`
       insert into benchmark_run (run_id, workspace_id, user_id, idempotency_key, request_digest, model, endpoint_label, limits, benchmark_id, benchmark_name,
-          harness_name, publisher, plugin_id, canceled_at)
-        values ('${canceled}', 'lab', 'alice', 'c', '${sha256('c')}', 'm', 'openrouter', '{}', '${canceled}', 'b', 'claude', '{}', 'p', now());
+          harness_name, publisher, plugin_id, providers, canceled_at)
+        values ('${canceled}', 'lab', 'alice', 'c', '${sha256('c')}', 'm', 'openrouter', '{}', '${canceled}', 'b', 'claude', '{}', 'p', '{deepinfra}', now());
       insert into benchmark_run_case (run_id, case_id, position, kind, prompt, prompt_sha256, arguments, content_digest)
         values ('${canceled}', 'c1', 0, 'answer', 'x', '${sha256('x')}', '{}', '${sha256('d')}');
       insert into benchmark_attempt (attempt_id, run_id, case_id, attempt_no, state, fence, worker_id, lease_expires_at)
