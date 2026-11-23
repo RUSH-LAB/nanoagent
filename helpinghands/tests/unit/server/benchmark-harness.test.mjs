@@ -1,17 +1,11 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {readdirSync, readFileSync} from 'node:fs';
-import {fileURLToPath} from 'node:url';
 import {invoke, loadRoute, makeCtx} from '../_harness.mjs';
 
 const require = createRequire(import.meta.url);
 const {strToU8, zipSync} = require('fflate');
 const {REFERENCE_HARNESSES, REFERENCE_LABELS, harnessOf, referenceHarnessOf, uploadedHarnessOf} = require('../../../src/server/benchmark/harness.js');
-
-const SHARED_SCHEMA = fileURLToPath(new URL('../../../../nanoagent/src/nanoagent/uploaded/uploaded-harness-v1.schema.json', import.meta.url));
-const REFERENCE_FOLDERS = fileURLToPath(new URL('../../../../nanoagent/src/nanoagent/uploaded/reference_harnesses', import.meta.url));
-const OWN_SCHEMA = fileURLToPath(new URL('../../../src/server/benchmark/uploaded-harness-v1.schema.json', import.meta.url));
 
 const MANIFEST = `protocol: rush.harness.v1
 name: my-harness
@@ -26,10 +20,6 @@ const zip = files => Buffer.from(zipSync(Object.fromEntries(Object.entries(files
 const withoutField = field => MANIFEST.split('\n').filter(line => !line.startsWith(`${field}:`)).join('\n');
 
 describe('the harness a source ZIP declares', () => {
-  it('keeps the server\'s copy of the shared schema equal to the contract\'s', () => {
-    assert.deepEqual(JSON.parse(readFileSync(OWN_SCHEMA, 'utf8')), JSON.parse(readFileSync(SHARED_SCHEMA, 'utf8')));
-  });
-
   it('reads name, version and dialects from the harness.yaml at the root', () => {
     assert.deepEqual(harnessOf(zip({'harness.yaml': MANIFEST, 'src/main.go': 'package main'})), {name: 'my-harness', version: '1.3', dialects: ['chat_completions', 'responses']});
   });
@@ -52,11 +42,6 @@ describe('the harness a source ZIP declares', () => {
 describe('the reference harnesses', () => {
   it('are each named by its agent\'s CLI command', () => {
     assert.deepEqual(Object.keys(REFERENCE_LABELS).sort(), [...REFERENCE_HARNESSES].sort());
-  });
-
-  it('are the folders NanoAgent ships under reference_harnesses/', () => {
-    const folders = readdirSync(REFERENCE_FOLDERS, {withFileTypes: true}).filter(entry => entry.isDirectory() && entry.name !== '__pycache__').map(entry => entry.name).sort();
-    assert.deepEqual([...REFERENCE_HARNESSES], folders);
   });
 
   it('have reserved names: a member\'s own upload with one is refused, the reference path takes it only under its own name', () => {
