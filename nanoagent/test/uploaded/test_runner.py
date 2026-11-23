@@ -30,7 +30,7 @@ from nanoagent.uploaded.collector import ProcessEvent, ProcessEventKind, Process
 from nanoagent.uploaded.rush_worker import LeaseLost, RushError, RushUnavailable
 from nanoagent.uploaded.clis import CLIS
 from nanoagent.uploaded.reference import FOLDER
-from nanoagent.uploaded.runner import EXEC_THREADS, AttemptRunner, CaseCommands, RunnerConfig, default_project
+from nanoagent.uploaded.runner import EXEC_THREADS, AttemptRunner, CaseCommands, RunnerConfig, default_project, provider_unavailable
 from nanoagent.uploaded.sandbox import CLIS_DIR, BuildArtifact, SandboxError, Termination, TerminationKind
 from nanoagent.uploaded.toolchains import DependencyClosure
 from nanoagent.uploaded.worker import runner_config  # noqa: F401  (imported so the worker module stays importable)
@@ -1371,3 +1371,11 @@ async def test_a_cases_cli_that_fails_to_install_is_a_worker_error_not_a_failed_
     result = await rig.run()
     assert result.outcome == "worker_error" and "download_failed" in result.execution["error"]
     assert not rig.supervisor.specs and rig.verified == []  # no VM was made and nothing was scored
+
+
+def test_an_attempt_whose_every_model_call_the_provider_failed_is_the_providers_not_the_harnesses() -> None:
+    assert provider_unavailable([429, 429, 503]) == "the model provider failed all 3 model calls (429, 503); the case is run again"
+    assert provider_unavailable([0]) == "the model provider failed all 1 model calls (no answer); the case is run again"
+    assert provider_unavailable([429, 200]) is None  # one answer reached the harness: its exit is its own
+    assert provider_unavailable([400]) is None  # a request the provider refused is the harness's
+    assert provider_unavailable([]) is None  # no call made: nothing to blame on the provider
