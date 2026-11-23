@@ -3,7 +3,7 @@ import {useHistory, useLocation} from '@docusaurus/router';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import market from '@site/src/pages/marketplace/styles.module.css';
 import {jsonPost} from '../PluginFrame/host.js';
-import {benchmarkJson, runnerNotice} from './api';
+import {archiveRun, benchmarkJson, runnerNotice} from './api';
 import {CaseList} from './Choice';
 import {useBenchmarkPlugins} from './PluginCards';
 import {RunResult, metric} from './MyBenchmarksView';
@@ -115,24 +115,40 @@ function RunPanel({benchmark, onQueued}) {
   );
 }
 
-/** The member's runs of this benchmark, newest first, followed while any is still running. */
-function BenchmarkRuns({runs, link}) {
+/** The member's runs of this benchmark, newest first; archived ones are hidden until shown. Each opens its detail, and can be archived. */
+function BenchmarkRuns({runs, link, reload}) {
   const history = useHistory();
+  const [showArchived, setShowArchived] = useState(false);
+  const [error, setError] = useState(null);
   if (!runs) return <p className={styles.hint}>Reading your runs…</p>;
-  if (!runs.length) return <p className={styles.empty}>No runs yet. Pick agents above and press Run.</p>;
+  const archivedCount = runs.filter(run => run.archived).length;
+  const shown = runs.filter(run => showArchived || !run.archived);
+  const toggle = async run => {
+    try { await archiveRun(run.run_id, !run.archived); setError(null); await reload(); } catch (failure) { setError(failure.message); }
+  };
   return (
-    <div className={styles.list}>
-      {runs.map(run => (
-        <button type="button" key={run.run_id} className={styles.runRow} onClick={() => history.push(link({view: 'runs', run: run.run_id}))}>
-          <span className={styles.runAgent}>{harnessLabel(run.harness.name)}</span>
-          <RunResult run={run} />
-          <span className={styles.runMeta}>{metric(run.metrics, 'elapsed_ms', true)}</span>
-          <span className={styles.runMeta}>{metric(run.metrics, 'input_tokens')} in · {metric(run.metrics, 'output_tokens')} out</span>
-          <span className={styles.runMeta}>{new Date(run.created_at).toLocaleString([], {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'})}</span>
-          <span className={styles.chevron} aria-hidden="true">›</span>
-        </button>
-      ))}
-    </div>
+    <>
+      {archivedCount > 0 && <button type="button" className={styles.toggleArchived} onClick={() => setShowArchived(!showArchived)}>
+        {showArchived ? 'Hide archived' : `Show archived (${archivedCount})`}
+      </button>}
+      {error && <div className={market.error} role="alert">{error}</div>}
+      {!shown.length ? <p className={styles.empty}>{runs.length ? 'Every run here is archived.' : 'No runs yet. Pick agents above and press Run.'}</p> : (
+        <div className={styles.list}>
+          {shown.map(run => (
+            <div key={run.run_id} className={styles.runRow} data-archived={run.archived || undefined}>
+              <button type="button" className={styles.runOpen} onClick={() => history.push(link({view: 'runs', run: run.run_id}))}>
+                <span className={styles.runAgent}>{harnessLabel(run.harness.name)}</span>
+                <RunResult run={run} />
+                <span className={styles.runMeta}>{metric(run.metrics, 'elapsed_ms', true)}</span>
+                <span className={styles.runMeta}>{metric(run.metrics, 'input_tokens')} in · {metric(run.metrics, 'output_tokens')} out</span>
+                <span className={styles.runMeta}>{new Date(run.created_at).toLocaleString([], {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'})}</span>
+              </button>
+              <button type="button" className={styles.archive} onClick={() => toggle(run)}>{run.archived ? 'Unarchive' : 'Archive'}</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -164,7 +180,7 @@ function BenchmarkPage({benchmarkId, plugins, onBack}) {
       <RunPanel benchmark={benchmark} onQueued={runs.reload} />
       <section className={styles.section}>
         <h2>Your runs</h2>
-        {runs.error ? <div className={market.error}>{runs.error}</div> : <BenchmarkRuns runs={mine} link={link} />}
+        {runs.error ? <div className={market.error}>{runs.error}</div> : <BenchmarkRuns runs={mine} link={link} reload={runs.reload} />}
       </section>
       <details className={styles.cases}>
         <summary><h2>Cases <span className={styles.count}>{benchmark.cases.length}</span></h2></summary>
