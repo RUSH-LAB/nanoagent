@@ -52,6 +52,13 @@ const TERMINAL_LIMITS = Object.freeze({
  */
 const RUN_ENDPOINT = process.env.RUSH_BENCHMARK_ENDPOINT || 'openrouter';
 const RUN_MODEL = process.env.RUSH_BENCHMARK_MODEL || 'deepseek/deepseek-v4-flash-0731';
+/**
+ * The model's providers every benchmark is pinned to, in order: its model calls go to the first that can serve them and to no other
+ * (OpenRouter's `provider.order` without fallbacks). Named, not left to OpenRouter's default, so one overloaded default does not fail
+ * every case and a benchmark's runs all reach the same providers.
+ */
+const RUN_PROVIDERS = (process.env.RUSH_BENCHMARK_PROVIDERS ?? 'deepinfra,nebius').split(',').map(name => name.trim()).filter(Boolean);
+if (!RUN_PROVIDERS.length) throw new Error('RUSH_BENCHMARK_PROVIDERS names no provider: name the model\'s providers, in order, separated by commas');
 
 /** How long a worker's advertised capabilities stand: an endpoint label with no claim within this window has no worker available. */
 const CAPABILITY_WINDOW_S = 300;
@@ -154,6 +161,6 @@ function positiveSetting(name, fallback) {
 const MAX_PUBLISH_BYTES = positiveSetting('BENCHMARK_PUBLISH_MAX_BYTES', 128 * 1024 * 1024);
 
 module.exports = {
-  RUN_ENDPOINT, RUN_MODEL, CAPABILITY_WINDOW_S, MAX_PUBLISH_BYTES, MEMBER_STORAGE_BYTES, MAX_EVENT_DATA_BYTES, MAX_SPAN_ATTRIBUTES_BYTES, MAX_LINK_ATTRIBUTES_BYTES, MAX_ACCOUNTING_RECORD_BYTES,
+  RUN_ENDPOINT, RUN_MODEL, RUN_PROVIDERS, CAPABILITY_WINDOW_S, MAX_PUBLISH_BYTES, MEMBER_STORAGE_BYTES, MAX_EVENT_DATA_BYTES, MAX_SPAN_ATTRIBUTES_BYTES, MAX_LINK_ATTRIBUTES_BYTES, MAX_ACCOUNTING_RECORD_BYTES,
   MAX_RESULT_BYTES, MAX_MODEL_CALLS, MAX_ATTEMPTS_PER_CASE, MAX_WORKER_ATTEMPTS, MAX_ATTEMPT_EVENTS, MAX_ATTEMPT_SPANS, MAX_ATTEMPT_LINKS, MAX_ATTEMPT_TERMINAL_BYTES, MAX_TERMINAL_CHUNK_BYTES, MAX_TERMINALS, MAX_ACCOUNTING_VERSION, MAX_EVENT_PAGE_BYTES, MAX_TRACE_PAGE_BYTES, SETTLE_RESERVE_FACTOR, MAX_USD,
   MAX_INTEGER, MAX_BIGINT, DEFAULT_LIMITS, TERMINAL_LIMITS, LIMIT_FIELDS, limitOverrides, effectiveLimits, capabilitiesOf, exceeded, positiveSetting};

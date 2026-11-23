@@ -35,14 +35,14 @@ try {
   const [benchmarkOld, benchmarkNew, runOld, runNew, previewOld, previewNew] = [uuid(), uuid(), uuid(), uuid(), uuid(), uuid()];
   for (const [id, limits] of [[benchmarkOld, withConcurrency], [benchmarkNew, kept]]) {
     await client.query(
-      `insert into benchmark (benchmark_id, name, plugin_id, plugin_version, case_set_id, model, endpoint_label, limits, digest, publisher_id)
-       values ($1, $2, 'p', '1', 'c', 'm', 'e', $3, $4, 'u')`, [id, `n-${id}`, JSON.stringify(limits), hex()]);
+      `insert into benchmark (benchmark_id, name, plugin_id, plugin_version, case_set_id, model, endpoint_label, limits, digest, publisher_id, providers)
+       values ($1, $2, 'p', '1', 'c', 'm', 'e', $3, $4, 'u', '{deepinfra}')`, [id, `n-${id}`, JSON.stringify(limits), hex()]);
   }
   for (const [id, limits] of [[runOld, withConcurrency], [runNew, kept]]) {
     await client.query(
       `insert into benchmark_run (run_id, workspace_id, user_id, idempotency_key, request_digest, model, endpoint_label, limits, benchmark_id, benchmark_name, harness_name,
-         publisher, plugin_id)
-       values ($1, 'w', 'u', $4, $2, 'm', 'e', $3, $1, 'b', 'claude', '{}', 'p')`,
+         publisher, plugin_id, providers)
+       values ($1, 'w', 'u', $4, $2, 'm', 'e', $3, $1, 'b', 'claude', '{}', 'p', '{deepinfra}')`,
       [id, hex(), JSON.stringify(limits), `key-${id}`]);
   }
   for (const [id, plan] of [[previewOld, {limits: withConcurrency, model: 'm'}], [previewNew, {limits: kept, model: 'm'}]]) {

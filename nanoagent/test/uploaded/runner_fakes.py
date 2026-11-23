@@ -55,7 +55,7 @@ def job_body(limits: dict[str, Any] | None = None, tools: list[dict[str, Any]] |
         "kind": "attempt", "attempt_id": ATTEMPT_ID, "attempt_no": 1, "fence": 1, "lease_expires_at": "later", "lease_seconds": 60,
         "run": {
             "run_id": "r", "harness": harness, "model": "test/model", "endpoint_profile": "mock", "limits": {**LIMITS, **(limits or {})},
-            "interactive": False, "prompt_bound": True,
+            "interactive": False, "prompt_bound": True, "providers": ["mock-provider"],
         },
         "task": {
             "id": "probe", "kind": "agent", "description": "Wait, then digest a token", "input_schema": {"type": "object"}, "output_schema": {"type": "object"},

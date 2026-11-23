@@ -45,8 +45,8 @@ describe('a plugin page\'s Dashboard, two members in one workspace', () => {
     // Alice's Terminal session on plugin `p`: bash, and in it `rush aider`, which made a model call.
     await db.exec(`
       insert into benchmark_run (run_id, workspace_id, user_id, idempotency_key, request_digest, model, endpoint_label,
-          limits, benchmark_id, benchmark_name, harness_name, publisher, plugin_id, session, interactive)
-        values ('${RUN}', 'lab', 'alice', 'k', '${SHA}', 'm', 'openrouter', '{}', '${RUN}', 'harness-session', 'shell', '{}', 'p', true, true);
+          limits, benchmark_id, benchmark_name, harness_name, publisher, plugin_id, providers, session, interactive)
+        values ('${RUN}', 'lab', 'alice', 'k', '${SHA}', 'm', 'openrouter', '{}', '${RUN}', 'harness-session', 'shell', '{}', 'p', '{deepinfra}', true, true);
       insert into benchmark_attempt (attempt_id, run_id, case_id, attempt_no, state, execution_status, finalized_at, chats)
         values ('${ATTEMPT}', '${RUN}', null, 1, 'final', 'ended', now(), '[]');
       insert into benchmark_span (attempt_id, span_id, kind, name, parent_id, start_ns, end_ns, attributes) values

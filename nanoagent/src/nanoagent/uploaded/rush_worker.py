@@ -153,7 +153,7 @@ class ResumeOf:
 @dataclass(frozen=True)
 class AttemptJob:
     """One claimed attempt. ``run`` holds ``harness`` (an agent name or ``rush <command>``), the model, ``interactive``,
-    ``prompt_bound`` and the effective ``limits``; ``task`` is ``{id, kind, description, input_schema, output_schema, plugin_name,
+    ``prompt_bound``, ``providers`` (the model's providers, in order) and the effective ``limits``; ``task`` is ``{id, kind, description, input_schema, output_schema, plugin_name,
     tools, egress_hosts}``; ``case`` is ``{case_id, kind, prompt, prompt_sha256, arguments, fixtures, expected_error}`` with
     ``fixtures`` None or ``{sha256, files}`` (the archive is fetched by :meth:`RushWorkerClient.fixtures`); ``plugin`` is
     ``{id, name, version, sha256}``. ``free_form`` is a Terminal session someone is at, which has no case at all: they run any agent and

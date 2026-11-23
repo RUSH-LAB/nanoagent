@@ -5,7 +5,7 @@ const {isLosslessNumber, stringifyJson} = require('./json');
 const {canonicalJson, sha256Hex} = require('./prompt');
 const {checkHarness} = require('./harness');
 const {
-  RUN_ENDPOINT, RUN_MODEL, effectiveLimits, limitOverrides, capabilitiesOf, MAX_EVENT_DATA_BYTES, MAX_SPAN_ATTRIBUTES_BYTES, MAX_LINK_ATTRIBUTES_BYTES, MAX_ACCOUNTING_RECORD_BYTES,
+  RUN_ENDPOINT, RUN_MODEL, RUN_PROVIDERS, effectiveLimits, limitOverrides, capabilitiesOf, MAX_EVENT_DATA_BYTES, MAX_SPAN_ATTRIBUTES_BYTES, MAX_LINK_ATTRIBUTES_BYTES, MAX_ACCOUNTING_RECORD_BYTES,
   MAX_RESULT_BYTES, MAX_ACCOUNTING_VERSION, MAX_USD, MAX_INTEGER, MAX_ATTEMPT_TERMINAL_BYTES, MAX_TERMINAL_CHUNK_BYTES, MAX_TERMINALS,
 } = require('./limits');
 const {UUID} = require('./http');
@@ -190,8 +190,8 @@ function pinnedCase(c, reference) {
 
 /** The fields the previous publication shape had, which a publication may no longer carry. */
 const REMOVED_FIELDS = ['context', 'coding_template', 'task_instructions'];
-/** The run configuration the server pins on every benchmark (RUN_ENDPOINT, RUN_MODEL): a request may not name it. */
-const PINNED_FIELDS = ['model', 'endpoint_profile'];
+/** The run configuration the server pins on every benchmark (RUN_ENDPOINT, RUN_MODEL, RUN_PROVIDERS): a request may not name it. */
+const PINNED_FIELDS = ['model', 'endpoint_profile', 'providers'];
 const noPinnedFields = body => {
   const field = PINNED_FIELDS.find(name => body[name] !== undefined);
   if (field) throw bad('invalid_request', `${field} is not a field of a publication: every benchmark runs on ${RUN_MODEL} through ${RUN_ENDPOINT}`);
@@ -241,7 +241,7 @@ function publicationFrame(body) {
   return {
     name, plugin_id: string(body.plugin_id, 'plugin_id'), plugin_name: string(body.plugin_name, 'plugin_name'), version: string(body.version, 'version', {max: 64}),
     package_sha256: sha256(body.package_sha256, 'package_sha256'), task_id: string(body.task_id, 'task_id'), task,
-    model: RUN_MODEL, endpoint_profile: RUN_ENDPOINT,
+    model: RUN_MODEL, endpoint_profile: RUN_ENDPOINT, providers: RUN_PROVIDERS,
     // The body is read with every number's spelling kept; a limit is a plain number.
     limits: effectiveLimits(limitOverrides(body.limits === undefined ? undefined : JSON.parse(stringifyJson(body.limits)))),
   };

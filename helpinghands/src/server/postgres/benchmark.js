@@ -92,10 +92,10 @@ function createPostgresBenchmark({pool}) {
     plugin: {id: row.plugin_id, name: row.plugin_name, version: row.plugin_version, sha256: row.package_sha256},
     task_id: row.task_id, task_kind: row.task.kind, publisher: {id: row.publisher_id, name: row.publisher_name, github: row.publisher_github},
     case_set_id: row.case_set_id, case_set_digest: row.case_set_digest, digest: row.digest,
-    model: row.model, endpoint_profile: row.endpoint_label, limits: row.limits, published_at: row.published_at,
+    model: row.model, endpoint_profile: row.endpoint_label, providers: row.providers, limits: row.limits, published_at: row.published_at,
     case_count: Number(row.case_count), answer_count: Number(row.answer_count), refuse_count: Number(row.refuse_count),
   });
-  const BENCHMARK_SELECT = `select b.benchmark_id, b.name, b.plugin_id, b.plugin_version, b.model, b.endpoint_label, b.limits,
+  const BENCHMARK_SELECT = `select b.benchmark_id, b.name, b.plugin_id, b.plugin_version, b.model, b.endpoint_label, b.providers, b.limits,
     b.digest, b.published_at, b.publisher_id, u.display_name as publisher_name, u.github_login as publisher_github,
     s.case_set_id, s.plugin_name, s.package_sha256, s.task_id, s.task, s.digest as case_set_digest,
     (select count(*) from benchmark_case_set_case c where c.case_set_id = s.case_set_id) as case_count,
@@ -116,7 +116,7 @@ function createPostgresBenchmark({pool}) {
     return {
       run_id: runId, status: runStatus(row, attempts), created_at: row.created_at, canceled_at: row.canceled_at,
       benchmark: {benchmark_id: row.benchmark_id, name: row.benchmark_name}, harness: {name: row.harness_name},
-      model: row.model, endpoint_profile: row.endpoint_label,
+      model: row.model, endpoint_profile: row.endpoint_label, providers: row.providers,
       limits: row.limits, egress_hosts: row.task?.egress_hosts ?? null, unverified_egress: row.limits.internet_access === true,
       case_set: {
         case_set_id: row.case_set_id, name: row.benchmark_name, digest: row.case_set_digest, publisher: row.publisher,
@@ -217,10 +217,10 @@ function createPostgresBenchmark({pool}) {
         const caseSetId = await keepCaseSet(client, userId, benchmark);
         const benchmarkId = crypto.randomUUID();
         const inserted = await client.query(
-          `insert into benchmark (benchmark_id, name, plugin_id, plugin_version, case_set_id, model, endpoint_label, limits, digest, publisher_id)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) on conflict (plugin_id, plugin_version, name) do nothing`,
+          `insert into benchmark (benchmark_id, name, plugin_id, plugin_version, case_set_id, model, endpoint_label, limits, digest, publisher_id, providers)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) on conflict (plugin_id, plugin_version, name) do nothing`,
           [benchmarkId, benchmark.name, benchmark.plugin_id, benchmark.version, caseSetId, benchmark.model, benchmark.endpoint_profile, JSON.stringify(benchmark.limits),
-            benchmark.digest, userId],
+            benchmark.digest, userId, benchmark.providers],
         );
         if (inserted.rowCount) return {created: true, benchmark_id: benchmarkId};
         const existing = (await client.query(
@@ -307,14 +307,14 @@ function createPostgresBenchmark({pool}) {
           `insert into benchmark_run (run_id, workspace_id, user_id, idempotency_key, request_digest,
              model, endpoint_label, limits,
              benchmark_id, benchmark_name, harness_name, case_set_id, case_set_digest, publisher,
-             plugin_id, plugin_name, version, package_sha256, task_id, task, session, interactive, resumed_from, start_cli, resume_chat)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+             plugin_id, plugin_name, version, package_sha256, task_id, task, session, interactive, resumed_from, start_cli, resume_chat, providers)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
            on conflict (workspace_id, user_id, idempotency_key) do nothing returning run_id`,
           [runId, context.workspaceId, context.userId, request.idempotency_key, request.request_digest,
             benchmark.model, benchmark.endpoint_profile, JSON.stringify(limits),
             benchmark.benchmark_id, benchmark.name, request.harness, benchmark.case_set_id, benchmark.case_set_digest, JSON.stringify(benchmark.publisher),
             benchmark.plugin.id, benchmark.plugin.name, benchmark.plugin.version, benchmark.plugin.sha256, benchmark.task_id, free ? null : stringifyJson(benchmark.task),
-            session, interactive, resumedFrom, startCli, resumeChat === null ? null : JSON.stringify(resumeChat)],
+            session, interactive, resumedFrom, startCli, resumeChat === null ? null : JSON.stringify(resumeChat), benchmark.providers],
         )).rows[0];
         if (!inserted) {
           const existing = (await client.query(
