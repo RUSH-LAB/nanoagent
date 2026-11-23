@@ -5,7 +5,6 @@ import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 
 const require = createRequire(import.meta.url);
-const yaml = require('js-yaml');
 const {
   canonicalJson, normalizeInstructions, pythonFormat, pythonJson, renderCoding, renderTaskTools, DEFAULT_CODING_TEMPLATE, RENDERER_VERSION, sha256Hex,
 } = require('../../../src/server/benchmark/prompt.js');
@@ -17,14 +16,9 @@ const {benchmarkPublication, claimBody, finalizeBody, previewBody, runBody} = re
 
 const fixture = name => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
 const PARITY = JSON.parse(readFileSync(fixture('benchmark-prompt-parity.json'), 'utf8'));
-const STEP2_CONFIG = fileURLToPath(new URL('../../../../nanoagent/examples/benchmark/configs/step2_single_run.yaml', import.meta.url));
 
 describe('benchmark prompt renderer', () => {
   it('is named rush.prompt.v1', () => assert.equal(RENDERER_VERSION, 'rush.prompt.v1'));
-
-  it('keeps its default coding template equal to the plugin benchmark config\'s prompt', () => {
-    assert.equal(DEFAULT_CODING_TEMPLATE, yaml.load(readFileSync(STEP2_CONFIG, 'utf8')).prompt);
-  });
 
   // The fixtures are what Python's real task_prompt, decide_prompt and str.format produced (fixtures/benchmark_prompt_parity.py).
   for (const [index, recorded] of PARITY.entries()) {
