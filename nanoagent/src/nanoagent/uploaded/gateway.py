@@ -258,6 +258,9 @@ class Gateway:
         self.registry = registry or ProposalRegistry()
         self._admitted = 0
         self._prompt_delivered = False
+        # Each dispatched call's upstream HTTP status, 0 when none came (the provider was not reached): the runner tells an attempt the
+        # provider failed outright from one the harness failed.
+        self.upstream_statuses: list[int] = []
         self._inflight: dict[str, _Call] = {}
 
     @property
@@ -597,12 +600,15 @@ class _Relay:
                 if call.abort_reason == "revoked":
                     await self._reply_error(send, ServiceError(403, "revoked", "the attempt's service admission was revoked"))
                 return
+            self.gateway.upstream_statuses.append(upstream.status)
             state.http_status, state.headers, state.headers_ns = upstream.status, {n: upstream.headers[n] for n in ALLOWED_RESPONSE_HEADERS if n in upstream.headers}, self._clock()
             if upstream.status == 200 and call.stream and upstream.headers.get("content-type", "").startswith("text/event-stream"):
                 await self._relay_stream(upstream, send)
             else:
                 await self._relay_body(upstream, send)
         except UpstreamError as error:
+            if upstream is None:
+                self.gateway.upstream_statuses.append(0)
             state.terminal, state.error, state.maybe_reached = "transport_error", str(error), error.maybe_reached
             state.completed_ns = self._clock()
             self.gateway.publish(call, state)
