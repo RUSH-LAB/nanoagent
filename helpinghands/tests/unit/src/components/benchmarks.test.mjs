@@ -3,7 +3,6 @@ import {oneAtATime, viewOf} from '../../../../src/components/Benchmarks/useLoad.
 import {runDetail, runnerNotice} from '../../../../src/components/Benchmarks/api.js';
 import assert from 'node:assert/strict';
 import {publishProblem, splitCaseFolder} from '../../../../src/components/Benchmarks/caseFolder.js';
-import {filterPlugins} from '../../../../src/components/Benchmarks/filterPlugins.js';
 import {aiInstructions, inputFields, instructionsText} from '../../../../src/components/Benchmarks/instructions.js';
 import {
   isBenchmarkRun, harnessNames, historyRuns, installedFirst, scoreText, toggled, toggleSelection, verdictOf,
@@ -123,27 +122,6 @@ describe('verdicts', () => {
     assert.equal(scoreText({value: null, passed: 0, scored: 0, total: 2, unscored: 2, complete: false, unavailable_reason: 'scoring_pending'}), 'unavailable');
   });
 });
-
-describe('searching the member\'s plugins', () => {
-  const apps = [
-    {id: 'ab-test', name: 'A/B Test', product: {tagline: 'Compare two versions'}},
-    {id: 'csv-clean', name: 'Cleaner', product: {tagline: 'Tidy a data file', description: 'Drops EMPTY rows'}},
-    {id: 'bare', name: 'Bare'},
-  ];
-
-  it('matches name, id and description without regard to case', () => {
-    assert.deepEqual(filterPlugins(apps, 'a/b').map(app => app.id), ['ab-test']);
-    assert.deepEqual(filterPlugins(apps, 'CSV-').map(app => app.id), ['csv-clean']);
-    assert.deepEqual(filterPlugins(apps, 'empty rows').map(app => app.id), ['csv-clean']);
-    assert.deepEqual(filterPlugins(apps, 'two VERSIONS').map(app => app.id), ['ab-test']);
-  });
-
-  it('keeps every plugin for a blank query and none for a miss', () => {
-    assert.equal(filterPlugins(apps, '  ').length, 3);
-    assert.deepEqual(filterPlugins(apps, 'zzz'), []);
-  });
-});
-
 
 describe('run history', () => {
   it('sorts newest first and combines plugin and multiple harness filters', () => {

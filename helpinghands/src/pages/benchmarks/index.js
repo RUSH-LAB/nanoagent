@@ -16,15 +16,15 @@ import pluginSidebar from '@site/src/components/PluginSidebar/styles.module.css'
 import {SidebarFoot} from '@site/src/components/PluginSidebar';
 
 /**
- * Benchmarks: publish a benchmark of an installed plugin from a case folder, run harnesses on one, and read the member's own runs and
- * their traces, one at a time or two side by side. Where the reader is lives in the URL: `?view=` the view.
+ * Benchmarks: the published benchmarks of the installed plugins, each with its page to run agents on it; the member's own runs and
+ * their traces, one at a time or two side by side; and a new benchmark published from a case folder. Where the reader is lives in the URL: `?view=` the view.
  */
 
 /** The sidebar's views; the first is the default. */
 const VIEWS = [
-  {id: 'run', title: 'Benchmark a Harness', View: RunView},
-  {id: 'mine', title: 'My Benchmarks', View: MyBenchmarksView},
-  {id: 'publish', title: 'Publish Benchmark', View: PublishView, plus: true},
+  {id: 'browse', title: 'Benchmarks', View: RunView},
+  {id: 'runs', title: 'Runs', View: MyBenchmarksView},
+  {id: 'publish', title: 'New benchmark', View: PublishView, plus: true},
 ];
 
 function BenchmarksSidebar({view, href, collapsed, onCollapse}) {
