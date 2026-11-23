@@ -1,34 +1,33 @@
-"""The reference harnesses NanoAgent ships: their names, the deterministic build, the version derived from content, and GET /v1/benchmark/reference-harnesses/{name}."""
+"""The reference harnesses NanoAgent ships: their names, the deterministic build, the version derived from content."""
 
 from __future__ import annotations
 
 import io
-import sys
 import zipfile
 from pathlib import Path
 
 import pytest
 import yaml
-from starlette.testclient import TestClient
 
-from nanoagent.runtime.config import load_config_args
-from nanoagent.uploaded.reference import FOLDER, NAMES, build_reference, content_version
+from nanoagent.uploaded.reference import FOLDER, LOCKS, NAMES, build_reference, content_version
 from nanoagent.uploaded.source_zip import FIXED_TIME
-from nanoagent.web.app import create_app
-from nanoagent.web.config import WebConfig
-
-ROOT = Path(__file__).resolve().parents[2]
-TOKEN = "reference-secret"
 
 
 def manifest_of(data: bytes) -> dict:
     return yaml.safe_load(zipfile.ZipFile(io.BytesIO(data)).read("harness.yaml"))
 
 
-def test_the_references_are_the_folders_and_each_manifest_carries_its_folders_name() -> None:
+def test_the_references_are_the_shell_and_its_clis_locks_and_each_manifest_carries_its_folders_name() -> None:
     assert NAMES == ("claude-code", "codex", "dsh", "hermes", "nanoagent", "pi", "shell")
     for name in NAMES:
-        assert yaml.safe_load((FOLDER / name / "harness.yaml").read_text())["name"] == name
+        assert yaml.safe_load(((FOLDER if name == "shell" else LOCKS) / name / "harness.yaml").read_text())["name"] == name
+
+
+def test_the_shell_reference_holds_the_terminal_and_not_the_clis_locks() -> None:
+    with zipfile.ZipFile(io.BytesIO(build_reference("shell"))) as archive:
+        names = archive.namelist()
+    assert {"harness.yaml", "shell.py", "harnesses.yaml", "nanoagent_tools.py", "bin/claude"} <= set(names)
+    assert not any(name.startswith("locks/") for name in names)
 
 
 def test_a_reference_builds_to_the_same_zip_under_a_version_derived_from_its_content() -> None:
@@ -52,35 +51,11 @@ def test_the_version_follows_the_content(tmp_path: Path) -> None:
 def test_the_nanoagent_reference_holds_the_working_tree_and_never_a_bytecode_cache() -> None:
     with zipfile.ZipFile(io.BytesIO(build_reference("nanoagent"))) as archive:
         names = archive.namelist()
-    assert "nanoagent/core/__init__.py" in names and "taskharness/run.py" in names and "main.py" in names
+    assert "nanoagent/core/__init__.py" in names and "nanoagent/cli/mgen.py" in names and "requirements.txt" in names
+    assert not any(name.startswith("taskharness/") or name == "main.py" for name in names)
     assert not any("__pycache__" in name or name.endswith("assemble.py") for name in names)
 
 
 def test_an_unknown_reference_is_refused() -> None:
     with pytest.raises(ValueError, match="not a reference harness"):
         build_reference("mine")
-
-
-@pytest.fixture
-def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.chdir(ROOT)
-    monkeypatch.setenv("NANOAGENT_API_TOKEN", TOKEN)
-    config = load_config_args(
-        WebConfig,
-        [
-            "web_cfg=deploy/railway/nanoagent.yaml", "packages=[]", f"workspaces={tmp_path / 'w'}", f"installs={tmp_path / 'i'}",
-            f"uv_cache={tmp_path / 'u'}", f"plugin_python={sys.executable}", "host=127.0.0.1", "sandbox=none",
-        ],
-    )  # fmt: skip
-    return TestClient(create_app(config), headers={"Authorization": f"Bearer {TOKEN}"})
-
-
-def test_the_route_answers_the_zip_of_a_reference(client: TestClient) -> None:
-    response = client.get("/v1/benchmark/reference-harnesses/pi")
-    assert response.status_code == 200 and response.headers["content-type"] == "application/zip"
-    assert response.content == build_reference("pi")
-
-
-def test_the_route_refuses_an_unknown_name_and_a_missing_token(client: TestClient) -> None:
-    assert client.get("/v1/benchmark/reference-harnesses/mine").status_code == 404
-    assert client.get("/v1/benchmark/reference-harnesses/pi", headers={"Authorization": "Bearer wrong"}).status_code == 401

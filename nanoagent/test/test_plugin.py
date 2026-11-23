@@ -788,7 +788,13 @@ REPO_CONTRACTS = sorted(
 
 
 def test_the_repo_contracts_are_found() -> None:
-    assert len(REPO_CONTRACTS) >= 5
+    root = Path(__file__).parent
+    assert set(REPO_CONTRACTS) >= {
+        root.parent / "src" / "nanoagent" / "plugin" / "template" / "contract.py",
+        root / "plugins" / "acceptance-probe" / "contract.py",
+        root / "plugins" / "word-check" / "contract.py",
+        root / "plugins" / "workspace-tools" / "contract.py",
+    }
 
 
 @pytest.mark.parametrize("path", REPO_CONTRACTS, ids=lambda path: path.parent.name)

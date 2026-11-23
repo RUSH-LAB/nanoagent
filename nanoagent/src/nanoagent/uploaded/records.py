@@ -24,8 +24,10 @@ CASE_EXITED = "case.exited"
 CASE_QUIESCED = "case.quiesced"
 SNAPSHOT_TAKEN = "snapshot.taken"
 RESULT_READ = "result.read"
+VERDICT = "verdict"
 COLLECTOR_HEALTH = "collector.health"
 CPU_COUNTERS = "cpu.counters"
+TOOLS_STARTED = "tools.started"
 PROCESS_CLONE = "process.clone"
 PROCESS_EXEC = "process.exec"
 PROCESS_EXIT = "process.exit"
@@ -104,8 +106,8 @@ def make_record(item: Fact, *, event_id: str, sequence: int, occurred_ns: int, p
 @dataclass(frozen=True)
 class AttemptStarted(Fact):
     """``endpoint`` is ``{label, mode}``, ``timing`` is ``{reference_tokens_per_second, clock_tolerance_ns}``, ``policy`` is
-    the run's participant policy, ``limits`` its effective limits (``internet_access`` among them) and ``egress_hosts``
-    the HTTPS hosts the task tools' plugin may reach, as applied (None under ``coding``, which has no tool container)."""
+    ``shell``, the harness every attempt runs, ``limits`` its effective limits (``internet_access`` among them) and ``egress_hosts``
+    the HTTPS hosts the task tools' plugin may reach, as applied (None with no tool container)."""
 
     source: ClassVar[str] = WORKER
     kind: ClassVar[str] = ATTEMPT_STARTED
@@ -173,6 +175,19 @@ class ResultRead(Fact):
 
 
 @dataclass(frozen=True)
+class Verdict(Fact):
+    """The plugin verifier's verdict on the outcome, recorded after the snapshot and the outcome it judges: ``verdict`` ``pass`` or ``fail``
+    with its ``explanation`` and the verifier's ``checks`` (``[{name, status}]``), or ``verifier_error`` instead of a verdict."""
+
+    source: ClassVar[str] = WORKER
+    kind: ClassVar[str] = VERDICT
+    verdict: str | None
+    explanation: str | None
+    checks: Sequence[Mapping[str, str]] | None
+    verifier_error: str | None
+
+
+@dataclass(frozen=True)
 class CollectorHealth(Fact):
     source: ClassVar[str] = WORKER
     kind: ClassVar[str] = COLLECTOR_HEALTH
@@ -180,6 +195,16 @@ class CollectorHealth(Fact):
     loss_reasons: Sequence[str]
     frames: int
     reported_drops: int
+
+
+@dataclass(frozen=True)
+class ToolsStarted(Fact):
+    """The plugin's tool container came up (a session's ``nanoagent`` asked, so it is later than ``attempt.started``) with these
+    HTTPS ``egress_hosts``, as applied; from here the tool broker is an expected source."""
+
+    source: ClassVar[str] = WORKER
+    kind: ClassVar[str] = TOOLS_STARTED
+    egress_hosts: Sequence[str]
 
 
 @dataclass(frozen=True)
@@ -214,6 +239,8 @@ class ProcessExec(Fact):
     cwd: str
     time_ns: int
     launch_id: str | None = None
+    binary_path: str | None = None  # the file the kernel ran (an interpreter's script runs its interpreter)
+    argv_truncated: bool = False  # the recorder kept only the first arguments, or the first characters of one
 
 
 @dataclass(frozen=True)

@@ -1,11 +1,11 @@
 """The agent CLIs a RUSH terminal installs the first time a member types one (reference harness `shell`, its bin/ wrappers).
 
-Each is its reference harness, built by the worker as any harness is: the reference's own lockfile staged with every
+Each is built by the worker as any harness is, from its folder in `reference_harnesses/shell/locks/` (its recipe and lock): the lockfile staged with every
 artifact's integrity or sha256 checked, in a build VM with no network. The install is kept on the member's computer under
 the worker's scratch, keyed by that lockfile, and mounted read-only into every case VM at `CLIS_DIR`, so a second session,
 and a harness saved from the first, runs the same install at once. The worker installs each, in this order, once its warm
 terminal is up (runner.AttemptRunner._install_clis), so a member rarely waits on one. NanoAgent is the one installed from this
-NanoAgent's own working tree (its reference's `assemble.py`) rather than only from a lock, so its install is keyed by that content too.
+NanoAgent's own working tree (its folder's `assemble.py`) rather than only from a lock, so its install is keyed by that content too.
 """
 
 from __future__ import annotations
@@ -18,21 +18,21 @@ from dataclasses import dataclass
 
 from nanoagent import __version__
 from nanoagent.uploaded.contract import parse_manifest
-from nanoagent.uploaded.reference import FOLDER, MANIFEST
+from nanoagent.uploaded.reference import LOCKS, MANIFEST
 
 
 @dataclass(frozen=True)
 class Cli:
     name: str  # what the member types
-    reference: str  # the reference harness that installs it
+    reference: str  # its folder under the shell harness's locks/: the install recipe and lock it is built from
     label: str
     package: str  # its package in the reference's lock (npm or PyPI), or nanoagent for NanoAgent itself
 
     def version(self) -> str:
-        """The version the reference's lock pins, or this NanoAgent's for NanoAgent."""
+        """The version the lock folder pins, or this NanoAgent's for NanoAgent."""
         if self.package == "nanoagent":
             return __version__
-        folder = FOLDER / self.reference
+        folder = LOCKS / self.reference
         if (folder / "package.json").is_file():
             return json.loads((folder / "package.json").read_text(encoding="utf-8"))["dependencies"][self.package]
         pin = re.search(rf"^{re.escape(self.package)}==(\S+)", (folder / "requirements.in").read_text(encoding="utf-8"), re.MULTILINE)
@@ -42,7 +42,7 @@ class Cli:
     def key(self, build_image: str, source_sha256: str) -> str:
         """The install's key: the reference's lockfiles, the image they build in and this machine's architecture, and for NanoAgent
         its whole source (``source_sha256``, the reference's ZIP), which holds this NanoAgent's own modules."""
-        folder = FOLDER / self.reference
+        folder = LOCKS / self.reference
         digest = hashlib.sha256(f"{self.reference}\0{build_image}\0{platform.machine()}".encode())
         for lockfile in parse_manifest((folder / MANIFEST).read_bytes()).lockfiles:
             digest.update(b"\0" + lockfile.encode() + b"\0" + hashlib.sha256((folder / lockfile).read_bytes()).digest())

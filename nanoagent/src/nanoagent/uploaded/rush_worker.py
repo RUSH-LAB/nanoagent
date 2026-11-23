@@ -20,7 +20,7 @@ import hashlib
 import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
@@ -71,10 +71,6 @@ class Sealed(RushError):
     """The attempt was already finalized."""
 
 
-class CaseFailed(RushError):
-    """The session's case could not be pinned: the attempt ends with that error, unscored."""
-
-
 class ConflictingDuplicate(RushError):
     """The same identity was submitted with different content."""
 
@@ -111,7 +107,6 @@ _BY_CODE: dict[str, type[RushError]] = {
     "lease_lost": LeaseLost,
     "canceled": Canceled,
     "sealed": Sealed,
-    "case_failed": CaseFailed,
     "conflicting_duplicate": ConflictingDuplicate,
     "budget_exhausted": BudgetExhausted,
     "duplicate_call": DuplicateCall,
@@ -157,15 +152,14 @@ class ResumeOf:
 
 @dataclass(frozen=True)
 class AttemptJob:
-    """One claimed attempt. ``run`` holds model, dialects, source_sha256, ``policy`` and the effective ``limits``; ``task``
-    is ``{id, kind, description, instructions, plugin_name, tools}``; ``case`` is ``{case_id, kind, arguments, context,
-    input_schema, output_schema, content_digest}``; ``prompt`` is ``{system, user, sha256}``; ``plugin`` is
-    ``{id, name, version, sha256}``. (The claim's ``case_set`` and ``renderer_version`` are the server's bookkeeping.)
-    ``case_pending`` is a session's case still being pinned: ``case``, ``prompt`` and ``private_reference`` are None until
-    :meth:`pinned` gives them from :meth:`RushWorkerClient.case`. ``free_form`` is a Terminal session someone is at, which has no
-    case at all: they run any agent and prompt it themselves, and nothing scores it. It has no task (``task`` is None) and of its
-    plugin, the page it was opened from, only ``plugin["id"]``. ``resume`` is the free-form session it resumes, kept on this computer
-    (nanoagent.uploaded.resume), or None; ``start`` the agent CLI command a new one runs in its first terminal (``claude``), or None."""
+    """One claimed attempt. ``run`` holds ``harness`` (an agent name or ``rush <command>``), the model, ``interactive``,
+    ``prompt_bound`` and the effective ``limits``; ``task`` is ``{id, kind, description, input_schema, output_schema, plugin_name,
+    tools, egress_hosts}``; ``case`` is ``{case_id, kind, prompt, prompt_sha256, arguments, fixtures, expected_error}`` with
+    ``fixtures`` None or ``{sha256, files}`` (the archive is fetched by :meth:`RushWorkerClient.fixtures`); ``plugin`` is
+    ``{id, name, version, sha256}``. ``free_form`` is a Terminal session someone is at, which has no case at all: they run any agent and
+    prompt it themselves, and nothing scores it. It has no task, case or reference (they are None) and of its plugin, the page it was
+    opened from, only ``plugin["id"]``. ``resume`` is the free-form session it resumes, kept on this computer (nanoagent.uploaded.resume),
+    or None; ``start`` the agent CLI command a new one runs in its first terminal (``claude``), or None."""
 
     attempt_id: str
     attempt_no: int
@@ -173,18 +167,12 @@ class AttemptJob:
     run: Mapping[str, Any]
     task: Mapping[str, Any] | None
     case: Mapping[str, Any] | None
-    prompt: Mapping[str, Any] | None
     plugin: Mapping[str, Any]
     private_reference: Any
     lease_seconds: float  # how long the claim, and each renewal, keeps the lease
-    case_pending: bool = False
     free_form: bool = False
     resume: ResumeOf | None = None
     start: str | None = None
-
-    def pinned(self, body: Mapping[str, Any]) -> AttemptJob:
-        """This job with its case as RUSH pinned it (``GET /attempts/{id}/case``)."""
-        return replace(self, case=body["case"], prompt=body["prompt"], private_reference=body["private_reference"], case_pending=False)
 
 
 def chat_of(chat: Mapping[str, Any]) -> ChatOf:
@@ -202,8 +190,8 @@ def parse_job(body: Mapping[str, Any]) -> AttemptJob:
     try:
         if body["kind"] == "attempt":
             return AttemptJob(
-                body["attempt_id"], body["attempt_no"], body["fence"], body["run"], body["task"], body["case"], body["prompt"],
-                body["plugin"], body.get("private_reference"), float(body["lease_seconds"]), body["case_pending"], body["free_form"],
+                body["attempt_id"], body["attempt_no"], body["fence"], body["run"], body["task"], body["case"], body["plugin"],
+                body.get("private_reference"), float(body["lease_seconds"]), body["free_form"],
                 None if body["resume"] is None else _resume_of(body["resume"]), body["start"],
             )
     except KeyError as error:
@@ -300,8 +288,9 @@ class RushWorkerClient:
             raise RushError(response.status_code, "digest_mismatch", f"{path} did not hash to the digest the server declared")
         return response.content
 
-    async def source(self, attempt_id: str, fence: int) -> bytes:
-        return await self._download(f"/attempts/{attempt_id}/source", fence)
+    async def fixtures(self, attempt_id: str, fence: int) -> bytes:
+        """The case's fixtures archive (a gzipped tar), which hashes to the digest the server declared."""
+        return await self._download(f"/attempts/{attempt_id}/fixtures", fence)
 
     async def package(self, attempt_id: str, fence: int) -> bytes:
         return await self._download(f"/attempts/{attempt_id}/package", fence)
@@ -363,15 +352,9 @@ class RushWorkerClient:
         [Sealed]); returns if none was."""
         await self._send("GET", f"/attempts/{attempt_id}/watch", headers={FENCE_HEADER: str(fence)})
 
-    async def case(self, attempt_id: str, fence: int) -> Mapping[str, Any] | None:
-        """The case of a job claimed while it was pending, ``{case_set, case, prompt, private_reference}``, once RUSH has pinned it;
-        None if it is still being pinned after RUSH held the request a while. Raises [CaseFailed] with why it could not be pinned."""
-        response = await self._send("GET", f"/attempts/{attempt_id}/case", headers={FENCE_HEADER: str(fence)})
-        return None if response.status_code == 204 else response.json()
-
     async def tools(self, attempt_id: str, fence: int) -> Mapping[str, Any]:
         """What the attempt's Terminal session's `nanoagent` works with: the first task of the plugin whose page opened the session,
-        opened on the member's computer, ``{plugin: {id, name, version, sha256}, task: {id, kind, description, instructions,
+        opened on the member's computer, ``{plugin: {id, name, version, sha256}, task: {id, kind, description,
         plugin_name, tools, egress_hosts}, package}``, the package's bytes in base64."""
         return await self._json("POST", f"/attempts/{attempt_id}/tools", {"fence": fence}, retry=False)
 

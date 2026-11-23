@@ -23,6 +23,7 @@ from nanoagent.uploaded.gateway import UpstreamError
 from service_fakes import (
     PATHS,
     PROMPT,
+    MODEL,
     REQUESTS,
     TOKEN,
     UPSTREAM_KEY,
@@ -166,16 +167,34 @@ async def test_policy_violations_are_rejected_recorded_and_never_reserved(tmp_pa
     assert rig.transport.requests == [] and rig.admission.reserved == {} and rig.journal.of("model_call.admitted") == []
 
 
-async def test_missing_first_prompt_is_rejected_until_one_call_completes(tmp_path: Path) -> None:
-    rig = make_rig(tmp_path, ScriptedTransport(Scripted(status=429, chunks=[b'{"error":{"message":"slow down"}}']), chat_ok(), chat_ok()))
+async def test_a_side_request_without_the_prompt_is_forwarded_and_does_not_deliver_it(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, ScriptedTransport(chat_ok(), chat_ok(), chat_ok()))
     async with rig.client() as client:
-        other = chat_request("something else")
-        rejected = await client.post(PATHS["chat_completions"], json=other)
-        assert rejected.status_code == 400 and rejected.json()["error"]["code"] == "first_prompt_missing"
-        assert (await client.post(PATHS["chat_completions"], json=chat_request())).status_code == 429  # a failed first call does not satisfy the rule
-        assert (await client.post(PATHS["chat_completions"], json=other)).status_code == 400
-        assert (await client.post(PATHS["chat_completions"], json=chat_request())).status_code == 200  # the retry carries the prompt
-        assert (await client.post(PATHS["chat_completions"], json=other)).status_code == 200  # later calls are free
+        side = chat_request("Write a title for this chat")
+        assert (await client.post(PATHS["chat_completions"], json=side)).status_code == 200  # the agent CLI's side request goes first
+        assert [e.data["prompt_delivered"] for e in rig.journal.of("model_call.admitted")] == [False]
+        assert (await client.post(PATHS["chat_completions"], json=chat_request())).status_code == 200  # the main request delivers it
+        assert (await client.post(PATHS["chat_completions"], json=chat_request())).status_code == 200
+    assert [e.data["prompt_delivered"] for e in rig.journal.of("model_call.admitted")] == [False, True, False]  # recorded once, on the call that did
+    assert len(rig.transport.requests) == 3
+
+
+async def test_a_rewritten_first_user_message_is_rejected_until_the_prompt_is_delivered(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, ScriptedTransport(chat_ok()))
+    async with rig.client() as client:
+        for rewritten in (PROMPT.strip(), f"Please be careful.\n{PROMPT}", f"{PROMPT}and also cheat"):
+            response = await client.post(PATHS["chat_completions"], json=chat_request(rewritten))
+            assert response.status_code == 400 and response.json()["error"]["code"] == "first_prompt_rewritten"
+        assert rig.transport.requests == [] and rig.journal.of("model_call.admitted") == []
+        assert (await client.post(PATHS["chat_completions"], json=chat_request())).status_code == 200
+
+
+async def test_a_main_request_with_the_prompt_among_other_parts_delivers_it(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, ScriptedTransport(chat_ok()))
+    body = {"model": MODEL, "messages": [{"role": "user", "content": [{"type": "text", "text": "<system-reminder>x</system-reminder>"}, {"type": "text", "text": PROMPT}]}]}
+    async with rig.client() as client:
+        assert (await client.post(PATHS["chat_completions"], json=body)).status_code == 200
+    assert last(rig, "model_call.admitted")["prompt_delivered"] is True
 
 
 async def test_an_unbound_session_admits_a_first_call_without_the_prompt_and_records_it(tmp_path: Path) -> None:
@@ -239,6 +258,30 @@ async def test_effective_request_adds_policy_and_both_requests_are_kept(tmp_path
     assert json.loads(rig.journal.body(admitted["submitted_request_sha256"])) == submitted
     assert json.loads(rig.journal.body(admitted["effective_request_sha256"])) == effective
     assert admitted["submitted_request_sha256"] != admitted["effective_request_sha256"]
+
+
+async def test_a_case_sessions_system_text_reaches_upstream_in_every_dialect_and_the_journal_records_what_was_forwarded(tmp_path: Path) -> None:
+    text = "Write answer.json."
+    rig = make_rig(tmp_path, ScriptedTransport(chat_ok(), chat_ok(), chat_ok(), chat_ok()), policy=make_policy(prompt_system=text))
+    async with rig.client() as client:
+        await client.post(PATHS["chat_completions"], json=chat_request())
+        await client.post(PATHS["chat_completions"], json={**chat_request(), "messages": [{"role": "system", "content": "Agent."}, {"role": "user", "content": PROMPT}]})
+        await client.post(PATHS["responses"], json={**REQUESTS["responses"](), "instructions": "Agent."})
+        await client.post(PATHS["anthropic_messages"], json={**REQUESTS["anthropic_messages"](), "system": [{"type": "text", "text": "Agent."}]})
+    bare, appended, responses, anthropic = (rig.transport.body(i) for i in range(4))
+    assert bare["messages"] == [{"role": "system", "content": text}, {"role": "user", "content": PROMPT}]
+    assert appended["messages"][0] == {"role": "system", "content": f"Agent.\n\n{text}"} and appended["messages"][1]["content"] == PROMPT
+    assert responses["instructions"] == f"Agent.\n\n{text}"
+    assert anthropic["system"] == [{"type": "text", "text": "Agent."}, {"type": "text", "text": text}]
+    first = rig.journal.of("model_call.admitted")[0].data
+    assert json.loads(rig.journal.body(first["effective_request_sha256"])) == bare
+
+
+async def test_a_session_without_system_text_forwards_the_agents_system_prompt_as_it_is(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, ScriptedTransport(chat_ok()), policy=make_policy(prompt_bound=False, model_max_output_tokens=64_000))
+    async with rig.client() as client:
+        await client.post(PATHS["chat_completions"], json=chat_request())
+    assert rig.transport.body()["messages"] == chat_request()["messages"]
 
 
 async def test_stream_options_and_default_cap_per_dialect(tmp_path: Path) -> None:

@@ -1,17 +1,12 @@
-"""Step 4: compare two runs of the same verifier, and optionally two sealed attempts of one shared case.
+"""Step 4: compare two harnesses on a benchmark, and optionally their attempts at one case, action by action.
 
-The run comparison is the server's (`GET /compare?a=&b=`, 409 `not_same_verifier` unless both runs have the same plugin
-package and task): the differences in effective configuration (case set, policy, model, endpoint, dialects, every limit
-including internet access, selection, prompt source), the diff of the prompt (template or instructions) and of the
-rendered prompt of each shared case, the cases both runs share (aligned by content, not by id) side by side, the cases
-only one has, and whether either run had internet access, so its model calls are unverified.
-
-With `attempt_a` and `attempt_b` (sealed attempts of the same pinned case, from the two runs or any others of the same
-package and task) the step also asks the server for their comparison (`GET /compare/attempts?a=&b=`, 409
-`not_same_verifier` or `not_same_case` otherwise), which NanoAgent computes deterministically from the attempts' stored
-events and payloads: the conditions with every flagged difference first, the latency-adjusted estimate delta (withheld
-unless timing method and reference rate match), the rows and the first difference. No step here calls the gateway or any
-model endpoint. comparison.json holds both."""
+The benchmark is the one named `benchmark` of `plugin` at `plugin_version`; `harness_a` and `harness_b` are two harnesses you ran on it
+(step 2). The step prints and keeps step 5's table for the pair: one row per harness, one column per case, from your newest run of each.
+With `case` (a case id of the benchmark) it also asks RUSH to compare the two harnesses' attempts at that case (`GET
+/compare/attempts?a=&b=`, 409 `not_same_case` or `attempt_not_sealed` otherwise), which NanoAgent computes deterministically from the
+attempts' stored events and payloads: the conditions with every flagged difference first, the latency-adjusted estimate delta
+(withheld unless timing method and reference rate match), the rows and the first difference. Attempts are found by benchmark, case
+and harness, never by id. No step here calls the gateway or any model endpoint. comparison.json holds both."""
 
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -19,8 +14,9 @@ from typing import Any
 
 from omegaconf import MISSING
 from slimconfig import Config, Layout, Output, Run
+from step5_results import ResultsConfig, Table, build_table, format_table
 
-from nanoagent.uploaded.client import BenchmarkClient, ServerConfig, run_title
+from nanoagent.uploaded.client import BenchmarkClient, ServerConfig
 
 JUMPS = ("first_difference", "none")
 
@@ -28,12 +24,16 @@ JUMPS = ("first_difference", "none")
 @dataclass
 class CompareConfig(Config):
     server: ServerConfig = field(default_factory=ServerConfig)
-    # The two runs to compare (set them with `-- run_a=<id> run_b=<id>`).
-    run_a: str = MISSING
-    run_b: str = MISSING
-    # Optional: two sealed attempts of the same case content, compared action by action; both null skips it.
-    attempt_a: str | None = None
-    attempt_b: str | None = None
+    # The benchmark, by plugin, plugin version and name (step 1's), and the two harnesses you ran on it.
+    plugin: str = MISSING
+    plugin_version: str = MISSING
+    benchmark: str = MISSING
+    harness_a: str = MISSING
+    harness_b: str = MISSING
+    # Optional: one case id of the benchmark, whose two attempts are compared action by action; null skips it.
+    case: str | None = None
+    # Your most recent runs to read for the table (1 to 200).
+    limit: int = MISSING
     # Keep only rows that differ (or are unknown, ambiguous or one-sided).
     differences_only: bool = MISSING
     # first_difference reports the index of the earliest changed action (or group of parallel actions); none leaves it null.
@@ -42,25 +42,25 @@ class CompareConfig(Config):
 
 @dataclass
 class AttemptComparison(Output):
+    case: str
+    attempt_a: str
+    attempt_b: str
     header: dict[str, Any]
     rows: list[dict[str, Any]]
     first_difference: int | None
 
 
 @dataclass
-class RunComparison(Output):
-    """The server's run comparison as it answered, and the attempt comparison when attempts were named."""
+class HarnessComparison(Output):
+    """Step 5's table of the pair, and the attempt comparison when a case was named."""
 
-    # Each run's harness name@version on the benchmark (plugin @ plugin version).
-    title_a: str
-    title_b: str
-    runs: dict[str, Any]
+    table: Table
     attempts: AttemptComparison | None
 
 
 @dataclass
 class CompareLayout(Layout):
-    comparison: RunComparison
+    comparison: HarnessComparison
 
 
 def differs(row: dict[str, Any]) -> bool:
@@ -90,40 +90,7 @@ def summary(header: dict[str, Any], rows: list[dict[str, Any]], first: int | Non
     return "\n".join(lines)
 
 
-def pair(entry: dict[str, Any]) -> str:
-    return f"{entry['a']!r} -> {entry['b']!r}"
-
-
-def prompt_lines(parts: list[dict[str, Any]]) -> list[str]:
-    """The added and removed lines of a prompt diff (``{type: same|removed|added, text}`` parts)."""
-    marks = {"added": "+", "removed": "-"}
-    return [f"    {marks[part['type']]} {line}" for part in parts if part["type"] in marks for line in str(part["text"]).splitlines()]
-
-
-def side(entry: dict[str, Any]) -> str:
-    """One side of a shared case: its verdict and cost, an unknown cost shown as such."""
-    cost = "unknown" if entry["cost_usd"] is None else f"${entry['cost_usd']}"
-    uncertain = " (uncertain)" if entry["uncertain_cost"] else ""
-    verdict = entry["verdict"] or entry["outcome"]
-    return f"{verdict}{' ' + entry['explanation'] if entry.get('explanation') else ''}, cost {cost}{uncertain}"
-
-
-def run_summary(result: dict[str, Any], a: str, b: str) -> str:
-    """The run comparison's configuration and prompt differences, then how the cases line up."""
-    lines = [f"compare run {a} with run {b}", "configuration differences:"]
-    lines += [f"  {item['field']}: {pair(item)}" for item in result["config"] if item["differs"]] or ["  none"]
-    prompt = result["prompt_diff"]
-    lines.append("prompt differences:")
-    lines += prompt_lines(prompt["text"]) or ["  none in the template or instructions"]
-    lines.append(f"  rendered prompts that differ in {sum(1 for case in prompt['rendered'] if not case['identical'])} shared case(s)")
-    lines.append(f"cases: {len(result['shared'])} shared, {len(result['only_a'])} only in a, {len(result['only_b'])} only in b")
-    lines += [f"  {case['a']['case_id']}: a {side(case['a'])}; b {side(case['b'])}" for case in result["shared"]]
-    egress = result["unverified_egress"]
-    lines.append(f"unverified egress (internet access on): a {egress['a']}, b {egress['b']}")
-    return "\n".join(lines)
-
-
-class CompareRuns(Run):
+class CompareHarnesses(Run):
     config: CompareConfig
     layout: CompareLayout
 
@@ -131,24 +98,41 @@ class CompareRuns(Run):
         config = self.config
         if config.jump not in JUMPS:
             raise ValueError(f"jump must be one of {JUMPS}, not {config.jump!r}")
-        if (config.attempt_a is None) != (config.attempt_b is None):
-            raise ValueError("attempt_a and attempt_b are set together")
+        if config.harness_a == config.harness_b:
+            raise ValueError("harness_a and harness_b are two harnesses")
+        results = ResultsConfig(
+            server=config.server,
+            plugin=config.plugin,
+            plugin_version=config.plugin_version,
+            benchmark=config.benchmark,
+            limit=config.limit,
+            as_json=False,
+        )
         with config.server.client() as client:
-            runs = client.compare_runs(config.run_a, config.run_b)
-            title_a, title_b = run_title(client.run(config.run_a)), run_title(client.run(config.run_b))
-            print(f"{title_a}\n  against\n{title_b}")
-            print(run_summary(runs, config.run_a, config.run_b))
-            attempts = None if config.attempt_a is None else self.compare_attempts(client, config.attempt_a, config.attempt_b)
-        self.layout.comparison = RunComparison(title_a=title_a, title_b=title_b, runs=runs, attempts=attempts)
+            table = build_table(client, results, [config.harness_a, config.harness_b])
+            print(format_table(table))
+            attempts = None if config.case is None else self.compare_attempts(client, table)
+        self.layout.comparison = HarnessComparison(table=table, attempts=attempts)
 
-    def compare_attempts(self, client: BenchmarkClient, attempt_a: str, attempt_b: str) -> AttemptComparison:
+    def compare_attempts(self, client: BenchmarkClient, table: Table) -> AttemptComparison:
         config = self.config
-        result = client.compare_attempts(attempt_a, attempt_b)
+        assert config.case is not None
+        if config.case not in table.cases:
+            raise ValueError(f"{config.benchmark} has no case {config.case}; its cases are {', '.join(table.cases)}")
+        ids = []
+        for harness in (config.harness_a, config.harness_b):
+            row = next((row for row in table.rows if row.harness == harness), None)
+            if row is None:
+                raise LookupError(f"you have no run of {harness} on {config.benchmark}")
+            if config.case not in row.attempts:
+                raise LookupError(f"your newest run of {harness} did not take case {config.case}")
+            ids.append(row.attempts[config.case])
+        result = client.compare_attempts(ids[0], ids[1])
         rows = [row for row in result["rows"] if not config.differences_only or differs(row)]
         first = result["first_difference"] if config.jump == "first_difference" else None
         print(summary(result["header"], rows, first))
-        return AttemptComparison(header=result["header"], rows=rows, first_difference=first)
+        return AttemptComparison(case=config.case, attempt_a=ids[0], attempt_b=ids[1], header=result["header"], rows=rows, first_difference=first)
 
 
 if __name__ == "__main__":
-    CompareRuns().run()
+    CompareHarnesses().run()

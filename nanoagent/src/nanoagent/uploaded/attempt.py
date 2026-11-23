@@ -76,7 +76,8 @@ class AttemptPolicy:
     token: str = field(repr=False)
     model: str
     dialects: tuple[str, ...]
-    # The pinned rendered prompt: either part may be absent, not both, but in an attempt not bound to it whose case is still pinned.
+    # The pinned first user message (a prompt-bound attempt's requests carry it byte for byte until one completes) and the system text the
+    # gateway adds to every request's system prompt after the agent's own.
     prompt_user: str | None
     prompt_system: str | None
     max_model_calls: int
@@ -98,8 +99,8 @@ class AttemptPolicy:
         unknown = [dialect for dialect in self.dialects if dialect not in DIALECTS]
         if unknown or not self.dialects:
             raise ValueError(f"dialects must be a non-empty subset of {DIALECTS}, got {self.dialects}")
-        if self.prompt_bound and self.prompt_user is None and self.prompt_system is None:
-            raise ValueError("a prompt-bound attempt policy needs a user prompt, a system prompt or both")
+        if self.prompt_bound and self.prompt_user is None:
+            raise ValueError("a prompt-bound attempt policy needs a user prompt")
         if self.max_model_calls < 1 or self.max_output_tokens_per_call < 1:
             raise ValueError("max_model_calls and max_output_tokens_per_call must be positive")
         if not self.prompt_bound and (self.model_max_output_tokens is None or self.model_max_output_tokens < 1):

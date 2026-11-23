@@ -1,12 +1,12 @@
 #!/bin/sh
 # PI's CLI on RUSH's gateway (its chat completions dialect), as the pi reference harness runs it: pi-ai's openrouter provider routed
-# to the gateway and keyed by the attempt token, the session's model capped at the attempt's output tokens, and no update or
+# to the gateway and keyed by the attempt token, the session's model declared with the attempt's output tokens as its cap (an override reaches only models pi's catalog has), and no update or
 # catalog fetch at startup.
 # Its home is in the workspace's .rush/, which is kept when the session ends, so resuming it continues its conversations
 # (nanoagent.uploaded.resume); its models.json names this session's gateway, so it is written each time.
 home="$RUSH_WORKSPACE/.rush/pi"
 mkdir -p "$home"
-printf '{"providers":{"openrouter":{"baseUrl":"%s","apiKey":"$RUSH_ATTEMPT_TOKEN","modelOverrides":{"%s":{"maxTokens":%s}}}}}' \
+printf '{"providers":{"openrouter":{"baseUrl":"%s","apiKey":"$RUSH_ATTEMPT_TOKEN","models":[{"id":"%s","maxTokens":%s}]}}}' \
   "$OPENAI_BASE_URL" "$RUSH_MODEL" "$RUSH_MAX_OUTPUT_TOKENS" > "$home/models.json"
 install="$(python /harness/rush.py cli pi)" || exit 1  # installed the first time it is typed (rush.py cli)
 PI_CODING_AGENT_DIR="$home" exec node "$install"/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js \

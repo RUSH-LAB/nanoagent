@@ -672,3 +672,28 @@ def parse_request(dialect: Dialect, body: Mapping[str, Any]) -> ParsedModelReque
     except (KeyError, TypeError, AttributeError) as error:
         raise MalformedBodyError(f"{dialect} request is malformed: {error!r}") from error
     return ParsedModelRequest(dialect, body.get("model"), bool(body.get("stream")), tuple(names), tuple(results))
+
+
+def append_system(dialect: Dialect, body: dict[str, Any], text: str) -> None:
+    """Add ``text`` to ``body``'s system prompt in place, after the agent's own: appended after a blank line to a string, as a text
+    block to a block list, and set (a leading system message for Chat Completions) when there is none."""
+    if dialect == "responses":
+        existing = body.get("instructions")
+        body["instructions"] = text if existing is None else f"{existing}\n\n{text}"
+    elif dialect == "anthropic_messages":
+        existing = body.get("system")
+        if isinstance(existing, list):
+            existing.append({"type": "text", "text": text})
+        else:
+            body["system"] = text if existing is None else f"{existing}\n\n{text}"
+    else:
+        messages = body.get("messages")
+        if not isinstance(messages, list):
+            return
+        first = messages[0] if messages and isinstance(messages[0], dict) else None
+        if first is None or first.get("role") != "system":
+            messages.insert(0, {"role": "system", "content": text})
+        elif isinstance(first.get("content"), list):
+            first["content"].append({"type": "text", "text": text})
+        else:
+            first["content"] = text if first.get("content") is None else f"{first['content']}\n\n{text}"

@@ -31,7 +31,7 @@ from nanoagent.uploaded.toolchains import resolve_dependencies, toolchain
 
 pytestmark = pytest.mark.microsandbox
 
-TOOLS = Path(os.environ.get("RUSH_WORKER_HOME", Path.home() / "rush-worker")) / "guest-tools"
+GUEST_TOOLS = Path(os.environ.get("RUSH_WORKER_HOME", Path.home() / "rush-worker")) / "guest-tools"
 PROFILE = toolchain("python-3")
 SCRATCH = Path(os.environ.get("RUSH_WORKER_HOME", Path.home() / "rush-worker")) / "scratch"
 PLUGIN = Path(__file__).resolve().parents[1] / "plugins" / "workspace-tools"
@@ -45,10 +45,7 @@ workspace = os.environ["RUSH_WORKSPACE"]
 
 
 def write_result(payload):
-    tmp = os.environ["RUSH_RESULT"] + ".tmp"
-    with open(tmp, "w") as handle:
-        json.dump(payload, handle)
-    os.rename(tmp, os.environ["RUSH_RESULT"])
+    print(json.dumps(payload), flush=True)  # the harness's last line, on its terminal: what the test reads back (answer_of)
 
 
 def wait_for(path, wanted=None, seconds=120):
@@ -83,7 +80,7 @@ def rig():
     root = SCRATCH / f"tool-{uuid.uuid4().hex[:8]}"
     root.mkdir(parents=True)
     isolate()
-    supervisor = MicrosandboxSupervisor(tools=TOOLS)
+    supervisor = MicrosandboxSupervisor(tools=GUEST_TOOLS)
     try:
         supervisor.startup(PROFILE)
         data = pack(PLUGIN)
@@ -147,6 +144,13 @@ def sandboxes(rig) -> set[str]:
     return rig.supervisor._loop.run(names())
 
 
+
+def answer_of(outcome):
+    """The answer the harness printed last on its terminal. The runner reads a case's outcome from the frozen workspace, so this layer
+    asserts what ran inside the VM through the harness's own output."""
+    return json.loads(outcome.stdout.decode().strip().splitlines()[-1])["answer"]
+
+
 async def test_the_harness_and_a_writing_tool_share_the_workspace_in_both_directions(rig):
     handle, name, network = create(rig, mode="coherence")
     try:
@@ -166,7 +170,7 @@ async def test_the_harness_and_a_writing_tool_share_the_workspace_in_both_direct
             await tools.run("write_note", {"name": "from_tool.txt", "text": "v2"}, Path(WORKSPACE))
             outcome = handle.wait()
         assert outcome.termination.exit_code == 0
-        assert json.loads(handle.read_result())["answer"] == {"first": "v1", "second": "v2"}
+        assert answer_of(outcome) == {"first": "v1", "second": "v2"}
         snapshot = handle.stop_and_drain()
         assert set(snapshot.added) == {"from_harness.txt", "from_tool.txt"}
         assert (snapshot.directory / "from_tool.txt").read_text() == "v2"

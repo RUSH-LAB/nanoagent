@@ -1,0 +1,9 @@
+{
+  "buckets": [
+    "abtesting_logging_main",
+    "site-assets"
+  ],
+  "logs": [
+    "{'status': 'Deploy_Finished', 'release': '2.4'}"
+  ]
+}

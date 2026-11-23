@@ -243,7 +243,9 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .data-table { display: grid; gap: 10px; container-type: inline-size; }
 .table-tools { display: flex; align-items: center; gap: 10px; }
 .table-tools input { max-width: 320px; }
-.table-scroll { overflow-x: auto; }
+.table-scroll { overflow-x: auto; max-width: 100%; }
+/* A grid or card holding a wide table must be allowed to shrink below it, or the table widens the page instead of scrolling. */
+.stack > *, .card > * { min-width: 0; }
 .data-table table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .data-table th {
   text-align: left;

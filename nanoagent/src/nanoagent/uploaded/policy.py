@@ -11,7 +11,8 @@ from collections.abc import Mapping
 from typing import Any
 
 from nanoagent.uploaded.attempt import AttemptPolicy
-from nanoagent.uploaded.contract import contains_first_prompt
+from nanoagent.uploaded.contract import rewrites_first_prompt
+from nanoagent.uploaded.dialects import append_system
 
 # Field -> (code, why). A field is refused when it is present and not null.
 FORBIDDEN_FIELDS: dict[str, tuple[str, str]] = {
@@ -118,12 +119,16 @@ def apply_policy(dialect: str, body: dict[str, Any], policy: AttemptPolicy, *, f
     _check_tools(dialect, body)
     _check_media([body.get("messages"), body.get("input"), body.get("system")])
     requested, default_field = _output_cap(dialect, body, policy)
-    if first_prompt_required and not contains_first_prompt(dialect, body, policy.prompt_user, policy.prompt_system):
+    # Until the prompt is delivered, a request that carries no user message equal to it is forwarded (an agent CLI makes side requests, such as
+    # a title or a background-model call); one whose first user message wraps or alters the prompt is a rewritten case prompt.
+    if first_prompt_required and policy.prompt_user is not None and rewrites_first_prompt(dialect, body, policy.prompt_user):
         raise PolicyViolation(
-            "first_prompt_missing",
-            "until one generation request completes, every request must carry the exact rendered prompt: the user part as a user message and the system part as the system prompt",
+            "first_prompt_rewritten",
+            "the first user message contains the case prompt with other text around it; the prompt must reach the model as the exact rendered text",
         )
     effective = copy.deepcopy(body)
+    if policy.prompt_system is not None:  # the gateway's own system text, after the agent's: the pinned user message is untouched
+        append_system(dialect, effective, policy.prompt_system)
     effective["provider"] = {**policy.provider, "allow_fallbacks": False}
     if body.get("response_format") is not None:
         # A structured-output request must reach a provider that supports every parameter it sends.

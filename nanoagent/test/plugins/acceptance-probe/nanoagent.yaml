@@ -21,6 +21,8 @@ tools > dict[contract.Tool, nanoagent.plugin.v0001.ToolConfig]:
     description: Wait for a number of seconds
   digest:
     description: Digest a token
+  ab_reference:
+    description: Compute the A/B conversion rates, the winner and the before-state from the staged files
 
 # One entry per contract.Task; its input and output classes are contract.TASKS's.
 tasks > dict[contract.Task, nanoagent.plugin.v0001.TaskConfig]:
@@ -31,3 +33,10 @@ tasks > dict[contract.Task, nanoagent.plugin.v0001.TaskConfig]:
     reference: digest
     instructions: |-
       Call wait with the input's wait_seconds, then submit the digest of the input's token: the first 12 hex digits of the token's SHA-256.
+  ab-report:
+    description: Report an A/B test's conversion rates and act on its winner
+    runner: agent
+    tools: [wait]
+    reference: ab_reference
+    instructions: |-
+      Read each scenario's CSV and write the output file with each scenario's conversion rates (conversions over visits, in percent) and the overall winner, the version with the higher mean of its scenarios' rates. A scenario whose CSV has no rows is left out. If B wins, add a bucket whose name starts with the bucket prefix to the cloud state file; otherwise append the log entry to its logs.

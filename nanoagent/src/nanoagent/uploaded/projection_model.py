@@ -107,6 +107,7 @@ class ModelCall:
     evidence: tuple[str, ...]
     client: str | None = None  # the user-agent the call came with, which tells which agent CLI of a Terminal session made it
     prompt: str | None = None  # its request's last user message, titled (chats.prompt_of): a run's first call titles its chat
+    prompt_delivered: bool = False  # this call was the first to carry the case prompt byte for byte (a prompt-bound attempt's gateway records it)
     run: str | None = None  # the `rush <command>` run whose process tree made it (the run its token named)
     parser_version: str = PARSER_VERSION
 
@@ -169,6 +170,9 @@ class ProcessInfo:
     evidence: tuple[str, ...]
     title: str | None = None  # a `rush <command>` run's (records.ProcessRush)
     run: str | None = None  # a `rush <command>` run's id, which its model calls name
+    exec_chain: tuple[tuple[str, ...], ...] = ()  # the commands it ran before ``argv``, its last, in order
+    binary_path: str | None = None  # the file its last exec ran
+    argv_truncated: bool = False  # the recorder cut an argv of it
     parser_version: str = PARSER_VERSION
 
 
@@ -309,6 +313,8 @@ class Metrics:
     timing: TimingReport | None
     timing_unavailable: str | None
     timing_method: TimingMethod
+    tool_calls: int | None = None
+    tool_calls_complete: bool = False
 
     def to_dict(self, unavailable: str | None = None) -> dict[str, Any]:
         """``unavailable`` replaces the reason a case that never ran has no timing."""
@@ -329,6 +335,8 @@ class Metrics:
                 "cache_write": usage.cache_write.missing,
             },
             "model_calls": usage.calls,
+            "tool_calls": self.tool_calls,
+            "tool_calls_complete": self.tool_calls_complete,
             "usage_complete": self.usage_complete,
             "elapsed_ms": None if self.total_case_ns is None else round(self.total_case_ns / 1_000_000),
             "elapsed_ns": self.total_case_ns,

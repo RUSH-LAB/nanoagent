@@ -1,13 +1,30 @@
 {
-  "_": "step2_single_run.Cases",
   "plugin": "acceptance-probe",
   "task": "probe",
-  "context": "There is no data source: the task is synthetic. Wait the input's wait_seconds, then answer with the digest of the input's token: the first 12 lowercase hex digits of the SHA-256 of the token's UTF-8 bytes. A token starting with refuse- has no digest: refuse it.",
-  "answer": [
-    {"token": "alpha", "wait_seconds": 1.0},
-    {"token": "beta", "wait_seconds": 0.5}
+  "cases": [
+    {
+      "prompt": "Wait 1.0 seconds, then answer with the digest of the token alpha: the first 12 lowercase hex digits of the SHA-256 of the token's UTF-8 bytes.",
+      "arguments": {
+        "token": "alpha",
+        "wait_seconds": 1.0
+      }
+    },
+    {
+      "prompt": "Wait 0.5 seconds, then answer with the digest of the token beta: the first 12 lowercase hex digits of the SHA-256 of the token's UTF-8 bytes.",
+      "arguments": {
+        "token": "beta",
+        "wait_seconds": 0.5
+      }
+    }
   ],
   "refuse": [
-    {"arguments": {"token": "refuse-me", "wait_seconds": 0}, "reference_error": "has no digest"}
+    {
+      "prompt": "Wait 0 seconds, then answer with the digest of the token refuse-me: the first 12 lowercase hex digits of the SHA-256 of the token's UTF-8 bytes. A token starting with refuse- has no digest: refuse it.",
+      "arguments": {
+        "token": "refuse-me",
+        "wait_seconds": 0
+      },
+      "reference_error": "has no digest"
+    }
   ]
 }

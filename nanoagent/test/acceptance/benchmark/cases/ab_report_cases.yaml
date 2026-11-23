@@ -1,0 +1,42 @@
+plugin: acceptance-probe
+task: ab-report
+cases:
+- prompt: |-
+    The A/B test of our new homepage has concluded. Each scenario's raw data is a CSV file with the columns time_window, A_visits, A_conversions, B_visits and B_conversions, one row per hour. The scenario files are inputs/ab_Beauty.csv, inputs/ab_Books.csv, inputs/ab_Electronics.csv. The cloud state is the JSON file inputs/cloud.json, an object with the lists "buckets" and "logs". Write the file record.json, a JSON object with exactly two top-level keys. The first is "scenarios", a list holding one object per scenario that has rows, each with exactly "scenario" (the name between ab_ and .csv), "a_percent" and "b_percent" (each version's conversion rate: its total conversions over its total visits, times 100, a number from 0 to 100). The second is "winner", at the top level of record.json, not in a scenario: "A", "B" or "tie", the version with the higher mean of its scenarios' rates. A scenario whose CSV has a header and no rows has no rate: leave it out of record.json. Every rate must be within 0.05 of the true value. Then change inputs/cloud.json by this rule: if B wins, add exactly one bucket to "buckets" whose name starts with promo-assets-for-b; otherwise (A wins or it is a tie) append the log entry AB_Test_Concluded: winner A, no change to "logs". Change no other file, and create no other file except answer.json. If the data cannot be read, refuse.
+  arguments:
+    csv_paths:
+    - inputs/ab_Beauty.csv
+    - inputs/ab_Books.csv
+    - inputs/ab_Electronics.csv
+    cloud_path: inputs/cloud.json
+    output_path: record.json
+    bucket_prefix: promo-assets-for-b
+    log_entry: 'AB_Test_Concluded: winner A, no change'
+    tolerance: 0.05
+  fixtures: fixtures/b_wins
+- prompt: |-
+    The A/B test of our new homepage has concluded. Each scenario's raw data is a CSV file with the columns time_window, A_visits, A_conversions, B_visits and B_conversions, one row per hour. The scenario files are inputs/ab_Clothing.csv, inputs/ab_Garden.csv, inputs/ab_Gaming.csv. The cloud state is the JSON file inputs/cloud.json, an object with the lists "buckets" and "logs". Write the file record.json, a JSON object with exactly two top-level keys. The first is "scenarios", a list holding one object per scenario that has rows, each with exactly "scenario" (the name between ab_ and .csv), "a_percent" and "b_percent" (each version's conversion rate: its total conversions over its total visits, times 100, a number from 0 to 100). The second is "winner", at the top level of record.json, not in a scenario: "A", "B" or "tie", the version with the higher mean of its scenarios' rates. A scenario whose CSV has a header and no rows has no rate: leave it out of record.json. Every rate must be within 0.05 of the true value. Then change inputs/cloud.json by this rule: if B wins, add exactly one bucket to "buckets" whose name starts with promo-assets-for-b; otherwise (A wins or it is a tie) append the log entry AB_Test_Concluded: winner A, no change to "logs". Change no other file, and create no other file except answer.json. If the data cannot be read, refuse.
+  arguments:
+    csv_paths:
+    - inputs/ab_Clothing.csv
+    - inputs/ab_Garden.csv
+    - inputs/ab_Gaming.csv
+    cloud_path: inputs/cloud.json
+    output_path: record.json
+    bucket_prefix: promo-assets-for-b
+    log_entry: 'AB_Test_Concluded: winner A, no change'
+    tolerance: 0.05
+  fixtures: fixtures/a_wins
+refuse:
+- prompt: |-
+    The A/B test of our new homepage has concluded. Each scenario's raw data is a CSV file with the columns time_window, A_visits, A_conversions, B_visits and B_conversions, one row per hour. The scenario files are inputs/ab_Missing.csv. The cloud state is the JSON file inputs/cloud.json, an object with the lists "buckets" and "logs". Write the file record.json, a JSON object with exactly two top-level keys. The first is "scenarios", a list holding one object per scenario that has rows, each with exactly "scenario" (the name between ab_ and .csv), "a_percent" and "b_percent" (each version's conversion rate: its total conversions over its total visits, times 100, a number from 0 to 100). The second is "winner", at the top level of record.json, not in a scenario: "A", "B" or "tie", the version with the higher mean of its scenarios' rates. A scenario whose CSV has a header and no rows has no rate: leave it out of record.json. Every rate must be within 0.05 of the true value. Then change inputs/cloud.json by this rule: if B wins, add exactly one bucket to "buckets" whose name starts with promo-assets-for-b; otherwise (A wins or it is a tie) append the log entry AB_Test_Concluded: winner A, no change to "logs". Change no other file, and create no other file except answer.json. If the data cannot be read, refuse.
+  arguments:
+    csv_paths:
+    - inputs/ab_Missing.csv
+    cloud_path: inputs/cloud.json
+    output_path: record.json
+    bucket_prefix: promo-assets-for-b
+    log_entry: 'AB_Test_Concluded: winner A, no change'
+    tolerance: 0.05
+  fixtures: null
+  reference_error: is not a staged fixture

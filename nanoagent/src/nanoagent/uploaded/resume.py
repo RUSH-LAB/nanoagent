@@ -31,6 +31,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
+from nanoagent.uploaded.archive import file_mode
 from nanoagent.uploaded.clis import CLIS
 from nanoagent.uploaded import chats
 from nanoagent.uploaded.rush_worker import ChatOf, ResumeOf
@@ -75,6 +76,11 @@ def copy_workspace(source: Path, destination: Path, max_bytes: int | None = None
                 if max_bytes is not None and total > max_bytes:
                     raise TooLarge
                 shutil.copy2(path, target, follow_symlinks=False)
+                # The mode the VM gave it, which on macOS microsandbox keeps only in an attribute copy2 drops (archive.GUEST_STAT): a program
+                # the member installed stays executable when its session is kept, resumed, or pinned for a benchmark run.
+                # Always readable and writable by the worker, which copies and deletes it again (the VM runs as root and may leave a file it can't read).
+                with open(path, "rb") as handle:
+                    os.chmod(target, stat.S_IMODE(file_mode(handle.fileno())) | stat.S_IRUSR | stat.S_IWUSR)
     return total
 
 
