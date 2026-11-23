@@ -51,7 +51,7 @@ import {
 const RECONNECT_MS = 10 * 60_000;
 const RECONNECT_WAIT_MS = 2000;
 const BENCHMARK = '/api/benchmark';
-const jsonPost = body => ({method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+export const jsonPost = body => ({method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
 const CLOSED = 'The connection closed before the app finished. The session keeps its answer when it does: open the session again to see it.';
 const sleep = (ms, signal) => new Promise(resolve => {
   const timer = setTimeout(resolve, ms);

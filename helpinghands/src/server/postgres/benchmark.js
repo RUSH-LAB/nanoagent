@@ -6,7 +6,7 @@ const {CAPABILITY_WINDOW_S} = require('../benchmark/limits');
 const {stringifyJson} = require('../benchmark/json');
 const {latestByCase, runScore, sumMetrics} = require('../benchmark/rules');
 const {MAX_ATTEMPT_LINKS, MAX_ATTEMPTS_PER_CASE, MAX_EVENT_PAGE_BYTES, MAX_TRACE_PAGE_BYTES} = require('../benchmark/limits');
-const {chargeStorage, inTransaction} = require('./benchmark-context');
+const {chargeStorage, inTransaction, lockStorage} = require('./benchmark-context');
 const {sweepExpired} = require('./benchmark-sweep');
 
 function attemptView(row) {
@@ -170,6 +170,8 @@ function createPostgresBenchmark({pool}) {
 
   /** Keep fixtures archive `fixtures.archive` under its digest, charged to `userId` the first time. */
   async function keepFixtures(client, userId, fixtures) {
+    // Under the member's storage lock, so a publication of theirs that keeps the same new archive at the same moment finds it kept, and is not charged it twice.
+    await lockStorage(client, userId);
     if ((await client.query('select benchmark_fixtures_known($1) as known', [fixtures.sha256])).rows[0].known) return;
     await chargeStorage(client, userId, fixtures.archive.length);
     await client.query('insert into benchmark_fixtures (sha256, publisher_id, archive) values ($1, $2, $3) on conflict do nothing', [fixtures.sha256, userId, fixtures.archive]);
@@ -349,9 +351,8 @@ function createPostgresBenchmark({pool}) {
       return member(context, async client => (await client.query(
         `select s.* from benchmark_run_summary s join benchmark_run r on r.run_id = s.run_id
           where not r.session and ($1::timestamptz is null
-            or ($3::uuid is null and s.created_at < $1)
-            or ($3::uuid is not null and (date_trunc('milliseconds', s.created_at) < $1
-              or (date_trunc('milliseconds', s.created_at) = $1 and s.run_id > $3))))
+            or date_trunc('milliseconds', s.created_at) < $1
+            or ($3::uuid is not null and date_trunc('milliseconds', s.created_at) = $1 and s.run_id > $3))
           order by date_trunc('milliseconds', s.created_at) desc, s.run_id limit $2`, [before, limit, beforeId],
       )).rows.map(runSummary));
     },

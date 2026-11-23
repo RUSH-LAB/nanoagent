@@ -12,7 +12,7 @@ const require = createRequire(import.meta.url);
 const {createPostgresBenchmark} = require('../../../../src/server/postgres/benchmark.js');
 const {createPostgresBenchmarkWorker} = require('../../../../src/server/postgres/benchmark-worker.js');
 const {createBenchmarkService} = require('../../../../src/server/benchmark/service.js');
-const {benchmarkPublication, runBody} = require('../../../../src/server/benchmark/validate.js');
+const {benchmarkPublication, finalizeBody, runBody} = require('../../../../src/server/benchmark/validate.js');
 const {DEFAULT_LIMITS, RUN_ENDPOINT, RUN_MODEL} = require('../../../../src/server/benchmark/limits.js');
 
 const sha256 = data => createHash('sha256').update(data).digest('hex');
@@ -96,5 +96,28 @@ describe('installed agent claim selection', () => {
     const second = await worker.claim('alice', 'installed', RUN_ENDPOINT, CAPABILITIES, false);
     assert.equal(second.run.run_id, run_id);
     assert.notEqual(first.attempt_id, second.attempt_id);
+  });
+
+  it('re-pins a run to the worker that claims its retry after the pinned worker\'s attempt ended worker_error', async () => {
+    const aider = {...CAPABILITIES, installed_agents: ['aider']};
+    await worker.claim('alice', 'pin-a', RUN_ENDPOINT, aider, false);
+    await worker.claim('alice', 'pin-b', RUN_ENDPOINT, aider, false);
+    const {benchmark} = await service.publish('alice', publication({name: 'repin'}));
+    const {run_id} = await service.submit(as('alice'), runBody({benchmark_id: benchmark.benchmark_id, harness: 'rush aider', idempotency_key: 'repin'}));
+    const owner = async () => (await db.query('select worker_id from benchmark_attempt where run_id = $1 and worker_id is not null order by claimed_at desc, attempt_id desc limit 1', [run_id])).rows[0].worker_id;
+    const first = await worker.claim('alice', 'pin-a', RUN_ENDPOINT, aider, false);
+    assert.equal(first.run.run_id, run_id);
+    // While A's attempt is live, A owns the run and B, though it has the program, is handed nothing of it.
+    assert.equal(await worker.claim('alice', 'pin-b', RUN_ENDPOINT, aider, false), null);
+    await worker.finalize('alice', first.attempt_id, first.fence, finalizeBody({
+      fence: first.fence, execution: {status: 'worker_error', reason: 'the worker died'}, coverage: {}, metrics: {}, final_cursor_expected: 0,
+    }).final);
+    // A's newest attempt ended worker_error, so the run has no owner: B claims, and is the owner from then on.
+    const retried = await worker.claim('alice', 'pin-b', RUN_ENDPOINT, aider, false);
+    assert.equal(retried.run.run_id, run_id);
+    assert.equal(await owner(), 'pin-b');
+    assert.equal(await worker.claim('alice', 'pin-a', RUN_ENDPOINT, aider, false), null);
+    assert.equal((await worker.claim('alice', 'pin-b', RUN_ENDPOINT, aider, false)).run.run_id, run_id);
+    assert.equal(await owner(), 'pin-b');
   });
 });

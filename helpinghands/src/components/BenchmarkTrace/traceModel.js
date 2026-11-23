@@ -59,14 +59,6 @@ export function barOf(model, span, total = model.window.end - model.window.start
   return {left, width: Math.max(width, 0.4)};
 }
 
-/** Relative timing in milliseconds, keeping unknown starts and ends distinct from zero. */
-export function spanTiming(model, span) {
-  const start = big(span.start_ns);
-  if (start === null) return null;
-  const end = big(span.end_ns);
-  return {offset: Number(start - model.window.start) / 1e6, duration: end === null || end < start ? null : Number(end - start) / 1e6};
-}
-
 /** The causal links touching `id`, each as `{link, direction, otherId}` (`out` leaves it, `in` arrives), to follow. */
 export function causalFrom(model, id) {
   const visible = new Set(actionSpans(model).map(span => span.id));
@@ -95,4 +87,14 @@ export function actionSpans(model) {
     if (/^process \d+$/.test(span.name) && !span.attributes?.argv && !span.attributes?.title) return false;
     return true;
   });
+}
+
+/**
+ * `error` for a trace that could not be read at all, and `refreshError` for a read again (the live poll) that failed while the last
+ * good trace is still on screen: that stays shown, with the failure beside it.
+ */
+export function traceErrors(attempt, spans) {
+  const failed = read => read.error !== null && read.data === null;
+  const stale = read => (read.error !== null && read.data !== null ? read.error : null);
+  return {error: [attempt, spans].find(failed)?.error ?? null, refreshError: stale(attempt) ?? stale(spans)};
 }

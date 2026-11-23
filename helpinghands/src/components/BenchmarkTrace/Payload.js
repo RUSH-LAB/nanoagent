@@ -14,8 +14,11 @@ export default function Payload({attemptId, sha, label, note, transcript}) {
   useEffect(() => {
     let live = true;
     setState({loading: true});
+    // The text is untrusted JSON or SSE: a parse that throws is shown as the payload's error, like a failed fetch.
     traceApi.payload(attemptId, sha).then(
-      result => live && setState({view: payloadView(result.text, result.redaction), ...capMessages(traceMessages(result.text, {dialect, response, stream}))}),
+      result => ({view: payloadView(result.text, result.redaction), ...capMessages(traceMessages(result.text, {dialect, response, stream}))}),
+    ).then(
+      next => live && setState(next),
       error => live && setState({error: error.message}),
     );
     return () => { live = false; };

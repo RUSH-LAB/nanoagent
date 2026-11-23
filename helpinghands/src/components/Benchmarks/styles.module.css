@@ -15,7 +15,7 @@
   align-items: center;
 }
 
-/* A choice made by pressing it: a Marketplace card or chip as a button. */
+/* A choice made by pressing it: a Marketplace card as a button. */
 .choice {
   width: 100%;
   font: inherit;
@@ -23,20 +23,8 @@
   cursor: pointer;
 }
 
-.choice[aria-pressed='true'],
-.chipButton[aria-pressed='true'] {
+.choice[aria-pressed='true'] {
   border-color: var(--ifm-color-primary);
-}
-
-.chipButton {
-  background: none;
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.85rem;
-}
-
-.chipButton[aria-pressed='true'] {
-  background: var(--ifm-color-emphasis-200);
 }
 
 .benchmarkCard {
@@ -61,11 +49,12 @@
   overflow: auto;
   margin: 0;
   padding: 0.75rem;
-  border: 1px solid var(--site-hairline);
+  border: 0;
   border-radius: var(--site-radius);
   background: var(--ifm-color-emphasis-100);
   font-size: 0.8rem;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .cases {
@@ -75,10 +64,15 @@
 }
 
 .case {
-  padding: 0.6rem 0.8rem;
+  min-width: 0;
+  padding: 0.85rem;
   border: 1px solid var(--site-hairline);
   border-radius: var(--site-radius);
 }
+
+.case .row { margin-bottom: 0.65rem; }
+.case .row code { overflow-wrap: anywhere; }
+.case > p { margin: 0.65rem 0 0; }
 
 .form {
   display: flex;

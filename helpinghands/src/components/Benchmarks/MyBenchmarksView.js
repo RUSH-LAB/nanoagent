@@ -4,18 +4,23 @@ import market from '@site/src/pages/marketplace/styles.module.css';
 import BenchmarkTrace, {BenchmarkTraceCompare} from '@site/src/components/BenchmarkTrace';
 import {benchmarkJson, runDetail} from './api';
 import {Pill} from './Choice';
-import {ACTIVE, formatCost, formatTime, formatTokens, harnessLabel, harnessNames, historyRuns, isBenchmarkRun, latestAttempts, scoreText, toggleSelection, toggled, verdictOf} from './runs';
+import {formatCost, formatTokens} from '../BenchmarkTrace/format';
+import {ACTIVE, SESSION_BENCHMARK, formatTime, harnessLabel, harnessNames, historyRuns, isBenchmarkRun, latestAttempts, scoreText, toggleSelection, toggled, verdictOf} from './runs';
 import useLoad, {usePoll} from './useLoad';
 import styles from './history.module.css';
 
 const PAGE = 200;
+// The side-by-side trace view shows two attempts.
+const MOST_TRACES = 2;
+
+const runsPage = (before, beforeId) => benchmarkJson(`/runs?limit=${PAGE}${before ? `&before=${encodeURIComponent(before)}&before_id=${encodeURIComponent(beforeId)}` : ''}`).then(read => read.runs);
 
 async function allRuns() {
   const runs = [];
   let before = null;
   let beforeId = null;
   do {
-    const page = (await benchmarkJson(`/runs?limit=${PAGE}${before ? `&before=${encodeURIComponent(before)}&before_id=${encodeURIComponent(beforeId)}` : ''}`)).runs;
+    const page = await runsPage(before, beforeId);
     runs.push(...page);
     if (page.length < PAGE) break;
     const last = page[page.length - 1];
@@ -35,8 +40,8 @@ function useDetails(ids) {
 const metric = (metrics, field, time = false) => {
   const value = metrics?.[field];
   if (value == null) return '—';
-  if (typeof value === 'object') return time ? formatTime(value.total, value.missing_attempts) : formatTokens(value.total, value.missing_attempts);
-  return time ? formatTime(value, false) : formatTokens(value, false);
+  if (typeof value === 'object') return time ? formatTime(value.total, value.missing_attempts) : `${formatTokens(value.total)}${value.missing_attempts ? '+' : ''}`;
+  return time ? formatTime(value, false) : formatTokens(value);
 };
 
 function Metrics({run, cost}) {
@@ -186,12 +191,26 @@ export default function MyBenchmarksView() {
   const reload = useCallback(async () => {
     try { setSummaries(await allRuns()); setError(null); } catch (failure) { setError(failure.message); }
   }, []);
+  // A read again of the newest page alone: a run that can still change is among the newest, and the older ones are kept as they were.
+  const refresh = useCallback(async () => {
+    try {
+      const newest = await runsPage(null, null);
+      setSummaries(previous => previous && [...newest, ...previous.filter(run => !newest.some(one => one.run_id === run.run_id))]);
+      setError(null);
+    } catch (failure) { setError(failure.message); }
+  }, []);
   useEffect(() => { reload(); }, [reload]);
-  usePoll(reload, 3000, Boolean(summaries?.some(run => ACTIVE.has(run.status))));
+  // The run and trace views read themselves again while they are open, so the list is read again only while it is the one in view.
+  const listing = !runId && !compareIds.length && !traceIds.length;
+  useEffect(() => { if (listing && summaries) refresh(); }, [listing]); // eslint-disable-line react-hooks/exhaustive-deps
+  usePoll(refresh, 3000, listing && Boolean(summaries?.slice(0, PAGE).some(run => ACTIVE.has(run.status))));
   if (traceIds.length) {
+    const back = <button className={styles.link} onClick={() => navigate({trace: null})}>← Back to {compareIds.length ? 'comparison' : 'run'}</button>;
+    if (traceIds.length > MOST_TRACES) return <>{back}<div className={market.error} role="alert">The trace address names {traceIds.length} attempts: at most {MOST_TRACES} can be shown.</div></>;
     const names = compareIds.map(id => { const name = summaries?.find(run => run.run_id === id)?.harness.name; return name && harnessLabel(name); });
-    return <><button className={styles.link} onClick={() => navigate({trace: null})}>← Back to {compareIds.length ? 'comparison' : 'run'}</button>
-      {traceIds.length === 2 ? <BenchmarkTraceCompare leftAttemptId={traceIds[0]} rightAttemptId={traceIds[1]} leftHarnessName={names[0]} rightHarnessName={names[1]} /> : <BenchmarkTrace attemptId={traceIds[0]} harnessName={(() => { const name = summaries?.find(run => run.run_id === runId)?.harness.name; return name && harnessLabel(name); })()} />}</>;
+    const traceRun = summaries?.find(run => run.run_id === runId);
+    return <>{back}
+      {traceIds.length === MOST_TRACES ? <BenchmarkTraceCompare leftAttemptId={traceIds[0]} rightAttemptId={traceIds[1]} leftHarnessName={names[0]} rightHarnessName={names[1]} /> : <BenchmarkTrace attemptId={traceIds[0]} harnessName={traceRun && harnessLabel(traceRun.harness.name)} session={traceRun?.benchmark?.name === SESSION_BENCHMARK} />}</>;
   }
   const back = () => navigate({run: null, compare: null, trace: null});
   if (runId) return <RunDetail id={runId} back={back} openTrace={id => navigate({trace: id})} />;

@@ -73,10 +73,12 @@ function createPostgresBenchmarkWorker({pool, config}) {
       // A run someone else holds (a cancel) is skipped: claim locks an attempt (sweep) before a run, cancel a run before an attempt.
       if (!run || run.canceled_at) continue;
       if (rushProgram(run.harness_name)) {
-        // A run's first worker pins its local installation. Every later case stays on that worker.
-        const owner = (await client.query(
-          `select worker_id from benchmark_attempt where run_id = $1 and worker_id is not null order by claimed_at, attempt_id limit 1`, [run.run_id],
-        )).rows[0]?.worker_id;
+        // The worker of the run's newest claimed attempt owns its local installation, and every later case stays on it. When that attempt
+        // ended worker_error (its worker died or failed), the run has no owner: any worker with the program installed may claim, and becomes it.
+        const last = (await client.query(
+          `select worker_id, execution_status from benchmark_attempt where run_id = $1 and worker_id is not null order by claimed_at desc, attempt_id desc limit 1`, [run.run_id],
+        )).rows[0];
+        const owner = last && last.execution_status !== 'worker_error' ? last.worker_id : null;
         if (owner ? owner !== workerId : !capabilities.installed_agents?.includes(rushProgram(run.harness_name))) continue;
       }
       const picked = (await client.query(

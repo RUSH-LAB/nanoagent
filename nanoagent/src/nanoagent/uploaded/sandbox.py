@@ -30,6 +30,7 @@ import asyncio
 import concurrent.futures
 import hashlib
 import json
+import logging
 import math
 import os
 import platform
@@ -51,6 +52,8 @@ from nanoagent.uploaded.archive import ArchiveError, Extracted, copy_tree, unpac
 from nanoagent.uploaded.collector import STRACE_FLAGS, CollectorError, ProcessEvent, ProcessEvidence, TraceSession, launch_argv, launched_processes, parse_trace
 from nanoagent.uploaded.contract import ContractError, HarnessManifest, is_canonical_relative_path, path_problem, validate_argv
 from nanoagent.uploaded.toolchains import CLOSURE_ARCHIVE, DependencyClosure, ToolchainProfile
+
+LOG = logging.getLogger(__name__)
 
 # microsandbox has no wheel for Intel Macs (pyproject.toml's marker leaves it out there): everything else NanoAgent does runs
 # there, and the supervisor refuses to start, so a worker there never starts and advertises no sandbox.
@@ -1366,6 +1369,8 @@ class _Case:
                 concurrent.futures.wait(runs, timeout=KILL_RETRY_S)
                 if all(run.done() for run in runs):
                     break
+            else:
+                LOG.error("sandbox %s: case processes still alive %ss after the drain deadline; destroying the VM", self.container_id, DRAIN_S + 5)
         if self._future is not None:
             try:
                 self.evidence(tracer_ok=self._future.done() and self._future.exception() is None)

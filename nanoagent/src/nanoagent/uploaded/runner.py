@@ -67,13 +67,14 @@ from nanoagent.uploaded import records as rec
 from nanoagent.uploaded.app import AttemptServices
 from nanoagent.uploaded.archive import ArchiveError, unpack_tar
 from nanoagent.uploaded.attempt import AttemptPolicy, ServiceError, ToolPolicy
+from nanoagent.uploaded.answer import ANSWER
 from nanoagent.uploaded.broker import PluginToolRunner, ToolError
 from nanoagent.uploaded.clis import CLIS, Cli
 from nanoagent.uploaded.collector import ProcessEvent, ProcessEventKind, ProcessEvidence, launched_processes
-from nanoagent.uploaded.contract import ContractError, validate
+from nanoagent.uploaded.contract import SESSION_STATE, ContractError, validate
 from nanoagent.uploaded.endpoint import EndpointProfile
 from nanoagent.uploaded.execservice import ExecError
-from nanoagent.uploaded.outcome import ANSWER, answer_instructions, answer_skeleton, answer_text, outcome as read_outcome
+from nanoagent.uploaded.outcome import answer_instructions, answer_skeleton, answer_text, outcome as read_outcome
 from nanoagent.uploaded.plugin_package import unpack_package
 from nanoagent.uploaded.reconcile import PendingCall, pending_calls
 from nanoagent.uploaded.relay import ServiceRelay
@@ -608,13 +609,18 @@ class UnsupportedLimits(RuntimeError):
     """A claimed run asks for more than the worker advertised it can give."""
 
 
-SESSION_STATE = ".rush"  # in a workspace: the session's own state (CLI homes, chats, resume files), not what the agent made
+def remove_tree(path: Path) -> None:
+    """Remove ``path``, a folder or a link the agent may have put there, if it exists; a failure to remove it raises."""
+    if path.is_symlink():
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path)
 
 
 def without_session_state(snapshot: WorkspaceSnapshot) -> WorkspaceSnapshot:
     """The frozen workspace as the trace, the outcome seam and the verifier see it: less ``.rush/``. The workspace archive RUSH keeps is
     packed from the live workspace, which still holds it."""
-    shutil.rmtree(snapshot.directory / SESSION_STATE, ignore_errors=True)
+    remove_tree(snapshot.directory / SESSION_STATE)
 
     def agent_made(path: str) -> bool:
         return path != SESSION_STATE and not path.startswith(f"{SESSION_STATE}/")
@@ -928,9 +934,11 @@ class AttemptRunner:
         tarball = folder.with_name(folder.name + ".tar")
         try:
             with gzip.GzipFile(fileobj=io.BytesIO(data)) as source, tarball.open("wb") as out:
-                if len(plain := source.read(MAX_FIXTURES_BYTES + 1)) > MAX_FIXTURES_BYTES:
-                    raise ContractError("fixtures_too_large", f"the fixtures are over {MAX_FIXTURES_BYTES} bytes uncompressed")
-                out.write(plain)
+                size = 0
+                while chunk := source.read(1 << 20):
+                    if (size := size + len(chunk)) > MAX_FIXTURES_BYTES:
+                        raise ContractError("fixtures_too_large", f"the fixtures are over {MAX_FIXTURES_BYTES} bytes uncompressed")
+                    out.write(chunk)
             unpacked = unpack_tar(tarball, folder, max_files=limits["workspace_files"], max_bytes=limits["workspace_bytes"])
         except (OSError, EOFError, ArchiveError) as error:  # a gzip that is not one, or a tar that leaves its folder
             raise ContractError("fixtures_invalid", f"the fixtures archive cannot be unpacked: {error}") from error
@@ -938,6 +946,10 @@ class AttemptRunner:
             tarball.unlink(missing_ok=True)
         if unpacked.skipped or unpacked.files != dict(files):
             raise ContractError("fixtures_mismatch", f"the unpacked fixtures are not the files the case lists (skipped: {sorted(unpacked.skipped)})")
+        # Never lost silently: the worker seeds answer.json over the fixtures, and the frozen workspace is less `.rush/`.
+        for path in unpacked.files:
+            if path == ANSWER or path == SESSION_STATE or path.startswith(f"{SESSION_STATE}/"):
+                raise ContractError("fixtures_reserved", f"the fixtures hold {path} at their root, which the platform reserves ({ANSWER} is seeded, {SESSION_STATE}/ is the session's)")
 
     async def _ended(self, job: AttemptJob, lease: Lease, journal: RushJournal) -> AttemptResult | None:
         """The result of an attempt whose lease was lost or canceled while it was preparing, before any case ran: canceled is
@@ -1265,7 +1277,7 @@ class AttemptRunner:
             # its environment, no part of what it left: they are not frozen or held to the workspace's bounds.
             if seeded:
                 for area in AGENT_AREAS:
-                    await in_thread(shutil.rmtree, handle.workspace / SESSION_STATE / area, True)
+                    await in_thread(remove_tree, handle.workspace / SESSION_STATE / area)
             try:
                 snapshot = await in_thread(handle.stop_and_drain)
             except SandboxError as error:
@@ -1523,7 +1535,7 @@ class AttemptRunner:
                 return failed("nonzero_exit")
             case TerminationKind.EXITED if termination.exit_code:
                 return failed("nonzero_exit")
-        result = await in_thread(read_outcome, workspace, {"skipped": skipped}, job.case, answer_skeleton(job.task["output_schema"]))
+        result = await in_thread(read_outcome, workspace, {"skipped": skipped})
         if result["status"] == "execution_failed":
             LOG.info("attempt %s: its workspace holds no usable result: %s", job.attempt_id, result["reason"])
         return result

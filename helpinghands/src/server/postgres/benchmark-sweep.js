@@ -6,7 +6,9 @@ const {MAX_ATTEMPTS_PER_CASE, MAX_WORKER_ATTEMPTS} = require('../benchmark/limit
  * case's attempt number plus one, a rerun of it, until the case's newest MAX_WORKER_ATTEMPTS attempts in a row ended so. Only worker errors
  * count, not the member's own reruns before them (attempt numbers count both), and never past MAX_ATTEMPTS_PER_CASE. A free-form session has
  * no case, and a canceled run takes no new attempts. Inserting takes only a key share of the run, which a cancel (it locks the run `for no
- * key update`) does not wait on.
+ * key update`) does not wait on. A retry is never left queued in a canceled run, though the `canceled_at` test reads a snapshot: the caller holds
+ * the ended attempt's row, and a cancel, after taking the run, updates its leased attempts before its queued ones, so it either waits for that
+ * row and then cancels the retry queued here, or commits first and is seen by the statement below (the interleavings are in benchmark-acceptance.mjs).
  */
 async function retryWorkerErrors(client, attemptIds) {
   await client.query(

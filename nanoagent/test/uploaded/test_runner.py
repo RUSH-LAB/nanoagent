@@ -222,10 +222,10 @@ async def test_the_seeded_answer_is_the_skeleton_of_the_tasks_output_schema_in_s
     assert without_rush_files(rig.supervisor.case.found)["answer.json"] == b'{\n  "digest": null,\n  "rows": []\n}\n'
 
 
-async def test_a_session_that_leaves_the_seeded_answer_untouched_has_no_result(tmp_path: Path) -> None:
+async def test_a_session_that_leaves_the_seeded_answer_untouched_has_it_judged_like_any_answer(tmp_path: Path) -> None:
     rig = Rig(tmp_path, script=fx.CaseScript(workspace={"answer.json": SEEDED_ANSWER}))
     out = await rig.run()
-    assert out.execution == {"status": "execution_failed", "reason": "missing_result"} and rig.verified == []
+    assert out.execution == {"status": "answered", "reason": None} and (rig.judged, rig.verified) == ([], [{"status": "answered", "answer": {}}])  # the verifier decides; nothing here reads it as unfilled
 
 
 def assert_worker_error(rig: Rig, fragment: str) -> None:
@@ -233,6 +233,21 @@ def assert_worker_error(rig: Rig, fragment: str) -> None:
     [body] = rig.rush.finalized
     assert body["execution"]["status"] == "worker_error" and fragment in body["execution"]["reason"] and len(body["execution"]["reason"]) <= 200
     assert body["verdict"] is None and body["verifier_error"] is None and rig.rush.sealed
+
+
+@pytest.mark.parametrize(("path", "code"), [("answer.json", "fixtures_reserved"), (".rush/agents", "fixtures_reserved"), ("a.txt", "fixtures_too_large")])
+async def test_fixtures_the_platform_reserves_or_that_are_too_large_end_the_attempt_as_a_worker_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str, code: str
+) -> None:
+    data, files = fx.fixtures_archive({path: b"a" * 4096})
+    if code == "fixtures_too_large":
+        monkeypatch.setattr("nanoagent.uploaded.runner.MAX_FIXTURES_BYTES", 1024)
+    body = fx.job_body()
+    body["case"]["fixtures"] = {"sha256": hashlib.sha256(data).hexdigest(), "files": files}
+    rig = Rig(tmp_path, rush=fx.FakeRush(data))
+    await rig.run(fx.parse_job(body))
+    assert rig.supervisor.specs == [] and rig.judged == []
+    assert_worker_error(rig, code)
 
 
 @pytest.mark.parametrize("fault", ["wrong digest", "extra file", "link"])

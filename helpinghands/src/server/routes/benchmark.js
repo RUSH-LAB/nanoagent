@@ -42,6 +42,34 @@ const ROUTE = new RegExp([
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+// The members publishing now. A publication's body is up to MAX_PUBLISH_BYTES and is held several times over while it is read, parsed and its
+// fixtures archives decoded, so a member has one in flight and a second is refused rather than queued.
+const publishing = new Set();
+
+/**
+ * Take the member's one publication slot, refusing a second at once (429 `publish_in_progress`); the function it returns gives the slot back.
+ * The slot also goes back when the connection closes, so a client that stalls or hangs up in the middle of its body never keeps it.
+ */
+function beginPublication(userId, res) {
+  if (publishing.has(userId)) throw new BenchmarkError(429, 'publish_in_progress', 'Another publication of yours is still being read: publish this one when it has finished');
+  publishing.add(userId);
+  let held = true;
+  const end = () => {
+    if (held) publishing.delete(userId);
+    held = false;
+  };
+  res.on('close', end);
+  return end;
+}
+
+/** The publication body with every number's spelling kept, refused from its Content-Length when it is over MAX_PUBLISH_BYTES, before a byte is read. */
+function publicationBody(req, readRawBody) {
+  if (Number(req.headers['content-length']) > MAX_PUBLISH_BYTES) {
+    throw new BenchmarkError(413, 'body_too_large', `A publication may be ${MAX_PUBLISH_BYTES} bytes at most`);
+  }
+  return losslessBody(req, request => readRawBody(request, MAX_PUBLISH_BYTES));
+}
+
 function limitOf(url, fallback, max) {
   const raw = url.searchParams.get('limit');
   if (raw === null) return fallback;
@@ -208,8 +236,13 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       if (req.method !== 'POST') return json(res, 405, {error: 'Method not allowed'});
       if (!req.auth?.userId) return json(res, 401, {error: 'Not signed in'});
       // The body carries the cases' fixtures archives, so it may be larger than the other routes' bodies.
-      const published = await service.publish(req.auth.userId, benchmarkPublication(await losslessBody(req, request => readRawBody(request, MAX_PUBLISH_BYTES))));
-      return json(res, published.created ? 201 : 200, published);
+      const endPublication = beginPublication(req.auth.userId, res);
+      try {
+        const published = await service.publish(req.auth.userId, benchmarkPublication(await publicationBody(req, readRawBody)));
+        return json(res, published.created ? 201 : 200, published);
+      } finally {
+        endPublication();
+      }
     }
     // A member's worker credentials, outside any workspace: the worker runs on the member's computer and acts only for the member.
     if (top === 'worker-credentials' || credentialId !== undefined) {
@@ -262,24 +295,29 @@ module.exports = async function benchmark(req, res, url, pathname, ctx) {
       if (!ctx.workspaceApps) return json(res, 409, {error: 'Apps need a workspace file store', code: 'fs-disabled'});
       // Pinning every case runs the plugin's reference tool on the member's computer, which takes longer than the dispatcher's 30 second socket timeout.
       req.setTimeout(PIN_TIMEOUT_MS);
-      // The body carries the uploaded case folder's fixture files, so it may be as large as a publication. Numbers keep their spelling (limits).
-      const {pluginId, name, caseFile, files, limits} = pinnedBody(await losslessBody(req, request => readRawBody(request, MAX_PUBLISH_BYTES)));
-      // What a benchmark takes from the member rather than from the plugin is checked before the minutes it takes to pin.
-      const computer = ctx.runners.computer(context.userId);
-      if (!computer) return json(res, 503, {error: RUNNER_OFFLINE, code: 'runner_offline'});
-      // The app is installed on the member's computer first, which pins with the package it runs.
-      const opened = await ctx.workspaceApps.open(context, pluginId, computer);
-      if (opened.error) return json(res, opened.status, {error: opened.error, code: 'app_unavailable'});
-      if (opened.value.status !== 'ready') return json(res, 409, {error: `${opened.value.id} is not ready to run`, code: 'app_unavailable'});
-      // NanoAgent parses the YAML and resolves each case's fixtures folder against the files: nothing of the case file is read here.
-      const pinned = await computer.benchmarkCaseSet(opened.value.sha256, stringifyJson({name, case_file: caseFile, files}));
-      if (pinned.error) return json(res, pinned.status, {error: pinned.error, code: 'pin_failed'});
-      // The pinned body, private references and all, is published here from NanoAgent's own text: it never reaches the browser.
-      const publication = benchmarkPublication({
-        ...parseJson(pinned.value), name, limits,
-      });
-      const published = await service.publish(context.userId, publication);
-      return json(res, published.created ? 201 : 200, published);
+      const endPublication = beginPublication(context.userId, res);
+      try {
+        // The body carries the uploaded case folder's fixture files, so it may be as large as a publication. Numbers keep their spelling (limits).
+        const {pluginId, name, caseFile, files, limits} = pinnedBody(await publicationBody(req, readRawBody));
+        // What a benchmark takes from the member rather than from the plugin is checked before the minutes it takes to pin.
+        const computer = ctx.runners.computer(context.userId);
+        if (!computer) return json(res, 503, {error: RUNNER_OFFLINE, code: 'runner_offline'});
+        // The app is installed on the member's computer first, which pins with the package it runs.
+        const opened = await ctx.workspaceApps.open(context, pluginId, computer);
+        if (opened.error) return json(res, opened.status, {error: opened.error, code: 'app_unavailable'});
+        if (opened.value.status !== 'ready') return json(res, 409, {error: `${opened.value.id} is not ready to run`, code: 'app_unavailable'});
+        // NanoAgent parses the YAML and resolves each case's fixtures folder against the files: nothing of the case file is read here.
+        const pinned = await computer.benchmarkCaseSet(opened.value.sha256, stringifyJson({name, case_file: caseFile, files}));
+        if (pinned.error) return json(res, pinned.status, {error: pinned.error, code: 'pin_failed'});
+        // The pinned body, private references and all, is published here from NanoAgent's own text: it never reaches the browser.
+        const publication = benchmarkPublication({
+          ...parseJson(pinned.value), name, limits,
+        });
+        const published = await service.publish(context.userId, publication);
+        return json(res, published.created ? 201 : 200, published);
+      } finally {
+        endPublication();
+      }
     }
     // One Terminal session of a plugin page's Harness tab, or of `nanoagent harness harness=shell` (startSession).
     if (top === 'sessions') {

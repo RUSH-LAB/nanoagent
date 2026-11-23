@@ -1,7 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import market from '@site/src/pages/marketplace/styles.module.css';
-import {workerNotice} from '../PluginFrame/worker.js';
-import {appManifest, benchmarkJson, jsonPost, runnerStatus} from './api';
+import {jsonPost} from '../PluginFrame/host.js';
+import {appManifest, benchmarkJson, runnerNotice} from './api';
 import {previewCaseFile, publishProblem, splitCaseFolder, validBenchmarkName} from './caseFolder';
 import {CaseList} from './Choice';
 import CopyInstructions from './CopyInstructions';
@@ -37,7 +37,11 @@ function PublishForm({plugin}) {
   const reviewHeading = useRef(null);
   useEffect(() => { if (review) reviewHeading.current?.focus(); }, [review]);
   const split = files.length ? splitCaseFolder(files.map(file => file.webkitRelativePath)) : null;
-  useEffect(() => { runnerStatus().then(status => setNotice(workerNotice(status))); }, []);
+  useEffect(() => {
+    let live = true;
+    runnerNotice().then(next => live && setNotice(next));
+    return () => { live = false; };
+  }, []);
 
   const submit = async event => {
     event.preventDefault();
@@ -151,6 +155,7 @@ export default function PublishView() {
     <>
       <header className={market.header}><h1>Publish Benchmark</h1></header>
       {error && <div className={market.error}>{error}</div>}
+      {pluginId && apps && <div className={market.error} role="alert">The plugin &quot;{pluginId}&quot; in the address is not installed or not ready to publish for.</div>}
       <PluginCards apps={apps} onPick={app => setPluginId(app.id)} />
     </>
   );

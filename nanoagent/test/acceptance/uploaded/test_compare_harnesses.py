@@ -88,7 +88,7 @@ def test_the_trace_of_an_attempt_shows_its_outcome_verdict_checks_and_workspace_
     assert [(check["name"], check["status"]) for check in trace["verdict"]["checks"]] == [
         ("outcome_exists", "passed"), ("schema_valid", "passed"), ("values_match", "failed"), ("side_effects", "skipped"), ("no_extra_changes", "skipped"),
     ]  # fmt: skip
-    assert {entry["path"]: entry["change"] for entry in trace["workspace_diff"]["entries"]} == {"answer.json": "added", "record.json": "added", "inputs/cloud.json": "modified"}
+    assert {entry["path"]: entry["change"] for entry in trace["workspace_diff"]["entries"]} == {"answer.json": "modified", "record.json": "added", "inputs/cloud.json": "modified"}
     assert trace["workspace_diff"]["truncated"] is False
     # The events and the gateway's accounting are the attempt's own: every model call the mock served.
     ledger = compared.ledgers["claude"][A_CASE]

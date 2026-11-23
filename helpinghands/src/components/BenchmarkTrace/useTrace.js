@@ -2,7 +2,7 @@ import {useCallback, useEffect, useMemo, useRef} from 'react';
 import {traceApi} from './api';
 import {packRows} from './packRows';
 import {transcriptRows} from './transcriptRows';
-import {actionSpans, buildTrace} from './traceModel';
+import {actionSpans, buildTrace, traceErrors} from './traceModel';
 import useLoad, {usePoll} from '../Benchmarks/useLoad';
 
 const TIMELINE_KINDS = new Set(['model_call', 'tool', 'command', 'process', 'subagent']);
@@ -37,8 +37,8 @@ export default function useTrace(attemptId, showProcesses = true) {
   const costs = useMemo(() => new Map((accounting.data?.calls ?? []).filter(call => call.admission.status === 'settled').map(call => [call.call_id, call.admission.cost_usd])), [accounting.data]);
   const rows = useMemo(() => transcriptRows(visible, costs), [visible, costs]);
   return {
-    attempt: attempt.data, accounting: accounting.data, model, packed, rows, hasProcesses: actions.some(span => span.kind === 'process'),
+    attempt: attempt.data, accounting: accounting.data, accountingError: accounting.error, model, packed, rows, hasProcesses: actions.some(span => span.kind === 'process'),
     truncated: Boolean(spans.data?.truncated),
-    error: attempt.error ?? spans.error, loading: attempt.loading || spans.loading,
+    ...traceErrors(attempt, spans), loading: attempt.loading || spans.loading,
   };
 }

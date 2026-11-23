@@ -1,11 +1,12 @@
-import {describe, it} from 'node:test';
-import {oneAtATime} from '../../../../src/components/Benchmarks/useLoad.js';
+import {afterEach, describe, it} from 'node:test';
+import {oneAtATime, viewOf} from '../../../../src/components/Benchmarks/useLoad.js';
+import {runDetail, runnerNotice} from '../../../../src/components/Benchmarks/api.js';
 import assert from 'node:assert/strict';
 import {publishProblem, splitCaseFolder} from '../../../../src/components/Benchmarks/caseFolder.js';
 import {filterPlugins} from '../../../../src/components/Benchmarks/filterPlugins.js';
 import {aiInstructions, inputFields, instructionsText} from '../../../../src/components/Benchmarks/instructions.js';
 import {
-  benchmarksOf, compareTable, isBenchmarkRun, filterRuns, harnessNames, historyRuns, installedFirst, scoreText, selectedIn, toggled, toggleSelection, verdictOf,
+  isBenchmarkRun, harnessNames, historyRuns, installedFirst, scoreText, toggled, toggleSelection, verdictOf,
 } from '../../../../src/components/Benchmarks/runs.js';
 
 const PLUGIN = {
@@ -79,36 +80,26 @@ const summary = (run_id, harness, benchmark = 'b1', version = '1.0.0') => ({
   run_id, harness: {name: harness}, benchmark: {name: benchmark}, plugin: {id: 'p', version},
 });
 const attempt = (attempt_id, attempt_no, extra = {}) => ({attempt_id, attempt_no, state: 'sealed', ...extra});
-const detail = (run_id, harness, cases) => ({run_id, harness: {name: harness}, cases: cases.map(([case_id, attempts]) => ({case_id, attempts}))});
 
 describe('the runs list', () => {
   const runs = [summary('r3', 'claude'), summary('r2', 'codex'), summary('r1', 'claude'), summary('r0', 'pi', 'b2')];
-
-  it('groups runs into the benchmarks they are of, by plugin version and name', () => {
-    assert.deepEqual(benchmarksOf(runs).map(one => [one.name, one.runs.length]), [['b1', 3], ['b2', 1]]);
-    assert.equal(benchmarksOf([summary('a', 'x', 'b1', '1'), summary('b', 'x', 'b1', '2')]).length, 2);
-  });
 
   it('leaves out Terminal sessions, whose runs are kept under the session case set name', () => {
     const session = {...summary('s1', 'shell'), benchmark: {name: 'harness-session'}};
     assert.equal(isBenchmarkRun(session), false);
     assert.equal(isBenchmarkRun({...session, benchmark: {name: null}}), false);
     assert.equal(isBenchmarkRun(summary('r', 'claude')), true);
-    assert.deepEqual(benchmarksOf([session, summary('r', 'claude')]).map(one => one.name), ['b1']);
   });
 
-  it('filters by the picked harnesses, and shows every run when none is picked', () => {
+  it('names the harnesses of the runs, and toggles a picked one', () => {
     assert.deepEqual(harnessNames(runs), ['claude', 'codex', 'pi']);
-    assert.deepEqual(filterRuns(runs, new Set(['claude'])).map(run => run.run_id), ['r3', 'r1']);
-    assert.equal(filterRuns(runs, new Set()).length, 4);
     assert.deepEqual([...toggled(new Set(['a']), 'b')], ['a', 'b']);
     assert.deepEqual([...toggled(new Set(['a']), 'a')], []);
   });
 
-  it('keeps at most two runs selected, a third replacing the oldest, and drops those out of view', () => {
+  it('keeps at most two runs selected, a third replacing the oldest', () => {
     assert.deepEqual(toggleSelection(['a', 'b'], 'c'), ['b', 'c']);
     assert.deepEqual(toggleSelection(['a', 'b'], 'a'), ['b']);
-    assert.deepEqual(selectedIn(['r3', 'zz'], runs), ['r3']);
   });
 
   it('puts the installed version\'s benchmarks first', () => {
@@ -119,7 +110,7 @@ describe('the runs list', () => {
   });
 });
 
-describe('verdicts and the compare table', () => {
+describe('verdicts', () => {
   it('reads a verdict, or why there is none', () => {
     assert.equal(verdictOf(attempt('a', 1, {verdict: 'pass'})), 'pass');
     assert.equal(verdictOf(attempt('a', 1, {execution: {status: 'worker_error'}})), 'worker error');
@@ -130,16 +121,6 @@ describe('verdicts and the compare table', () => {
     assert.equal(scoreText({value: 0.75, passed: 3, scored: 4, total: 5, unscored: 1, complete: true}), '0.75 (3/4), 1 unscored');
     assert.equal(scoreText({value: 1, passed: 2, scored: 2, total: 5, unscored: 3, complete: false}), '1.00 (2/2), 3 unscored so far');
     assert.equal(scoreText({value: null, passed: 0, scored: 0, total: 2, unscored: 2, complete: false, unavailable_reason: 'scoring_pending'}), 'unavailable');
-  });
-
-  it('tables cases by run with each case\'s newest attempt, and none for a case a run has not reached', () => {
-    const table = compareTable([
-      detail('r1', 'claude', [['p-01', [attempt('a1', 1, {verdict: 'fail'}), attempt('a2', 2, {verdict: 'pass'})]], ['p-02', [attempt('a3', 1, {verdict: 'pass'})]]]),
-      detail('r2', 'codex', [['p-01', [attempt('b1', 1, {verdict: 'fail'})]], ['p-02', []]]),
-    ]);
-    assert.deepEqual(table.columns, [{runId: 'r1', harness: 'claude'}, {runId: 'r2', harness: 'codex'}]);
-    assert.deepEqual(table.rows[0].cells, [{verdict: 'pass', attemptId: 'a2'}, {verdict: 'fail', attemptId: 'b1'}]);
-    assert.deepEqual(table.rows[1].cells, [{verdict: 'pass', attemptId: 'a3'}, {verdict: null, attemptId: null}]);
   });
 });
 
@@ -188,5 +169,51 @@ describe('polling', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
     tick();
     assert.equal(started, 2);
+  });
+});
+
+const originalFetch = globalThis.fetch;
+afterEach(() => { globalThis.fetch = originalFetch; });
+const answer = (body, status = 200) => new Response(JSON.stringify(body), {status, headers: {'content-type': 'application/json'}});
+
+describe('a load\'s error', () => {
+  it('belongs to the load it came from, not to the one that replaced it', () => {
+    const failed = {data: null, error: 'Not found', loading: false, key: '["a"]'};
+    assert.deepEqual(viewOf(failed, '["a"]'), {data: null, error: 'Not found', loading: false});
+    assert.deepEqual(viewOf(failed, '["b"]'), {data: null, error: null, loading: true});
+  });
+});
+
+describe('RUSH Lab\'s status', () => {
+  it('says the status could not be read when the request fails, instead of saying nothing', async () => {
+    globalThis.fetch = async () => { throw new TypeError('offline'); };
+    assert.deepEqual(await runnerNotice(), {tone: 'bad', text: 'RUSH Lab\'s status could not be read: Could not reach the API server'});
+    globalThis.fetch = async () => answer({}, 500);
+    assert.deepEqual(await runnerNotice(), {tone: 'bad', text: 'RUSH Lab\'s status could not be read: The request failed (500)'});
+  });
+
+  it('is the worker notice when it is read', async () => {
+    globalThis.fetch = async () => answer({connected: false});
+    assert.match((await runnerNotice()).text, /not connected/);
+  });
+});
+
+describe('a run\'s cost', () => {
+  const accountingOf = usd => ({totals: {settled_usd: usd}, calls: [{admission: {status: 'settled'}}]});
+
+  it('reads a sealed attempt\'s accounting once and an unsealed one\'s every time', async () => {
+    const reads = [];
+    globalThis.fetch = async url => {
+      reads.push(String(url));
+      if (String(url).endsWith('/accounting')) return answer(accountingOf(0.5));
+      return answer({run: {cases: [
+        {latest_attempt_id: 'sealed-1', attempts: [{attempt_id: 'sealed-1', sealed: true}]},
+        {latest_attempt_id: 'live-1', attempts: [{attempt_id: 'live-1', sealed: false}]},
+      ]}});
+    };
+    assert.equal((await runDetail('r1')).cost_usd, 1);
+    assert.equal((await runDetail('r1')).cost_usd, 1);
+    const accounting = id => reads.filter(url => url.endsWith(`/attempts/${id}/accounting`)).length;
+    assert.deepEqual([accounting('sealed-1'), accounting('live-1')], [1, 2]);
   });
 });

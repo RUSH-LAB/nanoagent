@@ -1,6 +1,6 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
-import {barOf, buildTrace, causalFrom, keepSelection, spanTiming} from '../../../../src/components/BenchmarkTrace/traceModel.js';
+import {barOf, buildTrace, causalFrom, keepSelection} from '../../../../src/components/BenchmarkTrace/traceModel.js';
 import {capMessages, describeSpan, payloadView, tokenClasses} from '../../../../src/components/BenchmarkTrace/inspector.js';
 import {traceMessages} from '../../../../src/components/BenchmarkTrace/traceMessages.js';
 
@@ -34,12 +34,6 @@ describe('benchmark trace model', () => {
     assert.equal(snapshotted.byId.has('root'), false);
     assert.equal(snapshotted.byId.has('snapshot'), false);
     assert.deepEqual(snapshotted.window, {start: BigInt(at(0.1)), end: BigInt(at(8.4))});
-  });
-
-  it('shows elapsed time relative to the trace and distinguishes unfinished and untimed events', () => {
-    assert.deepEqual(spanTiming(model, model.byId.get('m:m1')), {offset: 0, duration: 8000});
-    assert.deepEqual(spanTiming(model, {start_ns: at(1), end_ns: null}), {offset: 900, duration: null});
-    assert.equal(spanTiming(model, {start_ns: null}), null);
   });
 
   it('uses the same elapsed-time scale for timelines with different starts and lengths', () => {

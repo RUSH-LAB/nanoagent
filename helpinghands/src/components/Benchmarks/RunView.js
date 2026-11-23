@@ -1,9 +1,9 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {useHistory, useLocation} from '@docusaurus/router';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import market from '@site/src/pages/marketplace/styles.module.css';
-import {workerNotice} from '../PluginFrame/worker.js';
-import {benchmarkJson, jsonPost, runnerStatus} from './api';
+import {jsonPost} from '../PluginFrame/host.js';
+import {benchmarkJson, runnerNotice} from './api';
 import {CaseList, Step} from './Choice';
 import PluginCards, {PluginHeader, useBenchmarkPlugins} from './PluginCards';
 import {countOf, installedFirst, toggled} from './runs';
@@ -40,10 +40,12 @@ function BenchmarkCases({benchmark}) {
     }
   };
   return <details className={runStyles.benchmarkCases} onToggle={toggle}>
-    <summary>Show cases</summary>
-    {error && <div className={market.error}>{error}</div>}
-    {!cases && !error && <p>Loading the cases…</p>}
-    {cases && <CaseList cases={cases} />}
+    <summary><span>Cases <span className={runStyles.caseCount}>{benchmark.case_count}</span></span><span className={runStyles.caseChevron} aria-hidden="true" /></summary>
+    <div className={runStyles.caseContent}>
+      {error && <div className={market.error}>{error}</div>}
+      {!cases && !error && <p>Loading the cases…</p>}
+      {cases && <CaseList cases={cases} />}
+    </div>
   </details>;
 }
 
@@ -64,23 +66,36 @@ function HarnessStep({benchmark}) {
   const {pathname} = useLocation();
   const [state, setState] = useState({busy: false, error: null, queued: false});
   const [notice, setNotice] = useState(null);
-  useEffect(() => { runnerStatus().then(status => setNotice(workerNotice(status))); }, []);
+  useEffect(() => {
+    let live = true;
+    runnerNotice().then(next => live && setNotice(next));
+    return () => { live = false; };
+  }, []);
+  // The idempotency key of each harness's submission until it is queued: a retry of one the server may have taken cannot queue it twice.
+  const keys = useRef(new Map());
   usePoll(defaults.reload, 5000, rush);
 
   // One run per harness; a harness RUSH refuses is told beside the runs it queued.
   const run = async () => {
     setState(previous => ({...previous, busy: true, error: null}));
-    const ids = [];
+    const queued = [];
     const errors = [];
     for (const harness of [...harnesses, ...(rush ? [rushHarness] : [])]) {
+      const key = keys.current.get(harness) ?? crypto.randomUUID();
+      keys.current.set(harness, key);
       try {
-        ids.push((await benchmarkJson('/runs', jsonPost({benchmark_id: benchmark.benchmark_id, harness, idempotency_key: crypto.randomUUID()}))).run.run_id);
+        await benchmarkJson('/runs', jsonPost({benchmark_id: benchmark.benchmark_id, harness, idempotency_key: key}));
+        keys.current.delete(harness);
+        queued.push(harness);
       } catch (failure) {
         errors.push(`${harness}: ${failure.message}`);
       }
     }
-    setState({busy: false, error: errors.join(' ') || null, queued: ids.length > 0});
-    if (ids.length && !errors.length) history.push(`${pathname}?view=mine`);
+    // Only what failed stays selected, so running again retries just that.
+    setHarnesses(previous => new Set([...previous].filter(name => !queued.includes(name))));
+    if (queued.includes(rushHarness)) setRush(false);
+    setState({busy: false, error: errors.join(' ') || null, queued: queued.length > 0});
+    if (queued.length && !errors.length) history.push(`${pathname}?view=mine`);
   };
   return (
     <>
@@ -164,6 +179,7 @@ export default function RunView() {
     <>
       <header className={market.header}><h1>Benchmark a Harness</h1></header>
       {error && <div className={market.error}>{error}</div>}
+      {pluginId && apps && <div className={market.error} role="alert">The plugin &quot;{pluginId}&quot; in the address is not installed or not ready to benchmark.</div>}
       <PluginCards apps={apps} onPick={app => setPluginId(app.id)} />
     </>
   );

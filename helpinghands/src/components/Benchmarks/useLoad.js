@@ -19,7 +19,12 @@ export default function useLoad(load, deps) {
     run();
     return () => { latest.current += 1; };
   }, [run]);
-  return {data: state.key === key ? state.data : null, error: state.error, loading: state.loading || state.key !== key, reload: run};
+  return {...viewOf(state, key), reload: run};
+}
+
+/** What a load of `key` shows of `state`: data, error and loading belong to the load they came from, never to the one before it. */
+export function viewOf(state, key) {
+  return {data: state.key === key ? state.data : null, error: state.key === key ? state.error : null, loading: state.loading || state.key !== key};
 }
 
 /** Call `reload` every `ms` while `active`, skipping a tick while the read before it is still under way (a later read would discard it). */

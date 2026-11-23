@@ -137,6 +137,44 @@ describe('POST /api/benchmark/benchmarks, the publication', () => {
   });
 });
 
+describe('POST /api/benchmark/benchmarks, how many publications are read at once', () => {
+  const limits = require('../../../src/server/benchmark/limits.js');
+  const publishWith = (readRawBody, headers = {}) => {
+    const ctx = makeCtx({benchmark: {repository: {}, service: {publish: async () => assert.fail('must not publish')}}});
+    ctx.readRawBody = readRawBody;
+    return invoke(route, {method: 'POST', path: '/api/benchmark/benchmarks', requestContext: null, headers, ctx});
+  };
+  const oldShape = async () => Buffer.from(JSON.stringify({name: 'sums', context: 'old', plugin_id: 'p'}));
+
+  it('refuses a second publication of a member while the first is being read, 429 publish_in_progress, and takes it once the first is done', async () => {
+    let finish;
+    const gate = new Promise(resolve => { finish = resolve; });
+    const first = publishWith(async () => { await gate; return oldShape(); });
+    const second = await publishWith(async () => assert.fail('the second body must not be read'));
+    assert.deepEqual([second.status, second.payload.code], [429, 'publish_in_progress']);
+    finish();
+    assert.equal((await first).payload.code, 'invalid_request');
+    // The slot came back, whether the first publication was accepted or refused.
+    assert.equal((await publishWith(oldShape)).payload.code, 'invalid_request');
+  });
+
+  it('gives the slot back when the connection closes mid-body, and when the body is refused', async () => {
+    const ctx = makeCtx({benchmark: {repository: {}, service: {publish: async () => assert.fail('must not publish')}}});
+    ctx.readRawBody = () => new Promise(() => {});
+    let hungUp;
+    invoke(route, {method: 'POST', path: '/api/benchmark/benchmarks', requestContext: null, ctx, onRequest: (req, res) => { hungUp = res; }});
+    assert.equal((await publishWith(oldShape)).payload.code, 'publish_in_progress');
+    hungUp.emit('close');
+    assert.equal((await publishWith(oldShape)).payload.code, 'invalid_request');
+  });
+
+  it('refuses a body whose Content-Length is over the limit before reading any of it, and holds no slot for it', async () => {
+    const refused = await publishWith(async () => assert.fail('no byte may be read'), {'content-length': String(limits.MAX_PUBLISH_BYTES + 1)});
+    assert.deepEqual([refused.status, refused.payload.code], [413, 'body_too_large']);
+    assert.equal((await publishWith(oldShape)).payload.code, 'invalid_request');
+  });
+});
+
 describe('the worker route for a case\'s fixtures', () => {
   const workerRoute = require('../../../src/server/routes/benchmark-worker.js');
   const ATTEMPT = '00000000-0000-4000-8000-000000000009';

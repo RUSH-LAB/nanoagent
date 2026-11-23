@@ -13,7 +13,7 @@ export const traceApi = {
   accounting: attemptId => apiRequest(`${BASE}/${id(attemptId)}/accounting`),
   /** What each terminal of a Harness tab session wrote: `{session, terminals: [{terminal, data}]}` with `data` base64. */
   recording: attemptId => apiRequest(`${BASE}/${id(attemptId)}/recording`),
-  /** The last workspace snapshot's event data (`diff`, `diff_truncated`), or null when none was taken. Every event is read: the snapshot comes last. */
+  /** The last workspace snapshot's event data (`diff`, `diff_truncated`), or null when none was taken. Every event is read: the snapshot comes last, and the events route filters by source, not kind. */
   async snapshot(attemptId) {
     let snapshot = null;
     for (let after = 0; ;) {
@@ -24,11 +24,9 @@ export const traceApi = {
     }
     return snapshot;
   },
-  /** Two sealed attempts of one pinned case, compared action by action: `{header, rows, first_difference}`. */
-  compare: (a, b) => apiRequest(`/api/benchmark/compare/attempts?a=${id(a)}&b=${id(b)}`),
   /** A payload, fetched on selection: its text and the stored redaction status. */
   async payload(attemptId, sha256) {
-    const response = await apiFetch(`${API_BASE}${BASE}/${id(attemptId)}/payloads/${sha256}`);
+    const response = await apiFetch(`${API_BASE}${BASE}/${id(attemptId)}/payloads/${id(sha256)}`);
     if (!response.ok) throw new Error(response.status === 404 ? 'This payload was not stored' : `The payload could not be read (${response.status})`);
     return {text: await response.text(), redaction: response.headers.get('X-Rush-Redaction') ?? 'none'};
   },

@@ -1,4 +1,4 @@
-/** What the Benchmarks section computes from the benchmark API's answers without drawing: verdicts, scores, the runs' filter and selection, the compare table. */
+/** What the Benchmarks section computes from the benchmark API's answers without drawing: verdicts, scores, the runs' filter and selection. */
 
 export const ACTIVE = new Set(['queued', 'running']);
 
@@ -36,13 +36,6 @@ export function scoreText(score) {
   return `${text}${score.unscored ? `, ${score.unscored} unscored` : ''}${score.complete ? '' : ' so far'}`;
 }
 
-/** "$0.0042", "$0.012", "$1.25": a cost in US dollars, "—" when unknown. */
-export function formatCost(usd) {
-  if (usd === null || usd === undefined) return '—';
-  if (usd === 0) return '$0.00';
-  return `$${usd.toFixed(usd < 0.01 ? 4 : usd < 1 ? 3 : 2)}`;
-}
-
 /** "4.2 s", "1m 05s": a duration in milliseconds, with a `+` after it when some attempts reported none. */
 export function formatTime(ms, missing) {
   const seconds = ms / 1000;
@@ -50,15 +43,9 @@ export function formatTime(ms, missing) {
   return `${text}${missing ? '+' : ''}`;
 }
 
-/** "373", "4.2k": a token count, with a `+` after it when some attempts reported none. */
-export const formatTokens = (total, missing) => `${total < 1000 ? total : `${(total / 1000).toFixed(1)}k`}${missing ? '+' : ''}`;
-
 /** The benchmarks of the installed version first, then the newest of the rest. */
 export const installedFirst = (benchmarks, version) => [...benchmarks].sort((a, b) => (
   Number(b.plugin.version === version) - Number(a.plugin.version === version) || b.published_at.localeCompare(a.published_at)));
-
-/** A benchmark's identity in run summaries, which name it and its plugin version but not its id: a name is unique per plugin version. */
-export const benchmarkKey = run => `${run.plugin.id}@${run.plugin.version}/${run.benchmark.name}`;
 
 // The case set name every Terminal session's run is kept under (server/routes/benchmark.js SESSION_NAME): those runs are in GET runs too, but are no benchmark's.
 export const SESSION_BENCHMARK = 'harness-session';
@@ -66,23 +53,10 @@ export const SESSION_BENCHMARK = 'harness-session';
 /** Whether a run summary is a run of a published benchmark, not a Terminal session. */
 export const isBenchmarkRun = run => Boolean(run.benchmark?.name) && run.benchmark.name !== SESSION_BENCHMARK;
 
-/** The benchmarks the run summaries (newest first) are of: `{key, name, plugin, runs}` each, the one with the newest run first. */
-export function benchmarksOf(summaries) {
-  const groups = new Map();
-  for (const run of summaries.filter(isBenchmarkRun)) {
-    const group = groups.get(benchmarkKey(run)) ?? {key: benchmarkKey(run), name: run.benchmark.name, plugin: run.plugin, runs: []};
-    groups.set(group.key, {...group, runs: [...group.runs, run]});
-  }
-  return [...groups.values()];
-}
-
 /** The harnesses the runs were made with, in the order of their newest run. */
 export const harnessNames = runs => [...new Set(runs.map(run => run.harness.name))];
 
 export const harnessLabel = name => name.startsWith('rush ') ? name.split(/\s+/)[1] : name;
-
-/** The runs of the harnesses in `picked` (a Set), all of them when none is picked. */
-export const filterRuns = (runs, picked) => (picked.size ? runs.filter(run => picked.has(run.harness.name)) : runs);
 
 /** `item` in or out of `set`. */
 export function toggled(set, item) {
@@ -94,25 +68,6 @@ export function toggled(set, item) {
 /** `selected` (run ids, oldest pick first) with `id` picked or unpicked; at most two stay picked, a third pick replacing the oldest. */
 export function toggleSelection(selected, id) {
   return selected.includes(id) ? selected.filter(one => one !== id) : [...selected, id].slice(-2);
-}
-
-/** The picked run ids that are among the runs in view. */
-export const selectedIn = (selected, runs) => selected.filter(id => runs.some(run => run.run_id === id));
-
-/**
- * The compare table of runs read in full (GET runs/{id}): a row per case, a column per run, each cell `{verdict, attemptId}`
- * (`verdict` null and no attempt for a case the run has not reached).
- */
-export function compareTable(runs) {
-  const newest = runs.map(latestAttempts);
-  const cases = [...new Set(runs.flatMap(run => run.cases.map(one => one.case_id)))];
-  return {
-    columns: runs.map(run => ({runId: run.run_id, harness: run.harness.name})),
-    rows: cases.map(caseId => ({
-      caseId,
-      cells: newest.map(attempts => ({verdict: attempts[caseId] ? verdictOf(attempts[caseId]) : null, attemptId: attempts[caseId]?.attempt_id ?? null})),
-    })),
-  };
 }
 
 /** Filter the chronological run history by plugin and harness. */

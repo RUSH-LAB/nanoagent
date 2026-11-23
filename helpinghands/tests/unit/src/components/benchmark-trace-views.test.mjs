@@ -1,10 +1,10 @@
-import {describe, it} from 'node:test';
+import {afterEach, describe, it} from 'node:test';
 import assert from 'node:assert/strict';
-import {actionSpans, buildTrace} from '../../../../src/components/BenchmarkTrace/traceModel.js';
+import {actionSpans, buildTrace, traceErrors} from '../../../../src/components/BenchmarkTrace/traceModel.js';
 import {packRows} from '../../../../src/components/BenchmarkTrace/packRows.js';
+import {traceApi} from '../../../../src/components/BenchmarkTrace/api.js';
 import {accountingCost} from '../../../../src/components/BenchmarkTrace/format.js';
 import {replyPreview, transcriptRows} from '../../../../src/components/BenchmarkTrace/transcriptRows.js';
-import {alignTranscripts, firstDifferencePair, matchingId, rowDiffers} from '../../../../src/components/BenchmarkTrace/compareModel.js';
 
 const S = 1_000_000_000n;
 const at = seconds => String(1_700_000_000n * S + BigInt(Math.round(seconds * 1000)) * (S / 1000n));
@@ -94,67 +94,6 @@ describe('trace action visibility', () => {
   });
 });
 
-describe('comparison alignment', () => {
-  const row = id => ({id, kind: 'model_call', name: id});
-  const action = id => ({action_id: id});
-  const same = {status: 'same', input_diff: [], output_diff: [], status_diff: null};
-  const comparison = {first_difference: 1, rows: [
-    {index: 0, ...same, a: [action('m:1')], b: [action('m:1')]},
-    {index: 1, status: 'changed', input_diff: [{path: '$'}], a: [action('m:2')], b: [action('m:2')]},
-    {index: 2, status: 'only_a', a: [action('c:1')], b: []},
-  ]};
-  const left = [row('m:1'), row('m:2'), row('c:1')];
-  const right = [row('p:x'), row('m:1'), row('m:2'), row('p:y')];
-  const pairs = alignTranscripts(left, right, comparison);
-
-  it('pairs rows by the comparison and puts uncovered rows beside the covered row they precede', () => {
-    assert.deepEqual(pairs.map(pair => [pair.left?.id ?? null, pair.right?.id ?? null, pair.index]), [
-      [null, 'p:x', null], ['m:1', 'm:1', 0], ['m:2', 'm:2', 1], ['c:1', null, 2], [null, 'p:y', null],
-    ]);
-  });
-
-  it('marks differing rows and finds the first difference by the comparison index', () => {
-    assert.deepEqual(pairs.map(pair => pair.differs), [false, false, true, true, false]);
-    assert.equal(firstDifferencePair(pairs, 1), 2);
-    assert.equal(firstDifferencePair(pairs, null), -1);
-  });
-
-  it('finds the matching row on the other side', () => {
-    assert.equal(matchingId(pairs, 'left', 'm:2'), 'm:2');
-    assert.equal(matchingId(pairs, 'right', 'p:x'), null);
-    assert.equal(matchingId(pairs, 'left', 'c:1'), null);
-  });
-
-  it('counts a changed status, sequence or concurrency as a difference, and an equal row as none', () => {
-    assert.equal(rowDiffers({...same}), false);
-    assert.equal(rowDiffers({...same, status_diff: ['ok', 'error']}), true);
-    assert.equal(rowDiffers({...same, sequence_changed: true}), true);
-    assert.equal(rowDiffers({...same, output_diff: {unknown: 'x'}}), true);
-  });
-
-  it('aligns without a comparison', () => {
-    assert.deepEqual(alignTranscripts(left, right, null).map(pair => [pair.left?.id ?? null, pair.right?.id ?? null]), [['m:1', 'p:x'], ['m:2', 'm:1'], ['c:1', 'm:2'], [null, 'p:y']]);
-  });
-});
-
-describe('ambiguous comparison rows', () => {
-  const row = id => ({id, kind: 'model_call', name: id});
-  const action = id => ({action_id: id});
-  const comparison = {first_difference: 0, rows: [{index: 0, status: 'ambiguous', a: [action('m:1'), action('m:2')], b: [action('m:3')]}]};
-  const pairs = alignTranscripts([row('m:1'), row('m:2')], [row('m:3')], comparison);
-
-  it('keeps every candidate of the row on each side and marks the pair ambiguous and differing', () => {
-    assert.equal(pairs.length, 1);
-    assert.deepEqual([pairs[0].leftAll.map(r => r.id), pairs[0].rightAll.map(r => r.id)], [['m:1', 'm:2'], ['m:3']]);
-    assert.deepEqual([pairs[0].ambiguous, pairs[0].differs], [true, true]);
-  });
-
-  it('matches any candidate to the other side', () => {
-    assert.equal(matchingId(pairs, 'left', 'm:2'), 'm:3');
-    assert.equal(matchingId(pairs, 'right', 'm:3'), 'm:1');
-  });
-});
-
 import {traceMessages} from '../../../../src/components/BenchmarkTrace/traceMessages.js';
 
 const frame = (event, data) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -177,16 +116,6 @@ describe('data-shaped corrections', () => {
   it('joins cost from accounting by call_id and never reads it from usage', () => {
     const model = buildTrace({spans: [span('m:a', 'model_call', null, 0, 1, {attributes: {call_id: 'a', usage: {total: 5, cost_usd: 9}}}), span('m:b', 'model_call', null, 1, 2, {attributes: {call_id: 'b'}})]});
     assert.deepEqual(transcriptRows(model, new Map([['a', 0.01]])).map(row => row.cost), [0.01, null]);
-  });
-
-  it('marks a same-status row with a non-empty output diff or a recorded delta as differing', () => {
-    const base = {status: 'same', input_diff: [], output_diff: [], status_diff: null, sequence_changed: false, concurrency_changed: false, token_delta: 0, cost_delta: '0'};
-    assert.equal(rowDiffers(base), false);
-    assert.equal(rowDiffers({...base, output_diff: [{path: '$.proposals[1].arguments.command', a: 'ls', b: 'ls -a'}]}), true);
-    assert.equal(rowDiffers({...base, token_delta: 12}), true);
-    assert.equal(rowDiffers({...base, cost_delta: '0.0001'}), true);
-    assert.equal(rowDiffers({...base, token_delta: {unknown: 'no tokens'}}), false);
-    assert.equal(firstDifferencePair(alignTranscripts([{id: 'm:1'}], [{id: 'm:1'}], {first_difference: 0, rows: [{index: 0, ...base, output_diff: [{path: '$'}], a: [{action_id: 'm:1'}], b: [{action_id: 'm:1'}]}]}), 0), 0);
   });
 
   it('parses a raw responses event stream for the messages and the preview, without being told it streamed', () => {
@@ -252,5 +181,30 @@ describe('trace cost', () => {
     assert.equal(accountingCost({totals: {settled_usd: 0.02}, calls: [call('settled'), call('uncertain')]}), '$0.02+');
     assert.equal(accountingCost({totals: {settled_usd: null}, calls: [call('reserved')]}), '–');
     assert.equal(accountingCost(null), '–');
+  });
+});
+
+describe('trace read errors', () => {
+  const good = {data: {}, error: null};
+  it('is an error for a trace that was never read, and says nothing while one is read', () => {
+    assert.deepEqual(traceErrors({data: null, error: 'gone'}, good), {error: 'gone', refreshError: null});
+    assert.deepEqual(traceErrors(good, {data: null, error: 'cut'}), {error: 'cut', refreshError: null});
+    assert.deepEqual(traceErrors({data: null, error: null}, good), {error: null, refreshError: null});
+  });
+
+  it('keeps the last good trace when a read again fails, and names the failure beside it', () => {
+    assert.deepEqual(traceErrors(good, {data: {}, error: 'poll failed'}), {error: null, refreshError: 'poll failed'});
+    assert.deepEqual(traceErrors({data: {}, error: 'attempt poll failed'}, {data: {}, error: 'spans poll failed'}), {error: null, refreshError: 'attempt poll failed'});
+  });
+});
+
+describe('payload addresses', () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = originalFetch; });
+  it('encodes the payload hash in the address', async () => {
+    let asked;
+    globalThis.fetch = async url => { asked = String(url); return new Response('text', {headers: {'X-Rush-Redaction': 'none'}}); };
+    await traceApi.payload('a1', 'x/../y?z');
+    assert.match(asked, /\/attempts\/a1\/payloads\/x%2F\.\.%2Fy%3Fz$/);
   });
 });

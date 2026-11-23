@@ -22,14 +22,13 @@ import yaml
 from slimconfig import Config, Output, build_output
 
 from nanoagent.plugin.runtime import _names_workspace, call_tool_async
-from nanoagent.uploaded.contract import ContractError
+from nanoagent.uploaded.answer import ANSWER
+from nanoagent.uploaded.contract import SESSION_STATE, ContractError
 from nanoagent.uploaded.outcome import answer_skeleton
 
 NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}")
 # The most one case's fixtures archive may weigh gzipped (RUSH answers 400 `fixtures_too_large` above it).
 FIXTURES_MAX_BYTES = 8 << 20
-# The file the platform seeds into every case's workspace, which a case's fixtures may therefore not hold at their root.
-ANSWER_FILE = "answer.json"
 
 
 class PreparationError(Exception):
@@ -270,8 +269,9 @@ def fixture_files(case: Case | Refusal, case_id: str, base: Path | dict[str, byt
     if base is None:
         raise PreparationError(f"case {case_id}: the fixtures {case.fixtures} are a folder, and there is no case file folder to read it from")
     files = directory_files(Path(case.fixtures), base, case_id) if isinstance(base, Path) else uploaded_folder_files(case.fixtures, base, case_id)
-    if ANSWER_FILE in files:  # the platform seeds it before the session, so a fixture of that name would be overwritten or overwrite it
-        raise PreparationError(f"case {case_id}: the fixtures hold {ANSWER_FILE} at their root, which the platform seeds")
+    for path in files:  # the platform seeds answer.json before the session and keeps `.rush/` as its own, so a fixture there would be overwritten or dropped
+        if path == ANSWER or path == SESSION_STATE or path.startswith(f"{SESSION_STATE}/"):
+            raise PreparationError(f"case {case_id}: the fixtures hold {path} at their root, which the platform reserves ({ANSWER} is seeded, {SESSION_STATE}/ is the session's)")
     return files
 
 
@@ -348,6 +348,15 @@ def task_tools(manifest, task) -> list[dict[str, Any]]:
     ]
 
 
+def check_skeleton(task) -> None:
+    """Refuse a task whose output schema has no answer skeleton: the worker seeds every case's answer.json from it, so such a
+    schema would fail every attempt of every case at run time."""
+    try:
+        answer_skeleton(task.output)
+    except ContractError as error:
+        raise PreparationError(f"task {task.id}: {error}") from error
+
+
 def derive_case_set(name: str, cases: CaseSet, manifest, sha256: str, timeout: float, base: Path | dict[str, bytes] | None = None) -> dict[str, Any]:
     """The body of `POST /api/benchmark/benchmarks` for the plugin ``manifest`` (the package with ``sha256``) but the run
     configuration (model, endpoint profile, limits), with every case pinned by the task's reference tool, the private
@@ -358,10 +367,7 @@ def derive_case_set(name: str, cases: CaseSet, manifest, sha256: str, timeout: f
     answer or answers though it is to be refused, a refusal whose error differs from the one expected, and a case to refuse
     in a task without a reference tool to confirm the refusal."""
     task = check_cases(manifest, cases, name)
-    try:
-        answer_skeleton(task.output)  # the worker seeds every case's answer.json from it, so a schema it cannot skeleton fails every attempt
-    except ContractError as error:
-        raise PreparationError(f"task {task.id}: {error}") from error
+    check_skeleton(task)
     tool = reference_tool(task)
     if tool is None and cases.refuse:
         first = case_ids(cases)[len(cases.cases)]
@@ -413,6 +419,102 @@ def case_set_frame(name: str, manifest, sha256: str, task) -> dict[str, Any]:
             "egress_hosts": sorted(set(manifest.permissions.network_hosts)),
         },
     }
+
+
+# COMPAT(case-set-cases): the case-set request production RUSH still sends, `{name, cases: {plugin, task, context, answer, refuse}}`,
+# answered as it always was (the old publication: no prompt or fixtures per case, `instructions` and `context` in the frame). Delete
+# with the `cases` form of the route in web/app.py once no deployed RUSH sends it.
+@dataclass
+class CompatRefusal:  # COMPAT(case-set-cases)
+    """A case to refuse: its input, and text the pinning tool's error holds when it rejects it."""
+
+    arguments: dict[str, Any]
+    reference_error: str
+
+
+@dataclass
+class CompatCaseSet:  # COMPAT(case-set-cases)
+    """One task of one plugin, and its inputs: to answer, and to refuse."""
+
+    plugin: str
+    task: str
+    # What a coding agent is told that the task's input does not say: its universe and data source.
+    context: str
+    answer: list[dict[str, Any]]
+    refuse: list[CompatRefusal]
+
+    def case(self, id: str) -> tuple[dict[str, Any], CompatRefusal | None]:
+        """The input of case ``id`` (<plugin>-<n>, the inputs to answer first), and its refusal when it is a case to refuse."""
+        inputs = [(arguments, None) for arguments in self.answer] + [(refusal.arguments, refusal) for refusal in self.refuse]
+        ids = [f"{self.plugin}-{index:02d}" for index in range(1, len(inputs) + 1)]
+        if id not in ids:
+            raise ValueError(f"{self.plugin}'s cases are {ids[0]} to {ids[-1]}, not {id}")
+        return inputs[ids.index(id)]
+
+
+@dataclass
+class CompatCaseSetSpec(Output):  # COMPAT(case-set-cases)
+    """The old body of the case-set request: the case file's content and the case set's name."""
+
+    cases: CompatCaseSet
+    name: str
+
+
+def compat_case_ids(cases: CompatCaseSet) -> list[str]:  # COMPAT(case-set-cases)
+    return [f"{cases.plugin}-{number:02d}" for number in range(1, len(cases.answer) + len(cases.refuse) + 1)]
+
+
+def compat_derive_case_set(name: str, cases: CompatCaseSet, manifest, sha256: str, timeout: float) -> dict[str, Any]:  # COMPAT(case-set-cases)
+    """The old publication of ``cases``: as :func:`derive_case_set`, but each case is its arguments alone (no prompt, no fixtures)."""
+    if not NAME.fullmatch(name):
+        raise PreparationError(f"the case set name {name!r} must be lowercase letters, digits, '.', '_' or '-', and start with a letter or digit")
+    if cases.plugin != manifest.id:
+        raise PreparationError(f"the cases are for {cases.plugin}, not {manifest.id}")
+    try:
+        task = manifest.task(cases.task)
+    except KeyError as error:
+        raise PreparationError(f"{manifest.id} has an unknown task: {error.args[0]}") from error
+    ids = compat_case_ids(cases)
+    if not ids:
+        raise PreparationError(f"the cases file for {cases.plugin} {cases.task} has no cases: both `answer` and `refuse` are empty")
+    for case_id in ids:
+        arguments, refusal = cases.case(case_id)
+        try:
+            build_output(arguments, task.input_type)
+        except (TypeError, ValueError) as error:
+            raise PreparationError(f"case {case_id}: its arguments do not fit the input of task {task.id}: {error}") from error
+        if refusal is not None and not refusal.reference_error:
+            raise PreparationError(f"case {case_id}: a case to refuse names no reference_error, so a refusal for the wrong reason would pass")
+    check_skeleton(task)
+    tool = reference_tool(task)
+    if tool is None and cases.refuse:
+        raise PreparationError(
+            f"case {ids[len(cases.answer)]}: task {task.id} has no reference tool, so nothing can confirm that its input is to be refused "
+            f"or that the error {cases.refuse[0].reference_error!r} is the right one; declare a reference tool in the manifest or remove the cases to refuse"
+        )
+    references: dict[str, Any] = {}
+    published: list[dict[str, Any]] = []
+    for case_id in ids:
+        arguments, refusal = cases.case(case_id)
+        # The prompt only feeds the new case's lint and the tool pin never reads it.
+        pinned = Case(prompt="", arguments=arguments) if refusal is None else Refusal(prompt="", arguments=arguments, reference_error=refusal.reference_error)
+        try:
+            reference, rejection = asyncio.run(pin(manifest, tool, pinned, {}, timeout))
+        except RuntimeError as error:
+            raise PreparationError(f"case {case_id}: {error}") from error
+        references[case_id] = rejection if refusal is not None else reference
+        published.append(
+            {
+                "case_id": case_id,
+                "kind": "answer" if refusal is None else "refuse",
+                "arguments": arguments,
+                "expected_error": None if refusal is None else refusal.reference_error,
+            }
+        )
+        print(f"pinned {case_id}")
+    frame = case_set_frame(name, manifest, sha256, task)
+    frame["task"] = {**frame["task"], "instructions": task.instructions}
+    return {**frame, "context": cases.context, "cases": published, "private": references}
 
 
 # The case set of one session in a plugin page's Harness tab: one case, the member's request.

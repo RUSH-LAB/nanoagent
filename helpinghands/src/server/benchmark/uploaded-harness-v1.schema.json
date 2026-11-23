@@ -228,22 +228,6 @@
       "then": {"properties": {"task": {"type": "null"}, "case": {"type": "null"}, "prompt": {"type": "null"}, "harness": {"type": "null"}}},
       "else": {"properties": {"task": {"type": "object"}, "case": {"type": "object"}, "prompt": {"type": "object"}, "harness": {"type": "string"}}}
     },
-    "Result": {
-      "type": "object",
-      "properties": {"protocol": {"$ref": "#/$defs/Protocol"}},
-      "required": ["protocol", "status"],
-      "oneOf": [
-        {
-          "properties": {"status": {"const": "answered"}, "answer": {"type": "object"}},
-          "required": ["answer"]
-        },
-        {
-          "properties": {"status": {"const": "refused"}, "reason": {"type": "string", "minLength": 1, "maxLength": 8192, "pattern": "\\S"}},
-          "required": ["reason"]
-        }
-      ],
-      "unevaluatedProperties": false
-    },
     "HarnessEvent": {
       "type": "object",
       "properties": {

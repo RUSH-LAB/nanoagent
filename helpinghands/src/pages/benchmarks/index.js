@@ -6,6 +6,7 @@ import clsx from 'clsx';
 import Layout from '@theme/Layout';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import TwoColumnLayout from '@site/src/components/TwoColumnLayout';
+import market from '@site/src/pages/marketplace/styles.module.css';
 import MyBenchmarksView from '@site/src/components/Benchmarks/MyBenchmarksView';
 import PublishView from '@site/src/components/Benchmarks/PublishView';
 import RunView from '@site/src/components/Benchmarks/RunView';
@@ -55,15 +56,16 @@ function BenchmarksSidebar({view, href, collapsed, onCollapse}) {
 
 function Benchmarks() {
   const location = useLocation();
-  const view = VIEWS.find(item => item.id === new URLSearchParams(location.search).get('view')) ?? VIEWS[0];
+  const viewId = new URLSearchParams(location.search).get('view');
+  const view = viewId === null ? VIEWS[0] : VIEWS.find(item => item.id === viewId);
   const href = item => (item.id === VIEWS[0].id ? location.pathname : `${location.pathname}?view=${item.id}`);
   return (
     <TwoColumnLayout
       sidebarKey="benchmarks"
       evenGutters
-      renderSidebar={({collapsed, onCollapse}) => <BenchmarksSidebar view={view} href={href} collapsed={collapsed} onCollapse={onCollapse} />}
+      renderSidebar={({collapsed, onCollapse}) => <BenchmarksSidebar view={view ?? {}} href={href} collapsed={collapsed} onCollapse={onCollapse} />}
     >
-      <view.View key={view.id} />
+      {view ? <view.View key={view.id} /> : <div className={market.error} role="alert">There is no Benchmarks view &quot;{viewId}&quot;. Pick one from the sidebar.</div>}
     </TwoColumnLayout>
   );
 }

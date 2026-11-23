@@ -3,7 +3,9 @@
  * Migration 0055 removes `concurrency` from the limits stored with benchmarks, runs and previews, and touches nothing
  * else. The database is already migrated, so the test seeds rows as an old deployment left them and applies the
  * migration's SQL again, in a transaction it rolls back. Foreign keys are off for the seed (replica role): the rows
- * need only the columns the migration reads.
+ * need only the columns the migration reads. Migration 0075 has since dropped `benchmark_preview` (and the coding template, the task
+ * instructions and the run's preview, policy and source columns), so the benchmark and run rows are the current schema's and the
+ * transaction first makes the dropped table again, as it was, for the migration's statement on it to read.
  */
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -27,18 +29,20 @@ const withConcurrency = {...kept, concurrency: 4};
 try {
   await client.query('begin');
   await client.query("set local session_replication_role = 'replica'");
+  // The table 0075 dropped, as 0052 made it, so that migration 0055's update of the previews' plans has its table.
+  await client.query(`create table benchmark_preview (preview_id uuid primary key, workspace_id text not null, user_id text not null, plan jsonb not null, plan_digest text not null);
+    alter table benchmark_preview enable row level security; alter table benchmark_preview force row level security`);
   const [benchmarkOld, benchmarkNew, runOld, runNew, previewOld, previewNew] = [uuid(), uuid(), uuid(), uuid(), uuid(), uuid()];
   for (const [id, limits] of [[benchmarkOld, withConcurrency], [benchmarkNew, kept]]) {
     await client.query(
-      `insert into benchmark (benchmark_id, name, plugin_id, plugin_version, case_set_id, model, endpoint_label, limits, coding_template, task_instructions, digest, publisher_id)
-       values ($1, $2, 'p', '1', 'c', 'm', 'e', $3, '', '', $4, 'u')`, [id, `n-${id}`, JSON.stringify(limits), hex()]);
+      `insert into benchmark (benchmark_id, name, plugin_id, plugin_version, case_set_id, model, endpoint_label, limits, digest, publisher_id)
+       values ($1, $2, 'p', '1', 'c', 'm', 'e', $3, $4, 'u')`, [id, `n-${id}`, JSON.stringify(limits), hex()]);
   }
   for (const [id, limits] of [[runOld, withConcurrency], [runNew, kept]]) {
     await client.query(
-      `insert into benchmark_run (run_id, workspace_id, user_id, idempotency_key, request_digest, preview_id, source_sha256, model, endpoint_label, dialects, policy, prompt_text, limits,
-         selection, renderer_version, benchmark_id, benchmark_name, harness_name, harness_version, case_set_id, case_set_digest, publisher, plugin_id, plugin_name, version,
-         package_sha256, task_id, task, context)
-       values ($1, 'w', 'u', $4, $2, $1, $2, 'm', 'e', '[]', 'coding', '', $3, '{}', 'r', $1, 'b', 'h', '1', 'c', $2, '{}', 'p', 'p', '1', $2, 't', '{}', '')`,
+      `insert into benchmark_run (run_id, workspace_id, user_id, idempotency_key, request_digest, model, endpoint_label, limits, benchmark_id, benchmark_name, harness_name,
+         publisher, plugin_id)
+       values ($1, 'w', 'u', $4, $2, 'm', 'e', $3, $1, 'b', 'claude', '{}', 'p')`,
       [id, hex(), JSON.stringify(limits), `key-${id}`]);
   }
   for (const [id, plan] of [[previewOld, {limits: withConcurrency, model: 'm'}], [previewNew, {limits: kept, model: 'm'}]]) {

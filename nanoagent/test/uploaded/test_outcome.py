@@ -10,12 +10,11 @@ import pytest
 from nanoagent.uploaded.contract import ContractError
 from nanoagent.uploaded.outcome import answer_instructions, answer_skeleton, answer_text, outcome
 
-CASE = {"case_id": "c1"}
 SKELETON = {"digest": None}
 
 
 def read(workspace: Path, skipped: dict[str, str] | None = None) -> dict[str, Any]:
-    return outcome(workspace, {"skipped": skipped or {}}, CASE, SKELETON)
+    return outcome(workspace, {"skipped": skipped or {}})
 
 
 @pytest.mark.parametrize(
@@ -63,11 +62,9 @@ def test_what_the_instructions_describe_is_what_the_seam_reads(tmp_path: Path) -
     assert read(tmp_path) == {"status": "refused", "reason": "no rows"}
 
 
-def test_an_answer_json_equal_to_the_seeded_skeleton_is_a_missing_result(tmp_path: Path) -> None:
+def test_an_answer_json_equal_to_the_seeded_skeleton_is_an_answer_like_any_other(tmp_path: Path) -> None:
     (tmp_path / "answer.json").write_bytes(answer_text(SKELETON))
-    assert read(tmp_path) == {"status": "execution_failed", "reason": "missing_result"}
-    (tmp_path / "answer.json").write_text('{"digest":null}')  # JSON-equal, not byte-identical
-    assert read(tmp_path) == {"status": "execution_failed", "reason": "missing_result"}
+    assert read(tmp_path) == {"status": "answered", "answer": SKELETON}  # the verifier fails it on its named check, or passes it if it is right
 
 
 def test_the_instructions_name_the_seeded_file_and_the_refusal_shape() -> None:

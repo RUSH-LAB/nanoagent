@@ -20,8 +20,9 @@ from jsonschema import Draft202012Validator, ValidationError
 from jsonschema.exceptions import best_match
 
 DEFAULT_MAX_BYTES = 1 << 20
+SESSION_STATE = ".rush"  # in a workspace: the session's own state (CLI homes, chats, resume files), not what the agent made; no fixture may hold it
 
-SHAPES = ("Manifest", "Request", "Result", "HarnessEvent", "ToolCall", "ToolResult", "ExecCall", "ExecResult")
+SHAPES = ("Manifest", "Request", "HarnessEvent", "ToolCall", "ToolResult", "ExecCall", "ExecResult")
 DIALECTS = ("chat_completions", "responses", "anthropic_messages")
 
 

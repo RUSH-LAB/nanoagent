@@ -34,6 +34,7 @@ PROBE = NANOAGENT / "test" / "plugins" / "acceptance-probe"
 CASES = NANOAGENT / "test" / "acceptance" / "benchmark" / "cases" / "ab_report_cases.yaml"
 NAME = "ab-smoke"
 MODEL = "deepseek/deepseek-v4-flash-0731"
+MOCK_MODEL = "test/model"
 sys.path[:0] = [str(NANOAGENT / "examples" / "uploaded_benchmark")]
 
 import step1_publish_benchmark  # noqa: E402
@@ -68,7 +69,8 @@ def claim_all(rush: RushServer, count: int) -> list[dict]:
     capabilities = {
         "wall_time_ms": 600_000, "max_model_calls": 50, "max_output_tokens_per_call": 32768, "max_cost_usd": 1.5, "concurrency": 4, "cpus": 1,
         "memory_mb": 1024, "pids": 256, "workspace_bytes": 268_435_456, "workspace_files": 20_000, "tmp_bytes": 67_108_864, "build_wall_ms": 600_000,
-        "build_memory_mb": 3072, "build_output_bytes": 1 << 30, "build_files": 100_000, "build_tmp_bytes": 512 << 20, "internet_access": False, "models": [MODEL],
+        "build_memory_mb": 3072, "build_output_bytes": 1 << 30, "build_files": 100_000, "build_tmp_bytes": 512 << 20, "internet_access": False, "models": [MOCK_MODEL],  # the model the test server pins on a benchmark for its mock endpoint
+        "installed_agents": ["mytool"],  # the member's own agent that `rush mytool` below runs
     }  # fmt: skip
     jobs = []
     for _ in range(count):
@@ -135,7 +137,7 @@ def test_run_requests_and_finalize_bodies_are_judged_as_the_fakes_judge_them(rus
     case_id = published.publication["cases"][0]["case_id"]
 
     def post_run(**changes: object) -> httpx.Response:
-        body = {"benchmark_id": benchmark_id, "harness": "claude", "idempotency_key": f"rules-{len(changes)}-{sorted(changes)}", **changes}
+        body = {"benchmark_id": benchmark_id, "harness": "claude", "idempotency_key": f"rules-{sorted(changes.items())}", **changes}
         return httpx.post(runs, json=body, headers=member)
 
     # A run request the server refuses is refused by the fake's rules too, and one it takes is taken.

@@ -41,7 +41,16 @@ from nanoagent.plugin.package import (
 from nanoagent.plugin.python import plugin_python
 from nanoagent.runtime.config import AgentConfig, load_config_args
 from nanoagent.uploaded.compare_view import compare_attempts
-from nanoagent.uploaded.case_sets import CaseSetSpec, PreparationError, decode_files, derive_case_set, parse_case_file, session_frame
+from nanoagent.uploaded.case_sets import (
+    CaseSetSpec,
+    CompatCaseSetSpec,  # COMPAT(case-set-cases)
+    PreparationError,
+    compat_derive_case_set,  # COMPAT(case-set-cases)
+    decode_files,
+    derive_case_set,
+    parse_case_file,
+    session_frame,
+)
 from nanoagent.web.config import WebConfig
 from nanoagent.web.plugin_agent import PluginModel, plugin_profile
 from nanoagent.web.runtime import (
@@ -644,6 +653,20 @@ def create_app(
         body, rejected = await read_json(request, BENCHMARK_CASE_SET_MAX_BYTES)
         if rejected is not None:
             return rejected
+        # COMPAT(case-set-cases): a body with `cases` is the old request, answered as before; any other is the new one.
+        if isinstance(body, dict) and "cases" in body:
+            try:
+                compat = build_output(body, CompatCaseSetSpec)
+            except (TypeError, ValueError, KeyError) as error:
+                return JSONResponse({"error": str(error)}, status_code=400)
+            try:
+                async with plugin_slots:
+                    publication = await asyncio.to_thread(
+                        compat_derive_case_set, compat.name, compat.cases, installed.manifest, request.path_params["sha256"], BENCHMARK_PIN_TIMEOUT
+                    )
+            except PreparationError as error:
+                return JSONResponse({"error": str(error)}, status_code=422)
+            return JSONResponse(publication)
         try:
             spec = build_output(body, CaseSetSpec)
         except (TypeError, ValueError, KeyError) as error:

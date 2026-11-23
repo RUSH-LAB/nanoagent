@@ -9,12 +9,13 @@ import styles from './trace.module.css';
 
 const totalOf = model => model.window.end - model.window.start;
 
-function Pane({attemptId, trace, total, selectedId, onSelect, harnessName, showProcesses, onProcesses, children}) {
+function Pane({attemptId, trace, total, selectedId, onSelect, harnessName, session, showProcesses, onProcesses, children}) {
   if (trace.error) return <p className={styles.warn} role="alert">{trace.error}</p>;
   if (trace.loading || !trace.attempt) return <LoadingSkeleton shape="block" height={160} />;
   return (
     <>
-      <Header harnessName={harnessName} attemptId={attemptId} attempt={trace.attempt} accounting={trace.accounting} />
+      <Header harnessName={harnessName} attemptId={attemptId} attempt={trace.attempt} accounting={trace.accounting} accountingError={trace.accountingError} session={session} />
+      {trace.refreshError && <p className={styles.warn} role="alert">The live trace could not be refreshed, so what is shown may be out of date: {trace.refreshError}</p>}
       {trace.truncated && <p className={styles.warn} role="status">This trace is too large to show whole: its later spans and links are left out.</p>}
       {trace.hasProcesses && <label className={styles.processToggle}><input type="checkbox" checked={showProcesses} onChange={event => onProcesses(event.target.checked)} /> Show process activity</label>}
       <Timeline model={trace.model} packed={trace.packed} total={total} selectedId={selectedId} onSelect={onSelect} label="Timeline" />
@@ -23,15 +24,15 @@ function Pane({attemptId, trace, total, selectedId, onSelect, harnessName, showP
   );
 }
 
-/** One attempt's trace: header, timeline and transcript sharing one selection. */
-export default function BenchmarkTrace({attemptId, harnessName}) {
+/** One attempt's trace: header, timeline and transcript sharing one selection. `session` is true for a Terminal session's attempt, which has a recording. */
+export default function BenchmarkTrace({attemptId, harnessName, session = false}) {
   const [showProcesses, setShowProcesses] = useState(true);
   const trace = useTrace(attemptId, showProcesses);
   const [chosen, setChosen] = useState(null);
   const selectedId = keepSelection(trace.model, chosen);
   return (
     <div className={styles.trace}>
-      <Pane harnessName={harnessName} attemptId={attemptId} trace={trace} total={totalOf(trace.model)} selectedId={selectedId} onSelect={setChosen} showProcesses={showProcesses} onProcesses={setShowProcesses}>
+      <Pane harnessName={harnessName} session={session} attemptId={attemptId} trace={trace} total={totalOf(trace.model)} selectedId={selectedId} onSelect={setChosen} showProcesses={showProcesses} onProcesses={setShowProcesses}>
         <TranscriptList attemptId={attemptId} model={trace.model} rows={trace.rows} selectedId={selectedId} onSelect={setChosen} />
       </Pane>
     </div>

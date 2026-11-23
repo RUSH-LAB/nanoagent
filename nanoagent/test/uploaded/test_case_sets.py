@@ -245,13 +245,17 @@ def test_uploaded_file_paths_must_stay_inside_the_case_folder() -> None:
             case_sets.decode_files(bad)
 
 
-def test_a_fixture_named_answer_json_at_the_root_is_refused_from_a_folder_and_from_a_files_map(tmp_path: Path) -> None:
+def test_a_fixture_the_platform_reserves_at_the_root_is_refused_from_a_folder_and_from_a_files_map(tmp_path: Path) -> None:
     case_set = cases(["x"])
     case_set.cases[0].fixtures = "fx"
-    with pytest.raises(PreparationError, match="case p-01: the fixtures hold answer.json at their root, which the platform seeds"):
+    with pytest.raises(PreparationError, match="case p-01: the fixtures hold answer.json at their root, which the platform reserves"):
         derive(AGENT, case_set, with_fixtures(tmp_path, {"answer.json": "{}"}))
     with pytest.raises(PreparationError, match="case p-01: the fixtures hold answer.json at their root"):
         derive(AGENT, case_set, {"fx/answer.json": b"{}"})
+    # `.rush/` is the session's: a fixture there would be dropped from the frozen workspace.
+    for reserved in (".rush", ".rush/agents"):
+        with pytest.raises(PreparationError, match=f"case p-01: the fixtures hold {reserved} at their root, which the platform reserves"):
+            derive(AGENT, case_set, {f"fx/{reserved}": b"x"})
     # Deeper down it is an ordinary file.
     assert derive(AGENT, case_set, {"fx/inputs/answer.json": b"{}"})["cases"][0]["fixtures"]["files"].keys() == {"inputs/answer.json"}
 
@@ -348,9 +352,26 @@ def test_a_fixtures_folder_that_holds_the_case_file_is_refused_naming_the_case(t
         derive(AGENT, case_set, base)
 
 
-def test_an_output_schema_the_worker_cannot_skeleton_fails_publishing() -> None:
+@pytest.mark.parametrize("compat", [False, True], ids=["case file", "COMPAT(case-set-cases)"])
+@pytest.mark.parametrize(
+    ("schema", "problem"),
+    [
+        ({"anyOf": [{"type": "string"}, {"type": "integer"}]}, r"anyOf without a null branch"),
+        ({"oneOf": [{"type": "string"}, {"type": "integer"}]}, r"oneOf without a null branch"),
+        ({"enum": ["a", "b"]}, r"the schema's type None has no skeleton"),
+        ({"const": 1}, r"the schema's type None has no skeleton"),
+        ({"allOf": [{"type": "string"}]}, r"the schema's type None has no skeleton"),
+        ({"not": {"type": "string"}}, r"the schema's type None has no skeleton"),
+    ],
+)
+def test_an_output_schema_the_worker_cannot_skeleton_fails_publishing(schema: dict[str, Any], problem: str, compat: bool) -> None:
     manifest = plugin("agent", reference="truth", tools=("read",))
-    task = SimpleNamespace(**{**vars(manifest.task(None)), "output": {"type": "object", "properties": {"n": {"anyOf": [{"type": "string"}, {"type": "integer"}]}}}})
+    task = SimpleNamespace(**{**vars(manifest.task(None)), "output": {"type": "object", "properties": {"n": schema}}})
     manifest.task = lambda _: task
-    with pytest.raises(PreparationError, match=r"task t: output_schema_unsupported: \$\.n: anyOf without a null branch"):
-        derive(manifest, cases(["x"]))
+    match = rf"task t: output_schema_unsupported: \$\.n: .*{problem}"
+    with pytest.raises(PreparationError, match=match):
+        if compat:  # COMPAT(case-set-cases)
+            old = case_sets.CompatCaseSet("p", "t", "context", [{"text": "x"}], [])
+            case_sets.compat_derive_case_set("set-1", old, manifest, "a" * 64, 5.0)
+        else:
+            derive(manifest, cases(["x"]))

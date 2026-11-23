@@ -146,6 +146,50 @@ def test_the_old_case_file_shape_is_refused(client: TestClient) -> None:
     assert reply.status_code == 422 and "case file shape" in reply.json()["error"]
 
 
+OLD_CASES = {
+    "plugin": "echo", "task": "echo", "context": "Echo values.",
+    "answer": [{"value": "hi"}], "refuse": [{"arguments": {"value": "fail"}, "reference_error": "asked to fail"}],
+}  # fmt: skip
+
+
+def post_old(client: TestClient, **changes: Any):
+    return client.post(f"/v1/installs/{client.sha}/benchmark/case-set", json={"name": "echo-set", "cases": OLD_CASES, **changes})
+
+
+# COMPAT(case-set-cases): production RUSH still sends the old body and publishes what comes back.
+def test_the_old_body_is_answered_with_the_old_publication(client: TestClient) -> None:
+    reply = post_old(client)
+    assert reply.status_code == 200, reply.text
+    body = reply.json()
+    assert set(body) == {"name", "plugin_id", "plugin_name", "version", "package_sha256", "task_id", "task", "context", "cases", "private"}
+    assert body["context"] == "Echo values." and body["task"]["instructions"]
+    assert body["cases"] == [
+        {"case_id": "echo-01", "kind": "answer", "arguments": {"value": "hi"}, "expected_error": None},
+        {"case_id": "echo-02", "kind": "refuse", "arguments": {"value": "fail"}, "expected_error": "asked to fail"},
+    ]
+    assert body["private"]["echo-01"] == {"value": "hi"} and "asked to fail" in body["private"]["echo-02"]
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"cases": OLD_CASES | {"plugin": "other"}}, "the cases are for other, not echo"),
+        ({"cases": OLD_CASES | {"answer": [], "refuse": []}}, "has no cases"),
+        ({"cases": OLD_CASES | {"answer": [{"wrong": 1}]}}, "case echo-01: its arguments do not fit the input of task echo"),
+        ({"cases": OLD_CASES | {"answer": [{"value": "fail"}]}}, "a case to answer"),
+        ({"name": "Not A Name"}, "case set name"),
+    ],
+)
+def test_the_old_body_that_does_not_fit_the_plugin_is_refused_with_why(client: TestClient, changes: dict[str, Any], message: str) -> None:
+    reply = post_old(client, **changes)
+    assert reply.status_code == 422 and message in reply.json()["error"]
+
+
+def test_a_body_with_neither_form_is_a_bad_request(client: TestClient) -> None:
+    assert client.post(f"/v1/installs/{client.sha}/benchmark/case-set", json={"name": "x", "other": 1}).status_code == 400
+    assert post_old(client, case_file="x").status_code == 400
+
+
 def test_the_old_body_with_the_case_file_as_json_is_a_bad_request(client: TestClient) -> None:
     reply = client.post(f"/v1/installs/{client.sha}/benchmark/case-set", json={"name": "x", "cases": {"plugin": "echo"}})
     assert reply.status_code == 400

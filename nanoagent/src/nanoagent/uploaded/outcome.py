@@ -10,14 +10,13 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
-from nanoagent.uploaded.answer import read_answer
+from nanoagent.uploaded.answer import ANSWER, read_answer
 from nanoagent.uploaded.contract import ContractError
 
-MISSING_ANSWER = "wrote no answer.json"  # read_answer's failure for an absent file
+MISSING_ANSWER = f"wrote no {ANSWER}"  # read_answer's failure for an absent file
 
 
 SCALARS = frozenset({"string", "number", "integer", "boolean", "null"})
-ANSWER = "answer.json"
 
 
 def answer_skeleton(output_schema: Mapping[str, Any]) -> dict[str, Any]:
@@ -82,18 +81,16 @@ def answer_instructions(task: Mapping[str, Any]) -> str:
     )
 
 
-def outcome(frozen_workspace: Path, session_record: Mapping[str, Any], case: Mapping[str, Any], skeleton: Mapping[str, Any]) -> dict[str, Any]:
+def outcome(frozen_workspace: Path, session_record: Mapping[str, Any]) -> dict[str, Any]:
     """`{status: answered, answer} | {status: refused, reason} | {status: execution_failed, reason}` of the frozen workspace.
 
-    ``session_record`` is what the session recorded (``{skipped}``: the paths the freeze could not copy, with why); ``case`` the claimed case, ``skeleton`` the unfilled answer the worker seeded: an `answer.json` equal to it was never filled.
+    ``session_record`` is what the session recorded (``{skipped}``: the paths the freeze could not copy, with why). An `answer.json` the harness left as seeded is an answer like any other: the verifier judges it.
     """
-    if "answer.json" in session_record["skipped"]:  # the freeze never materializes links, which read_answer refuses as not a regular file
+    if ANSWER in session_record["skipped"]:  # the freeze never materializes links, which read_answer refuses as not a regular file
         return {"status": "execution_failed", "reason": "invalid_result"}
     answer, refusal, failure = read_answer(frozen_workspace)
     if failure is not None:
         return {"status": "execution_failed", "reason": "missing_result" if failure == MISSING_ANSWER else "invalid_result"}
     if refusal is not None:
         return {"status": "refused", "reason": refusal}
-    if answer == skeleton:
-        return {"status": "execution_failed", "reason": "missing_result"}
     return {"status": "answered", "answer": answer}

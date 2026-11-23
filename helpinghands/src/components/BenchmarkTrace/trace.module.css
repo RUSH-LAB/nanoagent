@@ -54,6 +54,7 @@
 .icon[data-error='true'] { background: var(--kind-error); }
 .name, .preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .preview { color: var(--ifm-color-emphasis-700); }
+.preview.warn { color: var(--ifm-color-danger); }
 .figures { font-size: 0.75rem; font-variant-numeric: tabular-nums; text-align: end; white-space: nowrap; }
 
 .details { padding: 0.4rem 0.75rem 0.75rem 2.3rem; }
@@ -69,7 +70,7 @@
 .tracePane { min-width: 0; display: flex; flex-direction: column; gap: 0.75rem; height: calc(100dvh - 9rem); }
 .tracePane .header { min-height: 10rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--site-hairline); }
 .tracePane .rowButton { grid-template-columns: 1.4rem minmax(0, 1fr) auto auto auto; }
-.tracePane .preview { display: none; }
+.tracePane .preview:not(.warn) { display: none; }
 
 @media (max-width: 850px) {
   .trace, .tracePane { height: calc(100dvh - 13rem); }
@@ -77,5 +78,5 @@
   .tracePane .header { min-height: 0; }
   .tracePane .rowButton { grid-template-columns: 1.4rem minmax(0, 1fr) auto auto auto; }
   .rowButton { grid-template-columns: 1.4rem minmax(0, 1fr) auto; }
-  .preview { display: none; }
+  .preview:not(.warn) { display: none; }
 }

@@ -13,15 +13,6 @@ export function Step({title, children}) {
   );
 }
 
-/** A chip, pressed or not: one choice among others, or one of several. */
-export function Chip({pressed, onClick, children}) {
-  return (
-    <button type="button" aria-pressed={pressed} className={clsx(market.chip, styles.chipButton)} onClick={onClick}>
-      {children}
-    </button>
-  );
-}
-
 /** A Marketplace card that is a choice: pressing it picks it. */
 export function ChoiceCard({pressed, onClick, children}) {
   return (

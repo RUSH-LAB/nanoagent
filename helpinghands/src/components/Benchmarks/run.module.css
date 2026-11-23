@@ -22,9 +22,16 @@
   cursor: pointer;
 }
 
-.benchmarkCases { margin-top: .75rem; font-size: .875rem; }
-.benchmarkCases summary { cursor: pointer; color: var(--ifm-color-primary); }
-.benchmarkCases[open] summary { margin-bottom: .75rem; }
+.benchmarkCases { margin-top: .75rem; border: 1px solid var(--site-hairline); border-radius: var(--site-radius); background: var(--ifm-background-surface-color); font-size: .875rem; }
+.benchmarkCases summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .8rem 1rem; font-weight: 600; list-style: none; cursor: pointer; }
+.benchmarkCases summary::-webkit-details-marker { display: none; }
+.benchmarkCases summary:hover { background: var(--ifm-color-emphasis-100); }
+.benchmarkCases summary:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: 2px; }
+.caseCount { margin-left: .35rem; color: var(--ifm-color-emphasis-600); font-weight: 400; }
+.caseChevron { width: .5rem; height: .5rem; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg) translateY(-2px); }
+.benchmarkCases[open] .caseChevron { transform: rotate(225deg) translate(-2px, -2px); }
+.caseContent { padding: 0 1rem 1rem; }
+.caseContent > p { margin: 0; color: var(--ifm-color-emphasis-700); }
 
 .search, .agentSelect {
   padding: 0.6rem 0.8rem;
