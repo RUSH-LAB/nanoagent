@@ -5,7 +5,7 @@ const {exceeded} = require('./limits');
 
 /** Throws unless the member's own worker (`capabilities`, null when it has not advertised lately) can give `limits` and price `model`. */
 function checkWorkers(limits, model, capabilities, endpointProfile) {
-  if (!capabilities) throw new BenchmarkError(409, 'worker_unavailable', `Your benchmark worker is not running for endpoint profile ${endpointProfile}: start RUSH Lab with Docker running, and add your OpenRouter key in Settings`);
+  if (!capabilities) throw new BenchmarkError(409, 'worker_unavailable', `Your benchmark worker is not running for endpoint profile ${endpointProfile}. Open RUSH Lab on this computer: its worker starts once you are signed in there and your OpenRouter key is in Settings, and the Benchmarks page says why while it cannot`);
   const over = exceeded(limits, capabilities);
   if (over.length) {
     throw new BenchmarkError(400, 'limit_exceeds_worker', `Your worker for ${endpointProfile} cannot give ${over.map(o => `${o.field} ${o.limit} (at most ${o.max})`).join(', ')}`, {exceeded: over});
