@@ -73,7 +73,7 @@ describe('a Harness tab session on the Dashboard', () => {
     assert.deepEqual([both.title, both.harnesses, both.usage.modelS, both.usage.durationS], ['claude', [], {sum: 2, count: 1}, {sum: 0, count: 0}]);
     const codex = terminalSession(row({harness_name: 'codex', calls: [call('c1', 10, 12)]}));
     const rush = terminalSession(row({harness_name: 'nanoagent', calls: [call('c1', 10, 12)]}));
-    assert.deepEqual([codex.title, rush.title, terminalSession(row({harness_name: 'claude-code'})).title], ['codex', 'nanoagent', 'claude']);
+    assert.deepEqual([codex.title, rush.title, terminalSession(row({harness_name: 'claude'})).title], ['codex', 'nanoagent', 'claude']);
   });
 
   it('names NanoAgent\'s model calls nanoagent, whether its chat or mgen made them', () => {

@@ -61,17 +61,14 @@ const PARAMS = {
   'terminal.archive': ({attemptId, chat, archived}) => (UUID.test(attemptId ?? '') && typeof chat === 'string' && chat && chat.length <= 500 && typeof archived === 'boolean'
     ? null
     : 'terminal.archive needs an attempt id, a chat (its key) and archived, true or false'),
-  // The Terminal (`shell`) is free-form, so it takes no task and no text, and may resume an ended session (its id), reopening one of its
-  // chats (`chat`, `{agent, id, run}`), or start an agent's CLI in its first terminal (`start`, its command), RUSH giving the member's
-  // live session instead when there is one; any other harness works the text to a task.
-  'harness.run': ({harness, task, text, resume, start, chat}) => (HARNESS_NAME.test(harness ?? '')
-    && (harness === 'shell'
-      ? task === undefined && text === undefined && (resume === undefined
-        ? (start === undefined || HARNESS_NAME.test(start ?? '')) && chat === undefined
-        : UUID.test(resume ?? '') && start === undefined && (chat === undefined || isChat(chat)))
-      : typeof task === 'string' && task && typeof text === 'string' && text.trim() && text.length <= PROMPT_LIMIT && resume === undefined && start === undefined && chat === undefined)
+  // The Terminal (`shell`) is free-form: it may resume an ended session (its id), reopening one of its chats (`chat`, `{agent, id, run}`),
+  // or start an agent's CLI in its first terminal (`start`, its command), RUSH giving the member's live session instead when there is one.
+  'harness.run': ({harness, resume, start, chat, ...rest}) => (Object.keys(rest).length === 0 && harness === 'shell'
+    && (resume === undefined
+      ? (start === undefined || HARNESS_NAME.test(start ?? '')) && chat === undefined
+      : UUID.test(resume ?? '') && start === undefined && (chat === undefined || isChat(chat)))
     ? null
-    : `harness.run needs a harness name and, but for shell, which takes neither (and may take the id of a session to resume, and one of its chats, or else an agent's CLI command to start), a task id and text of 1 to ${PROMPT_LIMIT} characters`),
+    : 'harness.run needs harness shell, and may take the id of a session to resume, and one of its chats, or else an agent\'s CLI command to start'),
   'harness.cancel': ({runId}) => (typeof runId === 'string' && runId ? null : 'harness.cancel needs a runId'),
   'harness.input': ({runId, terminal, data}) => (typeof runId === 'string' && runId && isTerminal(terminal) && typeof data === 'string' && data && data.length <= TYPED_LIMIT
     ? null

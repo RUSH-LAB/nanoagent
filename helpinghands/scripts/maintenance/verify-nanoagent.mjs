@@ -273,8 +273,12 @@ async function main() {
       async benchmarkCaseSet() {
         // One case of the installed plugin's task, pinned by its reference tool (word-check's input); production's, which has
         // no such route, 404.
-        const body = {name: 'contract-set', cases: {plugin: PLUGIN, task: 'check-words', context: 'Check the raw words.',
-          answer: [{reference: 'apple Pear', raw: 'apple pear'}], refuse: []}};
+        const caseFile = [
+          `plugin: ${PLUGIN}`, 'task: check-words', 'cases:',
+          '  - prompt: Check the raw words apple pear against the reference apple Pear.',
+          '    arguments: {reference: apple Pear, raw: apple pear}', 'refuse: []', '',
+        ].join('\n');
+        const body = {name: 'contract-set', case_file: caseFile, files: {}};
         const derived = await gateway.benchmarkCaseSet(offered.sha256, JSON.stringify(body));
         if (derived.status === 404) return;
         const publication = JSON.parse(ok(derived));
@@ -294,22 +298,6 @@ async function main() {
         assert.equal(frame.package_sha256, offered.sha256);
         assert.equal(frame.task_id, 'check-words');
         assert.match(frame.case_id, /\S/);
-      },
-      async benchmarkSession() {
-        // The plugin model fills the task's input from the request, held to its schema, and the one case is pinned on the
-        // session's frame; production's, which has no such route, 404.
-        const pinned = await gateway.benchmarkSession(offered.sha256, JSON.stringify({task: 'check-words', text: 'Check apple pear.'}));
-        if (pinned.status === 404) return;
-        const publication = JSON.parse(ok(pinned));
-        assert.equal(modelRequest.response_format.json_schema.name, 'check-words');
-        assert.equal(publication.package_sha256, offered.sha256);
-        assert.deepEqual(publication.cases.map(item => item.case_id), [publication.case_id]);
-      },
-      async benchmarkReferenceHarness() {
-        // A reference harness's ZIP; production's, which has no such route, 404.
-        const built = await gateway.benchmarkReferenceHarness('pi');
-        if (built.status === 404) return;
-        assert.deepEqual([...ok(built).subarray(0, 4)], [0x50, 0x4b, 0x03, 0x04]);
       },
       async benchmarkCompare() {
         // Two attempts with nothing recorded compare with no rows; production's, which has no such route, 404.

@@ -23,8 +23,8 @@ const STREAM = [
 function run(id, user, plugin, createdAt) {
   const row = {
     run_id: id, workspace_id: 'w', user_id: user, user_name: user.toUpperCase(), user_github: user, plugin_id: plugin, plugin_name: 'P', version: '1.0.0',
-    task_id: 'sum', benchmark_id: 'b', benchmark_name: 'harness-session', harness_name: 'claude-code', harness_version: 'v', start_cli: null,
-    model: 'm', policy: 'coding', interactive: false, resumed_from: null, session: true, created_at: createdAt, canceled_at: null,
+    task_id: 'sum', benchmark_id: 'b', benchmark_name: 'harness-session', harness_name: 'claude', start_cli: null,
+    model: 'm', interactive: false, resumed_from: null, session: true, created_at: createdAt, canceled_at: null,
   };
   const attempt = {
     attempt_id: `${id}-a`, case_id: 'c1', attempt_no: 1, rerun_of: null, state: 'final', created_at: createdAt, claimed_at: createdAt, finalized_at: createdAt,

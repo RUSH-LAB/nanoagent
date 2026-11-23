@@ -30,17 +30,15 @@ function recordingPool(answers = {}) {
     },
   };
 }
-const storageAnswers = {'select coalesce(current_setting': [{prior: 'off'}], 'select (select coalesce(sum(size)': [{used: 0}]};
+const storageAnswers = {'select coalesce(current_setting': [{prior: 'off'}], 'select (select coalesce(sum(octet_length(archive))': [{used: 0}]};
 
-const runOf = (id, text, cases) => ({
-  run_id: id, status: 'complete', created_at: null, benchmark: {benchmark_id: 'x'}, harness: {name: 'h', version: '1'},
+const runOf = (id, cases) => ({
+  run_id: id, status: 'complete', created_at: null, benchmark: {benchmark_id: 'x'}, harness: {name: 'h'},
   case_set: {case_set_id: 'cs', name: 'n', digest: 'd', plugin: {sha256: 's'}, task_id: 't'},
-  policy: 'coding', model: 'm', endpoint_profile: 'e', dialects: [], limits: limits.DEFAULT_LIMITS, egress_hosts: null, unverified_egress: false,
-  prompt: {text, renderer_version: 'v'}, source: {}, score: {}, cases,
+  model: 'm', endpoint_profile: 'e', limits: limits.DEFAULT_LIMITS, egress_hosts: null, unverified_egress: false, score: {}, cases,
 });
-const caseOf = (n, user) => ({
-  case_id: `c${n}`, position: n, kind: 'answer', content_digest: `d${n}`, attempts: [], latest_attempt_id: null,
-  prompt: {system: 'same', user, sha256: user},
+const caseOf = (n, prompt) => ({
+  case_id: `c${n}`, position: n, kind: 'answer', content_digest: `d${n}`, attempts: [], latest_attempt_id: null, prompt, prompt_sha256: prompt,
 });
 const compare = (first, second) => {
   const runs = {a: first, b: second};
@@ -51,22 +49,23 @@ describe('a comparison of runs with large differing prompts', () => {
   test('diffs 20,000 differing lines in well under a second, as one removed and one added part', async () => {
     const lines = text => Array.from({length: 20_000}, (_, n) => `${text}${n}`).join('\n');
     const started = Date.now();
-    const result = await compare(runOf('a', lines('a'), []), runOf('b', lines('b'), []));
+    const result = await compare(runOf('a', [caseOf(0, lines('a'))].map(c => ({...c, content_digest: 'same'}))), runOf('b', [caseOf(0, lines('b'))].map(c => ({...c, content_digest: 'same'}))));
     assert.ok(Date.now() - started < 2000);
-    assert.deepEqual(result.prompt_diff.text.map(part => part.type), ['removed', 'added']);
+    assert.deepEqual(result.prompt_diff.rendered[0].text.map(part => part.type), ['removed', 'added']);
   });
 
   test('still diffs small prompts line by line', async () => {
-    const result = await compare(runOf('a', 'one\ntwo', []), runOf('b', 'one\nthree', []));
-    assert.deepEqual(result.prompt_diff.text.map(part => part.type), ['same', 'removed', 'added']);
+    const same = c => ({...c, content_digest: 'same'});
+    const result = await compare(runOf('a', [same(caseOf(0, 'one\ntwo'))]), runOf('b', [same(caseOf(0, 'one\nthree'))]));
+    assert.deepEqual(result.prompt_diff.rendered[0].text.map(part => part.type), ['same', 'removed', 'added']);
   });
 
-  test('diffs the rendered prompts of only the first MAX_RENDERED_DIFFS shared cases line by line', async () => {
+  test('diffs the prompts of only the first MAX_RENDERED_DIFFS shared cases line by line', async () => {
     const count = 60;
-    const first = runOf('a', 't', Array.from({length: count}, (_, n) => caseOf(n, `keep\nx${n}`)));
-    const second = runOf('b', 't', Array.from({length: count}, (_, n) => caseOf(n, `keep\ny${n}`)));
+    const first = runOf('a', Array.from({length: count}, (_, n) => caseOf(n, `keep\nx${n}`)));
+    const second = runOf('b', Array.from({length: count}, (_, n) => caseOf(n, `keep\ny${n}`)));
     const {rendered} = (await compare(first, second)).prompt_diff;
-    const kinds = rendered.map(entry => entry.user.map(part => part.type).join());
+    const kinds = rendered.map(entry => entry.text.map(part => part.type).join());
     assert.equal(kinds.filter(kind => kind === 'same,removed,added').length, 50);
     assert.deepEqual(new Set(kinds.slice(50)), new Set(['removed,added']));
   });
@@ -106,7 +105,7 @@ describe('what the worker API stores is charged to the member', () => {
   });
 
   test('a charge past the member\'s quota is refused, 413 storage_quota_exceeded', async () => {
-    const pool = recordingPool({...lease, 'select (select coalesce(sum(size)': [{used: limits.MEMBER_STORAGE_BYTES}]});
+    const pool = recordingPool({...lease, 'select (select coalesce(sum(octet_length(archive))': [{used: limits.MEMBER_STORAGE_BYTES}]});
     const event = {event_id: 'e', source: 's', kind: 'k', sequence: 1, occurred_ns: '1', data: {a: 1}, payload_sha256s: []};
     await assert.rejects(createPostgresBenchmarkWorker({pool, config}).appendEvents('u', 'a', 1, [event]), {status: 413, code: 'storage_quota_exceeded'});
   });
@@ -187,14 +186,6 @@ describe('bounded reads', () => {
     await assert.rejects(capped.rerun(context, 'r', 'c1'), {status: 409, code: 'too_many_attempts'});
     const open = await createPostgresBenchmark({pool: recordingPool(answers(limits.MAX_ATTEMPTS_PER_CASE - 1))}).rerun(context, 'r', 'c1');
     assert.equal(open.attempt_no, limits.MAX_ATTEMPTS_PER_CASE);
-  });
-
-  test('a preview save prunes as the system, so every workspace of the member counts', async () => {
-    const pool = recordingPool();
-    await createPostgresBenchmark({pool}).savePreview(context, {cases: []}, 'd');
-    const begin = pool.statements.find(s => s.text.startsWith('begin;'));
-    assert.match(begin.text, /set_config\('app.benchmark_system', 'on', true\)/);
-    assert.ok(pool.statements.some(s => s.text.startsWith('delete from benchmark_preview where user_id = $1')));
   });
 });
 

@@ -1,0 +1,82 @@
+.trace { min-width: 0; display: flex; flex-direction: column; gap: 0.75rem; height: calc(100dvh - 9rem); }
+.muted { color: var(--ifm-color-emphasis-700); }
+.warn { color: var(--ifm-color-danger); }
+.badge { margin-inline: 0.4rem; padding: 0 0.4rem; border-radius: 3px; background: var(--ifm-color-emphasis-200); font-size: 0.75rem; }
+.badge[data-verdict='pass'] { background: var(--ifm-color-success-lightest); color: var(--ifm-color-success-darkest); }
+.badge[data-verdict='fail'] { background: var(--ifm-color-danger-lightest); color: var(--ifm-color-danger-darkest); }
+
+.header h3 { margin: 0 0 0.25rem; overflow-wrap: anywhere; }
+.header p { margin: 0 0 0.4rem; }
+.harnessName { font-size: 1.05rem; font-weight: 700; }
+.usage { display: flex; flex-wrap: wrap; gap: 0.6rem 1.5rem; margin: 0.75rem 0; font-variant-numeric: tabular-nums; }
+.usage dt { font-size: 0.75rem; color: var(--ifm-color-emphasis-700); }
+.usage dd { margin: 0; font-weight: 600; }
+.processToggle { display: flex; align-items: center; gap: 0.4rem; margin: 0; font-size: 0.8rem; color: var(--ifm-color-emphasis-700); }
+.folded > summary { cursor: pointer; font-weight: 600; }
+.folded pre, .evidence pre, .payload pre { max-height: 23rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Kind colors: model_call purple, tool and command yellow, process blue, subagent cyan, error or rejected red. */
+.timeline, .row, .icon { --kind-model_call: #8b5cf6; --kind-tool: #eab308; --kind-command: #eab308; --kind-process: #3b82f6; --kind-subagent: #06b6d4; --kind-error: #ef4444; }
+.timeline { position: relative; padding-top: 1.1rem; }
+.ticks { position: absolute; inset: 0 0 auto 0; height: 1rem; font-size: 0.7rem; color: var(--ifm-color-emphasis-700); font-variant-numeric: tabular-nums; }
+.ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.ticks span:first-child { transform: none; }
+.ticks span[data-edge='end'] { transform: translateX(-100%); }
+.strip { position: relative; border-radius: 3px; background: color-mix(in srgb, var(--ifm-color-emphasis-300) 35%, transparent); }
+.bar { position: absolute; min-width: 2px; padding: 0; border: 0; border-radius: 2px; background: var(--ifm-color-emphasis-500); cursor: pointer; }
+.bar[data-kind='model_call'] { background: var(--kind-model_call); }
+.bar[data-kind='tool'], .bar[data-kind='command'] { background: var(--kind-tool); }
+.bar[data-kind='process'] { background: var(--kind-process); }
+.bar[data-kind='subagent'] { background: var(--kind-subagent); }
+.bar[data-error='true'] { background: var(--kind-error); }
+.bar[data-unfinished='true'] { background-image: linear-gradient(to right, transparent 70%, var(--ifm-background-color)); }
+.bar[data-dim='true'] { opacity: 0.25; }
+.bar[aria-pressed='true'] { outline: 1px solid var(--ifm-font-color-base); outline-offset: 1px; }
+.needle { position: absolute; top: -0.2rem; bottom: 0; width: 1px; background: var(--ifm-font-color-base); pointer-events: none; }
+.needle span { position: absolute; top: -0.9rem; left: 4px; padding: 0 0.25rem; border-radius: 2px; background: var(--ifm-background-surface-color); font-size: 0.7rem; white-space: nowrap; }
+
+.transcript { margin: 0; padding: 0; list-style: none; }
+.transcriptScroll { flex: 1 1 auto; min-height: 8rem; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; border: 1px solid var(--site-hairline); border-radius: var(--site-radius); }
+.header, .timeline, .processToggle { flex-shrink: 0; }
+.transcriptScroll:focus-visible, .rowButton:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: 2px; }
+.row { border-top: 1px solid var(--site-hairline); }
+.row:first-child { border-top: 0; }
+.row[data-selected='true'] { background: var(--ifm-color-emphasis-100); }
+.rowButton {
+  display: grid; width: 100%; grid-template-columns: 1.4rem minmax(6rem, 14rem) minmax(0, 1fr) auto auto auto;
+  align-items: center; gap: 0.5rem; padding: 0.4rem 0.5rem; border: 0; background: none; color: inherit; font: inherit; text-align: start; cursor: pointer;
+}
+.rowButton:hover { background: var(--ifm-color-emphasis-100); }
+.icon { display: inline-grid; place-items: center; width: 1.2rem; height: 1.2rem; border-radius: 3px; background: var(--ifm-color-emphasis-500); color: #fff; font-size: 0.7rem; font-weight: 700; }
+.icon[data-kind='model_call'] { background: var(--kind-model_call); }
+.icon[data-kind='tool'], .icon[data-kind='command'] { background: var(--kind-tool); }
+.icon[data-kind='process'] { background: var(--kind-process); }
+.icon[data-error='true'] { background: var(--kind-error); }
+.name, .preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview { color: var(--ifm-color-emphasis-700); }
+.preview.warn { color: var(--ifm-color-danger); }
+.figures { font-size: 0.75rem; font-variant-numeric: tabular-nums; text-align: end; white-space: nowrap; }
+
+.details { padding: 0.4rem 0.75rem 0.75rem 2.3rem; }
+.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.1rem 0.75rem; margin: 0 0 0.5rem; font-size: 0.8rem; }
+.facts dt { color: var(--ifm-color-emphasis-700); }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+.evidence summary, .payload summary { cursor: pointer; font-weight: 600; }
+.messages h5 { color: var(--ifm-color-emphasis-700); margin: 0; }
+.links { margin: 0.5rem 0 0; padding: 0; list-style: none; font-size: 0.8rem; }
+.links button { padding: 0; border: 0; background: none; color: var(--ifm-link-color); font: inherit; cursor: pointer; }
+
+.sides { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
+.tracePane { min-width: 0; display: flex; flex-direction: column; gap: 0.75rem; height: calc(100dvh - 9rem); }
+.tracePane .header { min-height: 10rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--site-hairline); }
+.tracePane .rowButton { grid-template-columns: 1.4rem minmax(0, 1fr) auto auto auto; }
+.tracePane .preview:not(.warn) { display: none; }
+
+@media (max-width: 850px) {
+  .trace, .tracePane { height: calc(100dvh - 13rem); }
+  .sides { grid-template-columns: minmax(0, 1fr); }
+  .tracePane .header { min-height: 0; }
+  .tracePane .rowButton { grid-template-columns: 1.4rem minmax(0, 1fr) auto auto auto; }
+  .rowButton { grid-template-columns: 1.4rem minmax(0, 1fr) auto; }
+  .preview:not(.warn) { display: none; }
+}

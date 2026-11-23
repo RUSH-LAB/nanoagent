@@ -6,6 +6,7 @@ import {invoke, loadRoute, makeCtx} from '../_harness.mjs';
 const require = createRequire(import.meta.url);
 const {allowed} = require('../../../src/runner/protocol.js');
 const {createNanoAgentGateway, PIN_TIMEOUT_MS} = require('../../../src/server/ai.js');
+const {RUN_ENDPOINT, RUN_MODEL} = require('../../../src/server/benchmark/limits.js');
 const route = loadRoute('benchmark');
 const CONTEXT = {userId: 'u', workspaceId: 'w', membershipId: 'm', role: 'owner'};
 const SHA = 'a'.repeat(64);
@@ -14,11 +15,12 @@ const PATH = '/api/benchmark/benchmarks/pinned';
 /** The pinned case set NanoAgent answers (as text, with `1.0` spelled as Python wrote it) for a spec. */
 const pinned = {
   name: 's', plugin_id: 'p', plugin_name: 'P', version: '1.0.0', package_sha256: SHA, task_id: 'sum',
-  task: {kind: 'agent', description: 'd', instructions: 'i', input_schema: {}, output_schema: {}, tools: [], egress_hosts: []},
-  context: 'c', cases: [{case_id: 'p-01', kind: 'answer', arguments: {x: 1.0}, expected_error: null}], private: {'p-01': {v: 1.0}},
+  task: {kind: 'agent', description: 'd', input_schema: {}, output_schema: {}, tools: [], egress_hosts: []},
+  cases: [{case_id: 'p-01', kind: 'answer', prompt: 'Do x: 1.0', arguments: {x: 1.0}, fixtures: null, expected_error: null}], private: {'p-01': {v: 1.0}},
 };
 const pinnedText = JSON.stringify(pinned).replace('"x":1', '"x":1.0').replace('"v":1', '"v":1.0');
-const BODY = '{"plugin_id":"p","name":"s","model":"vendor/model","endpoint_profile":"mock","limits":{"max_cost_usd":0.5},"cases":{"_":"tag","plugin":"p","answer":[{"x":1.0}]}}';
+const CASE_FILE = 'plugin: p\ntask: sum\ncases:\n  - prompt: |-\n      Do x: 1.0\n    arguments:\n      x: 1.0\n    fixtures: fx\n';
+const BODY = JSON.stringify({plugin_id: 'p', name: 's', case_file: CASE_FILE, files: {'fx/a.csv': 'YQ=='}, limits: {max_cost_usd: 0.5}});
 
 /** A ctx whose member has a computer that pins `answer`, and one installed app. */
 function ctxFor({computer, app = {value: {id: 'p', sha256: SHA, status: 'ready'}}} = {}) {
@@ -39,17 +41,17 @@ function ctxFor({computer, app = {value: {id: 'p', sha256: SHA, status: 'ready'}
 const post = (ctx, body) => invoke(route, {method: 'POST', path: PATH, body, requestContext: CONTEXT, ctx});
 
 describe('POST /api/benchmark/benchmarks/pinned', () => {
-  it('installs the member\'s app on their computer, has it pin the cases there from the text it was sent, and publishes the benchmark with the member\'s configuration, without the plugin id and the file\'s class tag', async () => {
+  it('installs the member\'s app on their computer, has it pin the cases there from the text it was sent, and publishes the benchmark with the member\'s configuration, without the plugin id', async () => {
     const {ctx, calls, published} = ctxFor();
     const {status, payload} = await post(ctx, BODY);
     assert.equal(status, 201);
     assert.deepEqual([payload.benchmark.name, payload.created], ['s', true]);
     assert.equal(payload.private, undefined, 'the private references stay on the server');
-    assert.deepEqual(calls, [['open', 'p', true], [SHA, '{"name":"s","cases":{"plugin":"p","answer":[{"x":1.0}]}}']]);
+    assert.deepEqual(calls, [['open', 'p', true], [SHA, JSON.stringify({name: 's', case_file: CASE_FILE, files: {'fx/a.csv': 'YQ=='}})]]);
     assert.equal(published.length, 1);
     const [userId, publication] = published[0];
     assert.equal(userId, 'u');
-    assert.deepEqual([publication.model, publication.endpoint_profile, publication.limits.max_cost_usd, publication.digest.length], ['vendor/model', 'mock', 0.5, 64]);
+    assert.deepEqual([publication.model, publication.endpoint_profile, publication.limits.max_cost_usd, publication.digest.length], [RUN_MODEL, RUN_ENDPOINT, 0.5, 64]);
   });
 
   it('keeps the spelling of a number NanoAgent writes, in what it publishes', async () => {
@@ -60,7 +62,7 @@ describe('POST /api/benchmark/benchmarks/pinned', () => {
 
   it('takes only the configuration from the member: nothing it sends overrides what NanoAgent pinned', async () => {
     const {ctx, published} = ctxFor();
-    await post(ctx, BODY.replace('"cases"', '"package_sha256":"' + 'b'.repeat(64) + '","private":{},"task_id":"other","cases"'));
+    await post(ctx, BODY.replace('"name"', '"package_sha256":"' + 'b'.repeat(64) + '","private":{},"task_id":"other","name"'));
     assert.deepEqual([published[0][1].package_sha256, published[0][1].task_id, Object.keys(published[0][1].private)], [SHA, 'sum', ['p-01']]);
   });
 
@@ -79,14 +81,24 @@ describe('POST /api/benchmark/benchmarks/pinned', () => {
     assert.equal((await post(ctxFor().ctx, {name: 's'})).status, 400);
   });
 
-  it('refuses a body without a model or an endpoint before pinning anything', async () => {
+  it('refuses a body without a case file or a name, or with a model or an endpoint, or with files that are not text, before pinning anything', async () => {
     const {ctx, calls} = ctxFor();
-    for (const field of ['model', 'endpoint_profile']) {
+    for (const field of ['case_file', 'files', 'name']) {
       const body = JSON.parse(BODY);
       delete body[field];
       assert.equal((await post(ctx, body)).status, 400, field);
     }
+    for (const change of [{case_file: {plugin: 'p'}}, {files: {'a.csv': 5}}, {files: []}, {model: 'vendor/model'}, {endpoint_profile: 'mock'}, {name: 'Not A Name'}, {cases: {plugin: 'p'}, case_file: undefined}]) {
+      assert.equal((await post(ctx, {...JSON.parse(BODY), ...change})).status, 400, JSON.stringify(change));
+    }
     assert.deepEqual(calls, []);
+  });
+
+  it('reads a body as large as a publication, not only the small default', async () => {
+    const {ctx, published} = ctxFor();
+    const big = JSON.stringify({...JSON.parse(BODY), files: {'fx/big.bin': 'A'.repeat(12 * 1024 * 1024)}});
+    assert.equal((await post(ctx, big)).status, 201);
+    assert.equal(published.length, 1);
   });
 });
 

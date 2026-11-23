@@ -1,0 +1,184 @@
+/* What the Benchmarks views add to the Marketplace's cards, chips and notices (pages/marketplace/styles.module.css), which they reuse. */
+.step {
+  margin-bottom: 1.75rem;
+}
+
+.step h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+/* A choice made by pressing it: a Marketplace card as a button. */
+.choice {
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.choice[aria-pressed='true'] {
+  border-color: var(--ifm-color-primary);
+}
+
+.benchmarkCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.benchmarkCard .choice {
+  border: none;
+  background: none;
+  padding: 0;
+}
+
+.muted {
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.85rem;
+}
+
+.pre {
+  max-height: 24rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0.75rem;
+  border: 0;
+  border-radius: var(--site-radius);
+  background: var(--ifm-color-emphasis-100);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cases {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.case {
+  min-width: 0;
+  padding: 0.85rem;
+  border: 1px solid var(--site-hairline);
+  border-radius: var(--site-radius);
+}
+
+.case .row { margin-bottom: 0.65rem; }
+.case .row code { overflow-wrap: anywhere; }
+.case > p { margin: 0.65rem 0 0; }
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  max-width: 40rem;
+}
+
+.form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.form input[type='text'] {
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--site-hairline);
+  border-radius: var(--site-radius);
+  background: var(--ifm-background-surface-color);
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  font-weight: 400;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.table th,
+.table td {
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--site-hairline);
+  text-align: left;
+  vertical-align: top;
+}
+
+.pill {
+  display: inline-block;
+  padding: 0 0.5rem;
+  border: 1px solid var(--site-hairline-strong);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.pass {
+  border-color: var(--ifm-color-success);
+  color: var(--ifm-color-success-darkest);
+}
+
+.fail {
+  border-color: var(--ifm-color-danger);
+  color: var(--ifm-color-danger-darkest);
+}
+
+[data-theme='dark'] .pass {
+  color: var(--ifm-color-success-lightest);
+}
+
+[data-theme='dark'] .fail {
+  color: var(--ifm-color-danger-lightest);
+}
+
+.link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ifm-link-color);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.back {
+  margin-bottom: 1rem;
+}
+
+.scroll {
+  overflow-x: auto;
+}
+
+.searchBar {
+  margin-bottom: 1.25rem;
+}
+
+header.pluginHead {
+  justify-content: flex-start;
+}
+
+.headIcon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--site-radius);
+}
+
+.running { color: #1766ad; border-color: #1766ad; background: #1766ad14; }
+.queued { color: #7853a8; border-color: #7853a8; background: #7853a814; }
+.complete { color: #18804a; border-color: #18804a; background: #18804a14; }
+.failed { color: #bd3434; border-color: #bd3434; background: #bd343414; }
+.cancelled, .canceled { color: #966414; border-color: #966414; background: #96641414; }
+[data-theme='dark'] .running { color: #80beff; }
+[data-theme='dark'] .queued { color: #c7a4f5; }
+[data-theme='dark'] .complete { color: #7ddd9f; }
+[data-theme='dark'] .failed { color: #ff9999; }
+[data-theme='dark'] .cancelled, [data-theme='dark'] .canceled { color: #f2cc7d; }

@@ -9,7 +9,6 @@
  * NanoAgent session) carries its turns, each with what its model saw and did, and
  * its calls.
  */
-const {REFERENCE_LABELS} = require('./harness');
 const {runScore} = require('./rules');
 
 /** The `data:` payloads of a server-sent event stream, in order. */
@@ -133,8 +132,8 @@ function runLine(run, attempts, caseIds) {
     member: {id: run.user_id, name: run.user_name, github: run.user_github},
     plugin: {id: run.plugin_id, name: run.plugin_name, version: run.version}, task_id: run.task_id,
     benchmark: {id: run.benchmark_id, name: run.benchmark_name},
-    harness: {name: REFERENCE_LABELS[run.harness_name] ?? run.harness_name, version: run.harness_version}, agent: run.start_cli,
-    model: run.model, policy: run.policy, interactive: run.interactive, resumed_from: run.resumed_from,
+    harness: {name: run.harness_name}, agent: run.start_cli,
+    model: run.model, interactive: run.interactive, resumed_from: run.resumed_from,
     created_at: run.created_at, canceled_at: run.canceled_at,
     score: caseIds.length ? runScore(caseIds, attempts.map(({row}) => row)) : null,
     attempts: attempts.map(({row, recorded}) => attemptLine(row, recorded)),

@@ -12,7 +12,8 @@ const MAX_MODEL_CALLS = 10_000;
 const NUMBER_LIMITS = Object.freeze({
   wall_time_ms: {default: 600_000, integer: true, min: 1},
   max_model_calls: {default: 50, integer: true, min: 0, max: MAX_MODEL_CALLS},
-  max_output_tokens_per_call: {default: 4096, integer: true, min: 1},
+  // DeepSeek Flash spends its output on reasoning: 4096 cut it off mid-reasoning. The worker config has no per-model maximum, so this is a round value under the worker's own (65,536).
+  max_output_tokens_per_call: {default: 32_768, integer: true, min: 1},
   max_cost_usd: {default: 1.5, integer: false, min: 0},
   cpus: {default: 1, integer: false, min: Number.MIN_VALUE},
   memory_mb: {default: 1024, integer: true, min: 1},
@@ -44,6 +45,13 @@ const TERMINAL_LIMITS = Object.freeze({
   ...DEFAULT_LIMITS, max_model_calls: 200, wall_time_ms: 3_600_000, build_output_bytes: 3 * GIB, build_wall_ms: 1_800_000, tmp_bytes: 4 * GIB,
   workspace_bytes: 10 * GIB, memory_mb: 4096,
 });
+
+/**
+ * The one endpoint and model every benchmark is pinned to: no request names them. Only the server's configuration (the environment) changes
+ * them, as the acceptance stack points them at its mock upstream.
+ */
+const RUN_ENDPOINT = process.env.RUSH_BENCHMARK_ENDPOINT || 'openrouter';
+const RUN_MODEL = process.env.RUSH_BENCHMARK_MODEL || 'deepseek/deepseek-v4-flash-0731';
 
 /** How long a worker's advertised capabilities stand: an endpoint label with no claim within this window has no worker available. */
 const CAPABILITY_WINDOW_S = 300;
@@ -85,7 +93,11 @@ function capabilitiesOf(value) {
   if (!Array.isArray(models) || models.length === 0 || models.some(model => typeof model !== 'string' || model.trim() === '')) {
     throw bad('invalid_request', 'capabilities.models must be a non-empty array of the model names the worker prices');
   }
-  return {...Object.fromEntries(LIMIT_FIELDS.map(name => [name, limitValue(name, value[name], 'capabilities')])), models: [...new Set(models)]};
+  const installed = value.installed_agents;
+  if (installed !== undefined && (!Array.isArray(installed) || installed.some(name => typeof name !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(name)))) {
+    throw bad('invalid_request', 'capabilities.installed_agents must be an array of agent command names');
+  }
+  return {...Object.fromEntries(LIMIT_FIELDS.map(name => [name, limitValue(name, value[name], 'capabilities')])), models: [...new Set(models)], ...(installed === undefined ? {} : {installed_agents: [...new Set(installed)]})};
 }
 
 /** The limits of `limits` a worker with `capabilities` cannot give, as `[{field, limit, max}]` (`max` is the worker's). */
@@ -94,7 +106,7 @@ function exceeded(limits, capabilities) {
     .map(field => ({field, limit: limits[field], max: capabilities[field]}));
 }
 
-/** What one member's stored source ZIPs and attempt payloads may total, across every workspace; an upload past it is refused. */
+/** What one member's stored fixtures archives and attempt payloads may total, across every workspace; an upload past it is refused. */
 const MEMBER_STORAGE_BYTES = 5 * 1024 * 1024 * 1024;
 
 /**
@@ -109,6 +121,8 @@ const MAX_ACCOUNTING_RECORD_BYTES = 64 * 1024;
 const MAX_RESULT_BYTES = 64 * 1024;
 /** The attempts one case of a run keeps (the first and its reruns). */
 const MAX_ATTEMPTS_PER_CASE = 20;
+/** A case attempt that ends in a worker error is queued again until this many attempts (the first and two retries) have ended so. */
+const MAX_WORKER_ATTEMPTS = 3;
 const MAX_ATTEMPT_EVENTS = 100_000;
 const MAX_ATTEMPT_SPANS = 10_000;
 const MAX_ATTEMPT_LINKS = 20_000;
@@ -136,10 +150,10 @@ function positiveSetting(name, fallback) {
   return value;
 }
 
-/** The bytes a source ZIP may have: an upload's, or a harness a Terminal session saves. */
-const MAX_SOURCE_BYTES = positiveSetting('BENCHMARK_SOURCE_MAX_BYTES', 50 * 1024 * 1024);
+/** The bytes a benchmark publication may have: its cases' fixtures archives (8 MiB gzipped each, as base64) travel in it. */
+const MAX_PUBLISH_BYTES = positiveSetting('BENCHMARK_PUBLISH_MAX_BYTES', 128 * 1024 * 1024);
 
 module.exports = {
-  CAPABILITY_WINDOW_S, MAX_SOURCE_BYTES, MEMBER_STORAGE_BYTES, MAX_EVENT_DATA_BYTES, MAX_SPAN_ATTRIBUTES_BYTES, MAX_LINK_ATTRIBUTES_BYTES, MAX_ACCOUNTING_RECORD_BYTES,
-  MAX_RESULT_BYTES, MAX_MODEL_CALLS, MAX_ATTEMPTS_PER_CASE, MAX_ATTEMPT_EVENTS, MAX_ATTEMPT_SPANS, MAX_ATTEMPT_LINKS, MAX_ATTEMPT_TERMINAL_BYTES, MAX_TERMINAL_CHUNK_BYTES, MAX_TERMINALS, MAX_ACCOUNTING_VERSION, MAX_EVENT_PAGE_BYTES, MAX_TRACE_PAGE_BYTES, SETTLE_RESERVE_FACTOR, MAX_USD,
+  RUN_ENDPOINT, RUN_MODEL, CAPABILITY_WINDOW_S, MAX_PUBLISH_BYTES, MEMBER_STORAGE_BYTES, MAX_EVENT_DATA_BYTES, MAX_SPAN_ATTRIBUTES_BYTES, MAX_LINK_ATTRIBUTES_BYTES, MAX_ACCOUNTING_RECORD_BYTES,
+  MAX_RESULT_BYTES, MAX_MODEL_CALLS, MAX_ATTEMPTS_PER_CASE, MAX_WORKER_ATTEMPTS, MAX_ATTEMPT_EVENTS, MAX_ATTEMPT_SPANS, MAX_ATTEMPT_LINKS, MAX_ATTEMPT_TERMINAL_BYTES, MAX_TERMINAL_CHUNK_BYTES, MAX_TERMINALS, MAX_ACCOUNTING_VERSION, MAX_EVENT_PAGE_BYTES, MAX_TRACE_PAGE_BYTES, SETTLE_RESERVE_FACTOR, MAX_USD,
   MAX_INTEGER, MAX_BIGINT, DEFAULT_LIMITS, TERMINAL_LIMITS, LIMIT_FIELDS, limitOverrides, effectiveLimits, capabilitiesOf, exceeded, positiveSetting};

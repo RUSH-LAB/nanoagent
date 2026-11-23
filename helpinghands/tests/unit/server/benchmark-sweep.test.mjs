@@ -31,12 +31,12 @@ const {DEFAULT_LIMITS} = require('../../../src/server/benchmark/limits.js');
 const config = {leaseSeconds: 60, uncertainDeadlineSeconds: 3600, memberBudgetUsd: 25, workspaceBudgetUsd: 100};
 
 describe('benchmark expiry sweep', () => {
-  test('interrupts expired attempts and settles overdue reservations, each taking only unlocked rows', async () => {
+  test('ends expired attempts and settles overdue reservations, each taking only unlocked rows', async () => {
     const pool = recordingPool();
     const client = await pool.connect();
     await sweepExpired(client);
     const [attempts, admissions] = pool.transactions[0];
-    assert.match(attempts, /update benchmark_attempt set state = 'final', execution_status = 'interrupted'.*lease_expires_at < now\(\).*for update skip locked/);
+    assert.match(attempts, /select attempt_id from benchmark_attempt where state = 'leased' and lease_expires_at < now\(\).*for update skip locked/);
     assert.match(admissions, /update benchmark_admission set status = 'settled', cost_usd = reserve_usd.*deadline_at < now\(\).*for update skip locked/);
     assert.equal(pool.transactions[0].length, 2);
   });
