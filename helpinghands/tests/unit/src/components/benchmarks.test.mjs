@@ -2,7 +2,7 @@ import {afterEach, describe, it} from 'node:test';
 import {oneAtATime, viewOf} from '../../../../src/components/Benchmarks/useLoad.js';
 import {runDetail, runnerNotice} from '../../../../src/components/Benchmarks/api.js';
 import assert from 'node:assert/strict';
-import {publishProblem, splitCaseFolder} from '../../../../src/components/Benchmarks/caseFolder.js';
+import {caseFileOf, nextVersionName, previewCaseFile, publishProblem, splitCaseFolder} from '../../../../src/components/Benchmarks/caseFolder.js';
 import {aiInstructions, inputFields, instructionsText} from '../../../../src/components/Benchmarks/instructions.js';
 import {
   isBenchmarkRun, harnessNames, historyRuns, installedFirst, scoreText, toggled, toggleSelection, verdictOf,
@@ -193,5 +193,31 @@ describe('a run\'s cost', () => {
     assert.equal((await runDetail('r1')).cost_usd, 1);
     const accounting = id => reads.filter(url => url.endsWith(`/attempts/${id}/accounting`)).length;
     assert.deepEqual([accounting('sealed-1'), accounting('live-1')], [1, 2]);
+  });
+});
+
+describe('a new version of a published benchmark', () => {
+  const benchmark = {name: 'probe', plugin: {id: 'p', version: '1.0.0'}, task_id: 't', cases: [
+    {case_id: 'p-01', kind: 'answer', prompt: 'Count the words in: a b', arguments: {text: 'a b'}, expected_error: null, fixtures: null},
+    {case_id: 'p-02', kind: 'answer', prompt: 'Read notes.txt', arguments: {}, expected_error: null, fixtures: {digest: 'd', files: {'notes.txt': 'x'}}},
+    {case_id: 'p-03', kind: 'refuse', prompt: 'Count the words in:\n(nothing)', arguments: {text: ''}, expected_error: 'empty text', fixtures: null},
+  ]};
+
+  it('gives back the case file it was published from, its fixtures named by case', () => {
+    const text = caseFileOf(benchmark);
+    assert.match(text, /^# probe, published for p v1\.0\.0/);
+    assert.match(text, /fixtures\/p-02/);
+    const preview = previewCaseFile(text, {id: 'p', tasks: [{id: 't'}]}, ['fixtures/p-02/notes.txt']);
+    assert.deepEqual(preview.cases.map(one => [one.kind, one.prompt, one.arguments, one.fixturePath ?? null, one.expected_error ?? null]), [
+      ['answer', 'Count the words in: a b', {text: 'a b'}, null, null],
+      ['answer', 'Read notes.txt', {}, 'fixtures/p-02', null],
+      ['refuse', 'Count the words in:\n(nothing)', {text: ''}, null, 'empty text'],
+    ]);
+  });
+
+  it('suggests the next version name', () => {
+    assert.equal(nextVersionName('probe'), 'probe-v2');
+    assert.equal(nextVersionName('probe-v2'), 'probe-v3');
+    assert.equal(nextVersionName('v2'), 'v2-v2');
   });
 });
