@@ -2,7 +2,7 @@ import React, {useCallback, useEffect, useState} from 'react';
 import {useHistory, useLocation} from '@docusaurus/router';
 import market from '@site/src/pages/marketplace/styles.module.css';
 import BenchmarkTrace, {BenchmarkTraceCompare} from '@site/src/components/BenchmarkTrace';
-import {benchmarkJson, runDetail} from './api';
+import {archiveRun, benchmarkJson, runDetail} from './api';
 import {Pill} from './Choice';
 import {formatCost, formatTokens} from '../BenchmarkTrace/format';
 import {ACTIVE, SESSION_BENCHMARK, formatTime, harnessLabel, harnessNames, historyRuns, isBenchmarkRun, latestAttempts, scoreText, toggleSelection, toggled, verdictOf} from './runs';
@@ -165,10 +165,10 @@ function Filters({runs, plugins, setPlugins, pluginSearch, setPluginSearch, harn
   </div>}</div>;
 }
 
-function RunTable({runs, selected, setSelected, open}) {
+function RunTable({runs, selected, setSelected, open, archive}) {
   return <div className={styles.scroll}><table className={styles.table}>
-    <thead><tr><th aria-label="Compare" /><th>Agent</th><th>Benchmark</th><th>Result</th><th className={styles.num}>Tokens in / out</th><th className={styles.num}>Time</th><th className={styles.num}>Started</th></tr></thead>
-    <tbody>{runs.map(run => <tr key={run.run_id} className={styles.runRow} data-selected={selected.includes(run.run_id) || undefined} onClick={() => open(run.run_id)}>
+    <thead><tr><th aria-label="Compare" /><th>Agent</th><th>Benchmark</th><th>Result</th><th className={styles.num}>Tokens in / out</th><th className={styles.num}>Time</th><th className={styles.num}>Started</th><th aria-label="Archive" /></tr></thead>
+    <tbody>{runs.map(run => <tr key={run.run_id} className={styles.runRow} data-selected={selected.includes(run.run_id) || undefined} data-archived={run.archived || undefined} onClick={() => open(run.run_id)}>
       <td className={styles.check} onClick={event => event.stopPropagation()}>
         <input type="checkbox" aria-label={`Compare ${harnessLabel(run.harness.name)} run ${run.run_id}`}
           checked={selected.includes(run.run_id)} onChange={() => setSelected(toggleSelection(selected, run.run_id))} />
@@ -179,6 +179,7 @@ function RunTable({runs, selected, setSelected, open}) {
       <td className={styles.num}>{metric(run.metrics, 'input_tokens')} / {metric(run.metrics, 'output_tokens')}</td>
       <td className={styles.num}>{metric(run.metrics, 'elapsed_ms', true)}</td>
       <td className={`${styles.num} ${styles.secondary}`}>{new Date(run.created_at).toLocaleString([], {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'})}</td>
+      <td className={styles.num}><button type="button" className={styles.archive} onClick={event => { event.stopPropagation(); archive(run); }}>{run.archived ? 'Unarchive' : 'Archive'}</button></td>
     </tr>)}</tbody>
   </table></div>;
 }
@@ -201,6 +202,7 @@ export default function MyBenchmarksView() {
   const [pluginSearch, setPluginSearch] = useState('');
   const [harnesses, setHarnesses] = useState(new Set());
   const [selected, setSelected] = useState([]);
+  const [showArchived, setShowArchived] = useState(false);
   const reload = useCallback(async () => {
     try { setSummaries(await allRuns()); setError(null); } catch (failure) { setError(failure.message); }
   }, []);
@@ -230,18 +232,23 @@ export default function MyBenchmarksView() {
   if (compareIds.length) return compareIds.length === 2 && compareIds[0] !== compareIds[1]
     ? <Comparison ids={compareIds} back={back} openTrace={ids => navigate({trace: ids.join(',')})} /> : <div className={market.error}>Select two different runs to compare.</div>;
   const runs = (summaries ?? []).filter(isBenchmarkRun);
-  const shown = historyRuns(runs, {plugins, harnesses});
+  const archivedCount = runs.filter(run => run.archived).length;
+  const shown = historyRuns(runs, {plugins, harnesses}).filter(run => showArchived || !run.archived);
+  const archive = async run => {
+    try { await archiveRun(run.run_id, !run.archived); setSelected(previous => previous.filter(id => id !== run.run_id)); await reload(); } catch (failure) { setError(failure.message); }
+  };
   return <>
     <header className={styles.header}>
       <div><h1>Runs</h1><p className={styles.meta}>Every run you started. Open one for its cases and traces, or tick two to compare them.</p></div>
+      {archivedCount > 0 && <button type="button" className={styles.clear} onClick={() => setShowArchived(!showArchived)}>{showArchived ? 'Hide archived' : `Show archived (${archivedCount})`}</button>}
     </header>
     {error && <div className={market.error}>{error}</div>}
     {summaries && runs.length > 0 && <Filters runs={runs} plugins={plugins} setPlugins={setPlugins} pluginSearch={pluginSearch}
       setPluginSearch={setPluginSearch} harnesses={harnesses} setHarnesses={setHarnesses} />}
     {!summaries ? (error ? null : <p className={styles.empty}>Reading runs…</p>)
       : !runs.length ? <p className={styles.empty}>You have no runs yet. Open a benchmark under Benchmarks and run agents on it.</p>
-        : !shown.length ? <p className={styles.empty}>No runs match these filters.</p>
-              : <RunTable runs={shown} selected={selected} setSelected={setSelected} open={id => navigate({run: id})} />}
+        : !shown.length ? <p className={styles.empty}>{archivedCount && !showArchived ? 'Every run that matches is archived.' : 'No runs match these filters.'}</p>
+              : <RunTable runs={shown} selected={selected} setSelected={setSelected} open={id => navigate({run: id})} archive={archive} />}
     {selected.length > 0 && <div className={styles.compareBar} role="status">
       <span>{selected.length === 1 ? 'Tick one more run to compare.' : '2 runs selected.'}</span>
       <button type="button" className={styles.clear} onClick={() => setSelected([])}>Clear</button>
