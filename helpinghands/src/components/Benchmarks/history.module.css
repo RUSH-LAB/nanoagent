@@ -70,3 +70,8 @@
 .compareBar .clear { padding: 0; }
 .benchmarkCell { max-width: 13rem; }
 .benchmarkCell, .benchmarkCell .secondary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.archive { padding: .25rem .5rem; border: 0; border-radius: var(--site-radius); background: transparent; color: var(--ifm-color-emphasis-600); font: inherit; font-size: .8125rem; cursor: pointer; }
+.archive:hover { color: var(--ifm-color-primary); background: var(--ifm-color-emphasis-200); }
+.archive:focus-visible { outline: 2px solid var(--ifm-color-primary); }
+.table .runRow:not(:hover):not(:focus-within) .archive:not(:focus-visible) { opacity: 0; }
+.table .runRow[data-archived] td:not(:last-child) { opacity: .55; }

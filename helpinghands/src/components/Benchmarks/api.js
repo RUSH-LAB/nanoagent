@@ -1,4 +1,5 @@
 import API_BASE, {apiFetch} from '../../utils/api.js';
+import {jsonPost} from '../PluginFrame/host.js';
 import {workerNotice} from '../PluginFrame/worker.js';
 
 /** A request of the member's benchmark API (docs/contracts/rush-benchmark-api.md): its JSON, or an Error with the server's own message. */
@@ -13,6 +14,9 @@ export async function benchmarkJson(path, init) {
   if (!response.ok) throw new Error(data.error || `The request failed (${response.status})`);
   return data;
 }
+
+/** Archive run `id` (`archived` true) or bring it back (POST runs/{id}/archive). */
+export const archiveRun = (id, archived) => benchmarkJson(`/runs/${id}/archive`, jsonPost({archived}));
 
 /** RUSH Lab's state on the member's computer (GET /api/runner/status), for workerNotice; an Error when it cannot be read. */
 export async function runnerStatus() {

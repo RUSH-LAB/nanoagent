@@ -34,6 +34,7 @@ function runSummary(row) {
     // The detail's own sum (GET /runs/{run_id}), so a list row's metrics equal it.
     user: {id: row.user_id, name: row.user_name, github: row.user_github}, metrics: sumMetrics([...latest.values()].map(attempt => attempt.metrics)),
     status: runStatus(row, row.attempts), score: runScore(row.case_ids, row.attempts), created_at: row.created_at,
+    archived: row.archived_at != null,
   };
 }
 
@@ -349,7 +350,7 @@ function createPostgresBenchmark({pool}) {
     async listRuns(context, {limit, before, beforeId = null}) {
       await sweep();
       return member(context, async client => (await client.query(
-        `select s.* from benchmark_run_summary s join benchmark_run r on r.run_id = s.run_id
+        `select s.*, r.archived_at from benchmark_run_summary s join benchmark_run r on r.run_id = s.run_id
           where not r.session and ($1::timestamptz is null
             or date_trunc('milliseconds', s.created_at) < $1
             or ($3::uuid is not null and date_trunc('milliseconds', s.created_at) = $1 and s.run_id > $3))
@@ -493,6 +494,14 @@ function createPostgresBenchmark({pool}) {
           [attemptId, runId, caseId, latest.attempt_no + 1, latest.attempt_id],
         );
         return {attempt_id: attemptId, attempt_no: latest.attempt_no + 1};
+      });
+    },
+
+    /** Archive run `runId` (`archived` true) or bring it back (false): `{archived}`. Archiving again keeps its first time. */
+    async archive(context, runId, archived) {
+      return ownRunWrite(context, runId, async client => {
+        await client.query('update benchmark_run set archived_at = case when $2 then coalesce(archived_at, now()) end where run_id = $1', [runId, archived]);
+        return {archived};
       });
     },
 
