@@ -28,8 +28,8 @@ import pytest
 import runner_fakes as fx
 from nanoagent.plugin.package import pack
 from nanoagent.uploaded.endpoint import EndpointProfile
+from nanoagent.uploaded.outcome import answer_instructions
 from nanoagent.uploaded.plugin_package import isolate
-from nanoagent.uploaded.reference import build_reference
 from nanoagent.uploaded.relay import HostRelay
 from nanoagent.uploaded.runner import AttemptRunner, RunnerConfig, SyncedPlugins
 from nanoagent.uploaded.sandbox import MicrosandboxSupervisor
@@ -62,8 +62,8 @@ TYPED = [
 class Rush(fx.FakeRush):
     """The worker API, and the member at the terminal: each line is typed once the shell has drawn one more prompt."""
 
-    def __init__(self, source: bytes, package: bytes, typed: list[str]) -> None:
-        super().__init__(source)
+    def __init__(self, package: bytes, typed: list[str]) -> None:
+        super().__init__()
         self._package, self._typed = package, typed
 
     async def package(self, attempt_id: str, fence: int) -> bytes:
@@ -86,17 +86,13 @@ class Rush(fx.FakeRush):
 
 
 
-async def attempt(root: Path, source: bytes, package: bytes, interactive: bool, provider: MockProvider, typed: list[str]) -> tuple[Rush, Any, Any]:
-    manifest = fx.FakePlugins().manifest
-    task = manifest.task("probe")
-    body = fx.job_body("coding", limits={"internet_access": True, "wall_time_ms": 300_000, "max_model_calls": 50, "build_output_bytes": 3 << 30, "build_wall_ms": 1_800_000}, tools=[fx.WAIT_TOOL])
-    body["run"] |= {"interactive": interactive, "dialects": ["chat_completions", "responses", "anthropic_messages"], "prompt_bound": False}
-    body["task"]["egress_hosts"] = []
-    body["case"] |= {"arguments": {"token": TOKEN, "wait_seconds": 0.0}, "input_schema": task.input, "output_schema": task.output}
-    body["private_reference"] = {"digest": DIGEST}
-    body["plugin"]["sha256"] = hashlib.sha256(package).hexdigest()
+async def attempt(root: Path, package: bytes, interactive: bool, provider: MockProvider, typed: list[str]) -> tuple[Rush, Any, Any]:
+    body = fx.job_body(limits={"internet_access": True, "wall_time_ms": 300_000, "max_model_calls": 50, "build_output_bytes": 3 << 30, "build_wall_ms": 1_800_000})
+    body["run"] |= {"interactive": interactive, "prompt_bound": False}
     body["attempt_id"] = str(uuid.uuid4())
-    rush = Rush(source, package, typed)
+    body["plugin"] = {"id": body["plugin"]["id"], "name": None, "version": None, "sha256": None}
+    job = fx.parse_job({**body, "free_form": True, "task": None, "case": None, "private_reference": None})
+    rush = Rush(package, typed)
     handle = provider.register(Scenario(name="shell", turns=[Turn(usage=Usage(prompt=100, completion=10), repeat=0)]), harness="claude", model=MODEL)
     supervisor = MicrosandboxSupervisor(tools=HOME / "guest-tools", internet=True, model_hosts=("api.openai.com",))
     supervisor.startup(toolchain("shell-1"))
@@ -108,7 +104,7 @@ async def attempt(root: Path, source: bytes, package: bytes, interactive: bool, 
     isolate()
     runner = AttemptRunner(config, supervisor=supervisor, worker=rush, relay=HostRelay(), plugins=SyncedPlugins())  # type: ignore[arg-type]
     started = time.monotonic()
-    result = await runner.run(fx.parse_job(body))
+    result = await runner.run(job)
     print(f"attempt took {time.monotonic() - started:.0f} s")
     return rush, result, handle
 
@@ -125,13 +121,13 @@ async def test_the_terminal_records_its_agents_and_remembers_a_rush_runs_program
 
 async def scenario(root: Path, package: bytes) -> None:
     with MockProvider() as provider:
-        rush, result, handle = await attempt(root, build_reference("shell"), package, True, provider, TYPED)
+        rush, result, handle = await attempt(root, package, True, provider, TYPED)
         screen = rush.screen.decode(errors="replace")
         print(screen)
         assert result.outcome == "finalized", result
         [final] = rush.finalized
         assert final["verdict"] is None, final  # nothing in a Terminal session is scored
-        assert "MODEL SAID: ok" in screen and "/api/v1 " in screen and "prompt.md" in screen and "request.json" in screen
+        assert "MODEL SAID: ok" in screen and "/api/v1 " in screen
         assert "v22." in screen and "git version" in screen and "curl " in screen and "is-number" in screen
         # Claude Code is installed the first time it is typed, its progress on the terminal.
         assert "installing Claude Code 2.1.325" in screen and "installed Claude Code 2.1.325" in screen and "2.1.325 (Claude Code)" in screen
@@ -145,9 +141,57 @@ async def scenario(root: Path, package: bytes) -> None:
         assert json.loads((root / "agents.json").read_text()) == ["python"]
 
         # The next terminal opens on the build the first kept and runs the install it made at once.
-        cached, opened, _ = await attempt(root, build_reference("shell"), package, True, provider, ["time claude --version", "exit"])
+        cached, opened, _ = await attempt(root, package, True, provider, ["time claude --version", "exit"])
         screen = cached.screen.decode(errors="replace")
         print(screen)
         assert "2.1.325 (Claude Code)" in screen and "installing" not in screen
         assert opened.outcome == "finalized"
         assert len(list((root / "builds").iterdir())) == 1  # the terminal's build, kept
+
+
+@pytest.mark.parametrize("harness", ["nanoagent", "claude", "codex", "pi", "dsh", "hermes", "mgen"])
+async def test_a_headless_case_runs_the_named_cli_from_the_shells_table_and_is_scored_after_it_exits(harness: str) -> None:
+    """A case session: the shell starts the named agent's bin/ wrapper headless (harnesses.yaml) with the case's prompt, exits with
+    its status, and only then does the worker freeze the workspace and run the verifier. Needs a real VM and the CLI's install."""
+    package = pack(fx.PROBE)
+    root = HOME / "scratch" / f"case-{uuid.uuid4().hex[:8]}"
+    root.mkdir(parents=True)
+    body = fx.job_body(harness=harness, tools=[fx.WAIT_TOOL], limits={"internet_access": True, "wall_time_ms": 300_000, "max_model_calls": 50, "build_output_bytes": 3 << 30, "build_wall_ms": 1_800_000})
+    body["attempt_id"] = str(uuid.uuid4())
+    body["plugin"]["sha256"] = hashlib.sha256(package).hexdigest()
+    body["case"]["prompt"] = fx.PROMPT.rstrip()  # hermes strips its input, and a prompt-bound run takes the prompt byte-exact
+    body["private_reference"] = {"digest": DIGEST}
+    body["case"]["arguments"] = {"token": TOKEN, "wait_seconds": 0.0}
+    try:
+        with MockProvider() as provider:
+            turns = [Turn(act={"answer": {"digest": DIGEST}}, usage=Usage(prompt=100, completion=10)), Turn(text="done", usage=Usage(prompt=120, completion=5), repeat=0)]  # the agent may ask once more (hermes does, after its tools)
+            handle = provider.register(Scenario(name="case", turns=turns), harness="mgen" if harness == "nanoagent" else harness, model=MODEL)  # the nanoagent entry runs the mgen CLI, which has its own bash tool
+            supervisor = MicrosandboxSupervisor(tools=HOME / "guest-tools", internet=True, model_hosts=("api.openai.com",))
+            supervisor.startup(toolchain("shell-1"))
+            endpoint = EndpointProfile("mock", "mock", handle.base_url, "MOCK_KEY", ("127.0.0.1",), "synthetic-key")
+            config = RunnerConfig(
+                "case-worker", endpoint, {MODEL: (Decimal("0.000001"), Decimal("0.000004"))}, root, output_maxima={MODEL: 64_000},
+                capabilities={**fx.CAPABILITIES, "wall_time_ms": 600_000, "max_model_calls": 50, "build_output_bytes": 4 << 30, "build_wall_ms": 1_800_000},
+                drain_timeout_s=20, index_urls={"python-3": "https://pypi.org/simple", "javascript-22": "https://registry.npmjs.org"},
+            )  # fmt: skip
+            isolate()
+            rush = fx.FakeRush()
+
+            async def package_of(attempt_id: str, fence: int) -> bytes:
+                return package
+
+            rush.package = package_of  # type: ignore[method-assign]
+            runner = AttemptRunner(config, supervisor=supervisor, worker=rush, relay=HostRelay(), plugins=SyncedPlugins())  # type: ignore[arg-type]
+            result = await runner.run(fx.parse_job(body))
+            assert json.dumps(fx.PROMPT.rstrip())[1:-1] in json.dumps(handle.ledger.calls[0].request.body) and not handle.ledger.violations
+            assert json.dumps(answer_instructions(body["task"]))[1:-1] in json.dumps(handle.ledger.calls[0].request.body)  # the gateway added the answer format to the agent's system prompt
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+    assert result.outcome == "finalized", result
+    [final] = rush.finalized
+    assert final["execution"] == {"status": "answered", "reason": None} and final["verdict"] == "pass", final
+    kinds = rush.kinds()
+    assert kinds.index("case.exited") < kinds.index("snapshot.taken") < kinds.index("verdict")
+    # The case is a Terminal session: its capture is the one a free-form session has.
+    assert rush.screen and "collector.health" in kinds and isinstance(final["chats"], list) and "error" not in final["workspace"], (kinds, final)
+

@@ -181,6 +181,16 @@ def interact(argv: list[str], heard: Callable[[bytes], None]) -> int:
     return 128 - code if code < 0 else code
 
 
+def keep_agents(names: list[str]) -> None:
+    """The remembered programs, written to .rush/agents from inside the VM as well. The worker writes the same list through the shared
+    mount, which this VM's bash then reads as gone (its cached entry is of the file the worker replaced) until something here replaces
+    it; a replacement made here is seen at once, and the next prompt wraps the program."""
+    listed = Path(os.environ["RUSH_WORKSPACE"]) / ".rush" / "agents"
+    staged = listed.with_suffix(".guest")
+    staged.write_text("".join(f"{name}\n" for name in names), encoding="utf-8")
+    staged.replace(listed)
+
+
 def run(argv: list[str]) -> None:
     """`rush <command>`: the run, then its line; rush exits as the command did. `rush forget <program>`: the program typed plain runs
     as itself again."""
@@ -192,13 +202,14 @@ def run(argv: list[str]) -> None:
     if argv[0] == "forget":
         if len(argv) != 2:
             fail("usage: rush forget <program>")
-        service("/runs/forget", {"program": argv[1]})
+        keep_agents(service("/runs/forget", {"program": argv[1]})["agents"])
         print(f"rush: {argv[1]} typed plain runs as itself again")
         return
     if shutil.which(argv[0]) is None:
         fail(f"{argv[0]}: command not found")
     program, title = program_of(argv), prompt_argument(argv)
     started = service("/runs/start", {"pid": os.getpid(), "title": title, "command": argv[0]})
+    keep_agents(started["agents"])
     held = os.environ["RUSH_ATTEMPT_TOKEN"]
     key = f"{held.partition('.')[0]}.{started['run']}"
     for name, value in list(os.environ.items()):
@@ -273,15 +284,18 @@ def nanoagent(entry: str, argv: list[str]) -> None:
     home.mkdir(parents=True, exist_ok=True)
     (home / "tools.json").write_text(json.dumps({"url": request["tools"]["url"], "tools": started["tools"]}), encoding="utf-8")
     (home / "tools.yaml").write_text(json.dumps({"code": str(HERE / "nanoagent_tools.py")}), encoding="utf-8")  # a NanoAgent tool config
-    # Over NanoAgent's own mgen.yaml, as JSON (which YAML reads): the gateway, the plugin's tools alone, its instructions, no confirming.
+    # Over NanoAgent's own mgen.yaml, as JSON (which YAML reads): the gateway, no confirming, and in the terminal the plugin's tools
+    # alone and its instructions. A case's NanoAgent keeps its own instructions and file and shell tools (the case's answer is a file
+    # in the workspace, as every harness leaves it), the plugin's tools beside them.
+    agent = {"agent > nanoagent.runtime.config.AgentConfig": {"system_prompt": started["system"], "context_files": []}}
+    tools = ["tools/files.yaml", "tools/bash.yaml", "tools/python.yaml"] if request["case"] else []
     (home / "config.yaml").write_text(json.dumps({
         "_ > nanoagent.runtime.config.InteractiveConfig": None,
         "model > nanoagent.runtime.config.ModelConfig": {
             "model": os.environ["RUSH_MODEL"], "provider": "openrouter", "base_url": os.environ["OPENAI_BASE_URL"], "api_key": None,
             "max_tokens": int(os.environ["RUSH_MAX_OUTPUT_TOKENS"]),
         },
-        "agent > nanoagent.runtime.config.AgentConfig": {"system_prompt": started["system"], "context_files": []},
-        "tools": [str(home / "tools.yaml")], "output": str(home), "yolo": True,
+        **({} if request["case"] else agent), "tools": [*tools, str(home / "tools.yaml")], "output": str(home), "yolo": True,
     }), encoding="utf-8")  # fmt: skip
     config = f"{install}/nanoagent/configs/mgen.yaml"
     command = ["-m", "nanoagent.cli.mgen", "--config", config, "--set", f"rush_cfg={home / 'config.yaml'}"] if entry == "mgen" else [

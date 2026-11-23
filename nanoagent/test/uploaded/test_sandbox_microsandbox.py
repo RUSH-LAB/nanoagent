@@ -61,10 +61,7 @@ def errname(action):
 
 
 def write_result(payload):
-    tmp = os.environ["RUSH_RESULT"] + ".tmp"
-    with open(tmp, "w") as handle:
-        json.dump(payload, handle)
-    os.rename(tmp, os.environ["RUSH_RESULT"])
+    print(json.dumps(payload), flush=True)  # the harness's last line, on its terminal: what the test reads back (answer_of)
 
 
 if mode == "full":
@@ -122,8 +119,15 @@ elif mode == "net":
             sock = socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET)
             sock.settimeout(4)
             sock.connect((host, port))
+            # microsandbox's netstack accepts a denied port-80 connection and answers it itself with a 403
+            # network_policy_denied (nothing leaves the VM), so a connect alone does not prove reachability
+            sock.sendall(b"GET / HTTP/1.0\r\n\r\n")
+            try:
+                reply = sock.recv(4096)
+            except OSError:
+                reply = b""
             sock.close()
-            return "ok"
+            return "DENIED" if b"network_policy_denied" in reply else "ok"
         except OSError as error:
             return errno.errorcode.get(error.errno) or type(error).__name__
 
@@ -148,8 +152,6 @@ elif mode == "kill9":
     os.kill(os.getpid(), signal.SIGKILL)
 elif mode == "segv":
     os.kill(os.getpid(), signal.SIGSEGV)
-elif mode == "noresult":
-    pass
 elif mode == "sleep":
     time.sleep(120)
 elif mode == "writer":
@@ -238,6 +240,13 @@ def test_startup_self_test_observes_a_trivial_execs_exec_and_exit(supervisor):
     assert evidence.complete
 
 
+
+def answer_of(outcome):
+    """The answer the harness printed last on its terminal. The runner reads a case's outcome from the frozen workspace, so this layer
+    asserts what ran inside the VM through the harness's own output."""
+    return json.loads(outcome.stdout.decode().strip().splitlines()[-1])["answer"]
+
+
 def test_case_runs_fully_isolated_and_the_trace_joins_exec_child_and_exits(env):
     fixtures = env.work / "fixtures"
     fixtures.mkdir()
@@ -251,7 +260,7 @@ def test_case_runs_fully_isolated_and_the_trace_joins_exec_child_and_exits(env):
         assert outcome.termination.kind is TerminationKind.EXITED, outcome.stderr
         assert outcome.launched_at <= outcome.exited_at
 
-        answer = json.loads(handle.read_result())["answer"]
+        answer = answer_of(outcome)
         assert answer["uid"] == 10001
         assert answer["root_write"] in ("EROFS", "EACCES"), "the root is not the case user's"
         assert answer["harness_write"] in ("EROFS", "EACCES") and answer["request_write"] in ("EROFS", "EACCES")
@@ -259,7 +268,7 @@ def test_case_runs_fully_isolated_and_the_trace_joins_exec_child_and_exits(env):
         assert answer["service"] == 200, "the attempt's service is reachable"
         assert answer["workspace_full"] == "ENOSPC", "the workspace is size bound"
         assert answer["child"] == 23 and answer["moved"] == 0 and answer["cwd"] == "/rush/workspace" and answer["argv"] == ["/harness/main.py"]
-        assert answer["env"] == ["RUSH_ATTEMPT_TOKEN", "RUSH_REQUEST", "RUSH_RESULT", "RUSH_WORKSPACE"]
+        assert answer["env"] == ["RUSH_ATTEMPT_TOKEN", "RUSH_REQUEST", "RUSH_RESULT", "RUSH_TERMINAL", "RUSH_WORKSPACE"]
 
         snapshot = handle.stop_and_drain()
         assert "created.txt" in snapshot.added and snapshot.modified == ("seed.txt",)
@@ -283,8 +292,9 @@ def test_case_runs_fully_isolated_and_the_trace_joins_exec_child_and_exits(env):
 
 def test_dependency_closure_is_installed_offline_and_importable_at_run(env):
     handle = env.start("deps")
-    assert handle.wait().termination.kind is TerminationKind.EXITED
-    assert json.loads(handle.read_result())["answer"] == {"x": 1}
+    outcome = handle.wait()
+    assert outcome.termination.kind is TerminationKind.EXITED
+    assert answer_of(outcome) == {"x": 1}
 
 
 def test_nonzero_exit_and_signals_are_distinguished(env):
@@ -296,14 +306,6 @@ def test_nonzero_exit_and_signals_are_distinguished(env):
     assert (killed.kind, killed.signal) == (TerminationKind.SIGNALED, 9)
     segv = env.start("segv").wait().termination
     assert (segv.kind, segv.signal) == (TerminationKind.SIGNALED, 11)
-
-
-def test_missing_result_is_reported_specifically(env):
-    handle = env.start("noresult")
-    assert handle.wait().termination.kind is TerminationKind.EXITED
-    with pytest.raises(Exception) as caught:
-        handle.read_result()
-    assert getattr(caught.value, "code", "") == "missing_result"
 
 
 def test_wall_budget_kills_every_case_process(env):
@@ -461,8 +463,9 @@ def test_an_internet_harness_reaches_public_addresses_and_its_service_but_no_pri
         network.ports.append(service)
         targets = [PUBLIC, *BLOCKED.values(), *LOOPBACK_AND_IPV6, (GUEST_HOST, port), (GUEST_HOST, service)]
         handle = env.start("net", network=network, targets=targets, https=True)
-        assert handle.wait().termination.kind is TerminationKind.EXITED
-        answer = json.loads(handle.read_result())["answer"]
+        outcome = handle.wait()
+        assert outcome.termination.kind is TerminationKind.EXITED
+        answer = answer_of(outcome)
         reach = answer["reach"]
         assert reach["1.1.1.1:443"] == "ok", "a public address is reachable"
         assert answer["https"] == 200, "a public name resolves and serves TLS"
@@ -481,8 +484,9 @@ def test_an_internet_harness_reaches_public_addresses_and_its_service_but_no_pri
 
 def test_without_internet_access_the_harness_stays_isolated(env):
     handle = env.start("net", targets=[PUBLIC, BLOCKED["10.0.0.0/8"]], https=True, internet=False)
-    assert handle.wait().termination.kind is TerminationKind.EXITED
-    answer = json.loads(handle.read_result())["answer"]
+    outcome = handle.wait()
+    assert outcome.termination.kind is TerminationKind.EXITED
+    answer = answer_of(outcome)
     assert all(result != "ok" for result in answer["reach"].values()), answer["reach"]
     assert answer["https"] != 200
 

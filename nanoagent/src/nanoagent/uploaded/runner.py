@@ -3,39 +3,46 @@
 Everything it touches is injected: the sandbox supervisor, the worker API client, the service relay, the clocks, the
 verifier, the services factory, the plugin loader and projection. The lifecycle and the API calls it makes:
 
-1. fetch source and package under the fence; `inspect_zip`; record `attempt.started`. A rejected source, an unknown
-   toolchain, a dependency or build failure finalizes `build_failed` with the error code and runs nothing.
-2. attempt network, attempt services behind the relay, `Request`, `start_case`. The lease is renewed in the background for
-   the whole attempt, build included, and fenced locally: once its known expiry passes without a successful renewal the
-   gateway, tool broker, command service and event intake refuse new work, as the server does. Lease loss revokes
-   admission, kills the case and finalizes nothing (RUSH interrupts the attempt). A cancel (`409 canceled` on renew or
-   admission) revokes, stops and finalizes `canceled` without a score.
-3. on exit or the wall limit: revoke and drain the services, freeze and snapshot the workspace, read the result: the
-   task tools policy's `RUSH_RESULT`, or the coding policy's `answer.json` of the frozen workspace
-   (`answered`, `refused`, or `execution_failed` with its exact reason), commit the collector's process evidence, run the
-   plugin verifier on the frozen outcome, project the evidence, upload spans and links and finalize. A free-form Terminal
-   session (``free_form``: its member runs any agent and prompts it themselves) has no case: it reads no result, runs no verifier and
-   finalizes `ended`, keeping its model calls, commands and snapshot. Its workspace, which holds the agent CLIs' state, is kept on
-   this computer to resume (nanoagent.uploaded.resume), however it ended, and a session that resumes one gets it back before its
-   shell starts. Its files, less the agents' state and caches, are also uploaded to RUSH (nanoagent.uploaded.workspace_upload).
+1. fetch the plugin package under the fence and build the shell harness (the only harness there is: a listed agent CLI or a member's
+   `rush <command>` runs in it, named by the request's `harness`); record `attempt.started`. A case's fixtures archive is fetched too,
+   its sha256 checked against the case's, and unpacked into a fresh folder the case's workspace is seeded from.
+2. attempt network, attempt services behind the relay, `Request` (the case's prompt only: never its arguments, schemas or reference),
+   `start_case`. The lease is renewed in the background for the whole attempt, build included, and fenced locally: once its known expiry
+   passes without a successful renewal the gateway, tool broker, command service and event intake refuse new work, as the server
+   does. Lease loss revokes admission, kills the case and finalizes nothing (RUSH interrupts the attempt). A cancel (`409 canceled`
+   on renew or admission) revokes, stops and finalizes `canceled` without a score.
+3. on exit or the wall limit: revoke and drain the services, freeze and snapshot the workspace, commit the collector's process
+   evidence, read the outcome from the frozen workspace (nanoagent.uploaded.outcome: `answered`, `refused`, or `execution_failed` with
+   its exact reason), run the plugin verifier once on it, project the evidence, upload spans and links and finalize with the verdict
+   and the verifier's check names and statuses. A harness that timed out, was signaled, exited nonzero or left a workspace over its
+   bound is `execution_failed` and the verifier is not called. A free-form Terminal session (``free_form``: its member runs any agent
+   and prompts it themselves) has no case: it reads no result, runs no verifier and finalizes `ended`, keeping its model calls,
+   commands and snapshot. Its workspace, which holds the agent CLIs' state, is kept on this computer to resume
+   (nanoagent.uploaded.resume), however it ended, and a session that resumes one gets it back before its shell starts. Its files,
+   less the agents' state and caches, are also uploaded to RUSH (nanoagent.uploaded.workspace_upload).
 
 Faults of the platform itself (a sandbox that will not start, a plugin that will not install, a tool container that fails
-to launch) are logged and end only that attempt: its services are revoked, its sandbox and network removed, the process
-evidence the collector has is committed, and renewal stops, so the attempt expires as interrupted with its score
-unavailable. The worker goes on to its next job.
+to launch, a fixtures archive that does not match its digest) are logged and end only that attempt: its services are revoked, its
+sandbox and network removed, and the process evidence the collector has is committed. A case attempt is then finalized `worker_error`
+with the exception's type and message as its reason, and no verifier run: RUSH queues the case again (three attempts in all) and, after
+the last, does not grade the run. A free-form session is finalized by nothing and expires as interrupted. The worker goes on to its next job.
 """
 
 from __future__ import annotations
 
 import asyncio
 import base64
+import gzip
 import hashlib
+import io
 import json
+import os
 import logging
 import platform
 import re
 import secrets
 import shutil
+import subprocess
 import threading
 import time
 import uuid
@@ -50,28 +57,30 @@ from typing import Any, Protocol
 
 import anyio
 import anyio.to_thread
+from slimconfig import build_output
 
 from nanoagent import __version__
 from nanoagent.plugin.manifest import PluginManifest, load_manifest
 from nanoagent.plugin.tasks import tools_prompt
-from nanoagent.plugin.verifier import VerifierError, verify_task_verifier_case
+from nanoagent.plugin.verifier import VerifierError, verify_task, verify_task_verifier_case
 from nanoagent.uploaded import records as rec
-from nanoagent.uploaded.answer import read_answer
 from nanoagent.uploaded.app import AttemptServices
+from nanoagent.uploaded.archive import ArchiveError, unpack_tar
 from nanoagent.uploaded.attempt import AttemptPolicy, ServiceError, ToolPolicy
+from nanoagent.uploaded.answer import ANSWER
 from nanoagent.uploaded.broker import PluginToolRunner, ToolError
 from nanoagent.uploaded.clis import CLIS, Cli
 from nanoagent.uploaded.collector import ProcessEvent, ProcessEventKind, ProcessEvidence, launched_processes
-from nanoagent.uploaded.contract import Answered, ContractError, Refused, validate, validate_result
+from nanoagent.uploaded.contract import SESSION_STATE, ContractError, validate
 from nanoagent.uploaded.endpoint import EndpointProfile
 from nanoagent.uploaded.execservice import ExecError
+from nanoagent.uploaded.outcome import answer_instructions, answer_skeleton, answer_text, outcome as read_outcome
 from nanoagent.uploaded.plugin_package import unpack_package
 from nanoagent.uploaded.reconcile import PendingCall, pending_calls
 from nanoagent.uploaded.relay import ServiceRelay
 from nanoagent.uploaded.rush_worker import (
     AttemptJob,
     Canceled,
-    CaseFailed,
     Emitter,
     Lease,
     LeaseLost,
@@ -98,10 +107,11 @@ from nanoagent.uploaded.sandbox import (
     ToolContainerSpec,
     ToolLauncher,
     WORKSPACE,
+    WorkspaceSnapshot,
 )
 from nanoagent.uploaded.reference import build_reference
 from nanoagent.uploaded import chats
-from nanoagent.uploaded.resume import keep, restore, start_cli
+from nanoagent.uploaded.resume import copy_workspace, keep, restore, start_cli
 from nanoagent.uploaded.source import SourceLimits, extract, inspect_zip
 from nanoagent.uploaded.terminal import MAX_TERMINALS, Terminal
 from nanoagent.uploaded.workspace_upload import TooLarge, pack, upload
@@ -109,13 +119,15 @@ from nanoagent.uploaded.toolchains import CLOSURE_ARCHIVE, ToolchainProfile, res
 
 LOG = logging.getLogger(__name__)
 NS = 1_000_000_000
+MAX_REASON_CHARS = 200  # of an execution reason RUSH accepts: a worker error's says what the worker raised
 EXPECTED_SOURCES = ("worker", "gateway", "process")
 EXEC_THREADS = 4  # concurrent managed commands per attempt
-MISSING_ANSWER = "wrote no answer.json"  # read_answer's failure for an absent file
 SNAPSHOT_EVENT_DIFF_BYTES = 128 * 1024  # of the diff a snapshot.taken event carries; the snapshot payload has all of it
-BUILDS = "builds"  # under the scratch folder: each source's built harness, kept for the next attempt of it
+BUILDS = "builds"  # under the scratch folder: each built harness (the shell, the CLIs), kept for the next attempt
 CLIS_FOLDER = "clis"  # under the scratch folder: the terminal's CLI installs (nanoagent.uploaded.clis), mounted into every case
 DOWNLOADS_FOLDER = "downloads"  # under the scratch folder: every build's checked downloads, by lock hash (toolchains.cached_fetch)
+FIXTURES_FOLDER = "fixtures"  # under an attempt's folder: its case's fixtures, unpacked
+MAX_FIXTURES_BYTES = 256 << 20  # of a case's fixtures, uncompressed
 PLUGINS = "plugins"  # under the scratch folder: each plugin package a tooled attempt ran, unpacked with its environment synced
 PREPARED = "prepared"  # beside a kept plugin's folder: written last, once its environment is synced
 BUILT = "built.json"  # beside a kept build's harness/: its outputs and digest, written last
@@ -173,6 +185,8 @@ WARM_GO = json.dumps({"wait_go": True}).encode()  # a warm terminal's request un
 AGENTS_FILE = "agents.json"  # under the scratch folder: the programs the member ran as `rush <program>` (RememberedAgents)
 WORKSPACE_AGENTS = ".rush/agents"  # in a Terminal session's workspace: those programs, one per line, which its shell wraps (bashrc)
 AGENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")  # a program a shell function can be named after
+EVICT_IDLE_S = 24 * 3600  # a run's pinned installation unused this long may be removed to make room for another run's
+AGENT_AREAS = ("python", "npm")  # under a workspace's .rush/: where `pip install` and `npm install -g` put a member's own agent
 SHELL_NAMES = {"mgen", "rush", "clear"}  # what the terminal's bin/ and bashrc define beside the listed CLIs
 WARM_RECIPE = "warm.json"  # under the scratch folder: the last Terminal session's limits, the warm terminal's after a start
 WARM_MAX_AGE_S = 600.0  # a warm terminal nobody took is replaced after this, well within any session's wall time
@@ -289,9 +303,95 @@ class RememberedAgents:
     def __init__(self, scratch: Path) -> None:
         self.path = scratch / AGENTS_FILE
         self.workspaces: set[Path] = set()
+        self.running: dict[str, int] = {}  # run id -> its cases under way on this worker, whose installation is never removed
+        self._lock = threading.Lock()
 
     def names(self) -> list[str]:
         return json.loads(self.path.read_text(encoding="utf-8")) if self.path.is_file() else []
+
+    def installed(self) -> dict[str, Path]:
+        """Remembered commands with an executable in a kept Terminal workspace, newest first."""
+        sessions = self.path.parent / "sessions"
+        if not sessions.is_dir():
+            return {}
+        kept = []
+        for folder in sessions.iterdir():
+            note, workspace = folder / "session.json", folder / "workspace"
+            if note.is_file() and workspace.is_dir():
+                kept.append((json.loads(note.read_text(encoding="utf-8"))["ended_at"], workspace))
+        result: dict[str, Path] = {}
+        for _, workspace in sorted(kept, key=lambda item: item[0], reverse=True):
+            for name in self.names():
+                if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", name):
+                    continue
+                if name in result:
+                    continue
+                for area in ("python", "npm"):
+                    root = workspace / ".rush" / area
+                    program = root / "bin" / name
+                    if program.is_file() and os.access(program, os.X_OK) and program.resolve().is_relative_to(root.resolve()):
+                        result[name] = workspace
+                        break
+        return result
+
+    def seed(self, command: str, run_id: str, storage_bytes: int) -> Path:
+        """Pin one installation per run (only its package directories) and return its folder, which the run's cases mount read-only
+        (sandbox.AGENT_DIR) until ``release``: never copied into a case's workspace, whose bounds are for what the agent makes."""
+        if not AGENT_NAME.fullmatch(command) or not re.fullmatch(r"[0-9a-f-]{36}", run_id):
+            raise ContractError("invalid_agent", "invalid installed agent or run id")
+        target = self.path.parent / "benchmark-installs" / run_id
+        with self._lock:
+            evicted = target.with_name(f"{run_id}.evicted")
+            if not target.exists() and evicted.exists():
+                # Pinned again from another session it could be another version of the agent: one run's cases would mix them.
+                raise ContractError("agent_evicted", f"this run's installation of {command} was removed to make room for later runs; run the benchmark again")
+            if not target.exists():
+                source = self.installed().get(command)
+                if source is None:
+                    raise ContractError("agent_not_installed", f"{command} has no installed executable in a kept Terminal session")
+                staged = target.with_name(f"{run_id}.{uuid.uuid4().hex}.copying")
+                needed = sum(tree_bytes(source / ".rush" / area) for area in AGENT_AREAS if (source / ".rush" / area).is_dir())
+                if needed + len(command.encode("utf-8")) > storage_bytes:
+                    raise ContractError(
+                        "agent_storage_full", f"{command}'s installation ({needed >> 20} MB) is larger than the computer's benchmark agent storage ({storage_bytes >> 20} MB)"
+                    )
+                # Installations no case is using and none has used for a day make room, least recently used first; a run whose installation
+                # went says so if it asks again (agent_evicted). One still in use, or used lately, is never removed: then storage is full.
+                idle = time.time() - EVICT_IDLE_S
+                pinned = sorted(
+                    (folder for folder in target.parent.iterdir() if folder.is_dir() and folder.name not in self.running and folder.stat().st_mtime < idle),
+                    key=lambda folder: folder.stat().st_mtime,
+                ) if target.parent.is_dir() else []  # fmt: skip
+                while pinned and needed + len(command.encode("utf-8")) > storage_bytes - tree_bytes(target.parent):
+                    oldest = pinned.pop(0)
+                    oldest.with_name(f"{oldest.name}.evicted").touch()
+                    shutil.rmtree(oldest, ignore_errors=True)
+                if needed + len(command.encode("utf-8")) > storage_bytes - (tree_bytes(target.parent) if target.parent.is_dir() else 0):
+                    raise ContractError("agent_storage_full", "The computer's benchmark agent storage is held by runs used within the last day; try again later")
+                try:
+                    staged.mkdir(parents=True)
+                    (staged / "command").write_text(command, encoding="utf-8")
+                    remaining = storage_bytes
+                    for area in AGENT_AREAS:
+                        folder = source / ".rush" / area
+                        if folder.is_dir():
+                            remaining -= copy_workspace(folder, staged / area, remaining)
+                    staged.rename(target)
+                except BaseException:
+                    shutil.rmtree(staged, ignore_errors=True)
+                    raise
+            if (target / "command").read_text(encoding="utf-8") != command:
+                raise ContractError("invalid_agent", "the run's installed agent changed")
+            os.utime(target)  # in use: the oldest used go first when room is made
+            self.running[run_id] = self.running.get(run_id, 0) + 1  # until ``release``: its installation stays while the case runs
+        return target
+
+    def release(self, run_id: str) -> None:
+        """One case of run ``run_id`` that ``seed`` seeded is over: its installation may be removed once no case of the run uses it."""
+        with self._lock:
+            self.running[run_id] -= 1
+            if not self.running[run_id]:
+                del self.running[run_id]
 
     def attach(self, workspace: Path) -> None:
         """A session's workspace, listed from now until ``detach``."""
@@ -349,7 +449,7 @@ def run_figures(records: Sequence[Mapping[str, Any]], run: str) -> dict[str, Any
 
 
 class NoTools:
-    """The runner of an attempt that permits no tools (the coding policy)."""
+    """The runner of an attempt that permits no tools (a free-form session, until its `nanoagent` asks for the plugin's)."""
 
     async def run(self, name: str, arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
         raise ToolError("tool_not_available", f"{name!r} is not a permitted tool", 403)
@@ -378,26 +478,13 @@ class RunnerConfig:
 
 @dataclass(frozen=True)
 class AttemptResult:
-    """How the attempt ended: `finalized`, `canceled` (finalized as such), `lease_lost` (nothing finalized), `sealed`, or
-    `platform_fault` (nothing finalized: the attempt expires as interrupted)."""
+    """How the attempt ended: `finalized`, `canceled` (finalized as such), `worker_error` (a case attempt the worker failed, finalized as
+    such for RUSH to queue again), `lease_lost` (nothing finalized), `sealed`, or `platform_fault` (a free-form session's: nothing finalized,
+    the session expires as interrupted)."""
 
     outcome: str
     execution: Mapping[str, Any] | None = None
     accounting: Sequence[PendingCall] = ()
-
-
-class PendingCase:
-    """A session's case RUSH is still pinning as its attempt is claimed: fetched while the attempt prepares, then the job with it, or
-    why it could not be pinned."""
-
-    def __init__(self) -> None:
-        self.done = anyio.Event()
-        self.job: AttemptJob | None = None
-        self.error: str | None = None
-
-    def failed_reason(self) -> str:
-        """The execution reason of an attempt whose case could not be pinned, with why (RUSH keeps 200 characters)."""
-        return f"case_failed: {self.error}"[:200]
 
 
 class UnknownModelPrice(RuntimeError):
@@ -496,7 +583,10 @@ def process_facts(evidence: ProcessEvidence, to_monotonic_ns: Callable[[int], in
             case ProcessEventKind.CLONE if event.created_identity is not None:
                 facts.append((when, rec.ProcessClone(event.created_thread_group_id, event.created_thread_group_start_time_ns, event.thread_group_id, event.thread_group_start_time_ns, when)))  # type: ignore[arg-type]
             case ProcessEventKind.EXEC | ProcessEventKind.CONTAINER_START:
-                facts.append((when, rec.ProcessExec(event.thread_group_id, event.thread_group_start_time_ns, list(event.argv), event.cwd, when, launch_ids.get(event.identity))))
+                facts.append((when, rec.ProcessExec(
+                    event.thread_group_id, event.thread_group_start_time_ns, list(event.argv), event.cwd, when, launch_ids.get(event.identity),
+                    event.binary_path or None, event.argv_truncated,
+                )))
             case ProcessEventKind.TASK_EXIT if event.thread_id == event.thread_group_id:
                 facts.append((when, _exit_fact(event, when)))
     facts.sort(key=lambda pair: pair[0])
@@ -513,15 +603,35 @@ NUMERIC_LIMITS = (
     "wall_time_ms", "max_model_calls", "max_output_tokens_per_call", "max_cost_usd", "cpus", "memory_mb", "pids", "workspace_bytes", "workspace_files",
     "tmp_bytes", "build_wall_ms", "build_memory_mb", "build_output_bytes", "build_files", "build_tmp_bytes",
 )
-POLICIES = ("coding", "task_tools")
-
-
-class UnsupportedPolicy(RuntimeError):
-    """A claimed run pins a participant policy this worker does not know."""
 
 
 class UnsupportedLimits(RuntimeError):
     """A claimed run asks for more than the worker advertised it can give."""
+
+
+def remove_tree(path: Path) -> None:
+    """Remove ``path``, a folder or a link the agent may have put there, if it exists; a failure to remove it raises."""
+    if path.is_symlink():
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path)
+
+
+def without_session_state(snapshot: WorkspaceSnapshot) -> WorkspaceSnapshot:
+    """The frozen workspace as the trace, the outcome seam and the verifier see it: less ``.rush/``. The workspace archive RUSH keeps is
+    packed from the live workspace, which still holds it."""
+    remove_tree(snapshot.directory / SESSION_STATE)
+
+    def agent_made(path: str) -> bool:
+        return path != SESSION_STATE and not path.startswith(f"{SESSION_STATE}/")
+
+    return replace(
+        snapshot,
+        files={path: sha for path, sha in snapshot.files.items() if agent_made(path)},
+        added=tuple(filter(agent_made, snapshot.added)), modified=tuple(filter(agent_made, snapshot.modified)),
+        deleted=tuple(filter(agent_made, snapshot.deleted)),
+        skipped={path: why for path, why in snapshot.skipped.items() if agent_made(path)},
+    )
 
 
 def check_limits(limits: Mapping[str, Any], capabilities: Mapping[str, Any]) -> None:
@@ -531,6 +641,22 @@ def check_limits(limits: Mapping[str, Any], capabilities: Mapping[str, Any]) -> 
         over.append("internet_access is not supported")
     if over:
         raise UnsupportedLimits("the run's limits exceed this worker's capabilities: " + "; ".join(over))
+
+
+CHECK_STATUSES = frozenset({"passed", "failed", "skipped"})
+
+
+def checks_of(details: Mapping[str, Any]) -> list[dict[str, str]] | None:
+    """The verifier's named checks, ``details.checks``, as `[{name, status}]` (their messages and values stay with the verifier): None when
+    the verifier names none; a list that is not a bounded list of named checks with a known status is a verifier fault (ValueError)."""
+    raw = details.get("checks")
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or len(raw) > 100 or not all(
+        isinstance(check, dict) and isinstance(check.get("name"), str) and 0 < len(check["name"]) <= 200 and check.get("status") in CHECK_STATUSES for check in raw
+    ):
+        raise ValueError("verify_task() details.checks is not a list of at most 100 {name, status} checks with a status of passed, failed or skipped")
+    return [{"name": check["name"], "status": check["status"]} for check in raw]
 
 
 def case_limits(limits: Mapping[str, Any], worker: Limits) -> Limits:
@@ -554,6 +680,7 @@ class AttemptRunner:
         wall_clock_ns: Callable[[], int] = time.time_ns,
         services_factory: Callable[..., AttemptServices] = AttemptServices,
         verify_task_case: Callable[..., Any] = verify_task_verifier_case,
+        verify_task: Callable[..., Any] = verify_task,
         project: Callable[[list[dict[str, Any]], Mapping[str, bytes], Mapping[str, str]], Any] = default_project,
     ) -> None:
         self.config = config
@@ -565,6 +692,7 @@ class AttemptRunner:
         self.wall_clock_ns = wall_clock_ns
         self.services_factory = services_factory
         self.verify_task_case = verify_task_case
+        self.verify_task = verify_task
         self.project = project
         self.agents = RememberedAgents(config.scratch)
         self._recipe: WarmRecipe | None = None  # the last Terminal session's, which the warm terminal is made of
@@ -642,13 +770,10 @@ class AttemptRunner:
     def _shell_recipe(self, run_limits: Mapping[str, Any]) -> WarmRecipe:
         """The recipe of a Terminal session under ``run_limits``: the shell this worker's NanoAgent builds (`build_reference`, as
         the member's computer does for a session), kept like any build, or built now."""
-        archive = inspect_zip(build_reference("shell"), self.config.source_limits)
-        profile = toolchain(archive.manifest.toolchain)
-        self.supervisor.ready(profile)
         work = self.config.scratch / f"warm-build-{uuid.uuid4().hex[:8]}"
         work.mkdir(parents=True)
         try:
-            artifact = self._build("warm-build", run_limits, archive, profile, work)
+            archive, profile, artifact = self._shell("warm-build", run_limits, work)
         finally:
             shutil.rmtree(work, ignore_errors=True)
         return self._recipe_of(archive.source_sha256, profile, archive.manifest.run_argv, artifact, run_limits)
@@ -681,28 +806,44 @@ class AttemptRunner:
         journal = RushJournal(self.worker, lease)
         work = self.config.scratch / job.attempt_id
         work.mkdir(parents=True, exist_ok=True)
-        pending = PendingCase() if job.case_pending else None
         try:
             async with anyio.create_task_group() as renewing:
                 renewing.start_soon(self._renew, job, lease)
-                if pending is not None:
-                    renewing.start_soon(self._fetch_case, job, lease, pending)
                 try:
-                    result = await self._attempt(job, lease, journal, Emitter(journal, self.clock_ns), work, pending)
+                    try:
+                        result = await self._attempt(job, lease, journal, Emitter(journal, self.clock_ns), work)
+                    except BaseExceptionGroup as group:  # the session's task groups wrap a lone fault: it is that fault
+                        error = group
+                        while isinstance(error, BaseExceptionGroup) and len(error.exceptions) == 1:
+                            error = error.exceptions[0]
+                        raise error from None
                 except (LeaseLost, Canceled) as error:
                     lease.fail(error)
                     result = AttemptResult("lease_lost" if isinstance(error, LeaseLost) else "canceled")
                 except Sealed:
                     result = AttemptResult("sealed")
                 except Exception as error:  # a fault of the platform, not of the member's harness: it ends this attempt only
-                    LOG.exception("attempt %s: platform fault, the attempt is left to expire as interrupted", job.attempt_id)
-                    result = AttemptResult("platform_fault", {"error": f"{type(error).__name__}: {error}"})
+                    fault = f"{type(error).__name__}: {error}"
+                    if job.case is None:  # a free-form session is not retried: it is left to expire as interrupted
+                        LOG.exception("attempt %s: platform fault, the session is left to expire as interrupted", job.attempt_id)
+                        result = AttemptResult("platform_fault", {"error": fault})
+                    else:  # a case's: finalized as a worker error, which is no failure of the case, and RUSH queues it again
+                        LOG.exception("attempt %s: worker error, the attempt is finalized as such", job.attempt_id)
+                        result = await self._worker_error(job, journal, fault[:MAX_REASON_CHARS])
                 finally:
                     renewing.cancel_scope.cancel()  # a finished, lost or failed attempt stops renewing its lease
         finally:
             journal.close()
             shutil.rmtree(work, ignore_errors=True)
         return replace(result, accounting=pending_calls(journal.records))
+
+    async def _worker_error(self, job: AttemptJob, journal: RushJournal, reason: str) -> AttemptResult:
+        """Finalizes a case attempt the worker itself failed as `worker_error` with `reason`, and no verifier run. A lease that is lost, a
+        cancel or a seal first leave it as they would any attempt."""
+        try:
+            return await self._finalize(job, journal, "worker_error", reason, result=AttemptResult("worker_error", {"error": reason}))
+        except (LeaseLost, Canceled, Sealed) as error:
+            return AttemptResult("lease_lost" if isinstance(error, LeaseLost) else "sealed" if isinstance(error, Sealed) else "canceled")
 
     async def _renew(self, job: AttemptJob, lease: Lease) -> None:
         """Renew the lease every `renew_interval_s` until it is lost or the attempt ends. A renewal that cannot reach the
@@ -737,89 +878,78 @@ class AttemptRunner:
                 lease.fail(error)
                 return
 
-    async def _fetch_case(self, job: AttemptJob, lease: Lease, pending: PendingCase) -> None:
-        """Fetch the case RUSH pins while the attempt prepares and runs, until it is pinned, its pin fails, or the lease is lost."""
-        while not lease.lapsed():
-            try:
-                body = await self.worker.case(job.attempt_id, job.fence)
-            except CaseFailed as error:
-                pending.error = error.message
-                pending.done.set()
-                return
-            except (LeaseLost, Canceled, Sealed) as error:
-                lease.fail(error)
-                return
-            except RushUnavailable as error:
-                LOG.warning("attempt %s: reading its case failed: %s", job.attempt_id, error)
-                continue
-            if body is not None:
-                pending.job = job.pinned(body)
-                pending.done.set()
-                return
-
-    async def _attempt(self, job: AttemptJob, lease: Lease, journal: RushJournal, emit: Emitter, work: Path, pending: PendingCase | None) -> AttemptResult:
+    async def _attempt(self, job: AttemptJob, lease: Lease, journal: RushJournal, emit: Emitter, work: Path) -> AttemptResult:
         cfg = self.config
         if cfg.renew_interval_s >= job.lease_seconds:
             raise RenewalConfigError(f"poll.renew_interval_s ({cfg.renew_interval_s:g}) must be shorter than the server's lease ({job.lease_seconds:g} s)")
         run = job.run
-        policy, limits = run["policy"], run["limits"]
-        if policy not in POLICIES:
-            raise UnsupportedPolicy(f"the run's policy {policy!r} is not one of {POLICIES}")
+        limits = run["limits"]
         check_limits(limits, cfg.capabilities)
-        source = await self.worker.source(job.attempt_id, job.fence)
         # A free-form Terminal session runs nothing of its plugin: RUSH keeps no package for it, and none is fetched or unpacked.
         package = None if job.free_form else await self.worker.package(job.attempt_id, job.fence)
+        fixtures = None if job.case is None else await self._fixtures(job, work / FIXTURES_FOLDER)
         if (ended := await self._ended(job, lease, journal)) is not None:
             return ended
-        rejection: ContractError | None = None
-        archive = None
-        try:
-            archive = inspect_zip(source, cfg.source_limits)
-        except ContractError as error:
-            rejection = error
-        tools = self._tools(job)
+        # The harness is the shell, which runs the agent the run names; it is the platform's own build, so one that fails is a platform fault.
+        archive, profile, artifact = await in_thread(self._shell, job.attempt_id, limits, work)
         await emit.emit(
             rec.AttemptStarted(
-                job.attempt_id, cfg.worker_id, {"label": cfg.endpoint.label, "mode": cfg.endpoint.mode}, run["model"], list(run["dialects"]),
-                None if job.prompt is None else job.prompt["sha256"], policy, None if archive is None else archive.manifest.toolchain, run["source_sha256"], cfg.harness_revision,
-                dict(limits), list(job.task["egress_hosts"]) if policy == "task_tools" else None,
+                job.attempt_id, cfg.worker_id, {"label": cfg.endpoint.label, "mode": cfg.endpoint.mode}, run["model"], list(archive.manifest.dialects),
+                None if job.case is None else job.case["prompt_sha256"], "shell", archive.manifest.toolchain, archive.source_sha256, cfg.harness_revision,
+                dict(limits), None,
                 {"reference_tokens_per_second": cfg.reference_tokens_per_second, "clock_tolerance_ns": cfg.clock_tolerance_ns},
-                [*EXPECTED_SOURCES, *(["tool_broker"] if tools else [])],
+                list(EXPECTED_SOURCES),
             )
         )
-        if archive is None:
-            assert rejection is not None
-            return await self._finalize(job, journal, "build_failed", rejection.code)
-        try:
-            profile = toolchain(archive.manifest.toolchain)
-        except ContractError as error:
-            LOG.warning("build of %s failed: %s: %s", job.attempt_id, error.code, error.message)
-            return await self._finalize(job, journal, "build_failed", error.code)
-        await in_thread(self.supervisor.ready, profile)  # the tracer proven in its image, once: a failure is the platform's, not the source's
-        try:
-            artifact = await in_thread(self._build, job.attempt_id, run["limits"], archive, profile, work)
-        except ContractError as error:
-            # The build is not part of the trace or the metrics; the worker log keeps its message, the attempt its code.
-            LOG.warning("build of %s failed: %s: %s", job.attempt_id, error.code, error.message)
-            return await self._finalize(job, journal, "build_failed", error.code)
         if (ended := await self._ended(job, lease, journal)) is not None:  # the build is a thread nothing can interrupt, so a cancel is seen after it
             return ended
         LOG.info("attempt %s: harness built", job.attempt_id)  # with the worker log's times, these lines show where a session's start goes
         manifest = None
         if package is not None:
-            manifest = await in_thread(self._plugin, job.plugin, package, work, bool(tools))
+            manifest = await in_thread(self._plugin, job.plugin, package, work, bool(job.task["tools"]))
             LOG.info("attempt %s: plugin ready", job.attempt_id)
             if (ended := await self._ended(job, lease, journal)) is not None:
                 return ended
-        if pending is not None:  # the harness reads its case as it starts
-            await first_of(pending.done, lease.revoked)
-            if (ended := await self._ended(job, lease, journal)) is not None:
-                return ended
-            if pending.job is None:
-                return await self._finalize(job, journal, "execution_failed", pending.failed_reason())
-            job, pending = pending.job, None
         async with AsyncExitStack() as stack:
-            return await self._case(job, lease, journal, emit, work, archive.manifest.run_argv, profile, artifact, manifest, tools, stack)
+            return await self._case(job, lease, journal, emit, work, archive, profile, artifact, manifest, fixtures, stack)
+
+    async def _fixtures(self, job: AttemptJob, folder: Path) -> Path:
+        """The case's fixtures, fetched by its route (a case without any gets an empty ``folder``), checked against the digest the claim names and
+        unpacked into a fresh ``folder``: only regular files and directories, and exactly the files the claim lists. A mismatch is a fault of the
+        platform, not of the harness. Then the unfilled ``answer.json`` is seeded beside them, so it is part of the workspace's baseline."""
+        declared = job.case["fixtures"]
+        if declared is None:
+            folder.mkdir(parents=True)
+        else:
+            data = await self.worker.fixtures(job.attempt_id, job.fence)
+            if hashlib.sha256(data).hexdigest() != declared["sha256"]:
+                raise ContractError("fixtures_mismatch", f"the fixtures of case {job.case['case_id']} do not hash to {declared['sha256']}")
+            await in_thread(self._unpack_fixtures, data, folder, declared["files"], job.run["limits"])
+        (folder / ANSWER).write_bytes(answer_text(answer_skeleton(job.task["output_schema"])))
+        return folder
+
+    @staticmethod
+    def _unpack_fixtures(data: bytes, folder: Path, files: Mapping[str, str], limits: Mapping[str, Any]) -> None:
+        folder.mkdir(parents=True)
+        tarball = folder.with_name(folder.name + ".tar")
+        try:
+            with gzip.GzipFile(fileobj=io.BytesIO(data)) as source, tarball.open("wb") as out:
+                size = 0
+                while chunk := source.read(1 << 20):
+                    if (size := size + len(chunk)) > MAX_FIXTURES_BYTES:
+                        raise ContractError("fixtures_too_large", f"the fixtures are over {MAX_FIXTURES_BYTES} bytes uncompressed")
+                    out.write(chunk)
+            unpacked = unpack_tar(tarball, folder, max_files=limits["workspace_files"], max_bytes=limits["workspace_bytes"])
+        except (OSError, EOFError, ArchiveError) as error:  # a gzip that is not one, or a tar that leaves its folder
+            raise ContractError("fixtures_invalid", f"the fixtures archive cannot be unpacked: {error}") from error
+        finally:
+            tarball.unlink(missing_ok=True)
+        if unpacked.skipped or unpacked.files != dict(files):
+            raise ContractError("fixtures_mismatch", f"the unpacked fixtures are not the files the case lists (skipped: {sorted(unpacked.skipped)})")
+        # Never lost silently: the worker seeds answer.json over the fixtures, and the frozen workspace is less `.rush/`.
+        for path in unpacked.files:
+            if path == ANSWER or path == SESSION_STATE or path.startswith(f"{SESSION_STATE}/"):
+                raise ContractError("fixtures_reserved", f"the fixtures hold {path} at their root, which the platform reserves ({ANSWER} is seeded, {SESSION_STATE}/ is the session's)")
 
     async def _ended(self, job: AttemptJob, lease: Lease, journal: RushJournal) -> AttemptResult | None:
         """The result of an attempt whose lease was lost or canceled while it was preparing, before any case ran: canceled is
@@ -830,10 +960,13 @@ class AttemptRunner:
             return await self._finalize(job, journal, "canceled", None, result=AttemptResult("canceled"))
         return AttemptResult("lease_lost")
 
-    @staticmethod
-    def _tools(job: AttemptJob) -> tuple[Mapping[str, Any], ...]:
-        """The plugin tools the attempt may call: the task's, under the task tools policy; none under the coding policy."""
-        return tuple(job.task["tools"]) if job.run["policy"] == "task_tools" else ()
+    def _shell(self, attempt_id: str, run_limits: Mapping[str, Any], work: Path) -> tuple[Any, ToolchainProfile, BuildArtifact]:
+        """The shell harness this worker's NanoAgent ships (`build_reference`), its tracer proven in its image, built as any build is
+        (kept, or built now)."""
+        archive = inspect_zip(build_reference("shell"), self.config.source_limits)
+        profile = toolchain(archive.manifest.toolchain)
+        self.supervisor.ready(profile)
+        return archive, profile, self._build(attempt_id, run_limits, archive, profile, work)
 
     def _build(self, attempt_id: str, run_limits: Mapping[str, Any], archive: Any, profile: ToolchainProfile, work: Path) -> BuildArtifact:
         """The source's built harness: the one an earlier attempt built of the same source, build image and architecture, kept under
@@ -964,12 +1097,13 @@ class AttemptRunner:
         (records.ProcessRush), which the Dashboard titles its row by, with the run's id, which every model call its process tree makes
         names (rush.py gives the command the key `<token>.<run>`); its command (argv[0]) is remembered (RememberedAgents). `title`
         ({run, title}): an interactive run's, the first line typed into it. `end` ({run, exit_code}): what its model calls took
-        (run_figures). `forget` ({program}): a remembered program is no longer."""
+        (run_figures). `forget` ({program}): a remembered program is no longer. `start` and `forget` answer the remembered programs (`agents`),
+        which rush.py writes to its own workspace again (see `kept`): the guest's mount of the file the worker replaced reads it as gone."""
         if action == "forget":
             if not isinstance(body.get("program"), str):
                 raise ServiceError(400, "invalid_request", "forget names a program")
             self.agents.forget(body["program"])
-            return {}
+            return {"agents": self.agents.names()}
         if action == "start":
             pid, title, command = body.get("pid"), body.get("title"), body.get("command")
             if not isinstance(pid, int) or not (title is None or isinstance(title, str)) or not isinstance(command, str):
@@ -978,7 +1112,7 @@ class AttemptRunner:
             run = uuid.uuid4().hex
             runs.running[run] = pid
             await emit.emit(rec.ProcessRush(pid, self.clock_ns(), title=title or None, run=run))
-            return {"run": run}
+            return {"run": run, "agents": self.agents.names()}
         run = body.get("run")
         if run not in runs.running:
             raise ServiceError(404, "unknown_run", "no run under way here has that id")
@@ -1016,54 +1150,56 @@ class AttemptRunner:
         journal: RushJournal,
         emit: Emitter,
         work: Path,
-        run_argv: tuple[str, ...],
+        archive: Any,
         profile: ToolchainProfile,
         artifact: BuildArtifact,
         manifest: PluginManifest | None,
-        tools: tuple[Mapping[str, Any], ...],
+        fixtures: Path | None,
         stack: AsyncExitStack,
     ) -> AttemptResult:
         cfg, run = self.config, job.run
+        run_argv = archive.manifest.run_argv
         run_limits = run["limits"]
         model = run["model"]
         if model not in cfg.prices:
             raise UnknownModelPrice(f"the worker's prices have no entry for {model!r}")
         input_price, output_price = cfg.prices[model]
         limits = case_limits(run_limits, cfg.limits)
+        # A case's CLI is installed before its VM starts, as a Terminal session's are ahead of it (keep_warm): its install time is no part
+        # of the case's elapsed time or wall limit, and an install that fails is the worker's fault (a worker error), not the harness's.
+        cli = {"mgen": "nanoagent"}.get(run["harness"], run["harness"])
+        if not job.free_form and cli in CLIS:
+            async for said in self._install_cli(job, cli):
+                if "error" in said:
+                    raise RuntimeError(said["error"])
         # A Terminal session takes the warm terminal when it is made as this session's case would be.
         warm = None
         if job.free_form:
-            warm = self._take_warm(self._recipe_of(run["source_sha256"], profile, run_argv, artifact, run_limits))
+            warm = self._take_warm(self._recipe_of(archive.source_sha256, profile, run_argv, artifact, run_limits))
         if warm is not None:
             folder = warm.folder
             stack.push_async_callback(shielded, lambda: anyio.to_thread.run_sync(shutil.rmtree, folder, True))
         # Only the harness VM may have the internet; the tool VM and the build never do.
         network = warm.network if warm is not None else self.supervisor.create_network(job.attempt_id, internet=run_limits["internet_access"])
         workspace = Path(WORKSPACE)  # the case workspace, at the path the harness and the tool container both see
-        runner: Any = NoTools()
-        tool_container = None
-        if tools:
-            name = f"rush-tool-{job.attempt_id}-{secrets.token_hex(4)}"
-            runner = self.plugins.tool_runner(manifest, workspace, tuple(tool["name"] for tool in tools), self.supervisor.tool_launcher(name))
-            tool_container = ToolContainerSpec(name, manifest.root, None, tuple(job.task["egress_hosts"]))
         token = secrets.token_urlsafe(32)
         policy = AttemptPolicy(
-            attempt_id=job.attempt_id, token=token, model=model, dialects=tuple(run["dialects"]),
-            prompt_user=None if job.prompt is None else job.prompt["user"], prompt_system=None if job.prompt is None else job.prompt["system"],
+            attempt_id=job.attempt_id, token=token, model=model, dialects=tuple(archive.manifest.dialects),
+            prompt_user=None if job.case is None else job.case["prompt"], prompt_system=None if job.case is None else answer_instructions(job.task),
             max_model_calls=run_limits["max_model_calls"],
             max_output_tokens_per_call=run_limits["max_output_tokens_per_call"], input_price_bound=input_price, output_price_bound=output_price,
-            tools=tuple(ToolPolicy(tool["name"], bool(tool["writes"]), tool["input_schema"], tool["output_schema"]) for tool in tools),
+            tools=(),  # the plugin's tools are the session's `nanoagent`'s alone, started when it asks (`_late_tools`)
             prompt_bound=run["prompt_bound"], model_max_output_tokens=cfg.output_maxima.get(model),
         )
         commands = CaseCommands(limits)
-        late = LateTools() if job.free_form else None  # a Terminal session's `nanoagent` asks for the plugin's tools
+        late = LateTools()  # a session's `nanoagent` asks for the plugin's tools
         runs = RushRuns()  # and its `rush <command>` runs
         services = self.services_factory(
-            policy=policy, endpoint=cfg.endpoint, admission=RushAdmission(self.worker, lease), journal=journal, tool_runner=runner,
+            policy=policy, endpoint=cfg.endpoint, admission=RushAdmission(self.worker, lease), journal=journal, tool_runner=NoTools(),
             command_runner=commands, workspace=workspace, clock_ns=self.clock_ns,
             install_cli=lambda name: self._install_cli(job, name),
-            rush_run=None if not job.free_form else lambda action, body: self._rush_run(runs, emit, journal, services, action, body),
-            start_tools=None if late is None else late.start,
+            rush_run=lambda action, body: self._rush_run(runs, emit, journal, services, action, body),
+            start_tools=late.start,
         )
         services.attempt.lease_lapsed = lease.lapsed  # the services refuse new work once the lease's known expiry passes
         if warm is not None:
@@ -1071,39 +1207,46 @@ class AttemptRunner:
         else:
             relay = await self.relay.start(job.attempt_id, network, services.app, work)
         stack.push_async_callback(shielded, relay.aclose)
-        request = self._request(job, tools, relay.base_url)
-        terminal = Terminal(self.worker, job.attempt_id, job.fence, terminals=MAX_TERMINALS if job.free_form else 1, scratch=cfg.scratch if job.free_form else None)
+        request = self._request(job, archive.manifest.dialects, relay.base_url)
+        terminal = Terminal(self.worker, job.attempt_id, job.fence, terminals=MAX_TERMINALS, scratch=cfg.scratch)
         offset = self.wall_clock_ns() - self.clock_ns()
+        # A member's own agent (`rush <program> [<argument>…]`): its program's installation, from a kept Terminal session, pinned for the
+        # run before its VM starts, which mounts it.
+        seeded = not job.free_form and job.run["harness"].startswith("rush ")
+        agent = None
+        if seeded:
+            program = job.run["harness"].removeprefix("rush ").split(" ")[0]
+            agent = await in_thread(self.agents.seed, program, job.run["run_id"], cfg.resume_bytes)
+            stack.callback(self.agents.release, job.run["run_id"])
         if warm is not None:
             handle = warm.handle
         else:
             clis = cfg.scratch / CLIS_FOLDER
             clis.mkdir(parents=True, exist_ok=True)
             spec = CaseSpec(
-                job.attempt_id, profile, run_argv, artifact, json.dumps(request).encode(), token, network, work / "case", None, limits, tool_container,
-                partial(terminal.write, 0), clis,
+                job.attempt_id, profile, run_argv, artifact, json.dumps(request).encode(), token, network, work / "case", fixtures, limits, None,
+                partial(terminal.write, 0), clis, agent,
             )
             handle = await in_thread(self.supervisor.create_case, spec)
             LOG.info("attempt %s: case VMs up", job.attempt_id)
         stack.push_async_callback(shielded, lambda: in_thread(handle.close))
         stack.push_async_callback(shielded, lambda: self._revoke(services))  # a fault after this leaves no in-flight call or tool behind
-        if late is not None:  # closed before the case (the stack unwinds in reverse), the tools' session first
-            group = await stack.enter_async_context(anyio.create_task_group())
-            stack.callback(group.cancel_scope.cancel)
-            group.start_soon(self._late_tools, late, job, work, handle, services)
+        # Closed before the case (the stack unwinds in reverse), the tools' session first.
+        group = await stack.enter_async_context(anyio.create_task_group())
+        stack.callback(group.cancel_scope.cancel)
+        group.start_soon(self._late_tools, late, job, work, handle, services, manifest, emit)
         if job.resume is not None:  # the session it resumes, back in its workspace before the shell starts
             said = await in_thread(restore, cfg.scratch, job.resume, handle.workspace)
             LOG.info("attempt %s: resuming %s: %s", job.attempt_id, job.resume.attempt_id, said["line"])
         if job.start is not None:  # the agent CLI its first terminal runs, as a resumed one runs its agent's resume command
             await in_thread(start_cli, handle.workspace, job.start)
-        if job.free_form:  # the member's remembered programs, over any list a resumed session brought back
-            self.agents.attach(handle.workspace)
-            stack.callback(self.agents.detach, handle.workspace)
+        if seeded and (handle.workspace / SESSION_STATE).exists():
+            raise ContractError("agent_install_conflict", "the case fixtures contain .rush, reserved for the installed agent")
+        # The member's remembered programs, over any list a resumed session brought back.
+        self.agents.attach(handle.workspace)
+        stack.callback(self.agents.detach, handle.workspace)
         # The conversations its agents kept as it starts (a resumed session's are back): it holds those it talks in (chats.talked).
-        restored = await in_thread(chats.read, handle.workspace) if job.free_form else {}
-        if tools:
-            await stack.enter_async_context(runner)  # the plugin is up before the harness can call it
-            LOG.info("attempt %s: plugin tools up", job.attempt_id)
+        restored = await in_thread(chats.read, handle.workspace)
         if warm is not None:  # launched already: the shell starts on its request and token
             warm.output.forward(partial(terminal.write, 0))
             await in_thread(handle.go, json.dumps(request).encode(), token)
@@ -1116,7 +1259,7 @@ class AttemptRunner:
 
         recorded: list[bool] = []  # set once the collector's process evidence is committed
         try:
-            live = partial(self._live_spans, job, journal, handle, lambda wall: wall - offset, commands.outcomes, []) if job.free_form else None
+            live = partial(self._live_spans, job, journal, handle, lambda wall: wall - offset, commands.outcomes, [])
             outcome = await self._wait(lease, handle, services, terminal, interactive=run["interactive"], free_form=job.free_form, live=live)
             await self._revoke(services)
             lease.lapsed()  # a lease that ran out while the computer slept is dropped on waking, not finalized late
@@ -1130,6 +1273,11 @@ class AttemptRunner:
             if outcome is None:  # a scored run canceled mid-run
                 await in_thread(handle.close)
                 return await self._finalize(job, journal, "canceled", None, result=AttemptResult("canceled"))
+            # The seeded agent's packages in the workspace (shell.py's link to its mounted installation, and what it installed as it ran) are
+            # its environment, no part of what it left: they are not frozen or held to the workspace's bounds.
+            if seeded:
+                for area in AGENT_AREAS:
+                    await in_thread(remove_tree, handle.workspace / SESSION_STATE / area)
             try:
                 snapshot = await in_thread(handle.stop_and_drain)
             except SandboxError as error:
@@ -1138,33 +1286,36 @@ class AttemptRunner:
                 snapshot = None  # the harness left more than the workspace bound: a failed case, not a platform fault
                 LOG.info("attempt %s: %s", job.attempt_id, error.message)
             if snapshot is not None:
+                snapshot = await in_thread(without_session_state, snapshot)
                 await self._record_snapshot(journal, emit, snapshot)
             if counters := handle.cpu_counters():  # empty when a container's cgroup was unreadable: CPU stays Unknown
                 await emit.emit(rec.CpuCounters(counters))
+            # The session's capture, as a Terminal session's: its processes, the conversations its agents held, its workspace in RUSH.
+            evidence = await in_thread(handle.evidence)
+            await self._record_processes(emit, evidence, lambda wall: wall - offset, commands.outcomes)
+            recorded.append(True)
+            held = chats.report(chats.talked(restored, await in_thread(chats.read, handle.workspace)), offset)
+            uploaded = await self._upload_workspace(job, handle, work / "workspace.tar.zst")
             if job.free_form:  # no case: the member ended the session (by its last exit, Stop or leaving its page), and nothing scores it
-                await self._record_processes(emit, await in_thread(handle.evidence), lambda wall: wall - offset, commands.outcomes)
-                recorded.append(True)
-                held = chats.report(chats.talked(restored, await in_thread(chats.read, handle.workspace)), offset)
                 kept = await self._keep_session(job, handle)
-                uploaded = await self._upload_workspace(job, handle, work / "workspace.tar.zst")
                 if lease.reason == "canceled":
                     return await self._finalize(job, journal, "canceled", None, result=AttemptResult("canceled"), kept=kept, held=held, uploaded=uploaded)
                 timed_out = outcome.termination.kind is TerminationKind.TIMED_OUT  # it ran to the session's wall time
                 return await self._finalize(job, journal, "ended", "timed_out" if timed_out else None, kept=kept, held=held, uploaded=uploaded)
             if snapshot is None:
-                status, case_outcome = "execution_failed", {"status": "execution_failed", "reason": "invalid_result"}
+                case_outcome = {"status": "execution_failed", "reason": "invalid_result"}
                 frozen = work / "overflow"  # the verifier gets an empty workspace: nothing was frozen
                 frozen.mkdir()
             else:
-                status, case_outcome = await self._read_outcome(handle, outcome.termination, job, snapshot.directory, snapshot.skipped)
+                case_outcome = await self._read_outcome(outcome.termination, job, snapshot.directory, snapshot.skipped)
                 frozen = snapshot.directory
-            evidence = await in_thread(handle.evidence)
-            await self._record_processes(emit, evidence, lambda wall: wall - offset, commands.outcomes)
-            recorded.append(True)
+            status = case_outcome["status"]
             await emit.emit(rec.ResultRead(case_outcome))
             verdict = await self._verify(manifest, job, case_outcome, frozen, evidence)
+            if verdict is not None:
+                await emit.emit(rec.Verdict(verdict.get("verdict"), verdict.get("explanation"), verdict.get("checks"), verdict.get("verifier_error")))
             reason = case_outcome.get("reason") if status == "execution_failed" else None
-            return await self._finalize(job, journal, status, reason, verdict=verdict)
+            return await self._finalize(job, journal, status, reason, verdict=verdict, held=held, uploaded=uploaded)
         except (LeaseLost, Canceled, Sealed):
             raise
         except Exception:
@@ -1241,21 +1392,22 @@ class AttemptRunner:
         except Exception:
             LOG.exception("the process evidence of the faulted case could not be recorded")
 
-    def _request(self, job: AttemptJob, tools: Sequence[Mapping[str, Any]], base: str) -> dict[str, Any]:
-        run, task, case, prompt = job.run, job.task, job.case, job.prompt
+    def _request(self, job: AttemptJob, dialects: Sequence[str], base: str) -> dict[str, Any]:
+        """The harness's request: a case's prompt and name, nothing of its arguments, schemas, reference or verifier."""
+        run, task, case = job.run, job.task, job.case
         request = {
             "protocol": "rush.harness.v1",
             "attempt_id": job.attempt_id,
-            "policy": run["policy"],
-            "task": None if task is None else {key: task[key] for key in ("id", "kind", "description", "instructions", "plugin_name")},
+            "task": None if task is None else {key: task[key] for key in ("id", "kind", "description", "plugin_name")},
             "free_form": job.free_form,
-            "case": None if case is None else {key: case[key] for key in ("case_id", "arguments", "context", "input_schema", "output_schema")},
-            "prompt": None if prompt is None else {key: prompt[key] for key in ("system", "user", "sha256")},
+            "case": None if case is None else {"case_id": case["case_id"]},
+            "prompt": None if case is None else {"system": answer_instructions(task), "user": case["prompt"], "sha256": case["prompt_sha256"]},
+            "harness": None if job.free_form else run["harness"],
             "workspace": WORKSPACE,
-            "openrouter": {"base_url": f"{base}/api/v1", "model": run["model"], "dialects": list(run["dialects"])},
+            "openrouter": {"base_url": f"{base}/api/v1", "model": run["model"], "dialects": list(dialects)},
             "tools": {
                 "url": f"{base}/tools",
-                "available": [{key: tool[key] for key in ("name", "description", "input_schema", "output_schema")} for tool in tools],
+                "available": [],  # the plugin's tools are the session's `nanoagent`'s alone, started when it asks (`/tools/start`)
             },
             "exec_url": f"{base}/exec",
             "events_url": f"{base}/events",
@@ -1265,17 +1417,21 @@ class AttemptRunner:
         validate("Request", request)
         return request
 
-    async def _late_tools(self, late: LateTools, job: AttemptJob, work: Path, handle: CaseHandle, services: AttemptServices) -> None:
+    async def _late_tools(self, late: LateTools, job: AttemptJob, work: Path, handle: CaseHandle, services: AttemptServices, prepared: PluginManifest | None, emit: Emitter) -> None:
         """Once the session's `nanoagent` asks (`late.asked`): the first task of the session's plugin, as RUSH opens it on the member's
         computer, its plugin prepared (`_plugin`), its tool VM booted beside the case and its tools' session open until the session ends,
         served by the broker to the token handed to that `nanoagent` alone. Why they could not come up answers each ask instead."""
         await late.asked.wait()
         try:
-            opened = await self.worker.tools(job.attempt_id, job.fence)
-            task = opened["task"]
-            manifest = await in_thread(self._plugin, opened["plugin"], base64.b64decode(opened["package"]), work, True)
+            if prepared is None:  # a free-form session's: the first task of the plugin whose page opened it
+                opened = await self.worker.tools(job.attempt_id, job.fence)
+                task = opened["task"]
+                manifest = await in_thread(self._plugin, opened["plugin"], base64.b64decode(opened["package"]), work, True)
+            else:  # a case's: its own task, the plugin it fetched to verify
+                task, manifest = job.task, prepared
             name = f"rush-tool-{job.attempt_id}-{secrets.token_hex(4)}"
             await in_thread(self.supervisor.attach_tool, handle, ToolContainerSpec(name, manifest.root, None, tuple(task["egress_hosts"])))
+            await emit.emit(rec.ToolsStarted(list(task["egress_hosts"])))  # attempt.started is long past: the hosts and the broker are recorded now
             names = tuple(tool["name"] for tool in task["tools"])
             runner = self.plugins.tool_runner(manifest, Path(WORKSPACE), names, self.supervisor.tool_launcher(name))
             async with runner:
@@ -1284,7 +1440,7 @@ class AttemptRunner:
                 services.broker.serve(policies, runner, token)
                 late.started = {
                     "token": token,
-                    "system": tools_prompt(task["plugin_name"], task["description"], task["instructions"]),
+                    "system": tools_prompt(task["plugin_name"], task["description"], manifest.task(task["id"]).instructions),
                     "tools": [{key: tool[key] for key in ("name", "description", "input_schema", "output_schema")} for tool in task["tools"]],
                 }
                 late.up.set()
@@ -1293,6 +1449,8 @@ class AttemptRunner:
         except Exception as error:
             LOG.warning("attempt %s: the plugin's tools could not start: %s", job.attempt_id, error)
             late.error = error.message if isinstance(error, RushError) else f"{type(error).__name__}: {error}"
+            if prepared is not None:
+                raise  # a case's tools are the platform's, not the harness's: the attempt ends as a platform fault (`run`), unscored; a session's member sees why from each ask
         finally:
             late.up.set()
 
@@ -1361,12 +1519,12 @@ class AttemptRunner:
             shown.append(entry)
         await emit.emit(rec.SnapshotTaken(shown, payload, diff_truncated=len(shown) < len(diff)), payloads=[payload])
 
-    async def _read_outcome(self, handle: CaseHandle, termination: Termination, job: AttemptJob, workspace: Path, skipped: Mapping[str, str]) -> tuple[str, dict[str, Any]]:
-        """The attempt's outcome. A harness that did not exit cleanly is an execution failure; otherwise the task tools policy
-        reads `RUSH_RESULT` and the coding policy reads `answer.json` from the frozen workspace (`RUSH_RESULT` is ignored)."""
+    async def _read_outcome(self, termination: Termination, job: AttemptJob, workspace: Path, skipped: Mapping[str, str]) -> dict[str, Any]:
+        """The attempt's outcome. A harness that did not exit cleanly is an execution failure and its workspace is not read; otherwise the
+        outcome seam (nanoagent.uploaded.outcome) reads the frozen workspace."""
 
-        def failed(reason: str) -> tuple[str, dict[str, Any]]:
-            return "execution_failed", {"status": "execution_failed", "reason": reason}
+        def failed(reason: str) -> dict[str, Any]:
+            return {"status": "execution_failed", "reason": reason}
 
         match termination.kind:
             case TerminationKind.TIMED_OUT:
@@ -1377,29 +1535,10 @@ class AttemptRunner:
                 return failed("nonzero_exit")
             case TerminationKind.EXITED if termination.exit_code:
                 return failed("nonzero_exit")
-        if job.run["policy"] == "coding":
-            if "answer.json" in skipped:  # the snapshot never materializes links, which read_answer refuses as not a regular file
-                LOG.info("attempt %s: answer.json is not a regular file (%s)", job.attempt_id, skipped["answer.json"])
-                return failed("invalid_result")
-            answer, refusal, failure = await in_thread(read_answer, workspace)
-            if failure is not None:
-                LOG.info("attempt %s: %s", job.attempt_id, failure)
-                return failed("missing_result" if failure == MISSING_ANSWER else "invalid_result")
-            if refusal is not None:
-                return "refused", {"status": "refused", "reason": refusal}
-            return "answered", {"status": "answered", "answer": answer}
-        try:
-            raw = await in_thread(handle.read_result)
-            parsed = validate_result(raw, dict(job.case["output_schema"]))
-        except ContractError as error:
-            if error.code not in ("missing_result", "invalid_result", "snapshot_too_large"):
-                raise
-            return failed("invalid_result" if error.code == "snapshot_too_large" else error.code)
-        match parsed:
-            case Answered(answer):
-                return "answered", {"status": "answered", "answer": answer}
-            case Refused(reason):
-                return "refused", {"status": "refused", "reason": reason}
+        result = await in_thread(read_outcome, workspace, {"skipped": skipped})
+        if result["status"] == "execution_failed":
+            LOG.info("attempt %s: its workspace holds no usable result: %s", job.attempt_id, result["reason"])
+        return result
 
     async def _record_processes(self, emit: Emitter, evidence: ProcessEvidence, to_monotonic_ns: Callable[[int], int], commands: Sequence[ExecOutcome]) -> None:
         await emit.emit(rec.CollectorHealth(evidence.complete, list(evidence.loss_reasons), evidence.frames, evidence.dropped))
@@ -1409,22 +1548,38 @@ class AttemptRunner:
     async def _verify(
         self, manifest: PluginManifest, job: AttemptJob, outcome: dict[str, Any], workspace: Path, evidence: ProcessEvidence
     ) -> dict[str, Any] | None:
-        """The plugin verifier's verdict on the frozen outcome, or None when the score stays unavailable."""
-        losses = set(evidence.loss_reasons)
-        if "journal_overflow" in losses:
-            losses -= {"journal_overflow", "root_exit_missing"}  # overflow can drop the root exit too; neither may unscore the harness's crash
-        if outcome["status"] == "execution_failed" and outcome["reason"] in ("nonzero_exit", "signaled") and not evidence.complete and losses:
-            return None  # the exit could not be observed reliably for a reason independent of the harness's journal overflow
+        """The plugin verifier's verdict on the frozen outcome, or None when the score stays unavailable. The verifier is called once, and
+        never for an execution failure, which is a failed case without it. An answered answer case is judged by `verify_task` itself, whose
+        named checks (names and statuses, never messages or values) go with the verdict; a refusal, an answered refusal case and an
+        answer of the wrong shape are decided by `verify_task_verifier_case`, which runs no plugin code for them."""
+        if outcome["status"] == "execution_failed":
+            losses = set(evidence.loss_reasons)
+            if "journal_overflow" in losses:
+                losses -= {"journal_overflow", "root_exit_missing"}  # overflow can drop the root exit too; neither may unscore the harness's crash
+            if outcome["reason"] in ("nonzero_exit", "signaled") and not evidence.complete and losses:
+                return None  # the exit could not be observed reliably for a reason independent of the harness's journal overflow
+            return {"verdict": "fail", "explanation": "execution_failed", "checks": None}
+        reference = job.private_reference
+        arguments = dict(job.case["arguments"])
         try:
-            verdict = await in_thread(
-                self.verify_task_case, manifest, job.task["id"], dict(job.case["arguments"]), outcome, job.private_reference, workspace
-            )
-        except (VerifierError, ValueError) as error:
+            if outcome["status"] == "answered" and not isinstance(reference, str) and await in_thread(self._fits, manifest, job, outcome["answer"]):
+                verification = await in_thread(self.verify_task, manifest, job.task["id"], arguments, outcome["answer"], reference, workspace)
+                return {"verdict": "pass" if verification.valid else "fail", "explanation": None, "checks": checks_of(verification.details)}
+            verdict = await in_thread(self.verify_task_case, manifest, job.task["id"], arguments, outcome, reference, workspace)
+        except (VerifierError, RuntimeError, ValueError, TypeError, subprocess.TimeoutExpired) as error:
             LOG.warning("verifier of %s: %s", job.attempt_id, error)
             # Private: the verifier's diagnostics stay in the worker log; the attempt only learns that it errored.
-            # The server takes a verifier error only on an answered or refused attempt; elsewhere the case stays unscored.
-            return {"verifier_error": "verifier_error"} if outcome["status"] in ("answered", "refused") else None
-        return {"verdict": verdict.verdict, "explanation": verdict.explanation}
+            return {"verifier_error": "verifier_error"}
+        return {"verdict": verdict.verdict, "explanation": verdict.explanation, "checks": None}
+
+    @staticmethod
+    def _fits(manifest: PluginManifest, job: AttemptJob, answer: Mapping[str, Any]) -> bool:
+        """Whether ``answer`` builds into the task's output class (a wrong shape is `invalid_answer`, decided without the plugin)."""
+        try:
+            build_output(answer, manifest.task(job.task["id"]).output_type)
+        except (TypeError, ValueError):
+            return False
+        return True
 
     async def _trace(self, job: AttemptJob, journal: RushJournal, status: str) -> tuple[dict[str, Any], dict[str, Any]]:
         """Projects the journal, uploads its spans and returns the coverage and metrics to finalize with. A projection or span upload
@@ -1446,7 +1601,7 @@ class AttemptRunner:
         if journal.over_budget:  # evidence past the event budget was never journaled: the trace is partial, and says why
             coverage |= {"status": "partial", "reasons": [*coverage["reasons"], f"event_budget_exceeded: {journal.over_budget} events dropped"],
                          "loss_reasons": [*coverage["loss_reasons"], "event_budget"]}  # fmt: skip
-        return coverage, projection.metrics.to_dict("the source did not build, so no case ran" if status == "build_failed" else None)
+        return coverage, projection.metrics.to_dict()
 
     async def _finalize(
         self, job: AttemptJob, journal: RushJournal, status: str, reason: str | None, *, verdict: Mapping[str, Any] | None = None,
@@ -1468,8 +1623,12 @@ class AttemptRunner:
         }
         if verdict is not None:
             body |= {key: verdict.get(key) for key in ("verdict", "explanation", "verifier_error")}
+            if verdict.get("checks") is not None:  # left out with none: the server reads a null as a malformed list (validate.js finalizeBody)
+                body["checks"] = verdict["checks"]
         if kept is not None:
-            body |= {"resumable": kept[0], "evicted": kept[1], "chats": held, "workspace": uploaded}
+            body |= {"resumable": kept[0], "evicted": kept[1]}
+        if held is not None:
+            body |= {"chats": held, "workspace": uploaded}
         await self.worker.finalize(job.attempt_id, body)
         journal.close()
         return result or AttemptResult("finalized", {"status": status, "reason": reason})

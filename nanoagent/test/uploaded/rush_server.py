@@ -145,7 +145,7 @@ class RushServer:
         """Tell the server a worker serves endpoint profile ``label`` with the capabilities of its defaults and prices for ``models``, as a claim does (nothing is queued, so it answers 204).
         It is the capability of the member ``credential`` was minted for (alice, the workspace's creator, unless given): a member's runs are previewed only against their own worker's."""
         capabilities = {
-            "wall_time_ms": 600_000, "max_model_calls": 50, "max_output_tokens_per_call": 4096, "max_cost_usd": 1.5, "concurrency": 4, "cpus": 1,
+            "wall_time_ms": 600_000, "max_model_calls": 50, "max_output_tokens_per_call": 32768, "max_cost_usd": 1.5, "concurrency": 4, "cpus": 1,
             "memory_mb": 1024, "pids": 256, "workspace_bytes": 268_435_456, "workspace_files": 20_000, "tmp_bytes": 67_108_864, "build_wall_ms": 600_000,
             "build_memory_mb": 3072, "build_output_bytes": 1 << 30, "build_files": 100_000, "build_tmp_bytes": 512 << 20, "internet_access": internet_access, "models": list(models),
         }  # fmt: skip
@@ -188,8 +188,10 @@ def sign_in(origin: str, login: str) -> str:
 
 
 @contextmanager
-def rush_server(extra_users: tuple[str, ...] = ()) -> Iterator[RushServer]:
-    """``extra_users`` are more members the fake GitHub knows: they sign in as ``<name>-<database suffix>``."""
+def rush_server(extra_users: tuple[str, ...] = (), *, endpoint: str = "mock", model: str = "test/model") -> Iterator[RushServer]:
+    """``extra_users`` are more members the fake GitHub knows: they sign in as ``<name>-<database suffix>``. ``endpoint`` and ``model``
+    are what every benchmark is pinned to (RUSH_BENCHMARK_ENDPOINT, RUSH_BENCHMARK_MODEL): `openrouter` is the endpoint label of the
+    worker RUSH Lab runs, which a Terminal session runs on too."""
     reason = unavailable()
     if reason:
         raise RuntimeError(reason)
@@ -214,6 +216,9 @@ def rush_server(extra_users: tuple[str, ...] = ()) -> Iterator[RushServer]:
             "DATABASE_URL": f"postgres://{RUNTIME}@127.0.0.1:{PORT}/{database}",
             "DATABASE_MIGRATION_URL": f"postgres://{OWNER}@127.0.0.1:{PORT}/{database}",
             "NODE_ENV": "test",
+            # The one endpoint and model every benchmark is pinned to, as the acceptance worker serves them.
+            "RUSH_BENCHMARK_ENDPOINT": endpoint,
+            "RUSH_BENCHMARK_MODEL": model,
             "OPENROUTER_MANAGEMENT_KEY": "acceptance-unused",
             "NODE_OPTIONS": f"--import={FAKE_GITHUB}",
             "FAKE_GITHUB_USERS": json.dumps(users),
@@ -254,8 +259,8 @@ def rush_server(extra_users: tuple[str, ...] = ()) -> Iterator[RushServer]:
             created.raise_for_status()
         rush = RushServer(origin, created.json()["workspace"]["id"], token, user_id, database, logs, worker_credential(origin, token))
         # A worker serving the acceptance endpoint label has advertised before any member previews; real workers refresh it at each claim.
-        for label in ("mock", "mock-a", "mock-b"):
-            rush.advertise(label, internet_access=False)
+        for label in dict.fromkeys(("mock", "mock-a", "mock-b", endpoint)):
+            rush.advertise(label, internet_access=False, models=(model,))
         yield rush
     finally:
         if server is not None and server.poll() is None:

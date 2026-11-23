@@ -1,0 +1,9 @@
+[
+  {"name": "claude", "headless": ["claude", "--permission-mode", "bypassPermissions", "-p"]},
+  {"name": "codex", "headless": ["codex", "exec"]},
+  {"name": "pi", "headless": ["pi", "-p"]},
+  {"name": "dsh", "headless": ["dsh"]},
+  {"name": "hermes", "headless": ["hermes", "-z"]},
+  {"name": "nanoagent", "headless": ["mgen", "-p"]},
+  {"name": "mgen", "headless": ["mgen", "-p"]}
+]

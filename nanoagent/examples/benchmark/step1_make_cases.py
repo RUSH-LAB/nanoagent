@@ -4,11 +4,11 @@ first agent task without a reference, else its first tool task. For every plugin
 yet, a model proposes one input to answer and the `context` a coding agent without the plugin's tools
 needs; code decides whether it is kept. Plugins with no such task are listed, not worked.
 
-The plugin is unpacked from its package in the local RUSH database and readied as the benchmark's
-step 2 does (its `unpack`, `prepared_plugin`). The model sees the task's manifest entry, schemas,
+The plugin is unpacked from its package in the local RUSH database and readied as publishing does
+(`nanoagent.uploaded.preparation`: `unpack`, `prepared_plugin`). The model sees the task's manifest entry, schemas,
 instructions, README and the plugin's source. Its proposal is kept only when the input builds as the
 task's input type and, for a task a tool pins (`reference_tool`), that tool answers it, pinned exactly
-as the benchmark's step 2 pins it (its `pin`). For an agent task no tool pins, the model also proposes
+as publishing pins it (`nanoagent.uploaded.case_sets.pin`). For an agent task no tool pins, the model also proposes
 an answer, and the case is kept only when the plugin's verifier accepts that answer and rejects a copy
 of it code made wrong. Otherwise the error goes back to the model, up to `attempts` proposals; a task
 with none kept, or a plugin that cannot be readied, is marked as having a bug in the bugs file
@@ -31,6 +31,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import threading
 from collections.abc import Iterator
@@ -39,16 +40,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import yaml
 from omegaconf import MISSING
 from openai import OpenAI
 from slimconfig import Config, Layout, Output, Run, build_output, load_output, output_schema, write_output
 
 from nanoagent.plugin.install import SYNC_TIMEOUT
-from step2_single_run import Cases, isolate, logged, pin, prepared_plugin, reference_tool, unpack
-
 from nanoagent.plugin import load_manifest
 from nanoagent.plugin.python import PluginPython
 from nanoagent.plugin.verifier import verify_task
+from nanoagent.uploaded.case_sets import CaseSet, PreparationError, derive_case_set, parse_case_file, pin
+from nanoagent.uploaded.preparation import isolate, logged, prepared_plugin, reference_tool, unpack
+
+@dataclass
+class Cases(CaseSet):
+    """One task of one plugin, and its inputs: to answer, and to refuse (nanoagent.uploaded.case_sets.CaseSet)."""
+
 
 # Every plugin's latest version, one tab-separated line: the plugin, its version, the task it is benchmarked by
 # (empty when it has none: the first agent task whose reference is set, else its first decide task,
@@ -150,6 +157,55 @@ class CheckedCases(Output):
     with the plugin version it was checked at."""
 
     plugins: dict[str, str]
+
+
+@dataclass
+class ConvertCasesConfig(Config):
+    # The local RUSH database (read only), and the psql that reads its marketplace: each plugin's installed package.
+    database: str = MISSING
+    psql: str = MISSING
+    # The folder of old-shape cases files, one per plugin, which stay untouched.
+    originals: str = MISSING
+    # The plugins to convert (Selection), and the folder the converted files, their fixtures and the report are written to.
+    selection: str = MISSING
+    output: str = MISSING
+    # The plugins marked as having a bug (PluginBugs): none of the selection may be in it.
+    bugs: str = MISSING
+    # Plugins whose context writes each file it names out as `<name>.json: <compact JSON>`: those files become the fixtures of
+    # the cases that name them, and the new prompt says so with `fixtures_note` instead.
+    fixtures_from_context: list[str] = MISSING
+    fixtures_note: str = MISSING
+    # Seconds the reference tool may take, and plugins prepared at once.
+    timeout: float = MISSING
+    workers: int = MISSING
+
+
+@dataclass
+class Selection(Output):
+    """The plugins the final acceptance uses, in its three groups."""
+
+    # Arguments naming files.
+    fixtures: list[str]
+    # One plugin per family.
+    one_per_family: list[str]
+    # Plugins chosen for outcomes that are files or repaired records.
+    single_plugins: list[str]
+
+
+@dataclass
+class ConversionReport(Output):
+    """Each selected plugin's converted file, prepared as publishing prepares it (nothing is published): `ok` with its case count,
+    or `failed` with its reason category (plugin bug, case bug, or the rule it breaks) and the exact message."""
+
+    selected: int
+    ok: int
+    failed: int
+    plugins: list[dict[str, Any]]
+
+
+@dataclass
+class ConvertLayout(Layout):
+    report: ConversionReport
 
 
 @dataclass
@@ -530,5 +586,139 @@ class CaseMaker(Run):
         return 0
 
 
+FILE_BLOCK = re.compile(r"\n\n([\w.-]+\.json): (\{.*\})(?=\n|$)")
+
+
+def statement(arguments: dict[str, Any]) -> str:
+    """The case's input as text, one `name: value` line per argument: a string as written, anything else as compact JSON."""
+    return "\n".join(
+        f"{name}: {value if isinstance(value, str) else json.dumps(value, separators=(',', ':'), ensure_ascii=False)}"
+        for name, value in arguments.items()
+    )
+
+
+def category(error: Exception) -> str:
+    """Why a conversion failed: the rule it breaks, a case bug, or a plugin bug. A reference tool that rejects an input to answer
+    is a case bug when the plugin's input verification refused it (`call_tool_async` raises ValueError for that) and a plugin bug
+    when the tool failed (it raises RuntimeError), which `pin` chains as the cause of what the error says."""
+    message = str(error)
+    if "the prompt does not state argument" in message:
+        return "rule: the prompt states every argument"
+    if "could not be readied" in message:
+        return "plugin bug"
+    root = error
+    while root.__cause__ is not None:
+        root = root.__cause__
+    if "could not answer" in message and not isinstance(root, ValueError):
+        return "plugin bug"
+    return "case bug"
+
+
+def converted(config: ConvertCasesConfig, old: dict[str, Any], folder: Path) -> dict[str, Any]:
+    """The new-shape file of the old-shape ``old``, its fixture files written under ``folder``/fixtures/<plugin>/<case>/."""
+    plugin, context = old["plugin"], old["context"]
+    files = dict(FILE_BLOCK.findall(context)) if plugin in config.fixtures_from_context else {}
+    if files:
+        context = f"{FILE_BLOCK.sub('', context)}\n\n{config.fixtures_note}"
+    entries = [(arguments, None) for arguments in old["answer"]] + [(refusal["arguments"], refusal["reference_error"]) for refusal in old["refuse"]]
+    cases: list[dict[str, Any]] = []
+    for number, (arguments, error) in enumerate(entries, 1):
+        case: dict[str, Any] = {"prompt": f"{context}\n\n{statement(arguments)}", "arguments": arguments}
+        named = {name: files[name] for name in (value for value in arguments.values() if isinstance(value, str)) if name in files}
+        if named:
+            fixtures = Path("fixtures", plugin, f"{plugin}-{number:02d}")
+            for name, text in named.items():
+                (folder / fixtures / name).parent.mkdir(parents=True, exist_ok=True)
+                (folder / fixtures / name).write_text(text, encoding="utf-8")
+            case["fixtures"] = fixtures.as_posix()
+        if error is not None:
+            case["reference_error"] = error
+        cases.append(case)
+    answers = len(old["answer"])
+    return {"plugin": plugin, "task": old["task"], "cases": cases[:answers], "refuse": cases[answers:]}
+
+
+class Prompt(str):
+    """A prompt, written to the case file as a literal block."""
+
+
+class CaseDumper(yaml.SafeDumper):
+    """Block-style YAML with every prompt a literal block, so it reads as written."""
+
+
+CaseDumper.add_representer(Prompt, lambda dumper, text: dumper.represent_scalar("tag:yaml.org,2002:str", str(text), style="|"))
+
+
+def case_yaml(document: dict[str, Any]) -> str:
+    """The YAML text of the converted case file ``document``, checked to hold exactly its prompts and arguments when read back."""
+    literal = {**document, **{key: [{**case, "prompt": Prompt(case["prompt"])} for case in document[key]] for key in ("cases", "refuse")}}
+    text = yaml.dump(literal, Dumper=CaseDumper, default_flow_style=False, sort_keys=False, allow_unicode=True, width=120)
+    if yaml.safe_load(text) != document:
+        raise RuntimeError(f"the YAML of {document['plugin']}'s cases does not read back as the converted cases")
+    return text
+
+
+def prepared_case_set(config: ConvertCasesConfig, python: PluginPython, plugin: str, folder: Path) -> dict[str, Any]:
+    """The report's entry of ``plugin``: its converted file prepared as publishing prepares it, with a scratch name and no server."""
+    path = folder / f"{plugin}.yaml"
+    cases = parse_case_file(path.read_text(encoding="utf-8"))
+    entry: dict[str, Any] = {"plugin": plugin, "task": cases.task, "file": str(path)}
+    try:
+        with tempfile.TemporaryDirectory(prefix="benchmark-convert-") as unpacked:
+            try:
+                entry["version"] = unpack(config.database, config.psql, plugin, Path(unpacked))
+            except RuntimeError as error:
+                raise PreparationError(f"the plugin could not be readied: {error}") from error
+            try:
+                with prepared_plugin(Path(unpacked, plugin), python, SYNC_TIMEOUT) as plugin_folder:
+                    body = derive_case_set(f"convert-{plugin}", cases, load_manifest(plugin_folder), "", config.timeout, folder)
+            except (subprocess.SubprocessError, OSError) as error:
+                raise PreparationError(f"the plugin could not be readied: {error}") from error
+    except PreparationError as error:
+        return {**entry, "status": "failed", "category": category(error), "message": str(error)}
+    return {**entry, "status": "ok", "cases": len(body["cases"])}
+
+
+class CaseConverter(Run):
+    """Convert the selected plugins' old-shape cases files into the new shape and prepare each as publishing does."""
+
+    config: ConvertCasesConfig
+    layout: ConvertLayout
+
+    def main(self) -> int:
+        with logged():
+            return self.work()
+
+    def work(self) -> int:
+        config = self.config
+        selection = load_output(config.selection, Selection)
+        plugins = [*selection.fixtures, *selection.one_per_family, *selection.single_plugins]
+        if len(set(plugins)) != len(plugins):
+            raise RuntimeError(f"{config.selection} names a plugin twice")
+        buggy = sorted(set(plugins) & {bug["plugin"] for bug in load_output(config.bugs, PluginBugs).plugins})
+        if buggy:
+            raise RuntimeError(f"{buggy} are marked as having a bug in {config.bugs}")
+        folder = Path(config.output)
+        for plugin in plugins:
+            old = json.loads(Path(config.originals, f"{plugin}.json").read_text(encoding="utf-8"))
+            (folder / f"{plugin}.yaml").write_text(case_yaml(converted(config, old, folder)), encoding="utf-8")
+            (folder / f"{plugin}.json").unlink(missing_ok=True)  # the JSON case file an earlier conversion wrote
+        python = isolate()
+        with ThreadPoolExecutor(max_workers=config.workers) as pool:
+            entries = list(pool.map(lambda plugin: prepared_case_set(config, python, plugin, folder), plugins))
+        ok = sum(1 for entry in entries if entry["status"] == "ok")
+        report = ConversionReport(selected=len(plugins), ok=ok, failed=len(plugins) - ok, plugins=entries)
+        write_output(str(folder / "report.json"), report)
+        self.layout.report = report
+        for entry in entries:
+            print(entry["plugin"], entry["status"], entry.get("cases") or entry["message"][:300], flush=True)
+        print(f"{len(plugins)} converted · {ok} ok · {len(plugins) - ok} failed")
+        return 0
+
+
 if __name__ == "__main__":
+    # `convert` first runs the conversion (CaseConverter) instead of making cases.
+    if sys.argv[1:2] == ["convert"]:
+        del sys.argv[1]
+        CaseConverter().run()
     CaseMaker().run()

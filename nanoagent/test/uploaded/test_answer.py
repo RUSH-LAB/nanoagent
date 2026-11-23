@@ -1,4 +1,4 @@
-"""`read_answer`: the coding policy's answer.json, read with the plugin benchmark's rules."""
+"""`read_answer`: the answer.json a case leaves in its workspace, read with the plugin benchmark's rules."""
 
 from __future__ import annotations
 

@@ -50,21 +50,42 @@ def test_require_parameters_from_the_caller_is_rejected_on_a_request_without_res
     assert violation({**chat_request(), "provider": {"require_parameters": True}}) == "provider_routing_forbidden"
 
 
-def test_the_system_part_of_the_pinned_prompt_must_be_present_until_a_generation_completes() -> None:
-    assert violation(chat_request(), prompt_system=SYSTEM) == "first_prompt_missing"
-    body = {**chat_request(), "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": PROMPT}]}
-    assert apply(body, prompt_system=SYSTEM)["model"] == MODEL
+def test_the_gateways_system_text_is_added_after_the_agents_own_and_is_not_required_of_the_agent() -> None:
+    assert apply(chat_request(), prompt_system=SYSTEM)["messages"] == [{"role": "system", "content": SYSTEM}, {"role": "user", "content": PROMPT}]
+    body = {**chat_request(), "messages": [{"role": "system", "content": "Be brief."}, {"role": "user", "content": PROMPT}]}
+    assert apply(body, prompt_system=SYSTEM)["messages"][0] == {"role": "system", "content": f"Be brief.\n\n{SYSTEM}"}
 
 
-def test_a_prompt_with_only_a_system_part_ignores_the_users_message() -> None:
-    body = {**chat_request("anything"), "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": "anything"}]}
-    assert apply(body, prompt_user=None, prompt_system=SYSTEM)["model"] == MODEL
-    assert violation(chat_request("anything"), prompt_user=None, prompt_system=SYSTEM) == "first_prompt_missing"
+def test_no_system_text_is_added_without_one_in_the_policy() -> None:
+    assert apply(chat_request())["messages"] == chat_request()["messages"]
 
 
-def test_an_attempt_policy_needs_a_prompt_part() -> None:
-    with pytest.raises(ValueError, match="prompt"):
-        make_policy(prompt_user=None, prompt_system=None)
+def test_the_system_text_does_not_replace_the_pinned_user_message() -> None:
+    assert violation(chat_request(f"{PROMPT}more"), prompt_system=SYSTEM) == "first_prompt_rewritten"
+    assert apply(chat_request(), prompt_system=SYSTEM)["messages"][-1] == {"role": "user", "content": PROMPT}
+
+
+def test_a_request_without_the_prompt_passes_the_policy_while_a_rewritten_one_does_not() -> None:
+    assert apply(chat_request("something else"))["messages"] == chat_request("something else")["messages"]  # a side request
+    assert apply({"model": MODEL, "messages": [{"role": "assistant", "content": "hi"}]})["messages"]  # no user message at all
+    assert violation(chat_request(PROMPT.strip())) == "first_prompt_rewritten"
+    assert violation({"model": MODEL, "messages": [{"role": "user", "content": [{"type": "text", "text": f"> {PROMPT}"}]}]}) == "first_prompt_rewritten"
+
+
+def test_a_rewritten_first_message_passes_once_the_prompt_is_delivered() -> None:
+    effective, _, _ = apply_policy("chat_completions", chat_request(PROMPT.strip()), make_policy(), first_prompt_required=False)
+    assert effective["messages"][0]["content"] == PROMPT.strip()
+
+
+def test_the_submitted_body_is_left_untouched() -> None:
+    body = chat_request()
+    apply(body, prompt_system=SYSTEM)
+    assert body == chat_request()
+
+
+def test_a_prompt_bound_attempt_policy_needs_a_user_prompt() -> None:
+    with pytest.raises(ValueError, match="user prompt"):
+        make_policy(prompt_user=None, prompt_system=SYSTEM)
 
 
 def test_inline_base64_media_is_allowed_and_url_media_is_refused() -> None:

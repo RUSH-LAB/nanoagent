@@ -62,13 +62,13 @@ def _keep_guest_mode(path, mode):
 def test_a_file_keeps_the_mode_its_sandbox_gave_it_not_the_host_files(tmp_path):
     source = tmp_path / "build-out"
     source.mkdir()
-    for name, mode in (("claude", 0o100755), ("main.mjs", 0o100644)):
+    for name, mode in (("claude", 0o100755), ("notes.txt", 0o100644)):
         (source / name).write_text(name)
         (source / name).chmod(0o600)
         _keep_guest_mode(source / name, mode)
     copy_tree(source, tmp_path / "out", max_files=10, max_bytes=1 << 20)
     assert (tmp_path / "out" / "claude").stat().st_mode & 0o777 == 0o755
-    assert (tmp_path / "out" / "main.mjs").stat().st_mode & 0o777 == 0o644
+    assert (tmp_path / "out" / "notes.txt").stat().st_mode & 0o777 == 0o644
 
 
 def test_a_sandboxs_tar_unpacks_as_its_tree_copies_and_a_path_leaving_it_is_refused(tmp_path):

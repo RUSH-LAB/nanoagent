@@ -35,7 +35,7 @@ BUILD_LIMITS = Limits(
 
 @pytest.mark.parametrize("harness", ["claude-code", "codex", "dsh", "pi"])
 def test_a_reference_harness_builds_within_the_default_build_limits(harness: str) -> None:
-    source = ROOT / "src" / "nanoagent" / "uploaded" / "reference_harnesses" / harness
+    source = ROOT / "src" / "nanoagent" / "uploaded" / "reference_harnesses" / "shell" / "locks" / harness
     declared = yaml.safe_load((source / "harness.yaml").read_text())
     manifest = HarnessManifest(
         declared["name"], declared["version"], tuple(declared["dialects"]), declared["toolchain"], tuple(declared["lockfiles"]), tuple(declared["build"]["argv"]), tuple(declared["build"]["outputs"]), tuple(declared["run"]["argv"])

@@ -18,9 +18,11 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 from .dialects import Dialect, Frames, all_dialects
-from .engine import Call, Ledger, Lookup, Plan, Run, Scenario
+from .engine import Call, Ledger, Lookup, ParsedRequest, Plan, Run, Scenario
+from .harness import RENDERERS, dialect_of, harness_of
 
 API = "api/v1"
+MAX_COMPLETION_TOKENS = 64_000
 
 
 @dataclass(frozen=True)
@@ -47,6 +49,38 @@ class Pool:
         if len(matching) != 1:
             return None, f"request matches pool members {matching}"
         return self.members[matching[0]], ""
+
+
+class Router(Pool):
+    """Every attempt of one worker behind ONE base URL, for a worker whose upstream is a single URL. A run is registered per
+    ``(key, harness)``: ``key`` is a fragment of the case's prompt that no other case's request holds, ``harness`` the agent's name. A
+    request goes to the run whose key its body holds and whose harness `harness_of` recognises in it; registering the pair again replaces
+    its run (a new attempt of the same case with the same agent, after the previous one finished). A request that is no run's is a
+    violation. A request with no tools (a side call: a title, a summary) has nothing to recognise the harness by, so it goes to the
+    first run of the key whose harness speaks its dialect, and is answered as a side call."""
+
+    def __init__(self, model: str, *models: str) -> None:
+        super().__init__({})
+        self.model = model
+        self.models = [model, *models]  # what its `GET /models` lists
+
+    def set(self, key: str, harness: str, scenario: Scenario, refs: dict[str, Any] | None = None) -> Run:
+        run = Run(scenario, RENDERERS.get(harness, harness), self.model, refs)
+        self.members[(key, harness)] = run  # type: ignore[index]
+        return run
+
+    def select_request(self, raw: bytes, request: ParsedRequest) -> tuple[Run | None, str]:
+        text = raw.decode("utf-8", errors="replace")
+        keyed = {harness: run for (key, harness), run in self.members.items() if key in text}  # type: ignore[misc]
+        if not keyed:
+            return None, "request holds no registered case key"
+        if not request.tools:
+            same = [harness for harness in keyed if dialect_of(harness) == request.dialect]
+            return (keyed[same[0]], "") if same else (None, f"a side call in {request.dialect} matches no registered harness {sorted(keyed)}")
+        harness = harness_of(request)
+        if harness not in keyed:
+            return None, f"request is {harness!r}'s, registered for this case: {sorted(keyed)}"
+        return keyed[harness], ""
 
 
 class MockProvider:
@@ -90,6 +124,14 @@ class MockProvider:
             self._runs[token] = Pool(runs)  # type: ignore[assignment]
         base = f"{self.root}/r/{token}/{API}"
         return base, {key: RunHandle(token, base, f"{self.root}/r/{token}/api", run.ledger, run.scenario) for key, run in runs.items()}
+
+    def register_router(self, model: str, *models: str) -> tuple[str, Router]:
+        """One base URL for every attempt of a worker (see `Router`): its base URL and the router to `set` runs on."""
+        token = secrets.token_hex(6)
+        router = Router(model, *models)
+        with self._lock:
+            self._runs[token] = router  # type: ignore[assignment]
+        return f"{self.root}/r/{token}/{API}", router
 
     def generation_route(self, path: str) -> tuple[Run | Pool | None, str]:
         """(run or pool, why not) for ``GET <root>/r/<token>/api/v1/generation``."""
@@ -144,12 +186,28 @@ def _handler(provider: MockProvider) -> type[BaseHTTPRequestHandler]:
 
         def do_GET(self) -> None:
             split = urlsplit(self.path)
+            if self._models(split.path):
+                return
             target, why = provider.generation_route(split.path)
             if target is None:
                 run, _, _ = provider._route(split.path)
                 self._violation(why if split.path.startswith("/r/") else f"unexpected {self.command} {self.path}", run)
                 return
             self._generation(target, split)
+
+        def _models(self, path: str) -> bool:
+            """OpenRouter's model list (`GET /models`), which a worker reads at start for each priced model's own maximum output: the
+            models of the run or router the URL names, each with ``MAX_COMPLETION_TOKENS``."""
+            parts = path.split("/", 3)
+            if len(parts) != 4 or parts[1] != "r" or parts[3] != f"{API}/models":
+                return False
+            with provider._lock:
+                target = provider._runs.get(parts[2])
+            if target is None:
+                return False
+            models = target.models if isinstance(target, Router) else [target.model]
+            self._send_json(200, {"data": [{"id": model, "top_provider": {"max_completion_tokens": MAX_COMPLETION_TOKENS}} for model in models]})
+            return True
 
         def do_PUT(self) -> None:
             run, _, _ = provider._route(self.path.split("?", 1)[0])
@@ -204,7 +262,16 @@ def _handler(provider: MockProvider) -> type[BaseHTTPRequestHandler]:
             length = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(length)
             run, dialect, why = provider._route(path)
-            if isinstance(run, Pool):
+            if isinstance(run, Router):
+                router, run = run, None
+                try:
+                    run, why = router.select_request(raw, dialect.parse(path, json.loads(raw), self.headers)) if dialect else (None, why)
+                except (ValueError, KeyError, TypeError) as error:
+                    run, why = None, f"unparseable request: {error!r}"
+                if run is None:
+                    self._violation(why, None)
+                    return
+            elif isinstance(run, Pool):
                 pool, run = run, None
                 run, why = pool.select(raw)
                 if run is None:

@@ -3,47 +3,34 @@
 from __future__ import annotations
 
 import json
-import os
-from pathlib import Path
 from typing import Any
 
 import pytest
-from jsonschema.exceptions import SchemaError
 
 from nanoagent.uploaded import contract
 from nanoagent.uploaded.contract import (
-    Answered,
     ContractError,
     HarnessManifest,
-    Refused,
-    ResultError,
     contains_first_prompt,
     decode_json_object,
     is_canonical_relative_path,
     parse_manifest,
-    read_result_file,
     validate,
     validate_argv,
-    validate_result,
 )
 
 MANIFEST = b"protocol: rush.harness.v1\nname: h\nversion: '1'\ndialects: [chat_completions]\ntoolchain: go-1\nlockfiles: [go.mod]\nbuild:\n  argv: [go, build]\n  outputs: [harness]\nrun:\n  argv: [/harness/harness]\n"
-OUTPUT_SCHEMA = {"type": "object", "required": ["sum"], "properties": {"sum": {"type": "integer"}}}
-
-
-def result(**fields: Any) -> bytes:
-    return json.dumps({"protocol": "rush.harness.v1", **fields}).encode()
 
 
 def request() -> dict[str, Any]:
     return {
         "protocol": "rush.harness.v1",
         "attempt_id": "3f2b8c1e-8f0a-4f5e-9d3a-1b2c3d4e5f60",
-        "policy": "coding",
-        "task": {"id": "t", "kind": "agent", "description": "d", "instructions": "i", "plugin_name": "P"},
+        "task": {"id": "t", "kind": "agent", "description": "d", "plugin_name": "P"},
         "free_form": False,
-        "case": {"case_id": "c1", "arguments": {}, "context": "", "input_schema": {}, "output_schema": {}},
+        "case": {"case_id": "c1"},
         "prompt": {"system": None, "user": "hello", "sha256": "b" * 64},
+        "harness": "claude",
         "workspace": "/rush/workspace",
         "openrouter": {"base_url": "https://gw.example/api/v1", "model": "a/b", "dialects": ["responses"]},
         "tools": {"url": "https://gw.example/tools", "available": []},
@@ -69,7 +56,7 @@ def test_uuid_and_uri_formats_are_enforced() -> None:
 
 
 def test_a_free_form_session_has_no_task_case_or_prompt_and_any_other_has_all_three() -> None:
-    free = {**request(), "free_form": True, "task": None, "case": None, "prompt": None}
+    free = {**request(), "free_form": True, "task": None, "case": None, "prompt": None, "harness": None}
     validate("Request", free)
     for broken in ({**request(), "free_form": True}, {**request(), "case": None}, {**request(), "task": None}, {**free, "task": request()["task"]}):
         with pytest.raises(ContractError):
@@ -151,80 +138,6 @@ def test_manifest_size_is_bounded() -> None:
     with pytest.raises(ContractError) as raised:
         parse_manifest(MANIFEST, max_bytes=10)
     assert raised.value.code == "invalid_manifest"
-
-
-def test_validate_result_returns_typed_outcomes() -> None:
-    assert validate_result(result(status="answered", answer={"sum": 42}), OUTPUT_SCHEMA) == Answered({"sum": 42})
-    assert validate_result(result(status="refused", reason="no data"), OUTPUT_SCHEMA) == Refused("no data")
-
-
-@pytest.mark.parametrize(
-    "raw",
-    [
-        result(status="answered", answer={"sum": "x"}),
-        result(status="answered", answer={}),
-        result(status="answered"),
-        result(status="answered", answer=[1]),
-        result(status="refused", reason="   "),
-        result(status="refused", reason=""),
-        result(status="refused"),
-        result(status="answered", answer={"sum": 1}, extra=1),
-        result(status="other"),
-        b'{"protocol":"rush.harness.v1","status":"answered","answer":{"sum":1},"answer":{"sum":2}}',
-        b'{"protocol":"rush.harness.v1","status":"answered","answer":{"sum":NaN}}',
-        b"not json",
-        b'{"status":"answered","answer":{"sum":1}}',
-    ],
-)
-def test_validate_result_rejects_with_invalid_result(raw: bytes) -> None:
-    with pytest.raises(ResultError) as raised:
-        validate_result(raw, OUTPUT_SCHEMA)
-    assert raised.value.code == "invalid_result"
-
-
-def test_validate_result_enforces_the_size_bound_and_reports_a_bad_output_schema() -> None:
-    with pytest.raises(ResultError) as raised:
-        validate_result(result(status="refused", reason="x"), OUTPUT_SCHEMA, max_bytes=5)
-    assert raised.value.code == "invalid_result"
-    with pytest.raises(SchemaError):
-        validate_result(result(status="answered", answer={}), {"type": 7})
-
-
-def test_read_result_file_reads_a_regular_file(tmp_path: Path) -> None:
-    (tmp_path / "out").mkdir()
-    (tmp_path / "out" / "result.json").write_bytes(b"{}")
-    assert read_result_file(tmp_path, "out/result.json", 10) == b"{}"
-
-
-def test_read_result_file_missing(tmp_path: Path) -> None:
-    for relative in ("result.json", "out/result.json"):
-        with pytest.raises(ResultError) as raised:
-            read_result_file(tmp_path, relative, 10)
-        assert raised.value.code == "missing_result"
-
-
-def test_read_result_file_rejects_links_directories_fifos_and_oversize(tmp_path: Path) -> None:
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (outside / "result.json").write_bytes(b"{}")
-    root = tmp_path / "root"
-    (root / "out").mkdir(parents=True)
-    (root / "out" / "link.json").symlink_to(outside / "result.json")
-    (root / "linkdir").symlink_to(outside)
-    (root / "out" / "dir.json").mkdir()
-    os.mkfifo(root / "out" / "fifo.json")
-    (root / "out" / "big.json").write_bytes(b"x" * 11)
-    for relative in ("out/link.json", "linkdir/result.json", "out/dir.json", "out/fifo.json", "out/big.json", "out/link.json/x"):
-        with pytest.raises(ResultError) as raised:
-            read_result_file(root, relative, 10)
-        assert raised.value.code == "invalid_result", relative
-
-
-@pytest.mark.parametrize("relative", ["../x", "/etc/passwd", "a//b", ""])
-def test_read_result_file_rejects_non_canonical_paths(tmp_path: Path, relative: str) -> None:
-    with pytest.raises(ContractError) as raised:
-        read_result_file(tmp_path, relative, 10)
-    assert raised.value.code == "invalid_path"
 
 
 PROMPT = "Task\nx\n"
@@ -328,8 +241,8 @@ def test_the_request_is_closed_and_complete(changes: dict[str, Any]) -> None:
     assert raised.value.code == "schema_violation"
 
 
-@pytest.mark.parametrize("changes", [{"policy": "task_tools"}, {"prompt__system": "s"}, {"prompt__user": None, "prompt__system": "s"}])
-def test_the_request_accepts_both_policies_and_either_prompt_part(changes: dict[str, Any]) -> None:
+@pytest.mark.parametrize("changes", [{"harness": "rush aider --yes"}, {"prompt__system": "s"}, {"prompt__user": None, "prompt__system": "s"}])
+def test_the_request_accepts_a_members_own_harness_and_either_prompt_part(changes: dict[str, Any]) -> None:
     validate("Request", broken(**changes))
 
 

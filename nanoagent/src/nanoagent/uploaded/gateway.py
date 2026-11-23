@@ -22,7 +22,7 @@ from starlette.types import Receive, Scope, Send
 
 from nanoagent.uploaded.attempt import CALL_HEADER, Attempt, ServiceError, error_response, from_contract, new_call_id
 from nanoagent.uploaded.chats import prompt_of
-from nanoagent.uploaded.contract import ContractError, decode_json_object
+from nanoagent.uploaded.contract import ContractError, contains_first_prompt, decode_json_object
 from nanoagent.uploaded.dialects import AssembledResponse, MalformedCaptureError, SseDecoder, SseFrame, ToolProposal, assemble_body, assemble_stream
 from nanoagent.uploaded.endpoint import EndpointProfile
 from nanoagent.uploaded.evidence import json_bytes
@@ -257,7 +257,7 @@ class Gateway:
         self.transport = transport
         self.registry = registry or ProposalRegistry()
         self._admitted = 0
-        self._prompt_satisfied = False
+        self._prompt_delivered = False
         self._inflight: dict[str, _Call] = {}
 
     @property
@@ -294,7 +294,7 @@ class Gateway:
         except ContractError as error:
             raise from_contract(error) from error
         try:
-            effective, requested, cap = apply_policy(dialect, body, policy, first_prompt_required=policy.prompt_bound and not self._prompt_satisfied)
+            effective, requested, cap = apply_policy(dialect, body, policy, first_prompt_required=policy.prompt_bound and not self._prompt_delivered)
         except PolicyViolation as violation:
             raise PolicyRefused(violation, body.get("model")) from violation
         if self._admitted >= policy.max_model_calls:
@@ -307,6 +307,8 @@ class Gateway:
         except AdmissionDenied as denied:
             raise ServiceError(DENIED[denied.code], denied.code, f"admission denied the call: {denied.code}") from denied
         self._admitted += 1
+        # The request that carries the exact prompt first delivers it; the record says which call it was.
+        delivers = policy.prompt_bound and not self._prompt_delivered and contains_first_prompt(dialect, body, policy.prompt_user)
         headers = {"content-type": "application/json", "accept": request.headers.get("accept", "*/*"), "accept-encoding": "identity"}
         headers["authorization"] = f"Bearer {self.endpoint.api_key}"
         headers.update({name: request.headers[name] for name in FORWARDED_REQUEST_HEADERS if name in request.headers})
@@ -322,6 +324,7 @@ class Gateway:
             raise
         self.registry.open(call_id)
         self._inflight[call_id] = call
+        self._prompt_delivered = self._prompt_delivered or delivers
         await self.recorder.record(
             "gateway",
             "model_call.admitted",
@@ -338,6 +341,7 @@ class Gateway:
                 "output_cap": cap,
                 "request_headers": recorded,
                 "prompt": prompt_of(dialect, body),
+                "prompt_delivered": delivers,
                 "submitted_request_sha256": submitted_sha,
                 "effective_request_sha256": call.effective_sha,
             },
@@ -390,8 +394,7 @@ class Gateway:
     # ---- conclusion -----------------------------------------------------------------------------------------------
 
     def publish(self, call: _Call, state: _State) -> None:
-        """Make the call's outcome visible to the rest of the attempt: its tool proposals become callable and the first-prompt
-        requirement is met. No I/O, so the relay does it before the last byte reaches the harness."""
+        """Make the call's outcome visible to the rest of the attempt: its tool proposals become callable. No I/O, so the relay does it before the last byte reaches the harness."""
         if state.published:
             return
         state.published = True
@@ -410,8 +413,6 @@ class Gateway:
             if proposal.call_id not in registered:
                 state.registrations.append({"tool_call_id": proposal.call_id, "frame_index": proposal.completed_frame, "registered_ns": state.completed_ns, "early": False})
         self.registry.close(call.call_id, proposals)
-        if terminal == "completed" and state.http_status is not None and 200 <= state.http_status < 300:
-            self._prompt_satisfied = True
 
     async def conclude(self, call: _Call, state: _State) -> None:
         """Settle or mark the reservation and record the response evidence. Runs after the response was handed to the harness."""

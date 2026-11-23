@@ -359,8 +359,8 @@ async def poll(config: WorkerConfig, settings: RunnerConfig, worker: RushWorkerC
             LOG.info("attempt %s: %s %s", job.attempt_id, result.outcome, result.execution)
             if result.accounting:
                 background.start_soon(reconciled, job.attempt_id, result.accounting)
-        except Exception:  # one attempt's fault, never every other attempt's: the server expires it as interrupted
-            LOG.exception("attempt %s: failed outside the runner's handling, left to expire as interrupted", job.attempt_id)
+        except Exception:  # one attempt's fault, never every other attempt's: the server expires it (a case as a worker error it queues again, a session as interrupted)
+            LOG.exception("attempt %s: failed outside the runner's handling, left to expire", job.attempt_id)
         finally:
             slots.release()
 
@@ -376,7 +376,8 @@ async def poll(config: WorkerConfig, settings: RunnerConfig, worker: RushWorkerC
             await slots.acquire()
             try:
                 job = await worker.claim(
-                    settings.worker_id, settings.endpoint.label, settings.endpoint.mode, settings.capabilities, config.poll.wait_s, interactive=interactive
+                    settings.worker_id, settings.endpoint.label, settings.endpoint.mode,
+                    {**settings.capabilities, "installed_agents": sorted(runner.agents.installed())}, config.poll.wait_s, interactive=interactive
                 )
             except RushUnavailable as error:
                 slots.release()
@@ -384,8 +385,10 @@ async def poll(config: WorkerConfig, settings: RunnerConfig, worker: RushWorkerC
                 if outage is None:
                     LOG.warning("RUSH is unreachable, retrying until it returns: %s", error)  # once per outage, not per retry
                     outage = config.poll.idle_s
-                await anyio.sleep(outage)
-                outage = min(outage * 2, config.poll.max_outage_s)
+                # Its own copy: the other slots' loop shares `outage` and resets it to None when its claim gets through meanwhile.
+                wait = outage
+                await anyio.sleep(wait)
+                outage = min(wait * 2, config.poll.max_outage_s)
                 continue
             except BaseException:
                 slots.release()

@@ -1,7 +1,7 @@
 #!/bin/sh
 # DeepSeek Harness on RUSH's gateway (pi-ai's openrouter route, its chat completions dialect), as the dsh reference harness runs it:
 # headless (it has no screen of its own: `dsh "<task>"` prints its run), with a patch over that profile routing openrouter to the
-# gateway keyed by the attempt token, the session's model (declaring the effort dsh asks for and the attempt's output cap) for
+# gateway keyed by the attempt token and speaking chat completions (a model pi-ai's catalog lacks has no api of its own), the session's model (declaring the effort dsh asks for and the attempt's output cap) for
 # fresh agents, and no title call; nothing waits on an approval.
 # Its home is in the workspace's .rush/, which is kept when the session ends, so resuming the session brings its runs back
 # (nanoagent.uploaded.resume); its patch names this session's gateway, so it is written each time.
@@ -14,6 +14,7 @@ cat > "$home/run.patch.yml" <<EOF
   config:
     providers:
       "openrouter":
+        api: "openai-completions"
         apiKeyEnv: "RUSH_ATTEMPT_TOKEN"
         baseURL: "$OPENAI_BASE_URL"
         models:
