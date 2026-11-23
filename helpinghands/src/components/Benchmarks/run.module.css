@@ -1,72 +1,65 @@
-.benchmarkCard {
-  overflow: hidden;
-  border: 1px solid var(--site-hairline);
-  border-radius: var(--site-radius);
-  background: var(--ifm-background-surface-color);
-}
+/* The Benchmarks list and a benchmark's page (RunView.js): hairline-bordered lists and panels, one accent for what is picked. */
+.pageHead { display: flex; align-items: center; gap: .875rem; margin-bottom: 1.5rem; }
+.pageHead h1 { margin: 0 0 .25rem; font-size: 1.75rem; letter-spacing: -.01em; }
+.pageHead p { margin: 0; }
+.headIcon { flex: 0 0 2.5rem; width: 2.5rem; height: 2.5rem; border-radius: var(--site-radius); }
+.hint { color: var(--ifm-color-emphasis-700); font-size: .875rem; }
+.empty { margin: 0; padding: 1.5rem 1rem; border: 1px dashed var(--site-hairline-strong); border-radius: var(--site-radius); color: var(--ifm-color-emphasis-700); font-size: .875rem; text-align: center; }
+.back { margin-bottom: 1rem; padding: 0; border: 0; background: none; color: var(--ifm-color-emphasis-700); font: inherit; font-size: .875rem; cursor: pointer; }
+.back:hover { color: var(--ifm-color-primary); }
+.count { margin-left: .5rem; color: var(--ifm-color-emphasis-600); font-size: .8125rem; font-weight: 400; }
 
-.benchmarkCard[data-selected='true'] {
-  border-color: var(--ifm-color-primary);
-  box-shadow: 0 0 0 2px var(--ifm-color-primary);
-}
+.input { box-sizing: border-box; width: 100%; padding: .5rem .75rem; border: 1px solid var(--site-hairline-strong); border-radius: var(--site-radius); background: var(--ifm-background-surface-color); color: var(--ifm-font-color-base); font: inherit; font-size: .875rem; }
+.input:focus { outline: none; border-color: var(--ifm-color-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ifm-color-primary) 20%, transparent); }
+.search { max-width: 24rem; margin-bottom: 1.5rem; }
 
-.benchmarkPick {
-  display: block;
-  width: 100%;
-  padding: 1rem;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
+/* The list of benchmarks, grouped by plugin, and a benchmark's runs: rows in one bordered block. */
+.group { margin-bottom: 1.75rem; }
+.groupHead { display: flex; align-items: center; gap: .5rem; margin: 0 0 .5rem; color: var(--ifm-color-emphasis-800); font-size: .8125rem; font-weight: 600; }
+.groupHead img { width: 1.125rem; height: 1.125rem; border-radius: 4px; }
+.list { overflow: hidden; border: 1px solid var(--site-hairline); border-radius: var(--site-radius); background: var(--ifm-background-surface-color); }
+.benchmarkRow, .runRow { display: flex; align-items: center; gap: 1.25rem; box-sizing: border-box; width: 100%; min-height: 3rem; padding: .625rem 1rem; border: 0; border-bottom: 1px solid var(--site-hairline); background: transparent; color: var(--ifm-font-color-base); font: inherit; font-size: .875rem; text-align: left; text-decoration: none; cursor: pointer; }
+.benchmarkRow:last-child, .runRow:last-child { border-bottom: 0; }
+.benchmarkRow:hover, .runRow:hover { background: var(--ifm-color-emphasis-100); color: var(--ifm-font-color-base); text-decoration: none; }
+.benchmarkRow:focus-visible, .runRow:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: -2px; }
+.benchmarkName, .runAgent { flex: 1 1 auto; min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.runAgent { flex: 0 0 8rem; }
+.runMeta { flex: 0 0 auto; color: var(--ifm-color-emphasis-700); font-size: .8125rem; white-space: nowrap; }
+.runMeta code { padding: 0 .3rem; font-size: .75rem; }
+.rowIcon { width: 1.25rem; height: 1.25rem; border-radius: 4px; }
+.publishLink { color: var(--ifm-color-primary); font-size: .8125rem; font-weight: 600; }
+.chevron { flex: 0 0 auto; margin-left: auto; color: var(--ifm-color-emphasis-500); font-size: 1.125rem; line-height: 1; }
+.runRow > :nth-child(2) { flex: 1 1 auto; }
 
-.benchmarkCases { margin-top: .75rem; border: 1px solid var(--site-hairline); border-radius: var(--site-radius); background: var(--ifm-background-surface-color); font-size: .875rem; }
-.benchmarkCases summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .8rem 1rem; font-weight: 600; list-style: none; cursor: pointer; }
-.benchmarkCases summary::-webkit-details-marker { display: none; }
-.benchmarkCases summary:hover { background: var(--ifm-color-emphasis-100); }
-.benchmarkCases summary:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: 2px; }
-.caseCount { margin-left: .35rem; color: var(--ifm-color-emphasis-600); font-weight: 400; }
-.caseChevron { width: .5rem; height: .5rem; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg) translateY(-2px); }
-.benchmarkCases[open] .caseChevron { transform: rotate(225deg) translate(-2px, -2px); }
-.caseContent { padding: 0 1rem 1rem; }
-.caseContent > p { margin: 0; color: var(--ifm-color-emphasis-700); }
-
-.search, .agentSelect {
-  padding: 0.6rem 0.8rem;
-  border: 1px solid var(--site-hairline);
-  border-radius: var(--site-radius);
-  background: var(--ifm-background-surface-color);
-  color: var(--ifm-font-color-base);
-  font: inherit;
-}
-
-.search {
-  width: min(100%, 24rem);
-  margin-bottom: 1rem;
-}
-
-.pickerHeading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .75rem; color: var(--ifm-color-emphasis-700); font-size: .875rem; }
-.pickerHeading p { margin: 0; }
-.pickerHeading span { white-space: nowrap; font-weight: 600; }
-.harnesses { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: .65rem; }
-.harness, .installed { display: flex; align-items: center; gap: .75rem; box-sizing: border-box; min-width: 0; min-height: 3.75rem; padding: .7rem .85rem; border: 1px solid var(--site-hairline-strong); border-radius: .55rem; background: var(--ifm-background-surface-color); color: var(--ifm-font-color-base); font: inherit; text-align: left; cursor: pointer; }
-.harness[aria-pressed='true'], .installed[aria-pressed='true'] { border-color: var(--ifm-color-primary); box-shadow: inset 0 0 0 1px var(--ifm-color-primary); background: color-mix(in srgb, var(--ifm-color-primary) 12%, var(--ifm-background-surface-color)); }
-.harnessLogo, .nanoagentIcon { flex: 0 0 1.65rem; width: 1.65rem; height: 1.65rem; object-fit: contain; }
-.nanoagentIcon { display: grid; place-items: center; color: var(--ifm-color-primary); font-size: 1.25rem; font-weight: 700; }
+/* Run agents: the agent chips, the installed-agent fields, then the count and Run. */
+.panel { margin-bottom: 2rem; border: 1px solid var(--site-hairline); border-radius: var(--site-radius); background: var(--ifm-background-surface-color); }
+.panel > :not(.panelFoot) { margin-left: 1.25rem; margin-right: 1.25rem; }
+.panelHead { padding-top: 1.125rem; margin-bottom: 1rem; }
+.panelHead h2 { margin: 0 0 .25rem; font-size: 1rem; }
+.panelFoot { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1.25rem; padding: .75rem 1.25rem; border-top: 1px solid var(--site-hairline); background: var(--ifm-color-emphasis-100); border-radius: 0 0 var(--site-radius) var(--site-radius); }
+.panel > [role='alert'] { margin-top: 1rem; margin-bottom: 1rem; }
+.agents { display: flex; flex-wrap: wrap; gap: .5rem; }
+.agent { display: inline-flex; align-items: center; gap: .5rem; height: 2.25rem; padding: 0 .875rem 0 .625rem; border: 1px solid var(--site-hairline-strong); border-radius: 999px; background: var(--ifm-background-surface-color); color: var(--ifm-font-color-base); font: inherit; font-size: .875rem; font-weight: 500; cursor: pointer; }
+.agent:hover { border-color: var(--ifm-color-emphasis-500); }
+.agent:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: 2px; }
+.agent[aria-pressed='true'] { border-color: var(--ifm-color-primary); background: color-mix(in srgb, var(--ifm-color-primary) 10%, var(--ifm-background-surface-color)); color: var(--ifm-color-primary); }
+.agentLogo, .nanoagentIcon { flex: 0 0 1.125rem; width: 1.125rem; height: 1.125rem; object-fit: contain; }
+.nanoagentIcon { display: grid; place-items: center; color: var(--ifm-color-primary); font-size: .875rem; font-weight: 700; }
 [data-theme='dark'] .monochromeLogo { filter: invert(1); }
-.harnessName { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: .9rem; font-weight: 600; }
-.installed { width: 100%; margin-top: .75rem; }
-.installedText { font-size: .9rem; font-weight: 600; }
-.rush { box-sizing: border-box; padding: 1rem; border: 1px solid var(--site-hairline); border-top: 0; border-radius: 0 0 .55rem .55rem; }
-.installed[aria-pressed='true'] { border-radius: .55rem .55rem 0 0; }
-.rush label { display: block; margin-bottom: .4rem; font-size: .85rem; font-weight: 600; }
-.rush label:not(:first-child) { margin-top: .9rem; }
-.rush p { margin: .5rem 0 0; color: var(--ifm-color-emphasis-700); font-size: .875rem; overflow-wrap: anywhere; }
-.agentSelect { box-sizing: border-box; width: 100%; }
-.runAction { margin-top: 1.25rem; }
-.selection { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 1rem 0 0; font-size: 0.875rem; }
-.selection > span:last-child { margin-left: auto; color: var(--ifm-color-emphasis-700); }
-.benchmarkPick:hover, .harness:hover, .installed:hover { background: var(--ifm-color-emphasis-100); }
-.benchmarkPick:focus-visible, .harness:focus-visible, .installed:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: 2px; }
+.rush { display: grid; grid-template-columns: minmax(0, 14rem) minmax(0, 1fr); gap: .75rem; margin-top: 1rem; }
+.rush label { display: grid; gap: .25rem; margin: 0; color: var(--ifm-color-emphasis-700); font-size: .8125rem; font-weight: 600; }
+.rush p { grid-column: 1 / -1; margin: 0; color: var(--ifm-color-emphasis-700); font-size: .8125rem; overflow-wrap: anywhere; }
+
+.section { margin-bottom: 2rem; }
+.section h2, .cases h2 { margin: 0 0 .75rem; font-size: 1rem; }
+.cases { margin-bottom: 2rem; }
+.cases summary { display: flex; align-items: center; list-style: none; cursor: pointer; }
+.cases summary::-webkit-details-marker { display: none; }
+.cases summary h2 { display: inline-flex; align-items: center; margin: 0 0 .75rem; }
+.cases summary::after { content: '›'; margin: 0 0 .75rem .5rem; color: var(--ifm-color-emphasis-600); transition: transform .15s; }
+.cases[open] summary::after { transform: rotate(90deg); }
+
+@media (max-width: 720px) {
+  .benchmarkRow .runMeta:nth-of-type(n+3), .runRow .runMeta:nth-of-type(n+2) { display: none; }
+  .rush { grid-template-columns: 1fr; }
+}
