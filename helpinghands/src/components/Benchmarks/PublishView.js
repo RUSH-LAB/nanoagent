@@ -6,7 +6,7 @@ import {previewCaseFile, publishProblem, splitCaseFolder, validBenchmarkName} fr
 import {CaseList} from './Choice';
 import CopyInstructions from './CopyInstructions';
 import {countOf} from './runs';
-import PluginCards, {PluginHeader, useBenchmarkPlugins} from './PluginCards';
+import {useBenchmarkPlugins} from './PluginCards';
 import useLoad from './useLoad';
 import useUrlParam from './useUrlParam';
 import publishStyles from './publish.module.css';
@@ -115,7 +115,8 @@ function PublishForm({plugin}) {
       {published && (
         <div role="status">
           <p>
-            {published.created ? 'Published' : 'Already published'} <code>{published.benchmark.name}</code>, {countOf(published.benchmark.cases.length, 'case')}, for version {published.benchmark.plugin.version}. RUSH kept:
+            {published.created ? 'Published' : 'Already published'} <code>{published.benchmark.name}</code>, {countOf(published.benchmark.cases.length, 'case')}, for version {published.benchmark.plugin.version}.{' '}
+            <a href={`?${new URLSearchParams({benchmark: published.benchmark.benchmark_id})}`}>Open it to run agents →</a>
           </p>
           <CaseList cases={published.benchmark.cases} />
         </div>
@@ -125,12 +126,11 @@ function PublishForm({plugin}) {
 }
 
 /** One plugin's screen: the instructions for its case folder, then the form. */
-function PublishPlugin({plugin, onBack}) {
+function PublishPlugin({plugin}) {
   // The plugin's tasks and their input schemas come from its manifest, which the app list does not carry.
   const manifest = useLoad(() => appManifest(plugin.id), [plugin.id]);
   return (
     <>
-      <PluginHeader plugin={plugin} back="Publish Benchmark" onBack={onBack} />
       <div className={publishStyles.page}>
       <section className={publishStyles.panel}>
         <div className={publishStyles.panelHeading}><span className={publishStyles.stepNumber}>1</span><div><h2>Prepare your cases</h2><p>Create a case folder for {plugin.name}.</p></div></div>
@@ -145,18 +145,32 @@ function PublishPlugin({plugin, onBack}) {
   );
 }
 
-/** Publish Benchmark: the plugin list, then the picked plugin's own screen (`?plugin=`). */
+/** New benchmark: the plugin it is for (`?plugin=`), then that plugin's instructions and form. */
 export default function PublishView() {
   const {apps, error} = useBenchmarkPlugins();
   const [pluginId, setPluginId] = useUrlParam('plugin');
   const plugin = apps?.find(app => app.id === pluginId);
-  if (plugin) return <PublishPlugin key={plugin.id} plugin={plugin} onBack={() => setPluginId(null)} />;
   return (
     <>
-      <header className={market.header}><h1>Publish Benchmark</h1></header>
+      <header className={publishStyles.head}>
+        <h1>New benchmark</h1>
+        <p>A benchmark is a set of cases for one task of a plugin. Anyone with the plugin can then run agents on it.</p>
+      </header>
       {error && <div className={market.error}>{error}</div>}
-      {pluginId && apps && <div className={market.error} role="alert">The plugin &quot;{pluginId}&quot; in the address is not installed or not ready to publish for.</div>}
-      <PluginCards apps={apps} onPick={app => setPluginId(app.id)} />
+      {!apps ? <p>Reading your plugins…</p> : !apps.length ? <p>No installed plugin is ready to benchmark. Install one from the Marketplace.</p> : (
+        <label className={publishStyles.pluginField}>
+          <span>Plugin</span>
+          <span className={publishStyles.pluginSelect}>
+            {plugin && <img src={plugin.product.icon} alt="" />}
+            <select value={plugin ? plugin.id : ''} onChange={event => setPluginId(event.target.value || null)}>
+              <option value="">Choose a plugin</option>
+              {apps.map(app => <option key={app.id} value={app.id}>{app.name} v{app.version}</option>)}
+            </select>
+          </span>
+        </label>
+      )}
+      {pluginId && apps && !plugin && <div className={market.error} role="alert">The plugin &quot;{pluginId}&quot; in the address is not installed or not ready to publish for.</div>}
+      {plugin && <PublishPlugin key={plugin.id} plugin={plugin} />}
     </>
   );
 }

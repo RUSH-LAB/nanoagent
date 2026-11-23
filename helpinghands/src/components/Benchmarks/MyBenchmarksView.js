@@ -37,21 +37,33 @@ function useDetails(ids) {
   return loaded;
 }
 
-const metric = (metrics, field, time = false) => {
+export const metric = (metrics, field, time = false) => {
   const value = metrics?.[field];
   if (value == null) return '—';
   if (typeof value === 'object') return time ? formatTime(value.total, value.missing_attempts) : `${formatTokens(value.total)}${value.missing_attempts ? '+' : ''}`;
   return time ? formatTime(value, false) : formatTokens(value);
 };
 
+/** A run's result: passed of scored as a meter, or its status while it has none to show. */
+export function RunResult({run}) {
+  const {score} = run;
+  if (ACTIVE.has(run.status) && !score.scored) return <span className={styles.result}><Pill word={run.status} /></span>;
+  if (score.value === null) return <span className={styles.result}><span className={styles.secondary}>{scoreText(score)}</span></span>;
+  return <span className={styles.result} title={scoreText(score)}>
+    <span className={styles.meter} aria-hidden="true"><span style={{width: `${Math.round(score.value * 100)}%`}} data-full={score.value === 1 || undefined} /></span>
+    <span><strong>{score.passed}</strong>/{score.scored} passed{score.unscored ? <span className={styles.secondary}> · {score.unscored} unscored</span> : null}</span>
+    {ACTIVE.has(run.status) && <Pill word={run.status} />}
+  </span>;
+}
+
 function Metrics({run, cost}) {
   const m = run.metrics;
   const attempts = Object.values(latestAttempts(run));
   const toolCalls = attempts.some(attempt => attempt.metrics?.tool_calls != null) ? metric(m, 'tool_calls') : '—';
   return <dl className={styles.metrics}>
-    {[['Pass rate', scoreText(run.score)], ['Input tokens', metric(m, 'input_tokens')], ['Output tokens', metric(m, 'output_tokens')],
-      ['Cache read', metric(m, 'cache_read_tokens')], ['Cache write', metric(m, 'cache_write_tokens')], ['Time', metric(m, 'elapsed_ms', true)],
-      ['Tool calls', toolCalls], ['Cost', formatCost(cost)]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+    {[['Result', <RunResult run={run} />], ['Time', metric(m, 'elapsed_ms', true)], ['Cost', formatCost(cost)], ['Tool calls', toolCalls],
+      ['Input tokens', metric(m, 'input_tokens')], ['Output tokens', metric(m, 'output_tokens')],
+      ['Cache read', metric(m, 'cache_read_tokens')], ['Cache write', metric(m, 'cache_write_tokens')]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
   </dl>;
 }
 
@@ -65,24 +77,24 @@ function RunDetail({id, openTrace, back}) {
     catch (failure) { setCancelError(failure.message); }
     finally { setCancelling(false); }
   };
-  if (error) return <><button className={styles.link} onClick={back}>← My Benchmarks</button><div className={market.error}>{error}</div><button type="button" className="button button--secondary" onClick={reload}>Retry</button></>;
+  if (error) return <><button className={styles.link} onClick={back}>← Runs</button><div className={market.error}>{error}</div><button type="button" className="button button--secondary" onClick={reload}>Retry</button></>;
   if (!data) return <p>Reading the run…</p>;
   const {run, cost_usd: cost} = data[0];
   const attempts = latestAttempts(run);
   return <>
-    <button className={styles.link} onClick={back}>← My Benchmarks</button>
+    <button className={styles.link} onClick={back}>← Runs</button>
     <div className={styles.detailHeading}>
       <h1>{harnessLabel(run.harness.name)}</h1><Pill word={run.status} />
       {ACTIVE.has(run.status) && <button type="button" className={styles.cancel} disabled={cancelling} onClick={cancel}>{cancelling ? 'Cancelling…' : 'Cancel run'}</button>}
     </div>
-    <p className={styles.meta}>{run.model} · {run.benchmark.name} · {run.case_set.plugin.name ?? run.case_set.plugin.id} v{run.case_set.plugin.version} · {new Date(run.created_at).toLocaleString()}</p>
+    <p className={styles.meta}>{run.model} · <a href={`?${new URLSearchParams({benchmark: run.benchmark.benchmark_id})}`}>{run.benchmark.name}</a> · {run.case_set.plugin.name ?? run.case_set.plugin.id} v{run.case_set.plugin.version} · {new Date(run.created_at).toLocaleString()}</p>
     {cancelError && <div className={market.error} role="alert">{cancelError}</div>}
     <Metrics run={run} cost={cost} />
-    <h2 className={styles.tableTitle}>Cases</h2><div className={styles.scroll}><table className={styles.table}><thead><tr><th>Case</th><th>Verdict</th><th>Time</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th><th></th></tr></thead><tbody>
+    <h2 className={styles.tableTitle}>Cases</h2><div className={styles.scroll}><table className={styles.table}><thead><tr><th>Case</th><th>Verdict</th><th className={styles.num}>Time</th><th className={styles.num}>Input</th><th className={styles.num}>Output</th><th className={styles.num}>Cache read</th><th className={styles.num}>Cache write</th><th></th></tr></thead><tbody>
       {run.cases.map(one => { const attempt = attempts[one.case_id]; return <tr key={one.case_id}>
         <td className={styles.caseName}>{one.case_id}</td>
-        <td>{attempt ? <Pill word={verdictOf(attempt)} /> : '—'}</td><td>{metric(attempt?.metrics, 'elapsed_ms', true)}</td>{['input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens'].map(field => <td key={field}>{metric(attempt?.metrics, field)}</td>)}
-        <td><button type="button" className={styles.traceButton} disabled={!attempt || attempt.state === 'queued'} onClick={() => openTrace(attempt.attempt_id)}>Traces</button></td>
+        <td>{attempt ? <Pill word={verdictOf(attempt)} /> : '—'}</td><td className={styles.num}>{metric(attempt?.metrics, 'elapsed_ms', true)}</td>{['input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens'].map(field => <td key={field} className={styles.num}>{metric(attempt?.metrics, field)}</td>)}
+        <td className={styles.num}><button type="button" className={styles.traceButton} disabled={!attempt || attempt.state === 'queued'} onClick={() => openTrace(attempt.attempt_id)}>View trace</button></td>
       </tr>; })}
     </tbody></table></div>
   </>;
@@ -98,7 +110,7 @@ function ComparedCase({sides, ids, attempts, openTrace}) {
       const attempt = side && attempts[index][side.case_id];
       return <td key={ids[index]}>{attempt ? <><Pill word={verdictOf(attempt)} /><div className={styles.tokenDetail}>Input {metric(attempt.metrics, 'input_tokens')} · Output {metric(attempt.metrics, 'output_tokens')}<br />Cache read {metric(attempt.metrics, 'cache_read_tokens')} · write {metric(attempt.metrics, 'cache_write_tokens')}</div></> : '—'}</td>;
     })}
-    <td>{left?.attempt_id && right?.attempt_id && <button type="button" className={styles.traceButton} onClick={() => openTrace([left.attempt_id, right.attempt_id])}>Traces</button>}</td>
+    <td>{left?.attempt_id && right?.attempt_id && <button type="button" className={styles.traceButton} onClick={() => openTrace([left.attempt_id, right.attempt_id])}>View traces</button>}</td>
   </tr>;
 }
 
@@ -110,13 +122,13 @@ function Comparison({ids, openTrace, back}) {
     return {details, comparison};
   }, [ids.join(',')]);
   usePoll(dataReload, 3000, Boolean(data?.details.some(({run}) => ACTIVE.has(run.status))));
-  if (error) return <><button className={styles.link} onClick={back}>← My Benchmarks</button><div className={market.error}>{error}</div><button type="button" className="button button--secondary" onClick={dataReload}>Retry</button></>;
+  if (error) return <><button className={styles.link} onClick={back}>← Runs</button><div className={market.error}>{error}</div><button type="button" className="button button--secondary" onClick={dataReload}>Retry</button></>;
   if (!data) return <p>Reading the runs…</p>;
   const {details, comparison} = data;
   const attempts = details.map(({run}) => latestAttempts(run));
   const rows = [...comparison.shared.map(row => [row.a, row.b]), ...comparison.only_a.map(side => [side, null]), ...comparison.only_b.map(side => [null, side])];
   return <>
-    <button className={styles.link} onClick={back}>← My Benchmarks</button><h1>Compare runs</h1>
+    <button className={styles.link} onClick={back}>← Runs</button><h1>Compare runs</h1>
     <h2>Run totals</h2><div className={styles.scroll}><table className={styles.table}><thead><tr><th>Harness</th><th>Pass rate</th><th>Input tokens</th><th>Output tokens</th><th>Cache read</th><th>Cache write</th><th>Time</th></tr></thead><tbody>
       {details.map(({run}) => <tr key={run.run_id}><td><strong>{harnessLabel(run.harness.name)}</strong><div className={styles.secondary}>{run.model} · {run.benchmark.name}</div></td><td>{scoreText(run.score)}</td>{['input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens'].map(field => <td key={field}>{metric(run.metrics, field)}</td>)}<td>{metric(run.metrics, 'elapsed_ms', true)}</td></tr>)}
     </tbody></table></div>
@@ -140,8 +152,8 @@ function Filters({runs, plugins, setPlugins, pluginSearch, setPluginSearch, harn
             {!matching.length && <span className={styles.meta}>No plugins found.</span>}</div></div>
       </details>
     </div>
-    <div className={styles.filterField}><span className={styles.filterLabel}>Harnesses</span>
-      <details className={styles.pluginPicker}><summary>{harnesses.size ? `${harnesses.size} selected` : 'All harnesses'}</summary>
+    <div className={styles.filterField}><span className={styles.filterLabel}>Agents</span>
+      <details className={styles.pluginPicker}><summary>{harnesses.size ? `${harnesses.size} selected` : 'All agents'}</summary>
         <div className={styles.pluginMenu}><div className={styles.pluginOptions}>{names.map(name => <label key={name}><input type="checkbox" checked={harnesses.has(name)} onChange={() => setHarnesses(toggled(harnesses, name))} /><span>{name}</span></label>)}</div></div>
       </details>
     </div>
@@ -155,17 +167,18 @@ function Filters({runs, plugins, setPlugins, pluginSearch, setPluginSearch, harn
 
 function RunTable({runs, selected, setSelected, open}) {
   return <div className={styles.scroll}><table className={styles.table}>
-    <thead><tr><th>Compare</th><th>Harness</th><th>Plugin / benchmark</th><th>Status</th><th>Pass rate</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th><th>Time</th></tr></thead>
-    <tbody>{runs.map(run => <tr key={run.run_id} className={styles.runRow} onClick={() => open(run.run_id)}>
-      <td onClick={event => event.stopPropagation()}>
+    <thead><tr><th aria-label="Compare" /><th>Agent</th><th>Benchmark</th><th>Result</th><th className={styles.num}>Tokens in / out</th><th className={styles.num}>Time</th><th className={styles.num}>Started</th></tr></thead>
+    <tbody>{runs.map(run => <tr key={run.run_id} className={styles.runRow} data-selected={selected.includes(run.run_id) || undefined} onClick={() => open(run.run_id)}>
+      <td className={styles.check} onClick={event => event.stopPropagation()}>
         <input type="checkbox" aria-label={`Compare ${harnessLabel(run.harness.name)} run ${run.run_id}`}
-          checked={selected.includes(run.run_id)} disabled={selected.length === 2 && !selected.includes(run.run_id)}
-          onChange={() => setSelected(toggleSelection(selected, run.run_id))} />
+          checked={selected.includes(run.run_id)} onChange={() => setSelected(toggleSelection(selected, run.run_id))} />
       </td>
-      <td><button type="button" className={styles.link} onClick={event => { event.stopPropagation(); open(run.run_id); }}>{harnessLabel(run.harness.name)}</button></td>
-      <td>{run.plugin.name ?? run.plugin.id} <span className={styles.secondary}>v{run.plugin.version}</span><div className={styles.secondary}>{run.benchmark.name}</div></td>
-      <td><Pill word={run.status} /></td><td>{scoreText(run.score)}</td>
-      {['input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens'].map(field => <td key={field}>{metric(run.metrics, field)}</td>)}<td>{metric(run.metrics, 'elapsed_ms', true)}</td>
+      <td><strong>{harnessLabel(run.harness.name)}</strong></td>
+      <td className={styles.benchmarkCell}>{run.benchmark.name}<div className={styles.secondary}>{run.plugin.name ?? run.plugin.id} v{run.plugin.version}</div></td>
+      <td><RunResult run={run} />{['failed', 'cancelled', 'canceled'].includes(run.status) && <> <Pill word={run.status} /></>}</td>
+      <td className={styles.num}>{metric(run.metrics, 'input_tokens')} / {metric(run.metrics, 'output_tokens')}</td>
+      <td className={styles.num}>{metric(run.metrics, 'elapsed_ms', true)}</td>
+      <td className={`${styles.num} ${styles.secondary}`}>{new Date(run.created_at).toLocaleString([], {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'})}</td>
     </tr>)}</tbody>
   </table></div>;
 }
@@ -220,17 +233,19 @@ export default function MyBenchmarksView() {
   const shown = historyRuns(runs, {plugins, harnesses});
   return <>
     <header className={styles.header}>
-      <h1>My Benchmarks</h1>
+      <div><h1>Runs</h1><p className={styles.meta}>Every run you started. Open one for its cases and traces, or tick two to compare them.</p></div>
     </header>
     {error && <div className={market.error}>{error}</div>}
     {summaries && runs.length > 0 && <Filters runs={runs} plugins={plugins} setPlugins={setPlugins} pluginSearch={pluginSearch}
       setPluginSearch={setPluginSearch} harnesses={harnesses} setHarnesses={setHarnesses} />}
     {!summaries ? (error ? null : <p className={styles.empty}>Reading runs…</p>)
-      : !runs.length ? <p className={styles.empty}>You have no benchmark runs yet. Use Benchmark a Harness to make one.</p>
+      : !runs.length ? <p className={styles.empty}>You have no runs yet. Open a benchmark under Benchmarks and run agents on it.</p>
         : !shown.length ? <p className={styles.empty}>No runs match these filters.</p>
               : <RunTable runs={shown} selected={selected} setSelected={setSelected} open={id => navigate({run: id})} />}
-    <div className={styles.compareFloat}>
-      <button type="button" className="button button--primary" disabled={selected.length !== 2} onClick={() => navigate({compare: selected.join(',')})}>Compare</button>
-    </div>
+    {selected.length > 0 && <div className={styles.compareBar} role="status">
+      <span>{selected.length === 1 ? 'Tick one more run to compare.' : '2 runs selected.'}</span>
+      <button type="button" className={styles.clear} onClick={() => setSelected([])}>Clear</button>
+      <button type="button" className="button button--primary button--sm" disabled={selected.length !== 2} onClick={() => navigate({compare: selected.join(',')})}>Compare</button>
+    </div>}
   </>;
 }

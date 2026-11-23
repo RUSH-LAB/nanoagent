@@ -1,5 +1,5 @@
 .page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; max-width: 64rem; }
-.panel { min-width: 0; padding: 1.5rem; border: 1px solid var(--site-hairline); border-radius: .65rem; background: var(--ifm-background-surface-color); }
+.panel { min-width: 0; padding: 1.25rem; border: 1px solid var(--site-hairline); border-radius: var(--site-radius); background: var(--ifm-background-surface-color); }
 .panelHeading { display: flex; align-items: flex-start; gap: .85rem; margin-bottom: 1.2rem; }
 .panelHeading h2 { margin: 0; font-size: 1.05rem; }
 .panelHeading p { margin: .2rem 0 0; color: var(--ifm-color-emphasis-700); font-size: .875rem; }
@@ -46,3 +46,11 @@
 .layout { white-space: pre-wrap; overflow-wrap: anywhere; }
 .scroll { max-width: 100%; overflow-x: auto; margin-bottom: 1rem; }
 @media (max-width: 600px) { .panel { min-width: 0; padding: 1rem; } }
+.head { margin-bottom: 1.5rem; }
+.head h1 { margin: 0 0 .25rem; font-size: 1.75rem; letter-spacing: -.01em; }
+.head p { margin: 0; color: var(--ifm-color-emphasis-700); font-size: .875rem; }
+.pluginField { display: grid; gap: .25rem; max-width: 24rem; margin: 0 0 1.5rem; color: var(--ifm-color-emphasis-700); font-size: .8125rem; font-weight: 600; }
+.pluginSelect { display: flex; align-items: center; gap: .5rem; padding: 0 .75rem; border: 1px solid var(--site-hairline-strong); border-radius: var(--site-radius); background: var(--ifm-background-surface-color); }
+.pluginSelect:focus-within { border-color: var(--ifm-color-primary); }
+.pluginSelect img { width: 1.25rem; height: 1.25rem; border-radius: 4px; }
+.pluginSelect select { flex: 1; min-width: 0; height: 2.375rem; border: 0; background: transparent; color: var(--ifm-font-color-base); font: inherit; font-size: .875rem; font-weight: 400; outline: none; }

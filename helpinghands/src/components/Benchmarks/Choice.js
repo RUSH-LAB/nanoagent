@@ -1,26 +1,6 @@
 import React from 'react';
 import clsx from 'clsx';
-import market from '@site/src/pages/marketplace/styles.module.css';
 import styles from './styles.module.css';
-
-/** A titled part of a screen. */
-export function Step({title, children}) {
-  return (
-    <section className={styles.step}>
-      <h2>{title}</h2>
-      {children}
-    </section>
-  );
-}
-
-/** A Marketplace card that is a choice: pressing it picks it. */
-export function ChoiceCard({pressed, onClick, children}) {
-  return (
-    <button type="button" aria-pressed={pressed} className={clsx(market.card, styles.choice)} onClick={onClick}>
-      {children}
-    </button>
-  );
-}
 
 /** A verdict, run status or case kind as a pill, green for a pass and red for a fail. */
 export function Pill({word}) {
