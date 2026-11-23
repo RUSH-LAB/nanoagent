@@ -50,8 +50,10 @@ from nanoagent.core.compact import (
     compact_messages,
     needs_compaction,
 )
+from nanoagent.core.dedup import RedundancyFilter, dedup_enabled
 from nanoagent.core.dispatch import _is_arg_malformed, _unquote_arg_keys, invoke_tool_call
 from nanoagent.core.hooks import Hooks, RunHooks
+from nanoagent.core.stop import stop_rule
 from nanoagent.core.messages import assistant_message, last_assistant_text
 from nanoagent.core.tool import build_tool_map, tool_progress, Tool
 from nanoagent.profiler import Profiler, RunProfile, StepProfiler
@@ -210,6 +212,8 @@ class AgentResult:
     # Detailed model/tool timing and per-step token usage. ``step_durations`` remains above as
     # the compact backwards-compatible view consumed by existing callers.
     profile: RunProfile | None = None
+    # What the MinHash redundancy filter did (see nanoagent.core.dedup), or None when it was off.
+    dedup: dict[str, Any] | None = None
 
 
 class RunEventCallbacks(Protocol):
@@ -242,6 +246,8 @@ class Agent:
         compact: bool = False,
         hooks: Hooks | None = None,
         events: EventObserver | None = None,
+        dedup: bool | None = None,
+        stop_after: Sequence[str] | None = None,
     ) -> None:
         """``compact`` picks the ``context_window`` policy: ``False`` (the default, used by every
         batch/benchmark rollout) hard-stops with :attr:`StopReason.CONTEXT_WINDOW` once a reply's
@@ -252,6 +258,16 @@ class Agent:
         refuse a tool call — without editing it. ``events`` (see :mod:`nanoagent.execution.events`) is the
         opposite: it only watches, mirroring the run to an NDJSON stream. ``None``, the default
         for both, is not a no-op but no call at all.
+
+        ``dedup`` turns on the MinHash redundancy filter (:mod:`nanoagent.core.dedup`): a tool result the
+        model was already sent, or nearly so, is sent as a pointer or a diff. ``None`` (the default) reads
+        ``NANOAGENT_DEDUP``; off, the loop runs exactly as before.
+
+        ``stop_after`` is a stop rule (:mod:`nanoagent.core.stop`): ``tool`` or ``tool:file`` specs of the
+        call that delivers the answer (``submit``, ``write:answer.json``). Once a step's calls include one
+        that succeeded, the run stops with :attr:`StopReason.ANSWER` after that step, instead of asking the
+        model for one more reply that only closes the conversation. ``None`` (the default) reads
+        ``NANOAGENT_STOP_AFTER``; empty, the loop runs exactly as before.
         """
         self._tools = build_tool_map(tools)
         self._model = model
@@ -264,6 +280,8 @@ class Agent:
         self._compact = compact
         self._hooks = hooks
         self._events = events
+        self._dedup = dedup_enabled(dedup)
+        self._stop_after = stop_rule(stop_after)
         for tool in tools:
             tool.bind(self)
 
@@ -342,6 +360,8 @@ class Agent:
         usage: dict[str, int] = {}
         cost = 0.0
         step_durations: list[dict[str, float]] = []
+        # Per run, like the hooks: the Agent is shared across concurrent rollouts.
+        redundancy = RedundancyFilter() if self._dedup else None
 
         def result(
             steps: int, stop_reason: StopReason, answer: str, error: str | None = None
@@ -357,6 +377,7 @@ class Agent:
                 list(step_durations),
                 error,
                 profiler.snapshot(),
+                redundancy.summary() if redundancy is not None else None,
             )
 
         # Timing of the in-flight step, or None between steps. Built incrementally: a
@@ -526,7 +547,16 @@ class Agent:
                     len(reply.tool_calls),
                 )
                 call_log.extend(log_rows)
+                if redundancy is not None:
+                    # Only what the model is sent changes: the call log keeps every full output.
+                    tool_msgs = redundancy.filter_messages(log_rows, tool_msgs)
                 transcript.extend(tool_msgs)
+                # A final tool succeeded (the task's output is in): the model's next reply could only
+                # close the conversation, so end the run here instead of paying for it.
+                final = [r for r in log_rows if self._stop_after.ends_run(r)]
+                if final:
+                    finish_step()
+                    return _emit(on_step, result(step + 1, StopReason.ANSWER, str(final[-1]["output"])))
                 # Compaction (compact=True) runs at the END of the step, once the assistant turn
                 # and ALL its tool results are in: summarizing mid-step could split a tool call
                 # from its results, which the chat API rejects. Its summarization turn is real
