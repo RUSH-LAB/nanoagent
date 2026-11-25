@@ -22,7 +22,7 @@ SCALARS = frozenset({"string", "number", "integer", "boolean", "null"})
 def answer_skeleton(output_schema: Mapping[str, Any]) -> dict[str, Any]:
     """The task's output schema as an unfilled answer: every object property present, `null` per scalar, `[]` per array, `$ref` resolved.
 
-    A union with `null` (`anyOf`/`oneOf`, or a `type` list) is `null`. A schema it cannot skeleton raises a [ContractError] naming its path.
+    A union with `null` (`anyOf`/`oneOf`, or a `type` list) is `null`, and so is an `enum` or `const` of scalar values (an Enum field). A schema it cannot skeleton raises a [ContractError] naming its path.
     """
     skeleton = _skeleton(output_schema, output_schema, "$", ())
     if not isinstance(skeleton, dict):
@@ -49,6 +49,13 @@ def _skeleton(schema: Any, root: Mapping[str, Any], path: str, refs: tuple[str, 
                 return None
             raise ContractError("output_schema_unsupported", f"{path}: {union} without a null branch has no skeleton")
     kind = schema.get("type")
+    if kind is None and ("enum" in schema or "const" in schema):
+        # A choice among fixed values: the schema a plugin's Enum output field gets (slimconfig writes `{"enum": [...]}` with no
+        # `type`). Its values are scalars, so it is one scalar: `null`, like any other.
+        values = schema["enum"] if "enum" in schema else [schema["const"]]
+        if isinstance(values, list) and values and all(value is None or isinstance(value, (str, int, float, bool)) for value in values):
+            return None
+        raise ContractError("output_schema_unsupported", f"{path}: an enum or const of non-scalar values has no skeleton")
     if isinstance(kind, list):
         if "null" in kind:
             return None
