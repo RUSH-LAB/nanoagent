@@ -103,6 +103,19 @@ def test_a_skeleton_of_a_union_with_null_is_null() -> None:
     assert answer_skeleton(schema) == {"a": None, "b": None, "c": None}
 
 
+def test_a_skeleton_of_an_enum_or_const_of_scalars_is_null() -> None:
+    # What a plugin's Enum output field becomes (slimconfig writes the values with no `type`), e.g. a skill level.
+    schema = {
+        "type": "object",
+        "properties": {
+            "level": {"enum": ["beginner", "intermediate", "advanced"], "description": "The student's level"},
+            "k": {"enum": [1, 5, 10]},
+            "fixed": {"const": "v1"},
+        },
+    }
+    assert answer_skeleton(schema) == {"level": None, "k": None, "fixed": None}
+
+
 @pytest.mark.parametrize(
     ("schema", "path"),
     [
@@ -111,6 +124,8 @@ def test_a_skeleton_of_a_union_with_null_is_null() -> None:
         ({"type": "object", "properties": {"a": {"type": "object", "properties": {"b": {}}}}}, "$.a.b"),
         ({"type": "object", "properties": {"a": {"$ref": "#"}}}, "$.a.a"),
         ({"type": "string"}, "$"),
+        ({"type": "object", "properties": {"a": {"enum": [{"x": 1}, {"x": 2}]}}}, "$.a"),
+        ({"type": "object", "properties": {"a": {"enum": []}}}, "$.a"),
     ],
 )
 def test_a_schema_that_cannot_be_skeletoned_raises_naming_its_path(schema: dict[str, Any], path: str) -> None:

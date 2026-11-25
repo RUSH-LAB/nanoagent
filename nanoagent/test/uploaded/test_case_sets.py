@@ -358,8 +358,7 @@ def test_a_fixtures_folder_that_holds_the_case_file_is_refused_naming_the_case(t
     [
         ({"anyOf": [{"type": "string"}, {"type": "integer"}]}, r"anyOf without a null branch"),
         ({"oneOf": [{"type": "string"}, {"type": "integer"}]}, r"oneOf without a null branch"),
-        ({"enum": ["a", "b"]}, r"the schema's type None has no skeleton"),
-        ({"const": 1}, r"the schema's type None has no skeleton"),
+        ({"enum": [{"a": 1}]}, r"an enum or const of non-scalar values has no skeleton"),
         ({"allOf": [{"type": "string"}]}, r"the schema's type None has no skeleton"),
         ({"not": {"type": "string"}}, r"the schema's type None has no skeleton"),
     ],
