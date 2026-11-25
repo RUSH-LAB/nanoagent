@@ -19,7 +19,7 @@ import anyio
 from rush_rules import Invalid, check_finalize
 from nanoagent.plugin.manifest import load_manifest
 from nanoagent.uploaded.collector import ProcessEvidence
-from nanoagent.uploaded.rush_worker import Canceled, LeaseLost, RushError, Sealed, parse_job
+from nanoagent.uploaded.rush_worker import Canceled, LeaseLost, RushError, RushUnavailable, Sealed, parse_job
 from nanoagent.uploaded.sandbox import BuildArtifact, CaseOutcome, SandboxError, Termination, TerminationKind, WorkspaceSnapshot
 
 PROBE = Path(__file__).resolve().parents[1] / "plugins" / "acceptance-probe"
@@ -114,6 +114,8 @@ class FakeRush:
         self.renews = 0
         self.lease_seconds = 60.0
         self.renew_error: Exception | None = None  # raised by every renewal, e.g. RushUnavailable
+        self.renew_failures = 0  # how many renewals in a row raise RushUnavailable before they succeed again
+        self.renew_within: list[float | None] = []  # each renewal's time limit (within_s), as the runner passed it
         self.renew_attempts = 0
         self.jobs: list[Any] = []  # what claim hands out, then StopPolling
         self.events_after_loss = 0
@@ -162,10 +164,14 @@ class FakeRush:
         self.jobs.remove(mine[0])
         return mine[0]
 
-    async def renew(self, attempt_id: str, fence: int) -> float:
+    async def renew(self, attempt_id: str, fence: int, *, within_s: float | None = None) -> float:
         self.renew_attempts += 1
+        self.renew_within.append(within_s)
         if self.renew_error is not None:
             raise self.renew_error
+        if self.renew_failures:
+            self.renew_failures -= 1
+            raise RushUnavailable("the renewal got no answer in time")
         self._fenced()
         if self.canceled:
             raise Canceled(409, "canceled", "canceled")

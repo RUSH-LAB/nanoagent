@@ -767,6 +767,32 @@ async def test_a_lease_that_cannot_be_renewed_lapses_locally_and_the_services_re
     assert rig.services[0].attempt.revoked
 
 
+async def renew_until(rig: Rig, renews: int) -> None:
+    """Wait for ``renews`` successful renewals of a blocked case, then cancel it: the run ends `canceled`, not `lease_lost`."""
+    while rig.rush.renews < renews:
+        await anyio.sleep(0.01)
+    rig.rush.canceled = True
+
+
+async def test_each_renewal_is_bounded_by_the_time_left_on_the_lease(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, script=fx.CaseScript(block=True))
+    async with anyio.create_task_group() as group:
+        group.start_soon(renew_until, rig, 3)
+        result = await rig.run()
+    assert result.outcome == "canceled"
+    assert all(within is not None and 0 < within <= rig.rush.lease_seconds for within in rig.rush.renew_within)
+
+
+async def test_renewals_that_miss_their_time_are_retried_and_the_lease_survives(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, script=fx.CaseScript(block=True))
+    rig.rush.renew_failures = 3  # three renewals in a row get no answer in time, then RUSH answers again
+    async with anyio.create_task_group() as group:
+        group.start_soon(renew_until, rig, 2)
+        result = await rig.run()
+    assert result.outcome == "canceled", "the lease was kept through the failed renewals, so only the cancel ended the run"
+    assert rig.rush.renew_failures == 0 and rig.rush.renew_attempts >= 5
+
+
 async def test_a_renewal_interval_that_cannot_keep_the_lease_alive_is_a_worker_error(tmp_path: Path) -> None:
     body = fx.job_body(lease_seconds=0.01)
     rig = Rig(tmp_path)

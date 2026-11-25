@@ -118,6 +118,8 @@ from nanoagent.uploaded.workspace_upload import TooLarge, pack, upload
 from nanoagent.uploaded.toolchains import CLOSURE_ARCHIVE, ToolchainProfile, resolve_dependencies, toolchain
 
 LOG = logging.getLogger(__name__)
+# After a renewal that could not reach RUSH, the next one is tried this soon rather than a whole renew_interval_s later.
+RENEW_RETRY_S = 2.0
 NS = 1_000_000_000
 MAX_REASON_CHARS = 200  # of an execution reason RUSH accepts: a worker error's says what the worker raised
 EXPECTED_SOURCES = ("worker", "gateway", "process")
@@ -855,18 +857,21 @@ class AttemptRunner:
             return AttemptResult("lease_lost" if isinstance(error, LeaseLost) else "sealed" if isinstance(error, Sealed) else "canceled")
 
     async def _renew(self, job: AttemptJob, lease: Lease) -> None:
-        """Renew the lease every `renew_interval_s` until it is lost or the attempt ends. A renewal that cannot reach the
-        server is retried at the next interval; the lease stays usable only until its known expiry, then it is failed."""
+        """Renew the lease every `renew_interval_s` until it is lost or the attempt ends. Each renewal is bounded by the lease's
+        known expiry, so it cannot outlive the lease; one that cannot reach the server is retried after `RENEW_RETRY_S` (not a
+        whole interval); the lease stays usable only until its known expiry, then it is failed."""
+        failed = False
         while True:
-            wait = self.config.renew_interval_s
+            wait = min(self.config.renew_interval_s, RENEW_RETRY_S) if failed else self.config.renew_interval_s
             if lease.valid_until_ns is not None:
                 wait = min(wait, max((lease.valid_until_ns - self.clock_ns()) / 1e9, 0.0))
             await anyio.sleep(wait)
             if lease.lapsed():
                 return
             requested = self.clock_ns()
+            within = None if lease.valid_until_ns is None else max((lease.valid_until_ns - requested) / 1e9, 0.1)
             try:
-                seconds = await self.worker.renew(job.attempt_id, job.fence)
+                seconds = await self.worker.renew(job.attempt_id, job.fence, within_s=within)
             except (LeaseLost, Canceled, Sealed) as error:
                 lease.fail(error)
                 return
@@ -874,7 +879,9 @@ class AttemptRunner:
                 LOG.warning("attempt %s: lease renewal failed: %s", job.attempt_id, error)
                 if lease.lapsed():
                     return
+                failed = True
                 continue
+            failed = False
             lease.extend(seconds, requested)
 
     async def _watch(self, lease: Lease) -> None:

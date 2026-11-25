@@ -32,6 +32,11 @@ from nanoagent.uploaded.gateway import AdmissionDenied
 from nanoagent.uploaded.records import WORKER, Fact, make_record
 
 LOG = logging.getLogger(__name__)
+
+# A lease renewal's own request limits (RushWorkerClient.renew): short enough that a stalled request is retried on a fresh one
+# long before the lease (the server's BENCHMARK_LEASE_SECONDS, 60 s by default) runs out.
+RENEW_REQUEST_TIMEOUT_S = 10.0
+RENEW_CONNECT_TIMEOUT_S = 5.0
 FENCE_HEADER = "X-Rush-Fence"
 REDACTION_HEADER = "X-Rush-Redaction"
 MAX_EVENTS_PER_BATCH = 500
@@ -248,10 +253,14 @@ class RushWorkerClient:
             attempt += 1
             await self._wait(attempt, f"{method} {path}", failure)
 
-    async def _json(self, method: str, path: str, body: Mapping[str, Any] | None = None, *, retry: bool = True) -> Any:
+    async def _json(
+        self, method: str, path: str, body: Mapping[str, Any] | None = None, *, retry: bool = True, timeout: httpx.Timeout | None = None,
+    ) -> Any:
         kwargs: dict[str, Any] = {}
         if body is not None:
             kwargs = {"content": json_bytes(body), "headers": {"Content-Type": "application/json"}}
+        if timeout is not None:
+            kwargs["timeout"] = timeout
         response = await self._send(method, path, retry=retry, **kwargs)
         return response.json() if response.content else None
 
@@ -275,9 +284,21 @@ class RushWorkerClient:
         hold its slots; returns their ids. A benchmark attempt's lease runs out as before."""
         return list((await self._json("POST", "/started", {"worker_id": worker_id}))["interrupted"])
 
-    async def renew(self, attempt_id: str, fence: int) -> float:
-        """Renew the lease; returns how many seconds it now lasts, counted from this request."""
-        return float((await self._json("POST", f"/attempts/{attempt_id}/renew", {"fence": fence}))["lease_seconds"])
+    async def renew(self, attempt_id: str, fence: int, *, within_s: float | None = None) -> float:
+        """Renew the lease; returns how many seconds it now lasts, counted from this request.
+
+        Without ``within_s`` it retries until RUSH answers. With it, the renewal gives up with [RushUnavailable] once ``within_s``
+        seconds have passed, and each request may take at most [RENEW_REQUEST_TIMEOUT_S]: a renewal must not outlive the lease it
+        renews. The client's default read timeout (60 s) is as long as the server's lease (60 s), so a single request that stalls
+        after a network blip used to hold the renewal past the lease's expiry, although a fresh request a few seconds later would
+        have reached RUSH; the attempt then ended `worker_error` ("The worker stopped renewing the attempt's lease")."""
+        path, body = f"/attempts/{attempt_id}/renew", {"fence": fence}
+        if within_s is None:
+            return float((await self._json("POST", path, body))["lease_seconds"])
+        timeout = httpx.Timeout(min(RENEW_REQUEST_TIMEOUT_S, max(within_s, 0.1)), connect=min(RENEW_CONNECT_TIMEOUT_S, max(within_s, 0.1)))
+        with anyio.move_on_after(within_s):
+            return float((await self._json("POST", path, body, timeout=timeout))["lease_seconds"])
+        raise RushUnavailable(f"POST {path} got no answer within {within_s:g} s")
 
     # -- bytes -------------------------------------------------------------------------------------------------
 
