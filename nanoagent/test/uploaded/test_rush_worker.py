@@ -137,6 +137,36 @@ async def test_calls_retry_over_5xx_and_connection_errors_until_rush_answers_aga
         await client_for(lambda r: error(409, "lease_lost")).renew("a", 1)
 
 
+async def test_a_bounded_renewal_gives_up_within_its_time_instead_of_outliving_the_lease() -> None:
+    import anyio
+
+    calls: list[float] = []
+
+    async def stalled(request: httpx.Request) -> httpx.Response:  # a request that never answers, as after a network blip
+        calls.append(request.extensions["timeout"]["read"])
+        await anyio.sleep(30)
+        return httpx.Response(200, json={"lease_seconds": 60})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(stalled), base_url="http://rush.test")
+    client = RushWorkerClient("http://rush.test", "tok", client=http, sleep=no_sleep)
+    with anyio.fail_after(5):  # without the bound it would wait for RUSH as long as it takes
+        with pytest.raises(RushUnavailable, match="within 0.2 s"):
+            await client.renew("a", 1, within_s=0.2)
+    assert calls and all(read <= 0.2 for read in calls), "each request's own timeout fits in the time left"
+
+
+async def test_a_bounded_renewal_still_retries_a_failed_request_while_the_lease_lasts() -> None:
+    answers: list[Any] = [httpx.ConnectError("reset"), httpx.ReadTimeout("stalled")]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if answers:
+            raise answers.pop(0)
+        return httpx.Response(200, json={"lease_seconds": 60})
+
+    assert await client_for(handler).renew("a", 1, within_s=30) == 60
+    assert not answers
+
+
 async def test_an_admission_retry_that_finds_its_own_duplicate_succeeds() -> None:
     attempts = []
 
