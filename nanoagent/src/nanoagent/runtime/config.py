@@ -242,6 +242,12 @@ class AgentConfig(Config):
     # NDJSON event stream: one line per streamed fragment / step / tool call / run end, for a UI
     # or a log tailer to consume live (see :mod:`nanoagent.execution.events`). null = don't write one.
     events: str | None = MISSING
+    # MinHash redundancy filter (nanoagent.core.dedup): a tool result the model was already sent, or nearly so, is
+    # sent as a pointer or a diff. Off by default; NANOAGENT_DEDUP=1 also turns it on where a config leaves it off.
+    dedup: bool = False
+    # Stop rule (nanoagent.core.stop): the call that delivers the answer ends the run, e.g. [submit] or [write:answer.json];
+    # null reads NANOAGENT_STOP_AFTER, [] never stops early.
+    stop_after: list[str] | None = None
 
     def __post_init__(self) -> None:
         # max_steps caps the rollout loop's turns; a non-positive value makes the loop

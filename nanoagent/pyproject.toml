@@ -128,6 +128,8 @@ nanoagent = "nanoagent.cli.main:main"
 # The coding-CLI face of the same agent, in Claude Code's flag grammar — its own name because
 # `mgen -p "..."` is what a script written against `claude` already says.
 mgen = "nanoagent.cli.mgen:main"
+# This NanoAgent as a member's own agent in RUSH Lab (`rush astra --variant base|stop|minhash|both`): see nanoagent.cli.astra.
+astra = "nanoagent.cli.astra:main"
 nanoagent-hermes-runner = "nanoagent.harness.adapters.hermes:main"
 nanoagent-codex-runner = "nanoagent.harness.adapters.codex:main"
 nanoagent-claude-runner = "nanoagent.harness.adapters.claude:main"

@@ -125,4 +125,7 @@ def build_agent(
         # One writer for the whole batch: Agent.run splits it per rollout, stamping each line
         # with the task id it was given as `label`.
         events=EventWriter(cfg.agent.events) if cfg.agent.events else None,
+        # True here, or NANOAGENT_DEDUP=1 when the config leaves it False (None reads the variable).
+        dedup=cfg.agent.dedup or None,
+        stop_after=cfg.agent.stop_after,
     )
